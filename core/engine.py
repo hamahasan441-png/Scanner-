@@ -102,8 +102,7 @@ class AtomicEngine:
                     cls = getattr(mod, class_name)
                     self._modules[key] = cls(self)
                 except Exception as e:
-                    if self.config.get('verbose'):
-                        print(f"{Colors.error(f'Failed to load module {key}: {e}')}")
+                    print(f"{Colors.warning(f'Module {key} failed to load: {e}')}")
 
     def scan(self, target: str):
         """Scan a target URL"""
@@ -195,6 +194,19 @@ class AtomicEngine:
 
     def add_finding(self, finding: Finding):
         """Add a vulnerability finding"""
+        # Validate finding has minimum required fields
+        if not finding.technique or not finding.url:
+            if self.config.get('verbose'):
+                print(f"{Colors.warning('Skipping invalid finding: missing technique or url')}")
+            return
+        
+        # Skip duplicate findings (same technique + url + param)
+        for existing in self.findings:
+            if (existing.technique == finding.technique and
+                existing.url == finding.url and
+                existing.param == finding.param):
+                return
+        
         self.findings.append(finding)
 
         # Print finding

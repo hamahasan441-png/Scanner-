@@ -128,8 +128,12 @@ class ReportGenerator:
             'findings': self._get_findings_data(),
         }
 
-        with open(filepath, 'w') as f:
-            json.dump(report, f, indent=2, default=str)
+        try:
+            with open(filepath, 'w') as f:
+                json.dump(report, f, indent=2, default=str)
+        except (IOError, OSError) as e:
+            print(f"{Colors.error(f'Cannot write report to {filepath}: {e}')}")
+            return None
 
         return filepath
 
@@ -217,8 +221,12 @@ class ReportGenerator:
 </body>
 </html>"""
 
-        with open(filepath, 'w') as f:
-            f.write(html)
+        try:
+            with open(filepath, 'w') as f:
+                f.write(html)
+        except (IOError, OSError) as e:
+            print(f"{Colors.error(f'Cannot write report to {filepath}: {e}')}")
+            return None
 
         return filepath
 
@@ -229,23 +237,27 @@ class ReportGenerator:
         filepath = os.path.join(self.output_dir, f'report_{self.scan_id}.csv')
         findings_data = self._get_findings_data()
 
-        with open(filepath, 'w', newline='') as f:
-            writer = csv.writer(f)
-            writer.writerow(['Severity', 'Technique', 'URL', 'Parameter', 'Payload', 'Evidence', 'MITRE ID', 'CWE ID', 'CVSS', 'Confidence'])
+        try:
+            with open(filepath, 'w', newline='') as f:
+                writer = csv.writer(f)
+                writer.writerow(['Severity', 'Technique', 'URL', 'Parameter', 'Payload', 'Evidence', 'MITRE ID', 'CWE ID', 'CVSS', 'Confidence'])
 
-            for finding in findings_data:
-                writer.writerow([
-                    finding.get('severity', ''),
-                    finding.get('technique', ''),
-                    finding.get('url', ''),
-                    finding.get('param', ''),
-                    finding.get('payload', ''),
-                    finding.get('evidence', ''),
-                    finding.get('mitre_id', ''),
-                    finding.get('cwe_id', ''),
-                    finding.get('cvss', ''),
-                    finding.get('confidence', ''),
-                ])
+                for finding in findings_data:
+                    writer.writerow([
+                        finding.get('severity', ''),
+                        finding.get('technique', ''),
+                        finding.get('url', ''),
+                        finding.get('param', ''),
+                        finding.get('payload', ''),
+                        finding.get('evidence', ''),
+                        finding.get('mitre_id', ''),
+                        finding.get('cwe_id', ''),
+                        finding.get('cvss', ''),
+                        finding.get('confidence', ''),
+                    ])
+        except (IOError, OSError) as e:
+            print(f"{Colors.error(f'Cannot write report to {filepath}: {e}')}")
+            return None
 
         return filepath
 
@@ -287,7 +299,11 @@ class ReportGenerator:
             if f.get('cwe_id'):
                 lines.append(f"    CWE:      {f.get('cwe_id', '')}")
 
-        with open(filepath, 'w') as f:
-            f.write('\n'.join(lines))
+        try:
+            with open(filepath, 'w') as f:
+                f.write('\n'.join(lines))
+        except (IOError, OSError) as e:
+            print(f"{Colors.error(f'Cannot write report to {filepath}: {e}')}")
+            return None
 
         return filepath

@@ -301,11 +301,41 @@ def main():
     if args.target:
         targets.append(args.target)
     if args.file:
-        with open(args.file, 'r') as f:
-            targets.extend([line.strip() for line in f if line.strip()])
+        if not os.path.isfile(args.file):
+            print(f"{Colors.error(f'File not found: {args.file}')}")
+            sys.exit(1)
+        try:
+            with open(args.file, 'r') as f:
+                targets.extend([line.strip() for line in f if line.strip()])
+        except (IOError, OSError) as e:
+            print(f"{Colors.error(f'Cannot read file {args.file}: {e}')}")
+            sys.exit(1)
     if args.urls:
         targets.extend([url.strip() for url in args.urls.split(',')])
     
+    # Validate targets have proper URL format
+    from urllib.parse import urlparse
+    valid_targets = []
+    for t in targets:
+        parsed = urlparse(t)
+        if parsed.scheme in ('http', 'https') and parsed.netloc:
+            valid_targets.append(t)
+        else:
+            print(f"{Colors.warning(f'Invalid URL skipped (must start with http:// or https://): {t}')}")
+    
+    if not valid_targets:
+        print(f"{Colors.error('No valid targets to scan')}")
+        sys.exit(1)
+    targets = valid_targets
+
+    # Ensure output directory exists
+    output_dir = config.get('output_dir', Config.REPORTS_DIR)
+    try:
+        os.makedirs(output_dir, exist_ok=True)
+    except OSError as e:
+        print(f"{Colors.error(f'Cannot create output directory {output_dir}: {e}')}")
+        sys.exit(1)
+
     # Run scan
     try:
         engine = AtomicEngine(config)
