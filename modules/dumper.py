@@ -160,6 +160,7 @@ class DataDumper:
         param = finding.param
         
         files_to_dump = [
+            # Linux files
             '/etc/passwd',
             '/etc/shadow',
             '/etc/hosts',
@@ -169,6 +170,10 @@ class DataDumper:
             '/var/log/nginx/access.log',
             '/proc/self/environ',
             '/proc/self/cmdline',
+            # Windows files
+            'C:\\windows\\win.ini',
+            'C:\\windows\\system32\\drivers\\etc\\hosts',
+            'C:\\inetpub\\logs\\LogFiles\\W3SVC1\\u_ex*.log',
         ]
         
         for file_path in files_to_dump:

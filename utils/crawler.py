@@ -33,10 +33,16 @@ class Crawler:
             print(f"{Colors.error('BeautifulSoup not installed. Crawling limited.')}")
             return set(), [], []
         
+        max_urls = 500  # Prevent excessive crawling
         to_visit = [(start_url, 0)]
         base_domain = urlparse(start_url).netloc
         
         while to_visit:
+            if len(self.visited) >= max_urls:
+                if self.engine.config.get('verbose'):
+                    print(f"{Colors.warning(f'Crawl limit reached ({max_urls} URLs)')}")
+                break
+            
             url, current_depth = to_visit.pop(0)
             
             if url in self.visited or current_depth > depth:

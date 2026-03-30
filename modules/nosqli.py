@@ -57,6 +57,16 @@ class NoSQLModule:
         """Test NoSQL operators"""
         payloads = Payloads.NOSQL_PAYLOADS
         
+        # Get baseline response for comparison
+        try:
+            baseline_data = {param: value}
+            baseline = self.requester.request(url, method, data=baseline_data)
+            baseline_len = len(baseline.text) if baseline else 0
+            baseline_text = baseline.text.lower() if baseline else ''
+        except Exception:
+            baseline_len = 0
+            baseline_text = ''
+        
         for payload in payloads:
             try:
                 data = {param: payload}
@@ -67,10 +77,11 @@ class NoSQLModule:
                 
                 response_text = response.text.lower()
                 
-                # Check for NoSQL indicators
-                match_count = sum(1 for ind in self.nosql_indicators if ind.lower() in response_text)
+                # Check for NoSQL error indicators (strong signal)
+                error_indicators = ['mongoerror', 'bson', 'objectid', '$where']
+                error_count = sum(1 for ind in error_indicators if ind.lower() in response_text)
                 
-                if match_count >= 2:
+                if error_count >= 1 and error_count > sum(1 for ind in error_indicators if ind.lower() in baseline_text):
                     from core.engine import Finding
                     finding = Finding(
                         technique="NoSQL Injection (Operator-based)",
@@ -79,14 +90,19 @@ class NoSQLModule:
                         confidence=0.85,
                         param=param,
                         payload=payload,
-                        evidence="NoSQL operator injection detected",
+                        evidence="NoSQL error/operator injection detected",
                     )
                     self.engine.add_finding(finding)
                     return
                 
-                # Check for authentication bypass
-                if 'welcome' in response_text or 'dashboard' in response_text or 'logged in' in response_text:
-                    if payload in ['{"$ne": null}', '{"$gt": ""}']:
+                # Check for authentication bypass by comparing to baseline
+                auth_indicators = ['welcome', 'dashboard', 'logged in', 'profile', 'admin']
+                if payload in ['{"$ne": null}', '{"$gt": ""}']:
+                    response_has_auth = any(ind in response_text for ind in auth_indicators)
+                    baseline_has_auth = any(ind in baseline_text for ind in auth_indicators)
+                    
+                    # Only flag if auth indicators appear in response but NOT in baseline
+                    if response_has_auth and not baseline_has_auth:
                         from core.engine import Finding
                         finding = Finding(
                             technique="NoSQL Injection (Auth Bypass)",

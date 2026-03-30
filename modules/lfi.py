@@ -91,8 +91,10 @@ class LFIModule:
                         if indicator in response_text:
                             match_count += 1
                     
-                    # If multiple indicators match, likely LFI
-                    if match_count >= 2:
+                    # Require 3+ indicators for /etc/passwd (more specific),
+                    # 2+ for other file types
+                    min_matches = 3 if file_type == '/etc/passwd' else 2
+                    if match_count >= min_matches:
                         from core.engine import Finding
                         finding = Finding(
                             technique="LFI (Local File Inclusion)",
@@ -239,7 +241,7 @@ class LFIModule:
                             )
                             self.engine.add_finding(finding)
                             return
-                    except:
+                    except (Exception, ValueError):
                         pass
                 elif wtype == 'data':
                     if 'lfi_test' in response.text:

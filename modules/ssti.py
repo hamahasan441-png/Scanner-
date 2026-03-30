@@ -80,7 +80,16 @@ class SSTIModule:
         """Test for basic SSTI"""
         payloads = Payloads.SSTI_PAYLOADS
         
-        for payload in payloads:
+        # Use multiple math expressions to confirm evaluation
+        math_tests = [
+            ('{{7*7}}', '49'),
+            ('{{7*191}}', '1337'),
+            ('${7*7}', '49'),
+            ('<%= 7*7 %>', '49'),
+        ]
+        
+        # First try math expression tests with confirmation
+        for payload, expected in math_tests:
             try:
                 data = {param: payload}
                 response = self.requester.request(url, method, data=data)
@@ -90,20 +99,40 @@ class SSTIModule:
                 
                 response_text = response.text
                 
-                # Check for mathematical evaluation (7*7=49)
-                if '49' in response_text and '{{7*7}}' in payload:
-                    from core.engine import Finding
-                    finding = Finding(
-                        technique="SSTI (Expression Evaluation)",
-                        url=url,
-                        severity='CRITICAL',
-                        confidence=0.95,
-                        param=param,
-                        payload=payload,
-                        evidence="Template expression evaluated: 7*7=49",
-                    )
-                    self.engine.add_finding(finding)
-                    return
+                if expected in response_text:
+                    # Confirm by checking that the raw template syntax is NOT in response
+                    # (if '{{7*7}}' is echoed back, it wasn't evaluated)
+                    # Also check for HTML-encoded variants of the payload
+                    import html
+                    payload_encoded = html.escape(payload)
+                    if payload not in response_text and payload_encoded not in response_text:
+                        from core.engine import Finding
+                        finding = Finding(
+                            technique="SSTI (Expression Evaluation)",
+                            url=url,
+                            severity='CRITICAL',
+                            confidence=0.95,
+                            param=param,
+                            payload=payload,
+                            evidence=f"Template expression evaluated: {payload}={expected}",
+                        )
+                        self.engine.add_finding(finding)
+                        return
+                        
+            except Exception as e:
+                if self.engine.config.get('verbose'):
+                    print(f"{Colors.error(f'SSTI test error: {e}')}")
+        
+        # Then try payloads that trigger template engine errors
+        for payload in payloads:
+            try:
+                data = {param: payload}
+                response = self.requester.request(url, method, data=data)
+                
+                if not response:
+                    continue
+                
+                response_text = response.text
                 
                 # Check for template engine errors
                 for engine, indicators in self.template_engines.items():
@@ -162,16 +191,16 @@ class SSTIModule:
                         continue
                     
                     # Check for engine-specific responses
-                    if engine == 'jinja2' and '49' in response.text:
+                    if '49' in response.text and payload not in response.text:
                         from core.engine import Finding
                         finding = Finding(
-                            technique="SSTI (Jinja2)",
+                            technique=f"SSTI ({engine.capitalize()})",
                             url=url,
                             severity='CRITICAL',
                             confidence=0.9,
                             param=param,
                             payload=payload,
-                            evidence="Jinja2 template engine detected",
+                            evidence=f"{engine.capitalize()} template engine detected",
                         )
                         self.engine.add_finding(finding)
                         return

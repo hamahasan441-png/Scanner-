@@ -50,11 +50,7 @@ class CommandInjectionModule:
                 r'ADMINISTRATOR',
             ],
             'generic': [
-                r'whoami[\s\S]{1,50}\w+',
-                r'id[\s\S]{1,50}uid=\d+',
-                r'uname[\s\S]{1,50}Linux|Windows|Darwin',
-                r'pwd[\s\S]{1,50}/\w+',
-                r'ls[\s\S]{1,50}\.\.',
+                r'uid=\d+\s*\(\w+\)',
             ],
         }
     
@@ -121,6 +117,15 @@ class CommandInjectionModule:
             '| ping -n 5 127.0.0.1',
         ]
         
+        # Measure baseline response time
+        try:
+            baseline_data = {param: value}
+            baseline_start = time.time()
+            self.requester.request(url, method, data=baseline_data)
+            baseline_time = time.time() - baseline_start
+        except Exception:
+            baseline_time = 0
+        
         for payload in blind_payloads:
             try:
                 data = {param: f"{value}{payload}"}
@@ -129,8 +134,9 @@ class CommandInjectionModule:
                 response = self.requester.request(url, method, data=data)
                 elapsed = time.time() - start_time
                 
-                # If response took > 4.5 seconds, likely blind RCE
-                if elapsed >= 4.5:
+                # Response must take significantly longer than baseline
+                # and at least 4.8s (for sleep 5 payloads)
+                if elapsed >= 4.8 and elapsed > baseline_time + 4.0:
                     from core.engine import Finding
                     finding = Finding(
                         technique="Command Injection (Blind/Time-based)",
@@ -139,7 +145,7 @@ class CommandInjectionModule:
                         confidence=0.85,
                         param=param,
                         payload=payload,
-                        evidence=f"Response delayed by {elapsed:.2f}s",
+                        evidence=f"Response delayed by {elapsed:.2f}s (baseline: {baseline_time:.2f}s)",
                     )
                     self.engine.add_finding(finding)
                     return
