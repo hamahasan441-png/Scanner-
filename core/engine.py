@@ -167,7 +167,7 @@ class AtomicEngine:
             try:
                 from modules.uploader import ShellUploader
                 uploader = ShellUploader(self)
-                uploader.run(target)
+                uploader.run(self.findings, forms)
             except Exception as e:
                 if self.config.get('verbose'):
                     print(f"{Colors.error(f'Shell upload error: {e}')}")
@@ -176,7 +176,7 @@ class AtomicEngine:
             try:
                 from modules.dumper import DataDumper
                 dumper = DataDumper(self)
-                dumper.run()
+                dumper.run(self.findings)
             except Exception as e:
                 if self.config.get('verbose'):
                     print(f"{Colors.error(f'Data dump error: {e}')}")

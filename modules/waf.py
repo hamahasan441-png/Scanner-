@@ -154,8 +154,9 @@ class WAFBypass:
     
     def _whitespace_substitution(self, payload: str) -> str:
         """Substitute whitespace"""
-        # Replace spaces with tabs, comments, etc.
-        return payload.replace(' ', '/**/').replace(' ', '%09')
+        # Replace spaces with SQL comments or tab characters
+        result = payload.replace(' ', '/**/')
+        return result
     
     def _keyword_splitting(self, payload: str) -> str:
         """Split keywords with junk characters"""

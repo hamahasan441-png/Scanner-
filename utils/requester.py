@@ -152,7 +152,7 @@ class Requester:
         if headers:
             req_headers.update(headers)
         
-        # Apply evasion to data
+        # Apply evasion to data (only for dict data)
         if data and isinstance(data, dict):
             evaded_data = {}
             for k, v in data.items():
@@ -163,6 +163,7 @@ class Requester:
             if method.upper() == 'GET':
                 response = self.session.get(
                     url,
+                    params=data if isinstance(data, dict) else None,
                     headers=req_headers,
                     timeout=timeout or self.timeout,
                     allow_redirects=allow_redirects,
@@ -174,6 +175,16 @@ class Requester:
                         url,
                         data=data,
                         files=files,
+                        headers=req_headers,
+                        timeout=timeout or self.timeout,
+                        allow_redirects=allow_redirects,
+                        verify=False
+                    )
+                elif isinstance(data, (bytes, str)) and not isinstance(data, dict):
+                    # Raw body (e.g., XML payloads)
+                    response = self.session.post(
+                        url,
+                        data=data,
                         headers=req_headers,
                         timeout=timeout or self.timeout,
                         allow_redirects=allow_redirects,

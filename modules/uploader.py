@@ -8,6 +8,7 @@ Web shell upload and management
 import os
 import sys
 import re
+import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -20,10 +21,19 @@ class ShellUploader:
     def __init__(self, engine):
         self.engine = engine
         self.requester = engine.requester
+        self.name = "File Upload"
         self.shells_dir = Config.SHELLS_DIR
         
         # Ensure shells directory exists
         os.makedirs(self.shells_dir, exist_ok=True)
+    
+    def test(self, url: str, method: str, param: str, value: str):
+        """Test for file upload vulnerabilities via parameter testing"""
+        pass  # Upload tests are handled by run() with forms
+    
+    def test_url(self, url: str):
+        """Test URL for file upload"""
+        pass
     
     def run(self, findings: list, forms: list):
         """Attempt to upload shells based on findings"""
@@ -226,6 +236,3 @@ End If
         }
         
         return shells.get(shell_type, shells['php'])
-
-
-import time

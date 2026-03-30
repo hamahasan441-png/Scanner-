@@ -118,9 +118,9 @@ class Crawler:
             if script.string:
                 # Find API patterns
                 patterns = [
-                    r'["\'](/api/[^"\'\']+)["\']',
-                    r'["\'](/v\d+/[^"\'\']+)["\']',
-                    r'["\'](https?://[^"\'\']+/api/[^"\'\']+)["\']',
+                    r'["\'](/api/[^"\']+)["\']',
+                    r'["\'](/v\d+/[^"\']+)["\']',
+                    r'["\'](https?://[^"\']+/api/[^"\']+)["\']',
                 ]
                 
                 for pattern in patterns:
