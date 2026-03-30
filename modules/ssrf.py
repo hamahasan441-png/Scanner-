@@ -44,26 +44,27 @@ class SSRFModule:
             ],
         }
         
-        # SSRF response indicators
-        self.ssrf_indicators = [
-            'ami-id',
-            'ami-launch-index',
-            'ami-manifest-path',
-            'instance-id',
-            'instance-type',
-            'local-hostname',
-            'local-ipv4',
-            'public-hostname',
-            'public-ipv4',
-            'security-groups',
-            'ec2',
-            'google',
-            'metadata',
-            'computeMetadata',
-            'AccessKeyId',
-            'SecretAccessKey',
-            'Token',
-        ]
+        # SSRF response indicators (more specific to avoid false positives)
+        self.ssrf_indicators = {
+            'strong': [
+                'ami-id',
+                'instance-id',
+                'instance-type',
+                'AccessKeyId',
+                'SecretAccessKey',
+                'computeMetadata',
+                'security-credentials',
+            ],
+            'weak': [
+                'local-hostname',
+                'local-ipv4',
+                'public-hostname',
+                'public-ipv4',
+                'security-groups',
+                'ec2',
+                'Token',
+            ],
+        }
     
     def test(self, url: str, method: str, param: str, value: str):
         """Test for SSRF"""
@@ -143,9 +144,11 @@ class SSRFModule:
                         continue
                     
                     # Check for cloud metadata indicators
-                    match_count = sum(1 for ind in self.ssrf_indicators if ind.lower() in response.text.lower())
+                    # Require at least 1 strong indicator or 3+ weak indicators
+                    strong_count = sum(1 for ind in self.ssrf_indicators['strong'] if ind.lower() in response.text.lower())
+                    weak_count = sum(1 for ind in self.ssrf_indicators['weak'] if ind.lower() in response.text.lower())
                     
-                    if match_count >= 2:
+                    if strong_count >= 1 or weak_count >= 3:
                         from core.engine import Finding
                         finding = Finding(
                             technique=f"SSRF ({cloud.upper()} Metadata)",

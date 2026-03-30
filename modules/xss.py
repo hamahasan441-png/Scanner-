@@ -109,22 +109,39 @@ class XSSModule:
     
     def _test_stored(self, url: str, method: str, param: str, value: str):
         """Test for stored XSS (basic check)"""
-        # This is a simplified check - full stored XSS testing requires
-        # submitting data and checking other pages
+        # Use a unique marker to identify our payload
+        import uuid
+        marker = f"xss_{uuid.uuid4().hex[:8]}"
         stored_payloads = [
-            '<script>alert("stored_xss_test")</script>',
-            '<img src=x onerror=alert("stored_xss_test")>',
+            f'<script>alert("{marker}")</script>',
+            f'<img src=x onerror=alert("{marker}")>',
         ]
         
         for payload in stored_payloads:
             try:
+                # Submit the payload
                 data = {param: payload}
                 response = self.requester.request(url, method, data=data)
                 
                 if response and response.status_code == 200:
-                    # Note: We can't confirm stored XSS without checking other pages
-                    # This is just a marker that payload was accepted
-                    pass
+                    # Re-fetch the same page to check if payload is stored
+                    verify_response = self.requester.request(url, 'GET')
+                    
+                    if verify_response and marker in verify_response.text:
+                        # Check if full payload (not just the marker text) is reflected
+                        if payload in verify_response.text:
+                            from core.engine import Finding
+                            finding = Finding(
+                                technique="XSS (Stored)",
+                                url=url,
+                                severity='CRITICAL',
+                                confidence=0.85,
+                                param=param,
+                                payload=payload,
+                                evidence="Payload persisted and reflected on page reload",
+                            )
+                            self.engine.add_finding(finding)
+                            return
                     
             except Exception as e:
                 if self.engine.config.get('verbose'):

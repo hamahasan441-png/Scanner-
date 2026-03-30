@@ -284,5 +284,5 @@ class Requester:
         try:
             response = self.get(url, timeout=10)
             return response is not None and response.status_code < 500
-        except:
+        except Exception:
             return False

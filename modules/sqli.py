@@ -130,6 +130,15 @@ class SQLiModule:
         """Test for time-based blind SQLi"""
         payloads = Payloads.SQLI_TIME_BASED
         
+        # Measure baseline response time first
+        try:
+            baseline_data = {param: value}
+            baseline_start = time.time()
+            self.requester.request(url, method, data=baseline_data)
+            baseline_time = time.time() - baseline_start
+        except Exception:
+            baseline_time = 0
+        
         for payload in payloads:
             try:
                 data = {param: payload}
@@ -138,8 +147,9 @@ class SQLiModule:
                 response = self.requester.request(url, method, data=data)
                 elapsed = time.time() - start_time
                 
-                # If response took > 5 seconds, likely time-based SQLi
-                if elapsed >= 4.5:
+                # Response must take significantly longer than baseline
+                # and at least 4.8s (for SLEEP(5) payloads)
+                if elapsed >= 4.8 and elapsed > baseline_time + 4.0:
                     from core.engine import Finding
                     finding = Finding(
                         technique="SQL Injection (Time-based Blind)",
@@ -148,7 +158,7 @@ class SQLiModule:
                         confidence=0.8,
                         param=param,
                         payload=payload,
-                        evidence=f"Response delayed by {elapsed:.2f}s",
+                        evidence=f"Response delayed by {elapsed:.2f}s (baseline: {baseline_time:.2f}s)",
                     )
                     self.engine.add_finding(finding)
                     return
@@ -160,6 +170,14 @@ class SQLiModule:
     def _test_union_based(self, url: str, method: str, param: str, value: str):
         """Test for UNION-based SQLi"""
         payloads = Payloads.SQLI_UNION_BASED
+        
+        # Get baseline response for comparison
+        try:
+            baseline_data = {param: value}
+            baseline = self.requester.request(url, method, data=baseline_data)
+            baseline_text = baseline.text if baseline else ''
+        except Exception:
+            baseline_text = ''
         
         # Test with incrementing column count
         for i in range(1, 10):
@@ -175,15 +193,21 @@ class SQLiModule:
                 
                 # Check if UNION was successful (no error and different response)
                 if response.status_code == 200:
-                    # Check for version info in response
-                    version_patterns = [
-                        r'\d+\.\d+\.\d+',  # version numbers
-                        r'ubuntu|debian|centos',  # OS info
-                        r'mysql|postgresql|mssql|oracle',  # DB info
+                    response_text = response.text
+                    
+                    # Response must differ from baseline (UNION added data)
+                    if abs(len(response_text) - len(baseline_text)) < 20:
+                        continue
+                    
+                    # Check for database-specific info in response that was NOT in baseline
+                    db_patterns = [
+                        r'mysql|postgresql|mssql|oracle|sqlite',
+                        r'ubuntu|debian|centos|redhat',
                     ]
                     
-                    for pattern in version_patterns:
-                        if re.search(pattern, response.text, re.IGNORECASE):
+                    for pattern in db_patterns:
+                        match = re.search(pattern, response_text, re.IGNORECASE)
+                        if match and match.group(0).lower() not in baseline_text.lower():
                             from core.engine import Finding
                             finding = Finding(
                                 technique="SQL Injection (UNION-based)",
@@ -192,7 +216,7 @@ class SQLiModule:
                                 confidence=0.85,
                                 param=param,
                                 payload=payload,
-                                evidence="UNION query executed successfully",
+                                evidence=f"UNION query returned new data: {match.group(0)}",
                             )
                             self.engine.add_finding(finding)
                             return
