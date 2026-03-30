@@ -340,7 +340,7 @@ class FingerprintRandomizer:
             'Accept-Language': random.choice(self.ACCEPT_LANGUAGES),
             'Accept-Encoding': random.choice(self.ACCEPT_ENCODINGS),
             'Connection': 'keep-alive',
-            'Upgrade-Insecure-Requests': str(random.choice([0, 1])),
+            'Upgrade-Insecure-Requests': '1',
             'Sec-Fetch-Dest': 'document',
             'Sec-Fetch-Mode': 'navigate',
             'Sec-Fetch-Site': random.choice(['none', 'same-origin', 'cross-site']),

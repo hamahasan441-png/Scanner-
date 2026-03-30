@@ -31,7 +31,8 @@ app = Flask(
     template_folder=os.path.join(os.path.dirname(__file__), 'templates'),
     static_folder=os.path.join(os.path.dirname(__file__), 'static'),
 )
-# Set ATOMIC_SECRET_KEY env var for persistent sessions across restarts
+# Set ATOMIC_SECRET_KEY env var to persist sessions across restarts.
+# Without it a random key is generated on each startup, invalidating sessions.
 app.config['SECRET_KEY'] = os.environ.get('ATOMIC_SECRET_KEY', uuid.uuid4().hex)
 
 if FLASK_AVAILABLE:
