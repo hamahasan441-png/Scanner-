@@ -260,23 +260,21 @@
 
     /* ---- Active Scans ---- */
     async function loadActiveScans() {
+        var ids = Object.keys(window._knownActive || {});
+        if (ids.length === 0) return;
+
         try {
-            const r = await fetch(API + '/api/stats');
-            const j = await r.json();
-            if (j.status !== 'success') return;
+            var tbody = document.getElementById('active-scans-body');
+            var rows = [];
+            var needRefresh = false;
 
-            /* Also hit per-scan status for each active scan we know about */
-            const tbody = document.getElementById('active-scans-body');
-            const ids = Object.keys(window._knownActive || {});
-
-            /* Collect statuses */
-            const rows = [];
-            for (const sid of ids) {
+            for (var i = 0; i < ids.length; i++) {
+                var sid = ids[i];
                 try {
-                    const sr = await fetch(API + '/api/scan/' + sid + '/status');
-                    const sj = await sr.json();
+                    var sr = await fetch(API + '/api/scan/' + sid + '/status');
+                    var sj = await sr.json();
                     if (sj.status === 'success') {
-                        const s = sj.data;
+                        var s = sj.data;
                         if (s.status === 'running') {
                             rows.push('<tr><td>' + esc(sid) + '</td><td>' + esc(s.target) +
                                 '</td><td>' + fmtDate(s.start_time) +
@@ -284,7 +282,7 @@
                                 (s.findings || 0) + '</td></tr>');
                         } else {
                             delete window._knownActive[sid];
-                            loadHistory(); loadStats();
+                            needRefresh = true;
                         }
                     }
                 } catch (_) {}
@@ -295,6 +293,8 @@
             } else {
                 tbody.innerHTML = rows.join('');
             }
+
+            if (needRefresh) { loadHistory(); loadStats(); }
         } catch (_) {}
     }
 
