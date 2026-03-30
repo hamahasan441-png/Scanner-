@@ -43,13 +43,14 @@ class IDORModule:
             for match in matches:
                 try:
                     # Try named group first, then positional group
-                    try:
-                        id_value = match.group('id')
-                    except IndexError:
+                    groups = match.groupdict()
+                    if 'id' in groups and groups['id']:
+                        id_value = groups['id']
+                    else:
                         id_value = match.group(1)
                     if id_value and id_value.isdigit():
                         self._test_numeric_id(url, 'GET', 'id', id_value)
-                except Exception:
+                except (IndexError, AttributeError):
                     pass
     
     def _test_numeric_id(self, url: str, method: str, param: str, value: str):

@@ -180,7 +180,7 @@ class Requester:
                         allow_redirects=allow_redirects,
                         verify=False
                     )
-                elif isinstance(data, (bytes, str)) and not isinstance(data, dict):
+                elif isinstance(data, (bytes, str)):
                     # Raw body (e.g., XML payloads)
                     response = self.session.post(
                         url,
