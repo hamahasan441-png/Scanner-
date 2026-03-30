@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ATOMIC FRAMEWORK - Requester Module
+ATOMIC FRAMEWORK v8.0 - ULTIMATE EDITION
 Advanced HTTP request handler with evasion
 """
 
@@ -45,19 +45,34 @@ class Requester:
         
         self.total_requests = 0
         self.proxies = []
+        self._rate_limited = False
+        
+        # Initialize evasion engine
+        try:
+            from utils.evasion import EvasionEngine
+            self._evasion_engine = EvasionEngine(self.evasion)
+        except Exception:
+            self._evasion_engine = None
         
         if self.session:
             self._setup_session()
     
     def _setup_session(self):
-        """Configure session"""
-        # Retry strategy
+        """Configure session with connection pooling"""
+        # Retry strategy with exponential backoff
         retry_strategy = Retry(
             total=3,
             backoff_factor=1,
             status_forcelist=[429, 500, 502, 503, 504],
+            allowed_methods=["HEAD", "GET", "OPTIONS", "POST", "PUT", "DELETE"],
         )
-        adapter = HTTPAdapter(max_retries=retry_strategy)
+        # Connection pooling
+        pool_connections = min(self.config.get('threads', 50), 100)
+        adapter = HTTPAdapter(
+            max_retries=retry_strategy,
+            pool_connections=pool_connections,
+            pool_maxsize=pool_connections,
+        )
         self.session.mount("http://", adapter)
         self.session.mount("https://", adapter)
         
@@ -75,8 +90,14 @@ class Requester:
             }
             self.session.proxies.update(self.proxies)
     
-    def get_headers(self) -> dict:
-        """Get randomized headers"""
+    def get_headers(self, target_url=None) -> dict:
+        """Get randomized headers with fingerprint spoofing"""
+        if self._evasion_engine:
+            req_config = self._evasion_engine.get_request_config(target_url)
+            headers = req_config.get('headers', {})
+            if headers:
+                return headers
+        
         headers = Config.get_random_headers()
         
         if self.rotate_ua:
@@ -84,8 +105,11 @@ class Requester:
         
         return headers
     
-    def evade_payload(self, payload: str) -> str:
-        """Apply evasion techniques"""
+    def evade_payload(self, payload: str, context: str = 'generic') -> str:
+        """Apply evasion techniques via the evasion engine"""
+        if self._evasion_engine:
+            return self._evasion_engine.evade(payload, context)
+        
         if self.evasion == 'none':
             return payload
         elif self.evasion == 'low':
@@ -93,7 +117,6 @@ class Requester:
         elif self.evasion == 'medium':
             return quote(quote(payload, safe=''), safe='')
         elif self.evasion == 'high':
-            # Mixed encoding
             result = ""
             for char in payload:
                 if random.choice([True, False]):
@@ -102,11 +125,9 @@ class Requester:
                     result += char
             return result
         elif self.evasion == 'insane':
-            # Double encoding with random case
             encoded = quote(quote(payload, safe=''), safe='')
             return ''.join(c.upper() if random.choice([True, False]) else c.lower() for c in encoded)
         elif self.evasion == 'stealth':
-            # Slow and careful
             time.sleep(random.uniform(1, 3))
             return payload
         
@@ -139,16 +160,20 @@ class Requester:
                 data: dict = None, headers: dict = None,
                 files: dict = None, timeout: int = None,
                 allow_redirects: bool = True) -> object:
-        """Make HTTP request"""
+        """Make HTTP request with advanced evasion"""
         if not self.session:
             return None
         
-        # Apply delay
-        if self.delay > 0:
+        # Apply evasion timing if available
+        if self._evasion_engine and self._evasion_engine.timing:
+            delay = self._evasion_engine.timing.get_delay()
+            if delay > 0:
+                time.sleep(delay)
+        elif self.delay > 0:
             time.sleep(self.delay)
         
-        # Prepare headers
-        req_headers = self.get_headers()
+        # Prepare headers with fingerprint randomization
+        req_headers = self.get_headers(url)
         if headers:
             req_headers.update(headers)
         
@@ -220,6 +245,17 @@ class Requester:
                 )
             
             self.total_requests += 1
+            
+            # Rate limit detection and backoff
+            if response.status_code == 429:
+                self._rate_limited = True
+                if self._evasion_engine and self._evasion_engine.timing:
+                    self._evasion_engine.timing.signal_rate_limit()
+            elif self._rate_limited:
+                self._rate_limited = False
+                if self._evasion_engine and self._evasion_engine.timing:
+                    self._evasion_engine.timing.signal_success()
+            
             return response
             
         except requests.exceptions.ProxyError as e:

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ATOMIC FRAMEWORK v7.0 - ULTIMATE EDITION
+ATOMIC FRAMEWORK v8.0 - ULTIMATE EDITION
 Flask Web Dashboard
 """
 import os
@@ -177,15 +177,36 @@ def start_scan():
     threads = body.get('threads', Config.MAX_THREADS)
     full_scan = body.get('full_scan', False)
 
+    all_module_keys = [
+        'sqli', 'xss', 'lfi', 'cmdi', 'ssrf', 'ssti',
+        'xxe', 'idor', 'nosql', 'cors', 'jwt', 'upload',
+    ]
+    modules_dict = {}
+    for key in all_module_keys:
+        modules_dict[key] = full_scan or (key in modules)
+    modules_dict.update({
+        'recon': full_scan, 'subdomains': full_scan,
+        'tech_detect': full_scan, 'dir_brute': full_scan,
+        'shell': False, 'dump': False, 'os_shell': False,
+        'brute': False, 'exploit_chain': False, 'ports': None,
+    })
+
     config = {
         'target': target,
-        'modules': modules,
+        'modules': modules_dict,
         'evasion': evasion,
         'depth': int(depth),
         'threads': int(threads),
-        'full_scan': full_scan,
         'verbose': False,
+        'quiet': True,
         'timeout': Config.TIMEOUT,
+        'delay': Config.REQUEST_DELAY,
+        'waf_bypass': False,
+        'tor': False,
+        'proxy': None,
+        'rotate_proxy': False,
+        'rotate_ua': True,
+        'output_dir': Config.REPORTS_DIR,
     }
 
     thread = threading.Thread(
@@ -311,11 +332,10 @@ def list_shells():
         data = []
         for s in shells:
             data.append({
-                'id': s.id,
-                'scan_id': s.scan_id,
-                'url': s.url,
-                'shell_type': s.shell_type,
-                'status': s.status,
+                'shell_id': s.get('shell_id', ''),
+                'url': s.get('url', ''),
+                'shell_type': s.get('shell_type', ''),
+                'created_at': str(s.get('created_at', '')),
             })
         return jsonify({'status': 'success', 'data': data})
     except Exception as exc:

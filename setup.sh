@@ -1,10 +1,10 @@
 #!/bin/bash
-# ATOMIC Framework v7.0 - Setup Script for Termux
+# ATOMIC Framework v8.0 - Setup Script
 # Usage: bash setup.sh
 
 echo "=========================================="
-echo "  ATOMIC Framework v7.0 - Setup"
-echo "  Termux Edition"
+echo "  ATOMIC Framework v8.0 - Setup"
+echo "  Ultimate Edition"
 echo "=========================================="
 echo ""
 
@@ -77,16 +77,14 @@ echo -e "${GREEN}[+] Setup completed!${NC}"
 echo "=========================================="
 echo ""
 echo "Usage:"
-echo "  python main.py -t https://target.com"
-echo "  ./atomic.sh -t https://target.com --full"
+echo "  python main.py -t https://target.com              # Basic scan"
+echo "  python main.py -t https://target.com --full       # Full scan (all modules)"
+echo "  python main.py -t https://target.com --evasion insane  # Max evasion"
+echo "  python main.py --web                              # Launch web dashboard"
+echo "  python main.py --web --web-port 8080              # Dashboard on port 8080"
 echo ""
-echo "Examples:"
-echo "  python main.py -t https://example.com              # Basic scan"
-echo "  python main.py -t https://example.com --full       # Full scan"
-echo "  python main.py -t https://example.com --shell      # Try shell upload"
-echo "  python main.py -t https://example.com --dump       # Dump database"
-echo "  python main.py --list-scans                        # List scans"
-echo "  python main.py --shell-manager                     # Manage shells"
+echo "Quick Install (Python only):"
+echo "  pip install -r requirements.txt && python main.py --web"
 echo ""
 echo -e "${YELLOW}⚠️  FOR AUTHORIZED TESTING ONLY ⚠️${NC}"
 echo ""

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ATOMIC FRAMEWORK v7.0 - ULTIMATE EDITION
+ATOMIC FRAMEWORK v8.0 - ULTIMATE EDITION
 Main Entry Point - Termux Optimized
 ⚠️ FOR AUTHORIZED TESTING ONLY ⚠️
 """
@@ -170,11 +170,30 @@ def main():
     parser.add_argument('--quiet', '-q', action='store_true',
                        help='Quiet mode')
     
+    # Web dashboard
+    parser.add_argument('--web', action='store_true',
+                       help='Launch Flask web dashboard')
+    parser.add_argument('--web-host', default='0.0.0.0',
+                       help='Web dashboard host (default: 0.0.0.0)')
+    parser.add_argument('--web-port', type=int, default=5000,
+                       help='Web dashboard port (default: 5000)')
+    
     args = parser.parse_args()
     
     # Print banner
     if not args.quiet:
         print_banner()
+    
+    # Launch web dashboard
+    if args.web:
+        try:
+            from web.app import create_app
+            _, run_app = create_app(host=args.web_host, port=args.web_port)
+            run_app()
+        except ImportError:
+            print(f"{Colors.error('Flask not installed. Run: pip install flask flask-cors')}")
+            sys.exit(1)
+        return
     
     # Check/Install dependencies
     if args.check_deps:

