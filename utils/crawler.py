@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ATOMIC FRAMEWORK - Web Crawler Module
+ATOMIC FRAMEWORK v8.0 - ULTIMATE EDITION
+Advanced Web Crawler Module
 """
 
 import os
@@ -70,6 +71,9 @@ class Crawler:
                 # Extract API endpoints from scripts
                 self._extract_api_endpoints(soup, url)
                 
+                # Extract hidden parameters
+                self._extract_hidden_params(soup, url)
+                
             except Exception as e:
                 if self.engine.config.get('verbose'):
                     print(f"{Colors.error(f'Crawl error: {e}')}")
@@ -121,10 +125,47 @@ class Crawler:
                     r'["\'](/api/[^"\']+)["\']',
                     r'["\'](/v\d+/[^"\']+)["\']',
                     r'["\'](https?://[^"\']+/api/[^"\']+)["\']',
+                    r'fetch\(["\']([^"\']+)["\']',
+                    r'\.ajax\(\{[^}]*url:\s*["\']([^"\']+)["\']',
+                    r'axios\.(get|post|put|delete)\(["\']([^"\']+)["\']',
+                    r'XMLHttpRequest[^}]*\.open\(["\'](?:GET|POST|PUT|DELETE)["\']\s*,\s*["\']([^"\']+)["\']',
                 ]
                 
                 for pattern in patterns:
                     matches = re.findall(pattern, script.string)
                     for match in matches:
-                        api_url = urljoin(url, match)
+                        endpoint = match[-1] if isinstance(match, tuple) else match
+                        api_url = urljoin(url, endpoint)
                         self.parameters.append((api_url, 'get', '', '', 'api'))
+                
+                # Extract JSON keys as potential hidden parameters
+                json_patterns = [
+                    r'["\'](\w+)["\']\s*:\s*["\']',
+                    r'data\.\s*(\w+)',
+                    r'params\.\s*(\w+)',
+                ]
+                for pattern in json_patterns:
+                    matches = re.findall(pattern, script.string)
+                    for param_name in matches:
+                        if len(param_name) > 1 and param_name not in ('true', 'false', 'null', 'undefined'):
+                            self.parameters.append((url, 'get', param_name, '', 'js_extracted'))
+    
+    def _extract_hidden_params(self, soup, url: str):
+        """Extract hidden input fields and meta parameters"""
+        # Hidden inputs
+        for inp in soup.find_all('input', {'type': 'hidden'}):
+            name = inp.get('name')
+            if name:
+                self.parameters.append((url, 'get', name, inp.get('value', ''), 'hidden_input'))
+        
+        # Data attributes
+        for elem in soup.find_all(attrs={'data-url': True}):
+            data_url = urljoin(url, elem.get('data-url', ''))
+            self.parameters.append((data_url, 'get', '', '', 'data_attr'))
+        
+        # Meta tags with URLs
+        for meta in soup.find_all('meta', content=True):
+            content = meta.get('content', '')
+            if content.startswith(('http://', 'https://', '/')):
+                meta_url = urljoin(url, content)
+                self.parameters.append((meta_url, 'get', '', '', 'meta'))

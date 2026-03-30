@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ATOMIC FRAMEWORK v7.0 - ULTIMATE EDITION
+ATOMIC FRAMEWORK v8.0 - ULTIMATE EDITION
 Core Engine - Scan orchestration and module management
 """
 
@@ -54,6 +54,13 @@ class AtomicEngine:
         self.start_time = None
         self.end_time = None
         self.target = None
+
+        # Initialize evasion engine
+        try:
+            from utils.evasion import EvasionEngine
+            self.evasion = EvasionEngine(config.get('evasion', 'none'))
+        except Exception:
+            self.evasion = None
 
         # Initialize requester
         from utils.requester import Requester
