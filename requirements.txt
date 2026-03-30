@@ -1,0 +1,38 @@
+# ATOMIC Framework v7.0 - Requirements
+# Termux Compatible
+
+# Core dependencies
+requests>=2.28.0
+beautifulsoup4>=4.11.0
+lxml>=4.9.0
+urllib3>=1.26.0
+
+# Database
+sqlalchemy>=1.4.0
+
+# Report generation
+fpdf>=2.6.0
+
+# JWT handling
+PyJWT>=2.6.0
+
+# Cryptography
+cryptography>=38.0.0
+
+# Networking
+pysocks>=1.7.1
+
+# SSH support (optional)
+paramiko>=2.12.0
+
+# Web interface (optional)
+flask>=2.2.0
+flask-socketio>=5.3.0
+flask-cors>=3.0.0
+
+# Utilities
+colorama>=0.4.6
+tqdm>=4.64.0
+
+# DNS resolution (optional)
+dnspython>=2.3.0
