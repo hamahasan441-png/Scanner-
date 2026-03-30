@@ -102,7 +102,10 @@ class SSTIModule:
                 if expected in response_text:
                     # Confirm by checking that the raw template syntax is NOT in response
                     # (if '{{7*7}}' is echoed back, it wasn't evaluated)
-                    if payload not in response_text:
+                    # Also check for HTML-encoded variants of the payload
+                    import html
+                    payload_encoded = html.escape(payload)
+                    if payload not in response_text and payload_encoded not in response_text:
                         from core.engine import Finding
                         finding = Finding(
                             technique="SSTI (Expression Evaluation)",

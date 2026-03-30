@@ -50,7 +50,7 @@ class CommandInjectionModule:
                 r'ADMINISTRATOR',
             ],
             'generic': [
-                r'uid=\d+\(\w+\)',
+                r'uid=\d+\s*\(\w+\)',
             ],
         }
     
