@@ -1,0 +1,101 @@
+/* ATOMIC Framework – Dashboard Styles */
+
+:root {
+    --bg-primary: #1a1a2e;
+    --bg-card: #16213e;
+    --bg-input: #0f3460;
+    --accent: #e94560;
+    --accent-hover: #ff6b81;
+    --text-primary: #eeeeee;
+    --text-muted: #a0a0b0;
+    --border: #2a2a4a;
+    --severity-critical: #dc3545;
+    --severity-high: #e74c3c;
+    --severity-medium: #f39c12;
+    --severity-low: #3498db;
+    --severity-info: #6c757d;
+}
+
+/* Reset */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    line-height: 1.6;
+    min-height: 100vh;
+}
+
+/* Grid */
+.grid { display: grid; gap: 1rem; }
+.grid-2 { grid-template-columns: repeat(2, 1fr); }
+.grid-3 { grid-template-columns: repeat(3, 1fr); }
+.grid-4 { grid-template-columns: repeat(4, 1fr); }
+.grid-5 { grid-template-columns: repeat(5, 1fr); }
+
+@media (max-width: 1024px) {
+    .grid-4, .grid-5 { grid-template-columns: repeat(2, 1fr); }
+    .grid-3 { grid-template-columns: 1fr; }
+}
+@media (max-width: 640px) {
+    .grid-2, .grid-4, .grid-5 { grid-template-columns: 1fr; }
+}
+
+/* Severity badges */
+.severity-critical { background: var(--severity-critical); color: #fff; }
+.severity-high     { background: var(--severity-high);     color: #fff; }
+.severity-medium   { background: var(--severity-medium);   color: #000; }
+.severity-low      { background: var(--severity-low);      color: #fff; }
+.severity-info     { background: var(--severity-info);     color: #fff; }
+
+.badge {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+/* Buttons */
+.btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.55rem 1.2rem;
+    border: none;
+    border-radius: 6px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s, transform 0.1s;
+}
+.btn:active { transform: scale(0.97); }
+.btn-primary { background: var(--accent); color: #fff; }
+.btn-primary:hover { background: var(--accent-hover); }
+.btn-danger  { background: var(--severity-critical); color: #fff; }
+.btn-danger:hover  { background: #c82333; }
+.btn-sm { padding: 0.3rem 0.7rem; font-size: 0.8rem; }
+
+/* Spinner */
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+.spinner {
+    width: 18px;
+    height: 18px;
+    border: 3px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    display: inline-block;
+    vertical-align: middle;
+}
+
+/* Pulse animation for running status */
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0.4; }
+}
+.pulse { animation: pulse 1.5s ease-in-out infinite; }
