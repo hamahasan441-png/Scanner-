@@ -8,6 +8,7 @@ CORS Misconfiguration detection
 import os
 import sys
 import re
+from urllib.parse import urlparse
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -129,6 +130,3 @@ class CORSModule:
         except Exception as e:
             if self.engine.config.get('verbose'):
                 print(f"{Colors.error(f'CORS preflight test error: {e}')}")
-
-
-from urllib.parse import urlparse

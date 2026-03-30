@@ -151,6 +151,16 @@ class NoSQLModule:
             "'; sleep(5000); var dummy='",
         ]
         
+        # Get baseline response for comparison
+        try:
+            baseline_data = {param: value}
+            baseline = self.requester.request(url, method, data=baseline_data)
+            if not baseline:
+                return
+            baseline_len = len(baseline.text)
+        except Exception:
+            return
+        
         for payload in js_payloads:
             try:
                 data = {param: payload}
@@ -159,20 +169,27 @@ class NoSQLModule:
                 if not response:
                     continue
                 
-                # Check for JavaScript execution
-                if 'true' in response.text.lower() or response.status_code == 200:
-                    from core.engine import Finding
-                    finding = Finding(
-                        technique="NoSQL Injection (JavaScript)",
-                        url=url,
-                        severity='CRITICAL',
-                        confidence=0.75,
-                        param=param,
-                        payload=payload,
-                        evidence="JavaScript code may have been executed",
-                    )
-                    self.engine.add_finding(finding)
-                    return
+                # Check for JavaScript execution by comparing response differences
+                response_len = len(response.text)
+                
+                # Only flag if response is significantly different from baseline
+                # AND contains indicators of successful injection
+                if response.status_code == 200 and abs(response_len - baseline_len) > 50:
+                    response_text = response.text.lower()
+                    # Look for auth bypass indicators or data leak
+                    if any(ind in response_text for ind in ['welcome', 'dashboard', 'logged in', 'profile', 'admin']):
+                        from core.engine import Finding
+                        finding = Finding(
+                            technique="NoSQL Injection (JavaScript)",
+                            url=url,
+                            severity='CRITICAL',
+                            confidence=0.75,
+                            param=param,
+                            payload=payload,
+                            evidence="JavaScript code may have been executed - response differs from baseline",
+                        )
+                        self.engine.add_finding(finding)
+                        return
                     
             except Exception as e:
                 if self.engine.config.get('verbose'):

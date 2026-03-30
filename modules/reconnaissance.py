@@ -6,6 +6,7 @@ ATOMIC FRAMEWORK - Reconnaissance Module
 
 import os
 import sys
+import re
 import socket
 import subprocess
 from urllib.parse import urlparse
@@ -145,6 +146,3 @@ class ReconModule:
         except Exception as e:
             if self.engine.config.get('verbose'):
                 print(f"{Colors.error(f'WHOIS error: {e}')}")
-
-
-import re

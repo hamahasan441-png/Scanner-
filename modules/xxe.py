@@ -60,9 +60,10 @@ class XXEModule:
                 
                 if method.upper() == 'GET':
                     data = {param: payload}
-                    response = self.requester.request(url, method, data=data, headers=headers)
+                    response = self.requester.request(url, method, data=data)
                 else:
-                    response = self.requester.request(url, method, data=payload, headers=headers)
+                    # Send raw XML body for POST
+                    response = self.requester.request(url, method, data=payload.encode('utf-8'), headers=headers)
                 
                 if not response:
                     continue
@@ -128,7 +129,7 @@ class XXEModule:
         for payload in variants:
             try:
                 headers = {'Content-Type': 'application/xml'}
-                response = self.requester.request(url, 'POST', data=payload, headers=headers)
+                response = self.requester.request(url, 'POST', data=payload.encode('utf-8'), headers=headers)
                 
                 if not response:
                     continue
@@ -162,7 +163,7 @@ class XXEModule:
         
         try:
             headers = {'Content-Type': 'application/xml'}
-            response = self.requester.request(url, 'POST', data=payload, headers=headers)
+            response = self.requester.request(url, 'POST', data=payload.encode('utf-8'), headers=headers)
             
             if response:
                 return response.text

@@ -11,13 +11,18 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 try:
     from sqlalchemy import create_engine, Column, String, Integer, Float, DateTime, Text, ForeignKey, JSON
-    from sqlalchemy.ext.declarative import declarative_base
-    from sqlalchemy.orm import sessionmaker, relationship
+    from sqlalchemy.orm import sessionmaker, relationship, declarative_base
     SQLALCHEMY_AVAILABLE = True
 except ImportError:
-    SQLALCHEMY_AVAILABLE = False
-    print("[!] SQLAlchemy not installed. Database features disabled.")
-    print("    Run: pip install sqlalchemy")
+    try:
+        from sqlalchemy import create_engine, Column, String, Integer, Float, DateTime, Text, ForeignKey, JSON
+        from sqlalchemy.ext.declarative import declarative_base
+        from sqlalchemy.orm import sessionmaker, relationship
+        SQLALCHEMY_AVAILABLE = True
+    except ImportError:
+        SQLALCHEMY_AVAILABLE = False
+        print("[!] SQLAlchemy not installed. Database features disabled.")
+        print("    Run: pip install sqlalchemy")
 
 from datetime import datetime
 from config import Config, Colors

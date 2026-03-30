@@ -42,10 +42,15 @@ class IDORModule:
             matches = re.finditer(pattern, url)
             for match in matches:
                 try:
-                    id_value = match.group('id')
+                    # Try named group first, then positional group
+                    groups = match.groupdict()
+                    if 'id' in groups and groups['id']:
+                        id_value = groups['id']
+                    else:
+                        id_value = match.group(1)
                     if id_value and id_value.isdigit():
                         self._test_numeric_id(url, 'GET', 'id', id_value)
-                except:
+                except (IndexError, AttributeError):
                     pass
     
     def _test_numeric_id(self, url: str, method: str, param: str, value: str):

@@ -9,7 +9,7 @@ import os
 import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from config import Colors
+from config import Config, Colors
 from utils.database import Database
 
 
@@ -196,6 +196,3 @@ class ShellManager:
             
         except Exception as e:
             print(f"{Colors.error(f'Download failed: {e}')}")
-
-
-from config import Config

