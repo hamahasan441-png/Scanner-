@@ -5,7 +5,12 @@ ATOMIC FRAMEWORK - XSS Module
 Cross-Site Scripting detection and exploitation
 """
 
+import os
+import sys
 import re
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from config import Payloads, Colors
 
 

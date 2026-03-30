@@ -5,8 +5,13 @@ ATOMIC FRAMEWORK - LFI/RFI Module
 Local/Remote File Inclusion detection and exploitation
 """
 
+import os
+import sys
 import re
 import base64
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from config import Payloads, Colors
 
 
