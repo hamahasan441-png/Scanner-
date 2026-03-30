@@ -379,5 +379,5 @@ def create_app(host='0.0.0.0', port=5000, debug=False):
 
 
 if __name__ == '__main__':
-    _, runner = create_app(debug=True)
+    _, runner = create_app(debug=os.environ.get('FLASK_DEBUG', '').lower() == '1')
     runner()
