@@ -19,15 +19,20 @@ class XXEModule:
         self.requester = engine.requester
         self.name = "XXE"
         
-        # XXE indicators
-        self.xxe_indicators = [
+        # XXE indicators – only strong indicators (actual file content
+        # that proves file retrieval) count towards detection.  Weak
+        # indicators (generic XML keywords like SYSTEM, PUBLIC) are
+        # ignored because they appear in normal XML responses.
+        self.xxe_strong_indicators = [
             'root:x:',
             'bin:x:',
             'daemon:x:',
-            '/etc/passwd',
             '/bin/bash',
             'for 16-bit app support',
             '[extensions]',
+        ]
+        self.xxe_weak_indicators = [
+            '/etc/passwd',
             '<!ENTITY',
             'SYSTEM',
             'PUBLIC',
@@ -51,6 +56,14 @@ class XXEModule:
         """Test for basic XXE"""
         payloads = Payloads.XXE_PAYLOADS
         
+        # Get baseline to ignore indicators already present
+        try:
+            baseline_data = {param: value}
+            baseline = self.requester.request(url, method, data=baseline_data)
+            baseline_text = baseline.text.lower() if baseline else ''
+        except Exception:
+            baseline_text = ''
+        
         for payload in payloads:
             try:
                 headers = {'Content-Type': 'application/xml'}
@@ -65,12 +78,16 @@ class XXEModule:
                 if not response:
                     continue
                 
-                response_text = response.text
+                response_text = response.text.lower()
                 
-                # Check for XXE indicators
-                match_count = sum(1 for ind in self.xxe_indicators if ind.lower() in response_text.lower())
+                # Only count strong indicators (actual file content) that
+                # are NEW – i.e. not present in the baseline response
+                new_strong = sum(
+                    1 for ind in self.xxe_strong_indicators
+                    if ind.lower() in response_text and ind.lower() not in baseline_text
+                )
                 
-                if match_count >= 2:
+                if new_strong >= 2:
                     from core.engine import Finding
                     finding = Finding(
                         technique="XXE (XML External Entity)",

@@ -81,6 +81,20 @@ class IDORModule:
         except:
             return
         
+        # Collect user data matches from baseline for comparison
+        baseline_text = baseline.text
+        user_patterns = [
+            r'username["\']?\s*[:=]\s*["\']?(\w+)',
+            r'email["\']?\s*[:=]\s*["\']?([\w@.]+)',
+            r'name["\']?\s*[:=]\s*["\']?(\w+)',
+            r'phone["\']?\s*[:=]\s*["\']?([\d-]+)',
+            r'address["\']?\s*[:=]\s*["\']?(\S+)',
+        ]
+        baseline_matches = set()
+        for pattern in user_patterns:
+            for m in re.finditer(pattern, baseline_text, re.IGNORECASE):
+                baseline_matches.add(m.group(0).lower())
+        
         for test_id in test_ids:
             try:
                 test_data = {param: str(test_id)}
@@ -93,31 +107,30 @@ class IDORModule:
                 if response.status_code == 200:
                     response_len = len(response.text)
                     
-                    # If response is significantly different, likely IDOR
+                    # If response is significantly different, check further
                     if abs(response_len - baseline_len) > 50:
-                        # Check for user data patterns
-                        user_patterns = [
-                            r'username["\']?\s*[:=]\s*["\']?\w+',
-                            r'email["\']?\s*[:=]\s*["\']?[\w@.]+',
-                            r'name["\']?\s*[:=]\s*["\']?\w+',
-                            r'phone["\']?\s*[:=]\s*["\']?[\d-]+',
-                            r'address["\']?\s*[:=]\s*["\']?',
-                        ]
-                        
+                        # Find user data patterns in the test response that
+                        # are NOT present in the baseline — indicating access
+                        # to a different user's private data
+                        new_user_data = []
                         for pattern in user_patterns:
-                            if re.search(pattern, response.text, re.IGNORECASE):
-                                from core.engine import Finding
-                                finding = Finding(
-                                    technique="IDOR (Insecure Direct Object Reference)",
-                                    url=url,
-                                    severity='HIGH',
-                                    confidence=0.8,
-                                    param=param,
-                                    payload=str(test_id),
-                                    evidence=f"Accessible resource with ID: {test_id}",
-                                )
-                                self.engine.add_finding(finding)
-                                return
+                            for m in re.finditer(pattern, response.text, re.IGNORECASE):
+                                if m.group(0).lower() not in baseline_matches:
+                                    new_user_data.append(m.group(0))
+                        
+                        if new_user_data:
+                            from core.engine import Finding
+                            finding = Finding(
+                                technique="IDOR (Insecure Direct Object Reference)",
+                                url=url,
+                                severity='HIGH',
+                                confidence=0.8,
+                                param=param,
+                                payload=str(test_id),
+                                evidence=f"Different user data accessible with ID {test_id}",
+                            )
+                            self.engine.add_finding(finding)
+                            return
                                 
             except Exception as e:
                 if self.engine.config.get('verbose'):

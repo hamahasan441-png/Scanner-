@@ -101,6 +101,22 @@
     section > h2 { font-size: 1.1rem; margin-bottom: 0.8rem; display: flex; align-items: center; gap: 0.5rem; }
 
     .empty-msg { color: var(--text-muted); font-size: 0.85rem; padding: 1rem 0; text-align: center; }
+
+    /* Scan mode tabs */
+    .scan-mode-tabs {
+        display: flex; gap: 0; margin-bottom: 1rem;
+        border-bottom: 2px solid var(--border);
+    }
+    .tab-btn {
+        padding: 0.5rem 1.2rem; border: none; background: none;
+        color: var(--text-muted); font-size: 0.9rem; cursor: pointer;
+        border-bottom: 2px solid transparent; margin-bottom: -2px;
+        transition: color 0.2s, border-color 0.2s;
+    }
+    .tab-btn:hover { color: var(--text-primary); }
+    .tab-btn.active {
+        color: var(--accent); border-bottom-color: var(--accent); font-weight: 600;
+    }
 </style>
 </head>
 <body>
@@ -122,6 +138,24 @@
             <div class="card stat-card high"><h3>High</h3><div class="value" id="stat-high">-</div></div>
             <div class="card stat-card medium"><h3>Medium</h3><div class="value" id="stat-medium">-</div></div>
         </div>
+        <!-- Severity breakdown bar -->
+        <div class="card" style="margin-top:1rem;">
+            <h3 style="margin-bottom:0.5rem;">Severity Breakdown</h3>
+            <div id="severity-bar" style="display:flex;height:24px;border-radius:6px;overflow:hidden;background:var(--bg-input);">
+                <div id="bar-critical" style="background:var(--severity-critical);height:100%;transition:width 0.4s;" title="Critical"></div>
+                <div id="bar-high" style="background:var(--severity-high);height:100%;transition:width 0.4s;" title="High"></div>
+                <div id="bar-medium" style="background:var(--severity-medium);height:100%;transition:width 0.4s;" title="Medium"></div>
+                <div id="bar-low" style="background:var(--severity-low);height:100%;transition:width 0.4s;" title="Low"></div>
+                <div id="bar-info" style="background:var(--severity-info);height:100%;transition:width 0.4s;" title="Info"></div>
+            </div>
+            <div style="display:flex;gap:1rem;margin-top:0.4rem;font-size:0.78rem;color:var(--text-muted);">
+                <span>🔴 Critical: <b id="lbl-critical">0</b></span>
+                <span>🟠 High: <b id="lbl-high">0</b></span>
+                <span>🟡 Medium: <b id="lbl-medium">0</b></span>
+                <span>🔵 Low: <b id="lbl-low">0</b></span>
+                <span>⚪ Info: <b id="lbl-info">0</b></span>
+            </div>
+        </div>
     </section>
 
     <!-- New Scan Form -->
@@ -129,9 +163,25 @@
         <h2>🚀 New Scan</h2>
         <div class="card">
             <form id="scan-form" onsubmit="return startScan(event)">
-                <div class="form-group">
+                <!-- Scan mode tabs -->
+                <div class="scan-mode-tabs">
+                    <button type="button" class="tab-btn active" onclick="switchScanMode('single')">Single Target</button>
+                    <button type="button" class="tab-btn" onclick="switchScanMode('file')">File Scan (Batch)</button>
+                </div>
+
+                <div id="single-target-group" class="form-group">
                     <label for="target-url">Target URL</label>
-                    <input type="text" id="target-url" placeholder="https://example.com" required>
+                    <input type="text" id="target-url" placeholder="https://example.com">
+                </div>
+
+                <div id="file-target-group" class="form-group" style="display:none;">
+                    <label for="target-file">Target File (one URL per line)</label>
+                    <textarea id="target-file" rows="6" placeholder="https://example.com&#10;https://example.org&#10;https://test.com" style="width:100%;padding:0.5rem 0.7rem;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:0.9rem;font-family:monospace;resize:vertical;"></textarea>
+                    <div style="margin-top:0.4rem;">
+                        <label for="file-upload" class="btn btn-sm btn-primary" style="cursor:pointer;">📁 Load from File</label>
+                        <input type="file" id="file-upload" accept=".txt,.csv,.list" style="display:none;" onchange="loadTargetFile(event)">
+                        <span id="file-info" style="margin-left:0.5rem;font-size:0.82rem;color:var(--text-muted);"></span>
+                    </div>
                 </div>
 
                 <div class="form-group">
@@ -229,6 +279,7 @@
 <script>
 (function() {
     const API = '';
+    var _scanMode = 'single';
 
     /* ---- helpers ---- */
     function esc(s) {
@@ -243,6 +294,33 @@
         return d.toLocaleString();
     }
 
+    /* ---- Scan mode switcher ---- */
+    window.switchScanMode = function(mode) {
+        _scanMode = mode;
+        document.querySelectorAll('.tab-btn').forEach(function(b) { b.classList.remove('active'); });
+        if (mode === 'file') {
+            document.getElementById('single-target-group').style.display = 'none';
+            document.getElementById('file-target-group').style.display = 'block';
+            document.querySelectorAll('.tab-btn')[1].classList.add('active');
+        } else {
+            document.getElementById('single-target-group').style.display = 'block';
+            document.getElementById('file-target-group').style.display = 'none';
+            document.querySelectorAll('.tab-btn')[0].classList.add('active');
+        }
+    };
+
+    /* ---- Load target file ---- */
+    window.loadTargetFile = function(e) {
+        var file = e.target.files[0];
+        if (!file) return;
+        var reader = new FileReader();
+        reader.onload = function(ev) {
+            document.getElementById('target-file').value = ev.target.result;
+            document.getElementById('file-info').textContent = file.name + ' (' + file.size + ' bytes)';
+        };
+        reader.readAsText(file);
+    };
+
     /* ---- Stats ---- */
     async function loadStats() {
         try {
@@ -255,6 +333,20 @@
             document.getElementById('stat-critical').textContent = d.critical;
             document.getElementById('stat-high').textContent = d.high;
             document.getElementById('stat-medium').textContent = d.medium;
+
+            /* severity bar */
+            var total = (d.critical||0) + (d.high||0) + (d.medium||0) + (d.low||0) + (d.info||0);
+            function pct(v) { return total > 0 ? ((v/total)*100).toFixed(1) + '%' : '0%'; }
+            document.getElementById('bar-critical').style.width = pct(d.critical||0);
+            document.getElementById('bar-high').style.width = pct(d.high||0);
+            document.getElementById('bar-medium').style.width = pct(d.medium||0);
+            document.getElementById('bar-low').style.width = pct(d.low||0);
+            document.getElementById('bar-info').style.width = pct(d.info||0);
+            document.getElementById('lbl-critical').textContent = d.critical||0;
+            document.getElementById('lbl-high').textContent = d.high||0;
+            document.getElementById('lbl-medium').textContent = d.medium||0;
+            document.getElementById('lbl-low').textContent = d.low||0;
+            document.getElementById('lbl-info').textContent = d.info||0;
         } catch (_) {}
     }
 
@@ -378,8 +470,17 @@
     /* ---- Start Scan ---- */
     window.startScan = async function(e) {
         e.preventDefault();
-        const target = document.getElementById('target-url').value.trim();
-        if (!target) return false;
+
+        var targets = [];
+        if (_scanMode === 'file') {
+            var raw = document.getElementById('target-file').value.trim();
+            if (!raw) { alert('Please enter or load target URLs.'); return false; }
+            targets = raw.split(/[\r\n]+/).map(function(l) { return l.trim(); }).filter(Boolean);
+        } else {
+            var single = document.getElementById('target-url').value.trim();
+            if (!single) { alert('Please enter a target URL.'); return false; }
+            targets = [single];
+        }
 
         const modules = Array.from(document.querySelectorAll('input[name="module"]:checked')).map(function(c) { return c.value; });
         const evasion = document.getElementById('evasion-level').value;
@@ -392,17 +493,31 @@
         btn.innerHTML = '<span class="spinner"></span> Starting…';
 
         try {
+            var payload = { modules: modules, evasion: evasion, depth: depth, threads: threads, full_scan: fullScan };
+            if (targets.length === 1) {
+                payload.target = targets[0];
+            } else {
+                payload.targets = targets;
+            }
+
             const r = await fetch(API + '/api/scan', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ target: target, modules: modules, evasion: evasion, depth: depth, threads: threads, full_scan: fullScan })
+                body: JSON.stringify(payload)
             });
             const j = await r.json();
             if (j.status === 'success') {
-                const sid = j.data.scan_id;
                 if (!window._knownActive) window._knownActive = {};
-                window._knownActive[sid] = true;
+                var ids = j.data.scan_ids || [];
+                ids.forEach(function(s) { window._knownActive[s.scan_id] = true; });
                 document.getElementById('target-url').value = '';
+                document.getElementById('target-file').value = '';
+                document.getElementById('file-info').textContent = '';
+                var msg = j.data.message || 'Scan started';
+                if (j.data.skipped && j.data.skipped.length) {
+                    msg += '\nSkipped invalid URLs: ' + j.data.skipped.join(', ');
+                }
+                alert(msg);
             } else {
                 alert('Error: ' + (j.data || 'Unknown'));
             }

@@ -119,7 +119,8 @@ class TestStartScan(unittest.TestCase):
         )
         self.assertEqual(resp.status_code, 200)
         data = resp.get_json()
-        self.assertIn('scan_id', data.get('data', {}))
+        self.assertIn('scan_ids', data.get('data', {}))
+        self.assertTrue(len(data['data']['scan_ids']) >= 1)
 
 
 class TestReportDownload(unittest.TestCase):
@@ -306,3 +307,81 @@ class TestListEncodings(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+# ===========================================================================
+# File Scan (batch targets) API tests
+# ===========================================================================
+
+
+class TestFileScanAPI(unittest.TestCase):
+    """Tests for batch/file scanning via POST /api/scan with targets list."""
+
+    def setUp(self):
+        app.config['TESTING'] = True
+        self.client = app.test_client()
+
+    @patch.object(web_app_module, '_API_KEY', '')
+    def test_multiple_targets_returns_multiple_scan_ids(self):
+        """Sending a targets list should start one scan per valid target."""
+        resp = self.client.post('/api/scan', json={
+            'targets': ['http://example.com', 'https://example.org'],
+        })
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()['data']
+        self.assertEqual(data['total_targets'], 2)
+        self.assertEqual(len(data['scan_ids']), 2)
+
+    @patch.object(web_app_module, '_API_KEY', '')
+    def test_invalid_targets_skipped(self):
+        """Invalid URLs in the list should be skipped, valid ones scanned."""
+        resp = self.client.post('/api/scan', json={
+            'targets': ['http://valid.com', 'not-a-url', 'ftp://bad.com'],
+        })
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()['data']
+        self.assertEqual(data['total_targets'], 1)
+        self.assertIn('skipped', data)
+        self.assertEqual(len(data['skipped']), 2)
+
+    @patch.object(web_app_module, '_API_KEY', '')
+    def test_all_invalid_targets_returns_400(self):
+        """If all targets are invalid, return 400."""
+        resp = self.client.post('/api/scan', json={
+            'targets': ['not-valid', 'also-bad'],
+        })
+        self.assertEqual(resp.status_code, 400)
+
+    @patch.object(web_app_module, '_API_KEY', '')
+    def test_empty_targets_list_returns_400(self):
+        """Empty targets list should return 400."""
+        resp = self.client.post('/api/scan', json={'targets': []})
+        self.assertEqual(resp.status_code, 400)
+
+    @patch.object(web_app_module, '_API_KEY', '')
+    def test_single_target_still_works(self):
+        """Single target field should still work for backward compatibility."""
+        resp = self.client.post('/api/scan', json={
+            'target': 'http://example.com',
+        })
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()['data']
+        self.assertEqual(data['total_targets'], 1)
+
+    @patch.object(web_app_module, '_API_KEY', '')
+    def test_scan_with_modules(self):
+        """Scan with specific modules should start successfully."""
+        resp = self.client.post('/api/scan', json={
+            'targets': ['http://example.com'],
+            'modules': ['sqli', 'xss'],
+            'evasion': 'low',
+            'depth': 2,
+            'threads': 5,
+        })
+        self.assertEqual(resp.status_code, 200)
+
+    @patch.object(web_app_module, '_API_KEY', '')
+    def test_no_json_body_returns_400(self):
+        """Missing JSON body should return 400."""
+        resp = self.client.post('/api/scan', content_type='application/json')
+        self.assertEqual(resp.status_code, 400)

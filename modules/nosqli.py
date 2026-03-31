@@ -125,6 +125,26 @@ class NoSQLModule:
             '{"$where": "this.password.length > 0"}',
         ]
         
+        # Get baseline response for comparison
+        try:
+            baseline_data = {param: value}
+            baseline = self.requester.request(url, method, data=baseline_data)
+            if not baseline:
+                return
+            baseline_text = baseline.text.lower()
+            baseline_len = len(baseline.text)
+        except Exception:
+            return
+        
+        # NoSQL-specific indicators that distinguish real injection from normal 200 responses
+        nosql_success_indicators = [
+            'mongodb', 'mongoerror', 'bson', 'objectid',
+            '$ne', '$gt', '$regex', '$where', '_id',
+        ]
+        # Pre-lowered for efficient comparison
+        nosql_success_lower = [ind.lower() for ind in nosql_success_indicators]
+        auth_bypass_indicators = ['welcome', 'dashboard', 'logged in', 'profile', 'admin']
+        
         for payload in json_payloads:
             try:
                 headers = {'Content-Type': 'application/json'}
@@ -133,23 +153,51 @@ class NoSQLModule:
                 if not response:
                     continue
                 
-                # Check for successful injection
-                if response.status_code == 200:
-                    response_text = response.text.lower()
-                    
-                    if 'error' not in response_text and 'invalid' not in response_text:
-                        from core.engine import Finding
-                        finding = Finding(
-                            technique="NoSQL Injection (JSON-based)",
-                            url=url,
-                            severity='HIGH',
-                            confidence=0.8,
-                            param=param,
-                            payload=payload,
-                            evidence="JSON payload accepted - potential NoSQL injection",
-                        )
-                        self.engine.add_finding(finding)
-                        return
+                if response.status_code != 200:
+                    continue
+                
+                response_text = response.text.lower()
+                response_len = len(response.text)
+                
+                # Check for NoSQL error indicators that are NEW (not in baseline)
+                new_nosql_indicators = sum(
+                    1 for ind in nosql_success_lower
+                    if ind in response_text and ind not in baseline_text
+                )
+                
+                if new_nosql_indicators >= 1:
+                    from core.engine import Finding
+                    finding = Finding(
+                        technique="NoSQL Injection (JSON-based)",
+                        url=url,
+                        severity='HIGH',
+                        confidence=0.85,
+                        param=param,
+                        payload=payload,
+                        evidence="NoSQL-specific indicators in response to JSON operator payload",
+                    )
+                    self.engine.add_finding(finding)
+                    return
+                
+                # Check for auth bypass: response must differ significantly from
+                # baseline AND contain auth indicators that baseline does not
+                response_has_auth = any(ind in response_text for ind in auth_bypass_indicators)
+                baseline_has_auth = any(ind in baseline_text for ind in auth_bypass_indicators)
+                len_diff = abs(response_len - baseline_len)
+                
+                if response_has_auth and not baseline_has_auth and len_diff > 100:
+                    from core.engine import Finding
+                    finding = Finding(
+                        technique="NoSQL Injection (JSON-based)",
+                        url=url,
+                        severity='HIGH',
+                        confidence=0.8,
+                        param=param,
+                        payload=payload,
+                        evidence="Auth bypass indicators appeared after JSON operator injection",
+                    )
+                    self.engine.add_finding(finding)
+                    return
                         
             except Exception as e:
                 if self.engine.config.get('verbose'):
