@@ -18,14 +18,14 @@ from config import Config, Colors
 class ReportGenerator:
     """Report generator for scan results"""
 
-    def __init__(self, scan_id, findings=None, target=None, start_time=None, end_time=None, total_requests=0):
+    def __init__(self, scan_id, findings=None, target=None, start_time=None, end_time=None, total_requests=0, output_dir=None):
         self.scan_id = scan_id
         self.findings = findings or []
         self.target = target or ''
         self.start_time = start_time
         self.end_time = end_time
         self.total_requests = total_requests
-        self.output_dir = Config.REPORTS_DIR
+        self.output_dir = output_dir or Config.REPORTS_DIR
         os.makedirs(self.output_dir, exist_ok=True)
 
         # If no findings provided, try to load from database

@@ -339,21 +339,41 @@ def main():
         print(f"{Colors.error(f'Cannot create output directory {output_dir}: {e}')}")
         sys.exit(1)
 
-    # Run scan
+    # Run scan — one engine per target to isolate scan_id, findings & timing
     try:
-        engine = AtomicEngine(config)
-        
+        all_findings = []
+
         for target in targets:
             print(f"\n{Colors.info(f'Target: {target}')}")
+            engine = AtomicEngine(config)
             engine.scan(target)
-        
-        # Generate reports
-        if not args.quiet:
-            print(f"\n{Colors.info('Generating reports...')}")
-        engine.generate_reports()
-        
+
+            # Generate reports only after ALL modules finished for this target
+            if not args.quiet:
+                print(f"\n{Colors.info('Generating reports...')}")
+            engine.generate_reports()
+
+            all_findings.extend(engine.findings)
+
+        # Overall summary when multiple targets were scanned
+        if len(targets) > 1:
+            print(f"\n{Colors.BOLD}{'='*60}{Colors.RESET}")
+            print(f"{Colors.CYAN}  Overall Summary ({len(targets)} targets){Colors.RESET}")
+            print(f"{Colors.BOLD}{'='*60}{Colors.RESET}")
+            print(f"  Total findings: {len(all_findings)}")
+
+            severities = {}
+            for f in all_findings:
+                sev = getattr(f, 'severity', 'INFO')
+                severities[sev] = severities.get(sev, 0) + 1
+            if severities:
+                for sev in ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO']:
+                    if sev in severities:
+                        print(f"    {sev}: {severities[sev]}")
+            print(f"{Colors.BOLD}{'='*60}{Colors.RESET}")
+
         print(f"\n{Colors.success('Scan completed!')}")
-        
+
     except KeyboardInterrupt:
         print(f"\n{Colors.warning('Interrupted by user')}")
         sys.exit(0)
