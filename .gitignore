@@ -12,3 +12,23 @@ build/
 .atomic_ai_data.json
 .atomic_progress.json
 .pytest_cache/
+
+# Environment & secrets
+.env
+.env.*
+
+# Virtual environments
+venv/
+env/
+.venv/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
