@@ -12,6 +12,7 @@ import json
 from datetime import datetime
 from dataclasses import dataclass, field
 from typing import Optional
+from urllib.parse import urlparse, parse_qs
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -146,6 +147,28 @@ class AtomicEngine:
         print(f"{Colors.info(f'Crawling with depth {depth}...')}")
         urls, forms, parameters = crawler.crawl(target, depth)
         print(f"{Colors.info(f'Found {len(urls)} URLs, {len(forms)} forms, {len(parameters)} parameters')}")
+
+        # Target discovery & enumeration
+        if modules_config.get('discovery', False):
+            try:
+                from modules.discovery import DiscoveryModule
+                discovery = DiscoveryModule(self)
+                discovery.run(target, crawler=crawler)
+
+                # Feed any new endpoints from discovery back into the
+                # parameter list so vulnerability modules can test them.
+                for ep in discovery.endpoints:
+                    if ep not in urls:
+                        urls.add(ep)
+                        # Also extract URL parameters from newly found endpoints
+                        ep_parsed = urlparse(ep)
+                        if ep_parsed.query:
+                            for name, values in parse_qs(ep_parsed.query).items():
+                                for val in values:
+                                    parameters.append((ep, 'get', name, val, 'discovery'))
+            except Exception as e:
+                if self.config.get('verbose'):
+                    print(f"{Colors.error(f'Discovery error: {e}')}")
 
         # Run attack modules on discovered parameters
         for module_key, module_instance in self._modules.items():
