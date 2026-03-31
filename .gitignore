@@ -11,3 +11,4 @@ build/
 .atomic_learning.json
 .atomic_ai_data.json
 .atomic_progress.json
+.pytest_cache/
