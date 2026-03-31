@@ -39,6 +39,9 @@ REMEDIATION_MAP = {
     'jwt': 'Enforce strong signing algorithms (RS256+). Validate all claims including expiration.',
     'nosql': 'Sanitize input before MongoDB queries. Avoid $where and operator injection.',
     'file upload': 'Validate file type, size, and content. Store uploads outside webroot.',
+    'open redirect': 'Validate and whitelist redirect URLs. Avoid using user input in redirect targets.',
+    'crlf': 'Strip or encode CR/LF characters from user input before including in HTTP headers.',
+    'http parameter pollution': 'Normalize duplicate parameters server-side. Validate input at each processing layer.',
 }
 
 
@@ -116,6 +119,8 @@ class AtomicEngine:
         from core.verifier import Verifier
         from core.learning import LearningStore
         from core.adaptive import AdaptiveController
+        from core.ai_engine import AIEngine
+        from core.persistence import PersistenceEngine
 
         self.scope = ScopePolicy(self)
         self.context = ContextIntelligence(self)
@@ -125,6 +130,8 @@ class AtomicEngine:
         self.verifier = Verifier(self)
         self.learning = LearningStore(self)
         self.adaptive = AdaptiveController(self)
+        self.ai = AIEngine(self)
+        self.persistence = PersistenceEngine(self)
 
         # Initialize modules
         self._modules = {}
@@ -145,6 +152,9 @@ class AtomicEngine:
             'cors': ('modules.cors', 'CORSModule'),
             'jwt': ('modules.jwt', 'JWTModule'),
             'upload': ('modules.uploader', 'ShellUploader'),
+            'open_redirect': ('modules.open_redirect', 'OpenRedirectModule'),
+            'crlf': ('modules.crlf', 'CRLFModule'),
+            'hpp': ('modules.hpp', 'HPPModule'),
         }
 
         modules_config = self.config.get('modules', {})
@@ -256,6 +266,12 @@ class AtomicEngine:
         # ── §4. CONTEXT INTELLIGENCE ─────────────────────────────────
         enriched_params = self.context.analyze_parameters(parameters)
 
+        # ── AI: Predict vulnerabilities and build attack strategy ─────
+        ai_strategy = self.ai.get_attack_strategy(target, enriched_params)
+        if self.config.get('verbose') and ai_strategy['module_order']:
+            module_order = ai_strategy['module_order']
+            print(f"{Colors.info(f'AI recommended module order: {module_order}')}")
+
         # ── §5. RISK-BASED PRIORITIZATION ────────────────────────────
         enriched_params = self.prioritizer.prioritize_parameters(enriched_params)
         prioritized_urls = self.prioritizer.prioritize_urls(urls)
@@ -271,37 +287,58 @@ class AtomicEngine:
                     ep['url'], ep['method'], ep['param'], ep['value'],
                 )
 
-        # ── §7. ADAPTIVE TESTING (context-driven module selection) ───
-        for module_key, module_instance in self._modules.items():
+        # ── §7. ADAPTIVE TESTING (AI-driven module selection) ────────
+        # Determine module execution order via AI strategy
+        ordered_modules = []
+        if ai_strategy['module_order']:
+            for mkey in ai_strategy['module_order']:
+                if mkey in self._modules:
+                    ordered_modules.append((mkey, self._modules[mkey]))
+            # Append any remaining modules not in AI order
+            for mkey, minst in self._modules.items():
+                if mkey not in ai_strategy['module_order']:
+                    ordered_modules.append((mkey, minst))
+        else:
+            ordered_modules = list(self._modules.items())
+
+        for module_key, module_instance in ordered_modules:
             print(f"\n{Colors.info(f'Running {module_instance.name} module...')}")
 
             for ep in enriched_params:
-                try:
-                    # Rate limit enforcement
-                    self.scope.enforce_rate_limit()
+                ep_key = f"{module_key}:{ep['method']}:{ep['url']}:{ep['param']}"
 
-                    # Adaptive delay
+                # Skip already tested endpoints (persistence / resume)
+                if self.persistence.is_tested(ep_key):
+                    continue
+
+                def _do_test(m=module_instance, e=ep):
+                    self.scope.enforce_rate_limit()
                     import time
                     delay = self.adaptive.get_delay()
                     if delay > 0:
                         time.sleep(delay)
+                    if hasattr(m, 'test'):
+                        m.test(e['url'], e['method'], e['param'], e['value'])
+                    return True
 
-                    if hasattr(module_instance, 'test'):
-                        module_instance.test(
-                            ep['url'], ep['method'], ep['param'], ep['value'],
-                        )
-                except Exception as e:
-                    if self.config.get('verbose'):
-                        print(f"{Colors.error(f'Module error ({module_key}): {e}')}")
+                self.persistence.execute_with_retry(_do_test, ep_key)
 
             # URL-level checks (CORS, JWT, etc.) — in priority order
-            for url, _score in prioritized_urls:
-                try:
-                    if hasattr(module_instance, 'test_url'):
-                        module_instance.test_url(url)
-                except Exception as e:
-                    if self.config.get('verbose'):
-                        print(f"{Colors.error(f'URL test error ({module_key}): {e}')}")
+            for url_item, _score in prioritized_urls:
+                url_key = f"{module_key}:url:{url_item}"
+                if self.persistence.is_tested(url_key):
+                    continue
+
+                def _do_url_test(m=module_instance, u=url_item):
+                    if hasattr(m, 'test_url'):
+                        m.test_url(u)
+                    return True
+
+                self.persistence.execute_with_retry(_do_url_test, url_key)
+
+        # ── Persistence: retry any failed endpoints ──────────────────
+        self.persistence.retry_failed_endpoints(lambda _: None)
+        self.persistence.save_progress()
 
         # ── §8. MULTI-SIGNAL ANALYSIS (scoring enrichment) ───────────
         self._enrich_finding_signals()
@@ -312,8 +349,10 @@ class AtomicEngine:
         # ── SELF-LEARNING ────────────────────────────────────────────
         for f in self.findings:
             self.learning.record_success(f.technique, f.payload)
+            self.ai.record_finding(f.technique, f.param, f.payload)
         self.learning.update_thresholds(self.findings)
         self.learning.save()
+        self.ai.save()
 
         # ── ADAPTIVE LOOP (re-discovery if needed) ───────────────────
         if self.adaptive.should_rediscover() and modules_config.get('discovery', False):
@@ -363,6 +402,9 @@ class AtomicEngine:
                     print(f"{Colors.error(f'Data dump error: {e}')}")
 
         self.end_time = datetime.utcnow()
+
+        # ── Clear persistence progress on complete scan ───────────────
+        self.persistence.clear_progress()
 
         # ── Update database record with final metrics ────────────────
         if self.db:
@@ -479,6 +521,23 @@ class AtomicEngine:
             print(f"\n  {Colors.YELLOW}WAF Detected:{Colors.RESET} {adaptive_summary['waf_name']}")
         if adaptive_summary.get('block_rate', 0) > 0.1:
             print(f"  Block Rate: {adaptive_summary['block_rate']:.1%}")
+
+        # AI Intelligence summary
+        ai_summary = self.ai.get_ai_summary()
+        if ai_summary['total_patterns'] > 0:
+            print(f"\n  {Colors.CYAN}AI Intelligence:{Colors.RESET}")
+            print(f"    Learned patterns: {ai_summary['total_patterns']}")
+            print(f"    Successful techniques: {ai_summary['successful_techniques']}")
+
+        # Persistence summary
+        persist_summary = self.persistence.get_persistence_summary()
+        if persist_summary['total_retries'] > 0:
+            print(f"\n  {Colors.CYAN}Persistence:{Colors.RESET}")
+            print(f"    Endpoints tested: {persist_summary['tested']}")
+            print(f"    Total retries: {persist_summary['total_retries']}")
+            print(f"    Evasion level: {persist_summary['current_evasion']}")
+            if persist_summary['exhausted'] > 0:
+                print(f"    Exhausted: {persist_summary['exhausted']}")
 
         print(f"{Colors.BOLD}{'='*60}{Colors.RESET}")
 

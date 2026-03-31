@@ -95,6 +95,12 @@ def main():
                        help='Enable JWT security check')
     parser.add_argument('--upload', action='store_true',
                        help='Enable file upload tests')
+    parser.add_argument('--open-redirect', action='store_true',
+                       help='Enable open redirect detection')
+    parser.add_argument('--crlf', action='store_true',
+                       help='Enable CRLF injection detection')
+    parser.add_argument('--hpp', action='store_true',
+                       help='Enable HTTP parameter pollution detection')
     
     # Exploitation options
     parser.add_argument('--shell', action='store_true',
@@ -275,6 +281,9 @@ def main():
         'cors': args.cors or args.full,
         'jwt': args.jwt or args.full,
         'upload': args.upload or args.full,
+        'open_redirect': args.open_redirect or args.full,
+        'crlf': args.crlf or args.full,
+        'hpp': args.hpp or args.full,
         'shell': args.shell,
         'dump': args.dump,
         'os_shell': args.os_shell,
