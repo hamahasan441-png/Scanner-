@@ -11,7 +11,7 @@ urllib3>=1.26.0
 sqlalchemy>=1.4.0
 
 # Report generation
-fpdf>=2.6.0
+fpdf2>=2.6.0
 
 # JWT handling
 PyJWT>=2.6.0

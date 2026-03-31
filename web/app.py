@@ -6,9 +6,13 @@ Flask Web Dashboard
 """
 import os
 import json
+import logging
 import threading
+import time
 import uuid
+from collections import defaultdict
 from datetime import datetime
+from functools import wraps
 
 
 from config import Config, Colors
@@ -24,6 +28,8 @@ try:
 except ImportError:
     FLASK_AVAILABLE = False
 
+logger = logging.getLogger(__name__)
+
 app = Flask(
     __name__,
     template_folder=os.path.join(os.path.dirname(__file__), 'templates'),
@@ -37,6 +43,61 @@ if FLASK_AVAILABLE:
     CORS(app)
 
 _active_scans = {}
+
+
+# ---------------------------------------------------------------------------
+# API-key authentication
+# ---------------------------------------------------------------------------
+# Set ATOMIC_API_KEY env var to require an API key for all /api/* endpoints.
+# When the env var is unset, authentication is disabled (open access).
+_API_KEY = os.environ.get('ATOMIC_API_KEY', '')
+
+
+def _require_api_key(f):
+    """Decorator that rejects requests lacking a valid API key (when set)."""
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if not _API_KEY:
+            return f(*args, **kwargs)
+        provided = (
+            request.headers.get('X-API-Key', '')
+            or request.args.get('api_key', '')
+        )
+        if provided != _API_KEY:
+            return jsonify({'status': 'error', 'data': 'Invalid or missing API key'}), 401
+        return f(*args, **kwargs)
+    return decorated
+
+
+# ---------------------------------------------------------------------------
+# Simple in-memory rate limiter
+# ---------------------------------------------------------------------------
+_RATE_WINDOW = 60          # seconds
+_RATE_MAX_REQUESTS = 60    # max requests per window per IP
+
+_rate_counters: dict = defaultdict(list)
+_rate_lock = threading.Lock()
+
+
+def _rate_limit(f):
+    """Decorator that applies a per-IP request rate limit."""
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        client_ip = request.remote_addr or '0.0.0.0'
+        now = time.monotonic()
+        with _rate_lock:
+            # Prune expired timestamps
+            _rate_counters[client_ip] = [
+                t for t in _rate_counters[client_ip] if now - t < _RATE_WINDOW
+            ]
+            if len(_rate_counters[client_ip]) >= _RATE_MAX_REQUESTS:
+                return jsonify({
+                    'status': 'error',
+                    'data': 'Rate limit exceeded. Try again later.',
+                }), 429
+            _rate_counters[client_ip].append(now)
+        return f(*args, **kwargs)
+    return decorated
 
 
 def _get_db():
@@ -66,6 +127,7 @@ def _run_scan(scan_id, target, config):
         _active_scans[scan_id]['findings'] = len(engine.findings)
         _active_scans[scan_id]['end_time'] = datetime.utcnow().isoformat()
     except Exception as exc:
+        logger.exception("Scan %s failed", scan_id)
         _active_scans[scan_id]['status'] = 'failed'
         _active_scans[scan_id]['error'] = str(exc)
         _active_scans[scan_id]['end_time'] = datetime.utcnow().isoformat()
@@ -82,6 +144,8 @@ def dashboard():
 
 
 @app.route('/api/scans', methods=['GET'])
+@_require_api_key
+@_rate_limit
 def list_scans():
     """Return a list of all past scans."""
     db = _get_db()
@@ -109,6 +173,8 @@ def list_scans():
 
 
 @app.route('/api/scan/<scan_id>', methods=['GET'])
+@_require_api_key
+@_rate_limit
 def get_scan(scan_id):
     """Return details and findings for a specific scan."""
     db = _get_db()
@@ -156,6 +222,8 @@ def get_scan(scan_id):
 
 
 @app.route('/api/scan', methods=['POST'])
+@_require_api_key
+@_rate_limit
 def start_scan():
     """Start a new scan in the background."""
     body = request.get_json(silent=True)
@@ -220,6 +288,8 @@ def start_scan():
 
 
 @app.route('/api/scan/<scan_id>/status', methods=['GET'])
+@_require_api_key
+@_rate_limit
 def scan_status(scan_id):
     """Return the current status of a scan."""
     if scan_id in _active_scans:
@@ -244,6 +314,8 @@ def scan_status(scan_id):
 
 
 @app.route('/api/scan/<scan_id>', methods=['DELETE'])
+@_require_api_key
+@_rate_limit
 def delete_scan(scan_id):
     """Delete a scan and its findings from the database."""
     db = _get_db()
@@ -269,6 +341,8 @@ def delete_scan(scan_id):
 
 
 @app.route('/api/findings/<scan_id>', methods=['GET'])
+@_require_api_key
+@_rate_limit
 def get_findings(scan_id):
     """Return all findings for a given scan."""
     db = _get_db()
@@ -301,6 +375,8 @@ def get_findings(scan_id):
 
 
 @app.route('/api/report/<scan_id>/<fmt>', methods=['GET'])
+@_require_api_key
+@_rate_limit
 def download_report(scan_id, fmt):
     """Download a generated report file."""
     allowed_formats = ('html', 'json', 'csv', 'txt')
@@ -320,6 +396,8 @@ def download_report(scan_id, fmt):
 
 
 @app.route('/api/shells', methods=['GET'])
+@_require_api_key
+@_rate_limit
 def list_shells():
     """Return active shells from the database."""
     db = _get_db()
@@ -342,6 +420,8 @@ def list_shells():
 
 
 @app.route('/api/stats', methods=['GET'])
+@_require_api_key
+@_rate_limit
 def get_stats():
     """Return dashboard statistics."""
     db = _get_db()
@@ -390,8 +470,12 @@ def create_app(host='0.0.0.0', port=5000, debug=False):
     os.makedirs(Config.REPORTS_DIR, exist_ok=True)
 
     def run_app():
-        print(f"{Colors.info(f'Starting ATOMIC Dashboard on http://{host}:{port}')}")
-        print(f"{Colors.warning('FOR AUTHORIZED TESTING ONLY')}")
+        logger.info("Starting ATOMIC Dashboard on http://%s:%s", host, port)
+        if _API_KEY:
+            logger.info("API key authentication enabled")
+        else:
+            logger.warning("No ATOMIC_API_KEY set — API endpoints are open")
+        logger.warning("FOR AUTHORIZED TESTING ONLY")
         app.run(host=host, port=port, debug=debug)
 
     return app, run_app

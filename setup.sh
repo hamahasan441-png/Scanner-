@@ -2,6 +2,8 @@
 # ATOMIC Framework v8.0 - Setup Script
 # Usage: bash setup.sh
 
+set -e
+
 echo "=========================================="
 echo "  ATOMIC Framework v8.0 - Setup"
 echo "  Ultimate Edition"
@@ -15,6 +17,11 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
+fail() {
+    echo -e "${RED}[ERROR] $1${NC}" >&2
+    exit 1
+}
+
 # Check if running in Termux
 if [ -d "/data/data/com.termux" ]; then
     echo -e "${BLUE}[*] Termux detected${NC}"
@@ -23,6 +30,15 @@ else
     echo -e "${BLUE}[*] Standard Linux detected${NC}"
     IS_TERMUX=0
 fi
+
+# Verify Python is available
+if ! command -v python3 &>/dev/null && ! command -v python &>/dev/null; then
+    fail "Python is not installed. Please install Python 3.9+ first."
+fi
+
+PYTHON=$(command -v python3 || command -v python)
+PY_VERSION=$($PYTHON -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
+echo -e "${BLUE}[*] Using Python ${PY_VERSION}${NC}"
 
 # Update packages
 echo -e "${BLUE}[*] Updating packages...${NC}"
@@ -42,15 +58,12 @@ fi
 
 # Install Python dependencies
 echo -e "${BLUE}[*] Installing Python dependencies...${NC}"
-pip install --upgrade pip
-pip install -r requirements.txt
+$PYTHON -m pip install --upgrade pip || fail "pip upgrade failed"
+$PYTHON -m pip install -r requirements.txt || fail "Failed to install Python dependencies"
 
 # Create necessary directories
 echo -e "${BLUE}[*] Creating directories...${NC}"
-mkdir -p reports
-mkdir -p shells
-mkdir -p wordlists
-mkdir -p logs
+mkdir -p reports shells wordlists logs
 
 # Make main.py executable
 echo -e "${BLUE}[*] Setting permissions...${NC}"
