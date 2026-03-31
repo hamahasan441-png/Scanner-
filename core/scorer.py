@@ -15,6 +15,8 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from core.baseline import BaselineEngine
+
 # Signal weight constants (from problem statement §9)
 WEIGHT_TIMING = 3
 WEIGHT_ERROR = 2
@@ -160,7 +162,6 @@ class SignalScorer:
         length_dev = baseline.length_deviation(len(response_text))
 
         # Structural fingerprint comparison
-        from core.baseline import BaselineEngine
         current_hash = BaselineEngine._structure_fingerprint(response_text)
         structure_changed = (
             baseline.structure_hash

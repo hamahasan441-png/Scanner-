@@ -24,6 +24,8 @@ from config import Colors
 BASELINE_SAMPLES = 3
 # Maximum baselines to cache (LRU-style)
 MAX_CACHE_SIZE = 500
+# Maximum number of HTML tags used for structural fingerprinting
+MAX_FINGERPRINT_TAGS = 200
 
 
 class BaselineResult:
@@ -143,5 +145,5 @@ class BaselineEngine:
             return ''
         import re
         tags = re.findall(r'</?[a-zA-Z][^>]*>', html_body)
-        skeleton = ''.join(tags[:200])  # limit to first 200 tags
+        skeleton = ''.join(tags[:MAX_FINGERPRINT_TAGS])
         return hashlib.md5(skeleton.encode('utf-8', errors='ignore')).hexdigest()

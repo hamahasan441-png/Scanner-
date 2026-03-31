@@ -21,6 +21,8 @@ from config import Colors
 VERIFY_ROUNDS = 2
 # Minimum confirmations to keep a finding
 MIN_CONFIRMATIONS = 2
+# Findings with confidence above this threshold skip verification
+VERIFICATION_CONFIDENCE_THRESHOLD = 0.95
 
 
 class Verifier:
@@ -40,7 +42,7 @@ class Verifier:
         removed = 0
 
         for finding in findings:
-            if finding.severity in ('HIGH', 'CRITICAL') and finding.confidence < 0.95:
+            if finding.severity in ('HIGH', 'CRITICAL') and finding.confidence < VERIFICATION_CONFIDENCE_THRESHOLD:
                 if self._verify_single(finding):
                     verified.append(finding)
                 else:

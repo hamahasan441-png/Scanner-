@@ -27,6 +27,9 @@ WAF_HEADER_HINTS = [
     'fortiweb', 'wallarm', 'reblaze',
 ]
 
+# Extra delay (seconds) added when WAF is detected
+WAF_EXTRA_DELAY = 1.0
+
 
 class AdaptiveController:
     """Adjusts scan behaviour based on runtime signals."""
@@ -77,7 +80,7 @@ class AdaptiveController:
 
     def _adapt_for_waf(self):
         """Adjust parameters when WAF is first detected."""
-        self.extra_delay = 1.0
+        self.extra_delay = WAF_EXTRA_DELAY
         self.payload_mutation = True
         if self.verbose:
             print(f"{Colors.warning(f'WAF detected ({self.waf_name}) → slowing down & enabling mutation')}")

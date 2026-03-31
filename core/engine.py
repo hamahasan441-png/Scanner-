@@ -197,7 +197,10 @@ class AtomicEngine:
         # Crawl target
         from utils.crawler import Crawler
         crawler = Crawler(self)
-        depth = self.config.get('depth', 3) + self.adaptive.get_depth_boost()
+        depth = min(
+            self.config.get('depth', 3) + self.adaptive.get_depth_boost(),
+            Config.MAX_DEPTH,
+        )
 
         print(f"{Colors.info(f'Crawling with depth {depth}...')}")
         urls, forms, parameters = crawler.crawl(target, depth)
@@ -335,8 +338,9 @@ class AtomicEngine:
     def _enrich_finding_signals(self):
         """Run multi-signal analysis on existing findings to refine confidence."""
         for finding in self.findings:
+            method = getattr(finding, 'method', 'POST')
             baseline = self.baseline_engine.get_baseline(
-                finding.url, 'POST', finding.param, '',
+                finding.url, method, finding.param, '',
             )
             signals = self.scorer.analyze(
                 baseline=baseline,

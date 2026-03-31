@@ -126,6 +126,11 @@ INPUT_TYPE_RULES = [
     (r'.*', 'string'),
 ]
 
+# Context weight increments per signal type
+WEIGHT_PARAM_MATCH = 0.3
+WEIGHT_VALUE_MATCH = 0.2
+WEIGHT_ENDPOINT_MATCH = 0.2
+
 
 class ContextIntelligence:
     """Analyzes inputs and endpoints to predict vulnerability context."""
@@ -148,19 +153,19 @@ class ContextIntelligence:
             # Check parameter name patterns
             for pattern in rules['param_patterns']:
                 if param and re.search(pattern, param):
-                    weight += 0.3
+                    weight += WEIGHT_PARAM_MATCH
                     break
 
             # Check value patterns
             for pattern in rules['value_patterns']:
                 if value and re.search(pattern, value):
-                    weight += 0.2
+                    weight += WEIGHT_VALUE_MATCH
                     break
 
             # Check endpoint path patterns
             for pattern in rules['endpoint_patterns']:
                 if re.search(pattern, endpoint_path):
-                    weight += 0.2
+                    weight += WEIGHT_ENDPOINT_MATCH
                     break
 
             # Clamp weight to [0, 1]

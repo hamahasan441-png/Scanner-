@@ -117,6 +117,13 @@ class ReportGenerator:
                 })
         return data
 
+    @staticmethod
+    def _format_signals(signals):
+        """Format a signals dict as a compact string."""
+        if not signals:
+            return ''
+        return '; '.join(f'{k}={v}' for k, v in signals.items())
+
     def _generate_json(self):
         """Generate JSON report"""
         filepath = os.path.join(self.output_dir, f'report_{self.scan_id}.json')
@@ -266,8 +273,7 @@ class ReportGenerator:
                 ])
 
                 for finding in findings_data:
-                    signals = finding.get('signals', {})
-                    signals_str = '; '.join(f'{k}={v}' for k, v in signals.items()) if signals else ''
+                    signals_str = self._format_signals(finding.get('signals', {}))
                     writer.writerow([
                         finding.get('severity', ''),
                         finding.get('technique', ''),
@@ -326,8 +332,7 @@ class ReportGenerator:
                 lines.append(f"    Confidence: {f.get('confidence', 0):.0%}")
             signals = f.get('signals', {})
             if signals:
-                parts = [f"{k}={v}" for k, v in signals.items()]
-                lines.append(f"    Signals:  {', '.join(parts)}")
+                lines.append(f"    Signals:  {self._format_signals(signals)}")
             if f.get('mitre_id'):
                 lines.append(f"    MITRE:    {f.get('mitre_id', '')}")
             if f.get('cwe_id'):
