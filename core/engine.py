@@ -3,6 +3,10 @@
 """
 ATOMIC FRAMEWORK v8.0 - ULTIMATE EDITION
 Core Engine - Scan orchestration and module management
+
+CORE FLOW:
+  Discover → Extract Inputs → Analyze Context → Prioritize →
+  Baseline → Test → Analyze → Verify → Report → Learn → Adapt
 """
 
 import os
@@ -17,6 +21,23 @@ from urllib.parse import urlparse, parse_qs
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from config import Config, Colors, MITRE_CWE_MAP
+
+# Remediation suggestions keyed by vulnerability family
+REMEDIATION_MAP = {
+    'sql injection': 'Use parameterized queries / prepared statements. Apply input validation and least-privilege DB accounts.',
+    'xss': 'Encode output contextually (HTML, JS, URL). Use Content-Security-Policy headers.',
+    'lfi': 'Validate and whitelist file paths. Disable allow_url_include in PHP.',
+    'rfi': 'Disable remote file inclusion (allow_url_include=Off). Whitelist allowed paths.',
+    'command injection': 'Avoid passing user input to OS commands. Use safe API alternatives and input validation.',
+    'ssrf': 'Validate and whitelist URLs. Block internal/metadata IP ranges at the network level.',
+    'ssti': 'Use a sandboxed template engine. Never pass user input directly into templates.',
+    'xxe': 'Disable external entity processing in XML parsers. Use JSON where possible.',
+    'idor': 'Implement proper authorization checks per object. Use indirect references.',
+    'cors': 'Restrict Access-Control-Allow-Origin to trusted domains. Avoid wildcard with credentials.',
+    'jwt': 'Enforce strong signing algorithms (RS256+). Validate all claims including expiration.',
+    'nosql': 'Sanitize input before MongoDB queries. Avoid $where and operator injection.',
+    'file upload': 'Validate file type, size, and content. Store uploads outside webroot.',
+}
 
 
 @dataclass
@@ -33,6 +54,9 @@ class Finding:
     cwe_id: str = ''
     cvss: float = 0.0
     extracted_data: str = ''
+    signals: dict = field(default_factory=dict)
+    priority: float = 0.0
+    remediation: str = ''
 
     def __post_init__(self):
         # Auto-populate MITRE/CWE from technique name
@@ -43,6 +67,13 @@ class Finding:
                 if not self.cwe_id:
                     self.cwe_id = cwe
                 break
+        # Auto-populate remediation suggestion
+        if not self.remediation:
+            technique_lower = self.technique.lower()
+            for key, suggestion in REMEDIATION_MAP.items():
+                if key in technique_lower:
+                    self.remediation = suggestion
+                    break
 
 
 class AtomicEngine:
@@ -73,6 +104,23 @@ class AtomicEngine:
             self.db = Database()
         except Exception:
             self.db = None
+
+        # --- New intelligence components ---
+        from core.context import ContextIntelligence
+        from core.prioritizer import EndpointPrioritizer
+        from core.baseline import BaselineEngine
+        from core.scorer import SignalScorer
+        from core.verifier import Verifier
+        from core.learning import LearningStore
+        from core.adaptive import AdaptiveController
+
+        self.context = ContextIntelligence(self)
+        self.prioritizer = EndpointPrioritizer(self)
+        self.baseline_engine = BaselineEngine(self)
+        self.scorer = SignalScorer(self)
+        self.verifier = Verifier(self)
+        self.learning = LearningStore(self)
+        self.adaptive = AdaptiveController(self)
 
         # Initialize modules
         self._modules = {}
@@ -106,7 +154,12 @@ class AtomicEngine:
                     print(f"{Colors.warning(f'Module {key} failed to load: {e}')}")
 
     def scan(self, target: str):
-        """Scan a target URL"""
+        """Scan a target URL.
+
+        Follows the CORE FLOW:
+        Discover → Extract Inputs → Analyze Context → Prioritize →
+        Baseline → Test → Analyze → Verify → Report → Learn → Adapt
+        """
         self.target = target
         self.start_time = datetime.utcnow()
 
@@ -128,8 +181,10 @@ class AtomicEngine:
                 config=json.dumps(self.config, default=str),
             )
 
-        # Reconnaissance
         modules_config = self.config.get('modules', {})
+
+        # ── 1. DISCOVERY ─────────────────────────────────────────
+        # Reconnaissance (optional)
         if modules_config.get('recon', False):
             try:
                 from modules.reconnaissance import ReconModule
@@ -142,7 +197,10 @@ class AtomicEngine:
         # Crawl target
         from utils.crawler import Crawler
         crawler = Crawler(self)
-        depth = self.config.get('depth', 3)
+        depth = min(
+            self.config.get('depth', 3) + self.adaptive.get_depth_boost(),
+            Config.MAX_DEPTH,
+        )
 
         print(f"{Colors.info(f'Crawling with depth {depth}...')}")
         urls, forms, parameters = crawler.crawl(target, depth)
@@ -155,12 +213,10 @@ class AtomicEngine:
                 discovery = DiscoveryModule(self)
                 discovery.run(target, crawler=crawler)
 
-                # Feed any new endpoints from discovery back into the
-                # parameter list so vulnerability modules can test them.
                 for ep in discovery.endpoints:
                     if ep not in urls:
                         urls.add(ep)
-                        # Also extract URL parameters from newly found endpoints
+                        self.adaptive.add_new_endpoint(ep)
                         ep_parsed = urlparse(ep)
                         if ep_parsed.query:
                             for name, values in parse_qs(ep_parsed.query).items():
@@ -170,20 +226,46 @@ class AtomicEngine:
                 if self.config.get('verbose'):
                     print(f"{Colors.error(f'Discovery error: {e}')}")
 
-        # Run attack modules on discovered parameters
+        # ── 2. INPUT EXTRACTION & 3. CONTEXT INTELLIGENCE ────────
+        enriched_params = self.context.analyze_parameters(parameters)
+
+        # ── 4 & 5. PRIORITIZATION ────────────────────────────────
+        enriched_params = self.prioritizer.prioritize_parameters(enriched_params)
+        prioritized_urls = self.prioritizer.prioritize_urls(urls)
+
+        # ── 6. BASELINE ENGINE ───────────────────────────────────
+        print(f"{Colors.info('Building baselines...')}")
+        seen_baselines = set()
+        for ep in enriched_params:
+            bkey = f"{ep['method']}:{ep['url']}:{ep['param']}"
+            if bkey not in seen_baselines:
+                seen_baselines.add(bkey)
+                self.baseline_engine.get_baseline(
+                    ep['url'], ep['method'], ep['param'], ep['value'],
+                )
+
+        # ── 7. ADAPTIVE TESTING ──────────────────────────────────
         for module_key, module_instance in self._modules.items():
             print(f"\n{Colors.info(f'Running {module_instance.name} module...')}")
 
-            for param_url, method, param_name, param_value, source in parameters:
+            for ep in enriched_params:
                 try:
+                    # Adaptive delay
+                    import time
+                    delay = self.adaptive.get_delay()
+                    if delay > 0:
+                        time.sleep(delay)
+
                     if hasattr(module_instance, 'test'):
-                        module_instance.test(param_url, method, param_name, param_value)
+                        module_instance.test(
+                            ep['url'], ep['method'], ep['param'], ep['value'],
+                        )
                 except Exception as e:
                     if self.config.get('verbose'):
                         print(f"{Colors.error(f'Module error ({module_key}): {e}')}")
 
-            # Also test URL-level checks (CORS, JWT, etc.)
-            for url in urls:
+            # URL-level checks (CORS, JWT, etc.) — in priority order
+            for url, _score in prioritized_urls:
                 try:
                     if hasattr(module_instance, 'test_url'):
                         module_instance.test_url(url)
@@ -191,7 +273,45 @@ class AtomicEngine:
                     if self.config.get('verbose'):
                         print(f"{Colors.error(f'URL test error ({module_key}): {e}')}")
 
-        # Post-exploitation
+        # ── 8-9. MULTI-SIGNAL ANALYSIS (scoring enrichment) ──────
+        self._enrich_finding_signals()
+
+        # ── 10. VERIFICATION ─────────────────────────────────────
+        self.findings = self.verifier.verify_findings(self.findings)
+
+        # ── 13. SELF-LEARNING ────────────────────────────────────
+        for f in self.findings:
+            self.learning.record_success(f.technique, f.payload)
+        self.learning.update_thresholds(self.findings)
+        self.learning.save()
+
+        # ── 14. ADAPTIVE LOOP (re-discovery if needed) ───────────
+        if self.adaptive.should_rediscover() and modules_config.get('discovery', False):
+            try:
+                new_params = []
+                for ep_url in self.adaptive.new_endpoints:
+                    ep_parsed = urlparse(ep_url)
+                    if ep_parsed.query:
+                        for name, values in parse_qs(ep_parsed.query).items():
+                            for val in values:
+                                new_params.append((ep_url, 'get', name, val, 'adaptive'))
+                if new_params:
+                    new_enriched = self.context.analyze_parameters(new_params)
+                    new_enriched = self.prioritizer.prioritize_parameters(new_enriched)
+                    for module_key, module_instance in self._modules.items():
+                        for ep in new_enriched:
+                            try:
+                                if hasattr(module_instance, 'test'):
+                                    module_instance.test(
+                                        ep['url'], ep['method'], ep['param'], ep['value'],
+                                    )
+                            except Exception:
+                                pass
+            except Exception as e:
+                if self.config.get('verbose'):
+                    print(f"{Colors.error(f'Adaptive re-scan error: {e}')}")
+
+        # ── Post-exploitation ────────────────────────────────────
         if modules_config.get('shell', False) and self.findings:
             try:
                 from modules.uploader import ShellUploader
@@ -212,8 +332,28 @@ class AtomicEngine:
 
         self.end_time = datetime.utcnow()
 
-        # Print summary
+        # ── Print summary ────────────────────────────────────────
         self._print_summary()
+
+    def _enrich_finding_signals(self):
+        """Run multi-signal analysis on existing findings to refine confidence."""
+        for finding in self.findings:
+            method = getattr(finding, 'method', 'POST')
+            baseline = self.baseline_engine.get_baseline(
+                finding.url, method, finding.param, '',
+            )
+            signals = self.scorer.analyze(
+                baseline=baseline,
+                elapsed=0,
+                response_text=finding.evidence,
+                payload=finding.payload,
+                error_patterns=['error', 'syntax', 'exception', 'warning'],
+                baseline_text='',
+            )
+            finding.signals = signals.to_dict()
+            # Boost confidence if multi-signal analysis agrees
+            if signals.combined_score > finding.confidence:
+                finding.confidence = signals.combined_score
 
     def add_finding(self, finding: Finding):
         """Add a vulnerability finding"""
@@ -256,7 +396,7 @@ class AtomicEngine:
             self.db.save_finding(self.scan_id, finding)
 
     def _print_summary(self):
-        """Print scan summary"""
+        """Print scan summary with intelligence insights"""
         duration = (self.end_time - self.start_time).total_seconds() if self.end_time and self.start_time else 0
 
         print(f"\n{Colors.BOLD}{'='*60}{Colors.RESET}")
@@ -278,6 +418,13 @@ class AtomicEngine:
             for sev in ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO']:
                 if sev in severities:
                     print(f"    {sev}: {severities[sev]}")
+
+        # Adaptive intelligence summary
+        adaptive_summary = self.adaptive.get_scan_summary()
+        if adaptive_summary.get('waf_detected'):
+            print(f"\n  {Colors.YELLOW}WAF Detected:{Colors.RESET} {adaptive_summary['waf_name']}")
+        if adaptive_summary.get('block_rate', 0) > 0.1:
+            print(f"  Block Rate: {adaptive_summary['block_rate']:.1%}")
 
         print(f"{Colors.BOLD}{'='*60}{Colors.RESET}")
 

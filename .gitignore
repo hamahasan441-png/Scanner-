@@ -8,3 +8,4 @@ wordlists/
 *.egg-info/
 dist/
 build/
+.atomic_learning.json
