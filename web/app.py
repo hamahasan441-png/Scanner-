@@ -472,6 +472,153 @@ def get_stats():
 
 
 # ---------------------------------------------------------------------------
+# Burp Suite-style tool endpoints
+# ---------------------------------------------------------------------------
+
+@app.route('/api/tools/decode', methods=['POST'])
+@_require_api_key
+@_rate_limit
+def api_decode():
+    """Decode data (auto-detect or specified encoding)."""
+    body = request.get_json(silent=True) or {}
+    data = body.get('data', '')
+    encoding = body.get('encoding')
+    if not data:
+        return jsonify({'status': 'error', 'data': 'Missing data field'}), 400
+    try:
+        from utils.decoder import Decoder
+        if encoding:
+            result = Decoder.decode(data, encoding)
+        else:
+            result = Decoder.smart_decode(data)
+        return jsonify({'status': 'success', 'data': {'result': result}})
+    except Exception as exc:
+        return jsonify({'status': 'error', 'data': str(exc)}), 500
+
+
+@app.route('/api/tools/encode', methods=['POST'])
+@_require_api_key
+@_rate_limit
+def api_encode():
+    """Encode data with a specified encoding type."""
+    body = request.get_json(silent=True) or {}
+    data = body.get('data', '')
+    encoding = body.get('encoding', 'url')
+    if not data:
+        return jsonify({'status': 'error', 'data': 'Missing data field'}), 400
+    try:
+        from utils.decoder import Decoder
+        result = Decoder.encode(data, encoding)
+        return jsonify({'status': 'success', 'data': {'result': result, 'encoding': encoding}})
+    except Exception as exc:
+        return jsonify({'status': 'error', 'data': str(exc)}), 500
+
+
+@app.route('/api/tools/hash', methods=['POST'])
+@_require_api_key
+@_rate_limit
+def api_hash():
+    """Hash data with a specified algorithm."""
+    body = request.get_json(silent=True) or {}
+    data = body.get('data', '')
+    algorithm = body.get('algorithm', 'sha256')
+    if not data:
+        return jsonify({'status': 'error', 'data': 'Missing data field'}), 400
+    try:
+        from utils.decoder import Decoder
+        result = Decoder.hash_data(data, algorithm)
+        return jsonify({'status': 'success', 'data': {'result': result, 'algorithm': algorithm}})
+    except Exception as exc:
+        return jsonify({'status': 'error', 'data': str(exc)}), 500
+
+
+@app.route('/api/tools/compare', methods=['POST'])
+@_require_api_key
+@_rate_limit
+def api_compare():
+    """Compare two texts or HTTP responses."""
+    body = request.get_json(silent=True) or {}
+    text1 = body.get('text1', '')
+    text2 = body.get('text2', '')
+    if not text1 and not text2:
+        return jsonify({'status': 'error', 'data': 'Missing text1/text2 fields'}), 400
+    try:
+        from utils.comparer import Comparer
+        comp = Comparer()
+        ratio = comp.similarity_ratio(text1, text2)
+        diff = comp.diff_text(text1, text2)
+        return jsonify({
+            'status': 'success',
+            'data': {'similarity': ratio, 'diff': diff},
+        })
+    except Exception as exc:
+        return jsonify({'status': 'error', 'data': str(exc)}), 500
+
+
+@app.route('/api/tools/sequencer', methods=['POST'])
+@_require_api_key
+@_rate_limit
+def api_sequencer():
+    """Analyze token randomness/entropy."""
+    body = request.get_json(silent=True) or {}
+    tokens = body.get('tokens', [])
+    if not tokens:
+        return jsonify({'status': 'error', 'data': 'Missing tokens list'}), 400
+    try:
+        from utils.sequencer import Sequencer
+        seq = Sequencer()
+        seq.add_tokens(tokens)
+        report = seq.generate_report()
+        return jsonify({'status': 'success', 'data': report})
+    except Exception as exc:
+        return jsonify({'status': 'error', 'data': str(exc)}), 500
+
+
+@app.route('/api/tools/repeater', methods=['POST'])
+@_require_api_key
+@_rate_limit
+def api_repeater():
+    """Send an HTTP request via the Repeater tool."""
+    body = request.get_json(silent=True) or {}
+    method = body.get('method', 'GET').upper()
+    url = body.get('url', '')
+    headers = body.get('headers')
+    req_body = body.get('body')
+    if not url:
+        return jsonify({'status': 'error', 'data': 'Missing url field'}), 400
+    if not url.startswith(('http://', 'https://')):
+        return jsonify({'status': 'error', 'data': 'URL must start with http:// or https://'}), 400
+    try:
+        from core.repeater import Repeater
+        rep = Repeater(timeout=15)
+        resp = rep.send(method, url, headers=headers, body=req_body)
+        return jsonify({
+            'status': 'success',
+            'data': {
+                'status_code': resp.status_code,
+                'headers': resp.headers,
+                'body': resp.body[:10000],
+                'elapsed': resp.elapsed,
+                'size': resp.size,
+            },
+        })
+    except Exception as exc:
+        return jsonify({'status': 'error', 'data': str(exc)}), 500
+
+
+@app.route('/api/tools/encodings', methods=['GET'])
+@_require_api_key
+@_rate_limit
+def api_list_encodings():
+    """List all supported encodings."""
+    try:
+        from utils.decoder import Decoder
+        return jsonify({'status': 'success', 'data': Decoder.list_encodings()})
+    except Exception as exc:
+        return jsonify({'status': 'error', 'data': str(exc)}), 500
+
+
+# ---------------------------------------------------------------------------
 # App factory & runner
 # ---------------------------------------------------------------------------
 

@@ -9,6 +9,7 @@ Main Entry Point - Termux Optimized
 import sys
 import os
 import argparse
+import time
 import warnings
 from datetime import datetime
 
@@ -40,6 +41,16 @@ def main():
   {Colors.GREEN}%(prog)s --list-scans{Colors.RESET}                           # List previous scans
   {Colors.GREEN}%(prog)s --report <scan_id>{Colors.RESET}                     # Generate report
   {Colors.GREEN}%(prog)s --shell-manager{Colors.RESET}                        # Manage active shells
+
+{Colors.CYAN}Burp Suite Tools:{Colors.RESET}
+  {Colors.GREEN}%(prog)s --proxy-server{Colors.RESET}                         # Start intercepting proxy
+  {Colors.GREEN}%(prog)s --proxy-server --proxy-intercept{Colors.RESET}       # Proxy with intercept mode
+  {Colors.GREEN}%(prog)s --repeater < request.txt{Colors.RESET}              # Replay raw HTTP request
+  {Colors.GREEN}%(prog)s -t https://target.com?id=1 --intruder{Colors.RESET} # Intruder attack
+  {Colors.GREEN}%(prog)s --decode "dGVzdA=="{Colors.RESET}                   # Smart decode data
+  {Colors.GREEN}%(prog)s --encode "test" --encode-type base64{Colors.RESET}  # Encode data
+  {Colors.GREEN}%(prog)s --sequencer < tokens.txt{Colors.RESET}              # Analyze token randomness
+  {Colors.GREEN}%(prog)s --compare resp1.txt resp2.txt{Colors.RESET}         # Compare responses
 
 {Colors.CYAN}Termux Installation:{Colors.RESET}
   pkg update && pkg upgrade -y
@@ -186,6 +197,37 @@ def main():
     parser.add_argument('--web-port', type=int, default=5000,
                        help='Web dashboard port (default: 5000)')
     
+    # Burp Suite-style tools
+    parser.add_argument('--proxy-server', action='store_true',
+                       help='Launch intercepting proxy server')
+    parser.add_argument('--proxy-port', type=int, default=8080,
+                       help='Proxy server port (default: 8080)')
+    parser.add_argument('--proxy-intercept', action='store_true',
+                       help='Enable request interception on proxy')
+    parser.add_argument('--repeater', action='store_true',
+                       help='Launch interactive repeater (send raw HTTP request from stdin)')
+    parser.add_argument('--intruder', action='store_true',
+                       help='Launch intruder attack mode')
+    parser.add_argument('--intruder-type',
+                       choices=['sniper', 'battering_ram', 'pitchfork', 'cluster_bomb'],
+                       default='sniper',
+                       help='Intruder attack type (default: sniper)')
+    parser.add_argument('--intruder-payloads',
+                       help='File containing payloads (one per line)')
+    parser.add_argument('--decode', metavar='DATA',
+                       help='Decode data (auto-detect encoding)')
+    parser.add_argument('--encode', metavar='DATA',
+                       help='Encode data')
+    parser.add_argument('--encode-type',
+                       choices=['url', 'double_url', 'base64', 'hex',
+                                'html_entities', 'unicode_escape', 'rot13'],
+                       default='url',
+                       help='Encoding type for --encode (default: url)')
+    parser.add_argument('--sequencer', action='store_true',
+                       help='Analyze token randomness from stdin (one token per line)')
+    parser.add_argument('--compare', nargs=2, metavar='FILE',
+                       help='Compare two response files')
+
     args = parser.parse_args()
     
     # Print banner
@@ -203,6 +245,152 @@ def main():
             sys.exit(1)
         return
     
+    # Burp Suite-style tool handlers
+    if args.proxy_server:
+        from core.proxy import InterceptProxy
+        proxy = InterceptProxy(
+            host='127.0.0.1', port=args.proxy_port,
+            intercept=args.proxy_intercept,
+        )
+        print(f"{Colors.info(f'Starting intercepting proxy on 127.0.0.1:{args.proxy_port}')}")
+        if args.proxy_intercept:
+            print(f"{Colors.warning('Intercept mode enabled')}")
+        proxy.start()
+        try:
+            while proxy.is_running:
+                time.sleep(1)
+        except KeyboardInterrupt:
+            proxy.stop()
+            print(f"\n{Colors.info('Proxy stopped')}")
+        return
+
+    if args.repeater:
+        from core.repeater import Repeater
+        repeater = Repeater(
+            timeout=args.timeout,
+            proxy=args.proxy,
+        )
+        print(f"{Colors.info('Repeater ready. Paste raw HTTP request then press Ctrl-D:')}")
+        raw = sys.stdin.read()
+        if raw.strip():
+            resp = repeater.send_raw(raw)
+            print(f"\n{Colors.BOLD}HTTP/{resp.status_code}{Colors.RESET}")
+            for k, v in resp.headers.items():
+                print(f"{Colors.CYAN}{k}{Colors.RESET}: {v}")
+            print(f"\n{resp.body[:2000]}")
+            print(f"\n{Colors.info(f'Elapsed: {resp.elapsed:.3f}s | Size: {resp.size} bytes')}")
+        else:
+            print(f"{Colors.error('No request data provided')}")
+        return
+
+    if args.intruder:
+        if not args.target:
+            print(f"{Colors.error('Intruder requires -t/--target')}")
+            sys.exit(1)
+        from core.intruder import Intruder, MARKER
+        intruder = Intruder(
+            timeout=args.timeout,
+            proxy=args.proxy,
+            threads=args.threads,
+            delay=args.delay,
+        )
+        intruder.set_target('GET', args.target)
+        intruder.set_attack_type(args.intruder_type)
+        payloads = []
+        if args.intruder_payloads and os.path.isfile(args.intruder_payloads):
+            with open(args.intruder_payloads, 'r') as fp:
+                payloads = [line.strip() for line in fp if line.strip()]
+        if not payloads:
+            from config import Payloads as P
+            payloads = P.XSS_PAYLOADS[:10] + P.SQLI_ERROR_BASED[:10]
+        from urllib.parse import urlparse, parse_qs
+        parsed = urlparse(args.target)
+        qs = parse_qs(parsed.query)
+        if qs:
+            for param in qs:
+                marker = f'{MARKER}{param}{MARKER}'
+                intruder.set_positions([{
+                    'name': param, 'location': 'url', 'marker': marker,
+                }])
+                intruder.add_payload_set(param, payloads)
+        else:
+            intruder.set_positions([{
+                'name': 'FUZZ', 'location': 'url',
+                'marker': f'{MARKER}FUZZ{MARKER}',
+            }])
+            intruder.add_payload_set('FUZZ', payloads)
+            new_url = args.target.rstrip('/') + f'/{MARKER}FUZZ{MARKER}'
+            intruder.set_target('GET', new_url)
+
+        print(f"{Colors.info(f'Intruder attacking {args.target} [{args.intruder_type}]')}")
+        results = intruder.attack()
+        print(f"\n{Colors.BOLD}{'#':<5} {'Status':<8} {'Length':<10} {'Time':<8} Payload{Colors.RESET}")
+        for r in results:
+            print(f"{r.index:<5} {r.status_code:<8} {r.length:<10} {r.elapsed:<8.3f} {str(r.payload)[:60]}")
+        print(f"\n{Colors.success(f'Attack complete: {len(results)} requests sent')}")
+        return
+
+    if args.decode:
+        from utils.decoder import Decoder
+        result = Decoder.smart_decode(args.decode)
+        print(f"{Colors.info('Smart decode result:')}")
+        print(result)
+        return
+
+    if args.encode:
+        from utils.decoder import Decoder
+        result = Decoder.encode(args.encode, args.encode_type)
+        print(f"{Colors.info(f'Encoded ({args.encode_type}):')}")
+        print(result)
+        return
+
+    if args.sequencer:
+        from utils.sequencer import Sequencer
+        seq = Sequencer()
+        print(f"{Colors.info('Paste tokens (one per line), then Ctrl-D:')}")
+        for line in sys.stdin:
+            token = line.strip()
+            if token:
+                seq.add_token(token)
+        report = seq.generate_report()
+        summary = report.get('summary', {})
+        analysis = report.get('analysis', {})
+        print(f"\n{Colors.BOLD}Token Sequencer Analysis{Colors.RESET}")
+        print(f"  Tokens analyzed: {summary.get('token_count', 0)}")
+        print(f"  Entropy: {analysis.get('entropy', 0):.4f} bits/char ({analysis.get('entropy_rating', 'N/A')})")
+        chi_val = analysis.get('chi_squared', 0)
+        chi_random = analysis.get('chi_squared_random', False)
+        print(f"  Chi-squared: {chi_val:.2f} (random: {chi_random})")
+        print(f"  Unique ratio: {analysis.get('uniqueness_ratio', 0):.2%}")
+        print(f"  Predictable: {summary.get('is_predictable', False)} (confidence: {summary.get('predictability_confidence', 0):.1%})")
+        reason = summary.get('predictability_reason', '')
+        if reason:
+            print(f"  Reason: {reason}")
+        return
+
+    if args.compare:
+        from utils.comparer import Comparer
+        file1, file2 = args.compare
+        if not os.path.isfile(file1) or not os.path.isfile(file2):
+            print(f"{Colors.error('One or both files not found')}")
+            sys.exit(1)
+        with open(file1, 'r') as f:
+            text1 = f.read()
+        with open(file2, 'r') as f:
+            text2 = f.read()
+        comp = Comparer()
+        ratio = comp.similarity_ratio(text1, text2)
+        print(f"{Colors.info(f'Similarity: {ratio:.2%}')}")
+        diff = comp.diff_text(text1, text2)
+        for line in diff:
+            if line.startswith('+') and not line.startswith('+++'):
+                print(f"{Colors.GREEN}{line}{Colors.RESET}")
+            elif line.startswith('-') and not line.startswith('---'):
+                print(f"{Colors.RED}{line}{Colors.RESET}")
+            else:
+                print(line)
+        return
+
     # Check/Install dependencies
     if args.check_deps:
         check_dependencies()

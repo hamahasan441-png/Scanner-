@@ -140,5 +140,169 @@ class TestReportDownload(unittest.TestCase):
         self.assertEqual(resp.status_code, 404)
 
 
+# ---------------------------------------------------------------------------
+# Burp Suite-style tool API endpoint tests
+# ---------------------------------------------------------------------------
+
+class TestDecodeEndpoint(unittest.TestCase):
+    """Tests for POST /api/tools/decode."""
+
+    def setUp(self):
+        app.config['TESTING'] = True
+        self.client = app.test_client()
+
+    @patch.object(web_app_module, '_API_KEY', '')
+    def test_missing_data_returns_400(self):
+        resp = self.client.post('/api/tools/decode', json={})
+        self.assertEqual(resp.status_code, 400)
+
+    @patch.object(web_app_module, '_API_KEY', '')
+    def test_smart_decode_base64(self):
+        resp = self.client.post('/api/tools/decode', json={'data': 'dGVzdA=='})
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertEqual(data['status'], 'success')
+        self.assertIn('result', data['data'])
+
+    @patch.object(web_app_module, '_API_KEY', '')
+    def test_decode_with_encoding(self):
+        resp = self.client.post(
+            '/api/tools/decode', json={'data': 'dGVzdA==', 'encoding': 'base64'}
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.get_json()['data']['result'], 'test')
+
+
+class TestEncodeEndpoint(unittest.TestCase):
+    """Tests for POST /api/tools/encode."""
+
+    def setUp(self):
+        app.config['TESTING'] = True
+        self.client = app.test_client()
+
+    @patch.object(web_app_module, '_API_KEY', '')
+    def test_missing_data_returns_400(self):
+        resp = self.client.post('/api/tools/encode', json={})
+        self.assertEqual(resp.status_code, 400)
+
+    @patch.object(web_app_module, '_API_KEY', '')
+    def test_encode_url(self):
+        resp = self.client.post(
+            '/api/tools/encode', json={'data': '<script>', 'encoding': 'url'}
+        )
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertEqual(data['status'], 'success')
+        self.assertIn('result', data['data'])
+
+
+class TestHashEndpoint(unittest.TestCase):
+    """Tests for POST /api/tools/hash."""
+
+    def setUp(self):
+        app.config['TESTING'] = True
+        self.client = app.test_client()
+
+    @patch.object(web_app_module, '_API_KEY', '')
+    def test_missing_data_returns_400(self):
+        resp = self.client.post('/api/tools/hash', json={})
+        self.assertEqual(resp.status_code, 400)
+
+    @patch.object(web_app_module, '_API_KEY', '')
+    def test_hash_sha256(self):
+        resp = self.client.post(
+            '/api/tools/hash', json={'data': 'test', 'algorithm': 'sha256'}
+        )
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertEqual(data['status'], 'success')
+        self.assertIn('result', data['data'])
+
+
+class TestCompareEndpoint(unittest.TestCase):
+    """Tests for POST /api/tools/compare."""
+
+    def setUp(self):
+        app.config['TESTING'] = True
+        self.client = app.test_client()
+
+    @patch.object(web_app_module, '_API_KEY', '')
+    def test_missing_texts_returns_400(self):
+        resp = self.client.post('/api/tools/compare', json={})
+        self.assertEqual(resp.status_code, 400)
+
+    @patch.object(web_app_module, '_API_KEY', '')
+    def test_compare_returns_similarity(self):
+        resp = self.client.post(
+            '/api/tools/compare',
+            json={'text1': 'hello world', 'text2': 'hello earth'},
+        )
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertIn('similarity', data['data'])
+        self.assertIn('diff', data['data'])
+
+
+class TestSequencerEndpoint(unittest.TestCase):
+    """Tests for POST /api/tools/sequencer."""
+
+    def setUp(self):
+        app.config['TESTING'] = True
+        self.client = app.test_client()
+
+    @patch.object(web_app_module, '_API_KEY', '')
+    def test_missing_tokens_returns_400(self):
+        resp = self.client.post('/api/tools/sequencer', json={})
+        self.assertEqual(resp.status_code, 400)
+
+    @patch.object(web_app_module, '_API_KEY', '')
+    def test_sequencer_returns_report(self):
+        tokens = ['abc123', 'def456', 'ghi789', 'jkl012']
+        resp = self.client.post(
+            '/api/tools/sequencer', json={'tokens': tokens}
+        )
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertEqual(data['status'], 'success')
+        self.assertIn('analysis', data['data'])
+
+
+class TestRepeaterEndpoint(unittest.TestCase):
+    """Tests for POST /api/tools/repeater."""
+
+    def setUp(self):
+        app.config['TESTING'] = True
+        self.client = app.test_client()
+
+    @patch.object(web_app_module, '_API_KEY', '')
+    def test_missing_url_returns_400(self):
+        resp = self.client.post('/api/tools/repeater', json={})
+        self.assertEqual(resp.status_code, 400)
+
+    @patch.object(web_app_module, '_API_KEY', '')
+    def test_invalid_url_returns_400(self):
+        resp = self.client.post(
+            '/api/tools/repeater', json={'url': 'not-a-url'}
+        )
+        self.assertEqual(resp.status_code, 400)
+
+
+class TestListEncodings(unittest.TestCase):
+    """Tests for GET /api/tools/encodings."""
+
+    def setUp(self):
+        app.config['TESTING'] = True
+        self.client = app.test_client()
+
+    @patch.object(web_app_module, '_API_KEY', '')
+    def test_list_encodings_returns_list(self):
+        resp = self.client.get('/api/tools/encodings')
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertEqual(data['status'], 'success')
+        self.assertIsInstance(data['data'], list)
+        self.assertGreater(len(data['data']), 0)
+
+
 if __name__ == '__main__':
     unittest.main()
