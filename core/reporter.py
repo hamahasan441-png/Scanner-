@@ -111,6 +111,9 @@ class ReportGenerator:
                     'mitre_id': getattr(f, 'mitre_id', ''),
                     'cwe_id': getattr(f, 'cwe_id', ''),
                     'cvss': getattr(f, 'cvss', 0.0),
+                    'signals': getattr(f, 'signals', {}),
+                    'priority': getattr(f, 'priority', 0.0),
+                    'remediation': getattr(f, 'remediation', ''),
                 })
         return data
 
@@ -153,6 +156,16 @@ class ReportGenerator:
         findings_html = ''
         for f in findings_data:
             color = severity_colors.get(f.get('severity', 'INFO'), '#6c757d')
+            signals = f.get('signals', {})
+            signals_html = ''
+            if signals:
+                signals_html = (
+                    f"T:{signals.get('timing', 0):.1f} "
+                    f"E:{signals.get('error', 0):.1f} "
+                    f"R:{signals.get('reflection', 0):.1f} "
+                    f"D:{signals.get('diff', 0):.1f}"
+                )
+            remediation = f.get('remediation', '')
             findings_html += f"""
             <tr>
                 <td><span style="color:{color};font-weight:bold">{f.get('severity', 'INFO')}</span></td>
@@ -161,6 +174,9 @@ class ReportGenerator:
                 <td>{f.get('param', '')}</td>
                 <td><code>{f.get('payload', '')[:80]}</code></td>
                 <td>{f.get('evidence', '')[:100]}</td>
+                <td>{f.get('confidence', 0):.0%}</td>
+                <td style="font-size:11px">{signals_html}</td>
+                <td style="font-size:11px">{remediation[:120]}</td>
             </tr>"""
 
         duration = ''
@@ -211,6 +227,9 @@ class ReportGenerator:
             <th>Parameter</th>
             <th>Payload</th>
             <th>Evidence</th>
+            <th>Confidence</th>
+            <th>Signals</th>
+            <th>Remediation</th>
         </tr>
         {findings_html}
     </table>
@@ -240,9 +259,15 @@ class ReportGenerator:
         try:
             with open(filepath, 'w', newline='') as f:
                 writer = csv.writer(f)
-                writer.writerow(['Severity', 'Technique', 'URL', 'Parameter', 'Payload', 'Evidence', 'MITRE ID', 'CWE ID', 'CVSS', 'Confidence'])
+                writer.writerow([
+                    'Severity', 'Technique', 'URL', 'Parameter', 'Payload',
+                    'Evidence', 'MITRE ID', 'CWE ID', 'CVSS', 'Confidence',
+                    'Signals', 'Priority', 'Remediation',
+                ])
 
                 for finding in findings_data:
+                    signals = finding.get('signals', {})
+                    signals_str = '; '.join(f'{k}={v}' for k, v in signals.items()) if signals else ''
                     writer.writerow([
                         finding.get('severity', ''),
                         finding.get('technique', ''),
@@ -254,6 +279,9 @@ class ReportGenerator:
                         finding.get('cwe_id', ''),
                         finding.get('cvss', ''),
                         finding.get('confidence', ''),
+                        signals_str,
+                        finding.get('priority', ''),
+                        finding.get('remediation', ''),
                     ])
         except (IOError, OSError) as e:
             print(f"{Colors.error(f'Cannot write report to {filepath}: {e}')}")
@@ -294,10 +322,18 @@ class ReportGenerator:
                 lines.append(f"    Payload:  {f.get('payload', '')[:80]}")
             if f.get('evidence'):
                 lines.append(f"    Evidence: {f.get('evidence', '')[:100]}")
+            if f.get('confidence'):
+                lines.append(f"    Confidence: {f.get('confidence', 0):.0%}")
+            signals = f.get('signals', {})
+            if signals:
+                parts = [f"{k}={v}" for k, v in signals.items()]
+                lines.append(f"    Signals:  {', '.join(parts)}")
             if f.get('mitre_id'):
                 lines.append(f"    MITRE:    {f.get('mitre_id', '')}")
             if f.get('cwe_id'):
                 lines.append(f"    CWE:      {f.get('cwe_id', '')}")
+            if f.get('remediation'):
+                lines.append(f"    Fix:      {f.get('remediation', '')}")
 
         try:
             with open(filepath, 'w') as f:
