@@ -437,7 +437,9 @@ class AIEngine:
             conf = finding.confidence
 
             # Historical boost: families that succeeded before are
-            # prioritised more aggressively.
+            # prioritised more aggressively.  Each prior success adds
+            # +0.05 (small increment) to the score, capped at +0.2 so
+            # history never outweighs the severity × confidence base.
             history_boost = 0.0
             if vuln_type in self.vuln_history:
                 history_boost = min(0.2, sum(
