@@ -186,7 +186,7 @@ class VulnXModule:
             try:
                 resp = self.requester.request(full_url, 'GET')
                 if resp and resp.status_code == 200:
-                    snippet = resp.text[:200].strip()
+                    snippet = resp.text[:120].strip()
                     finding = Finding(
                         technique=f"CMS Exposure ({cms})",
                         url=full_url,
@@ -196,7 +196,7 @@ class VulnXModule:
                         payload=path,
                         evidence=f"CMS: {cms} — accessible path: {path} "
                                  f"(status {resp.status_code}). "
-                                 f"Snippet: {snippet[:120]}",
+                                 f"Snippet: {snippet}",
                     )
                     self.engine.add_finding(finding)
             except Exception:
