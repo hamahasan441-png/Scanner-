@@ -94,6 +94,17 @@ class SSRFModule:
             'http://0x7f000001',
         ]
         
+        # Get baseline response for comparison
+        try:
+            baseline_data = {param: value}
+            baseline = self.requester.request(url, method, data=baseline_data)
+            if not baseline:
+                return
+            baseline_len = len(baseline.text)
+            baseline_text = baseline.text.lower()
+        except Exception:
+            return
+        
         for target in internal_targets:
             try:
                 data = {param: target}
@@ -104,8 +115,30 @@ class SSRFModule:
                 
                 # Check for successful internal access
                 if response.status_code == 200 and len(response.text) > 0:
-                    # Check if it's not just an error page
-                    if not any(err in response.text.lower() for err in ['error', 'not found', 'forbidden']):
+                    response_text = response.text.lower()
+                    response_len = len(response.text)
+                    
+                    # Skip if response looks like an error page
+                    if any(err in response_text for err in ['error', 'not found', 'forbidden']):
+                        continue
+                    
+                    # Response must differ significantly from baseline to indicate
+                    # the server actually fetched from the internal target
+                    len_diff = abs(response_len - baseline_len)
+                    if len_diff < 50 and response_text == baseline_text:
+                        continue
+                    
+                    # Look for internal content indicators
+                    internal_indicators = [
+                        'apache', 'nginx', 'iis', 'index of',
+                        'directory listing', 'it works',
+                        '127.0.0.1', 'localhost',
+                        'server at', 'port ',
+                    ]
+                    has_internal = any(ind in response_text for ind in internal_indicators)
+                    baseline_has = any(ind in baseline_text for ind in internal_indicators)
+                    
+                    if has_internal and not baseline_has:
                         from core.engine import Finding
                         finding = Finding(
                             technique="SSRF (Internal Access)",
@@ -185,6 +218,17 @@ class SSRFModule:
             'http://[0:0:0:0:0:ffff:127.0.0.1]',
         ]
         
+        # Get baseline response for comparison
+        try:
+            baseline_data = {param: value}
+            baseline = self.requester.request(url, method, data=baseline_data)
+            if not baseline:
+                return
+            baseline_len = len(baseline.text)
+            baseline_text = baseline.text.lower()
+        except Exception:
+            return
+        
         for payload in bypass_techniques:
             try:
                 data = {param: payload}
@@ -195,18 +239,36 @@ class SSRFModule:
                 
                 # Check for successful access
                 if response.status_code == 200 and len(response.text) > 10:
-                    from core.engine import Finding
-                    finding = Finding(
-                        technique="SSRF (Localhost Bypass)",
-                        url=url,
-                        severity='HIGH',
-                        confidence=0.75,
-                        param=param,
-                        payload=payload,
-                        evidence=f"Localhost accessible via: {payload}",
-                    )
-                    self.engine.add_finding(finding)
-                    return
+                    response_text = response.text.lower()
+                    response_len = len(response.text)
+                    
+                    # Response must differ significantly from baseline
+                    len_diff = abs(response_len - baseline_len)
+                    if len_diff < 50 and response_text == baseline_text:
+                        continue
+                    
+                    # Look for internal content indicators
+                    internal_indicators = [
+                        'apache', 'nginx', 'iis', 'index of',
+                        'directory listing', 'it works',
+                        'server at', 'port ',
+                    ]
+                    has_internal = any(ind in response_text for ind in internal_indicators)
+                    baseline_has = any(ind in baseline_text for ind in internal_indicators)
+                    
+                    if has_internal and not baseline_has:
+                        from core.engine import Finding
+                        finding = Finding(
+                            technique="SSRF (Localhost Bypass)",
+                            url=url,
+                            severity='HIGH',
+                            confidence=0.75,
+                            param=param,
+                            payload=payload,
+                            evidence=f"Localhost accessible via: {payload}",
+                        )
+                        self.engine.add_finding(finding)
+                        return
                     
             except Exception as e:
                 if self.engine.config.get('verbose'):

@@ -239,16 +239,39 @@ def get_scan(scan_id):
 @_require_api_key
 @_rate_limit
 def start_scan():
-    """Start a new scan in the background."""
-    body = request.get_json(silent=True)
-    if not body or 'target' not in body:
-        return jsonify({'status': 'error', 'data': 'Missing target'}), 400
+    """Start a new scan in the background.
 
-    target = body['target'].strip()
-    if not target.startswith(('http://', 'https://')):
+    Accepts either a single target (``target`` field) or a list of targets
+    (``targets`` field) so users can launch a file-based batch scan from the
+    dashboard.
+    """
+    body = request.get_json(silent=True)
+    if not body:
+        return jsonify({'status': 'error', 'data': 'Missing JSON body'}), 400
+
+    # Accept either a single 'target' string or a 'targets' list
+    raw_targets = []
+    if 'targets' in body and isinstance(body['targets'], list):
+        raw_targets = [t.strip() for t in body['targets'] if isinstance(t, str) and t.strip()]
+    elif 'target' in body:
+        raw_targets = [body['target'].strip()]
+
+    if not raw_targets:
+        return jsonify({'status': 'error', 'data': 'Missing target or targets'}), 400
+
+    # Validate URLs
+    valid_targets = []
+    invalid = []
+    for t in raw_targets:
+        if t.startswith(('http://', 'https://')):
+            valid_targets.append(t)
+        else:
+            invalid.append(t)
+
+    if not valid_targets:
         return jsonify({
             'status': 'error',
-            'data': 'Invalid URL format – must start with http:// or https://'
+            'data': 'No valid URLs – each must start with http:// or https://'
         }), 400
 
     scan_id = str(uuid.uuid4())[:8]
@@ -272,33 +295,47 @@ def start_scan():
         'brute': False, 'exploit_chain': False, 'ports': None,
     })
 
-    config = {
-        'target': target,
-        'modules': modules_dict,
-        'evasion': evasion,
-        'depth': int(depth),
-        'threads': int(threads),
-        'verbose': False,
-        'quiet': True,
-        'timeout': Config.TIMEOUT,
-        'delay': Config.REQUEST_DELAY,
-        'waf_bypass': False,
-        'tor': False,
-        'proxy': None,
-        'rotate_proxy': False,
-        'rotate_ua': True,
-        'output_dir': Config.REPORTS_DIR,
+    # Launch one scan thread per valid target; share the same scan_id prefix
+    scan_ids = []
+    for idx, target in enumerate(valid_targets):
+        if len(valid_targets) == 1:
+            tid = scan_id
+        else:
+            tid = f"{scan_id}-{idx}"
+
+        config = {
+            'target': target,
+            'modules': modules_dict,
+            'evasion': evasion,
+            'depth': int(depth),
+            'threads': int(threads),
+            'verbose': False,
+            'quiet': True,
+            'timeout': Config.TIMEOUT,
+            'delay': Config.REQUEST_DELAY,
+            'waf_bypass': False,
+            'tor': False,
+            'proxy': None,
+            'rotate_proxy': False,
+            'rotate_ua': True,
+            'output_dir': Config.REPORTS_DIR,
+        }
+
+        thread = threading.Thread(
+            target=_run_scan, args=(tid, target, config), daemon=True
+        )
+        thread.start()
+        scan_ids.append({'scan_id': tid, 'target': target})
+
+    resp_data = {
+        'scan_ids': scan_ids,
+        'total_targets': len(valid_targets),
+        'message': f'{len(valid_targets)} scan(s) started',
     }
+    if invalid:
+        resp_data['skipped'] = invalid
 
-    thread = threading.Thread(
-        target=_run_scan, args=(scan_id, target, config), daemon=True
-    )
-    thread.start()
-
-    return jsonify({
-        'status': 'success',
-        'data': {'scan_id': scan_id, 'target': target, 'message': 'Scan started'},
-    })
+    return jsonify({'status': 'success', 'data': resp_data})
 
 
 @app.route('/api/scan/<scan_id>/status', methods=['GET'])
