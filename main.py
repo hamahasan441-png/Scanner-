@@ -135,6 +135,8 @@ def main():
                        help='Detect technologies')
     parser.add_argument('--dir-brute', action='store_true',
                        help='Directory brute force')
+    parser.add_argument('--discovery', action='store_true',
+                       help='Enable target discovery & enumeration (robots.txt, sitemap, smart analysis)')
     
     # Report options
     parser.add_argument('--report', 
@@ -283,6 +285,7 @@ def main():
         'ports': args.ports,
         'tech_detect': args.tech_detect or args.full,
         'dir_brute': args.dir_brute or args.full,
+        'discovery': args.discovery or args.full,
     }
     
     # If no specific modules selected, enable basic ones

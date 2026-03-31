@@ -438,4 +438,5 @@ MITRE_CWE_MAP = {
     "Log Injection": ("T1565", "CWE-117"),
     "Host Header Injection": ("T1550", "CWE-346"),
     "Cache Poisoning": ("T1565", "CWE-444"),
+    "Information Disclosure": ("T1592", "CWE-200"),
 }

@@ -24,6 +24,14 @@ class Crawler:
         self.visited = set()
         self.forms = []
         self.parameters = []
+        self.resources = {
+            'scripts': set(),
+            'stylesheets': set(),
+            'images': set(),
+            'iframes': set(),
+            'media': set(),
+            'comments': [],
+        }
     
     def crawl(self, start_url: str, depth: int = 3):
         """Crawl website"""
@@ -64,7 +72,7 @@ class Crawler:
                 # Extract URL parameters
                 self._extract_parameters(url)
                 
-                # Extract links
+                # Extract links and resource references
                 if current_depth < depth:
                     for link in soup.find_all('a', href=True):
                         full_url = urljoin(url, link['href'])
@@ -74,11 +82,17 @@ class Crawler:
                             if full_url not in self.visited:
                                 to_visit.append((full_url, current_depth + 1))
                 
+                # Extract referenced resources (scripts, stylesheets, images, etc.)
+                self._extract_resources(soup, url)
+                
                 # Extract API endpoints from scripts
                 self._extract_api_endpoints(soup, url)
                 
                 # Extract hidden parameters
                 self._extract_hidden_params(soup, url)
+                
+                # Extract HTML comments (may contain debug info or paths)
+                self._extract_comments(soup, url)
                 
             except Exception as e:
                 if self.engine.config.get('verbose'):
@@ -122,6 +136,36 @@ class Crawler:
                 for value in values:
                     self.parameters.append((url, 'get', name, value, 'url_param'))
     
+    def _extract_resources(self, soup, url: str):
+        """Extract referenced resources: scripts, stylesheets, images, iframes, media"""
+        base_domain = urlparse(url).netloc
+
+        # Script sources
+        for script in soup.find_all('script', src=True):
+            src = urljoin(url, script['src'])
+            self.resources['scripts'].add(src)
+
+        # Stylesheet links
+        for link in soup.find_all('link', href=True):
+            href = urljoin(url, link['href'])
+            rel = ' '.join(link.get('rel', []))
+            if 'stylesheet' in rel:
+                self.resources['stylesheets'].add(href)
+            elif urlparse(href).netloc == base_domain:
+                self.resources['stylesheets'].add(href)
+
+        # Images
+        for img in soup.find_all('img', src=True):
+            self.resources['images'].add(urljoin(url, img['src']))
+
+        # Iframes
+        for iframe in soup.find_all('iframe', src=True):
+            self.resources['iframes'].add(urljoin(url, iframe['src']))
+
+        # Video / audio / source elements
+        for tag in soup.find_all(['video', 'audio', 'source'], src=True):
+            self.resources['media'].add(urljoin(url, tag['src']))
+
     def _extract_api_endpoints(self, soup, url: str):
         """Extract API endpoints from JavaScript"""
         for script in soup.find_all('script'):
@@ -175,3 +219,12 @@ class Crawler:
             if content.startswith(('http://', 'https://', '/')):
                 meta_url = urljoin(url, content)
                 self.parameters.append((meta_url, 'get', '', '', 'meta'))
+
+    def _extract_comments(self, soup, url: str):
+        """Extract HTML comments that may reveal paths, debug info, or credentials"""
+        from bs4 import Comment
+        comments = soup.find_all(string=lambda text: isinstance(text, Comment))
+        for comment in comments:
+            text = comment.strip()
+            if text:
+                self.resources['comments'].append({'url': url, 'comment': text})
