@@ -2,15 +2,8 @@
 # -*- coding: utf-8 -*-
 """Unit tests for the baseline engine (core/baseline.py)."""
 
-import os
-import sys
 import unittest
-
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 from core.baseline import BaselineResult, BaselineEngine, MAX_CACHE_SIZE
-
-
 # ---------------------------------------------------------------------------
 # Helpers / mocks
 # ---------------------------------------------------------------------------
@@ -20,8 +13,6 @@ class _MockResponse:
         self.text = text
         self.status_code = status_code
         self.headers = {}
-
-
 class _MockRequester:
     """Minimal requester mock that records calls."""
 
@@ -32,14 +23,10 @@ class _MockRequester:
     def request(self, url, method='GET', data=None, **kwargs):
         self.call_count += 1
         return self._response
-
-
 class _MockEngine:
     def __init__(self, requester=None):
         self.config = {'verbose': False}
         self.requester = requester or _MockRequester()
-
-
 # ---------------------------------------------------------------------------
 # BaselineResult tests
 # ---------------------------------------------------------------------------
@@ -78,8 +65,6 @@ class TestBaselineResult(unittest.TestCase):
         bl.length_mean = 100
         bl.length_stdev = 50
         self.assertFalse(bl.is_anomaly('x' * 100))
-
-
 # ---------------------------------------------------------------------------
 # BaselineEngine tests
 # ---------------------------------------------------------------------------
@@ -145,7 +130,5 @@ class TestBaselineEngine(unittest.TestCase):
         be.get_baseline('http://x', 'GET', 'a', '1')
         keys = list(be._cache.keys())
         self.assertEqual(keys[-1], 'GET:http://x:a')
-
-
 if __name__ == '__main__':
     unittest.main()

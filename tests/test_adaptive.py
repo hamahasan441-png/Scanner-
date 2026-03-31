@@ -2,15 +2,8 @@
 # -*- coding: utf-8 -*-
 """Unit tests for the adaptive controller (core/adaptive.py)."""
 
-import os
-import sys
 import unittest
-
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 from core.adaptive import AdaptiveController
-
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -18,8 +11,6 @@ from core.adaptive import AdaptiveController
 class _MockEngine:
     def __init__(self):
         self.config = {'verbose': False, 'delay': 0.1}
-
-
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
@@ -71,7 +62,5 @@ class TestAdaptiveController(unittest.TestCase):
         summary = self.ctrl.get_scan_summary()
         self.assertIn('waf_detected', summary)
         self.assertIn('noise_level', summary)
-
-
 if __name__ == '__main__':
     unittest.main()

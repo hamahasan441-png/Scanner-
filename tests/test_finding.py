@@ -2,15 +2,8 @@
 # -*- coding: utf-8 -*-
 """Unit tests for the Finding dataclass and engine helpers (core/engine.py)."""
 
-import os
-import sys
 import unittest
-
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 from core.engine import Finding
-
-
 class TestFinding(unittest.TestCase):
 
     def test_default_method_is_get(self):
@@ -34,7 +27,5 @@ class TestFinding(unittest.TestCase):
     def test_method_field_present(self):
         f = Finding(technique='XSS', url='http://x', method='POST')
         self.assertEqual(f.method, 'POST')
-
-
 if __name__ == '__main__':
     unittest.main()

@@ -2,17 +2,12 @@
 # -*- coding: utf-8 -*-
 """Unit tests for the multi-signal scorer (core/scorer.py)."""
 
-import os
-import sys
 import unittest
 
 # Ensure the project root is on the path so imports resolve
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from core.scorer import SignalSet, SignalScorer, DEFAULT_WEIGHT_TIMING
 from core.baseline import BaselineResult
-
-
 # ---------------------------------------------------------------------------
 # Helpers / mocks
 # ---------------------------------------------------------------------------
@@ -27,8 +22,6 @@ class _MockEngine:
     def __init__(self):
         self.config = {'verbose': False}
         self.learning = self._MockLearning()
-
-
 def _make_baseline(time_mean=0.5, time_stdev=0.1, length_mean=1000, length_stdev=50):
     """Return a simple BaselineResult with customisable stats."""
     bl = BaselineResult('http://example.com', 'GET', 'id', '1')
@@ -39,8 +32,6 @@ def _make_baseline(time_mean=0.5, time_stdev=0.1, length_mean=1000, length_stdev
     bl.status_code = 200
     bl.structure_hash = 'abc123'
     return bl
-
-
 # ---------------------------------------------------------------------------
 # SignalSet tests
 # ---------------------------------------------------------------------------
@@ -101,8 +92,6 @@ class TestSignalSet(unittest.TestCase):
         self.assertIn('timing', d)
         self.assertIn('combined', d)
         self.assertIn('label', d)
-
-
 # ---------------------------------------------------------------------------
 # SignalScorer tests
 # ---------------------------------------------------------------------------
@@ -203,7 +192,5 @@ class TestSignalScorer(unittest.TestCase):
         scorer = SignalScorer(_BrokenEngine())
         weights = scorer._get_weights()
         self.assertEqual(weights['timing'], DEFAULT_WEIGHT_TIMING)
-
-
 if __name__ == '__main__':
     unittest.main()

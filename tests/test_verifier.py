@@ -2,15 +2,8 @@
 # -*- coding: utf-8 -*-
 """Unit tests for the verifier (core/verifier.py)."""
 
-import os
-import sys
 import unittest
-
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 from core.verifier import Verifier, VERIFY_ROUNDS, MIN_CONFIRMATIONS
-
-
 # ---------------------------------------------------------------------------
 # Helpers / mocks
 # ---------------------------------------------------------------------------
@@ -20,22 +13,16 @@ class _MockResponse:
         self.text = text
         self.status_code = status_code
         self.headers = headers or {}
-
-
 class _MockRequester:
     def __init__(self, response=None):
         self._response = response or _MockResponse()
 
     def request(self, url, method='GET', data=None, **kwargs):
         return self._response
-
-
 class _MockEngine:
     def __init__(self, requester=None):
         self.config = {'verbose': False}
         self.requester = requester or _MockRequester()
-
-
 class _FakeFinding:
     """Minimal finding-like object."""
     def __init__(self, **kwargs):
@@ -47,8 +34,6 @@ class _FakeFinding:
         self.evidence = kwargs.get('evidence', 'SQL syntax error')
         self.severity = kwargs.get('severity', 'HIGH')
         self.confidence = kwargs.get('confidence', 0.8)
-
-
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
@@ -100,7 +85,5 @@ class TestVerifier(unittest.TestCase):
         finding = _FakeFinding(method='GET')
         v._retest(finding)
         self.assertIn('GET', methods_seen)
-
-
 if __name__ == '__main__':
     unittest.main()

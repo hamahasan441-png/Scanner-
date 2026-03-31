@@ -2,15 +2,8 @@
 # -*- coding: utf-8 -*-
 """Unit tests for the normalizer (core/normalizer.py)."""
 
-import os
-import sys
 import unittest
-
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 from core.normalizer import normalize
-
-
 class TestNormalize(unittest.TestCase):
 
     def test_empty_input(self):
@@ -41,7 +34,5 @@ class TestNormalize(unittest.TestCase):
         html = '<p>Hello World</p>'
         result = normalize(html)
         self.assertIn('Hello World', result)
-
-
 if __name__ == '__main__':
     unittest.main()

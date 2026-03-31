@@ -166,12 +166,12 @@ class Requester:
                 files: dict = None, timeout: int = None,
                 allow_redirects: bool = True) -> object:
         """Make HTTP request with advanced evasion"""
-        if not self.session:
-            return None
-
         if not self._validate_url(url):
             if self.config.get('verbose'):
                 print(f"{Colors.error(f'Invalid URL: {url}')}")
+            return None
+
+        if not self.session:
             return None
         
         # Apply evasion timing if available
