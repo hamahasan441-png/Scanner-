@@ -5,8 +5,10 @@ ATOMIC FRAMEWORK v8.0 - ULTIMATE EDITION
 Core Engine - Scan orchestration and module management
 
 CORE FLOW:
-  Discover → Extract Inputs → Analyze Context → Prioritize →
-  Baseline → Test → Analyze → Verify → Report → Learn → Adapt
+  §1 Scope & Policy → §2 Discover & Graph → §3 Extract & Classify →
+  §4 Context Intelligence → §5 Risk-Based Prioritize →
+  §6 Baseline → §7 Adaptive Test → §8 Multi-Signal Analyze →
+  §9 Adaptive Verify → Report → Learn → Adapt
 """
 
 import os
@@ -106,6 +108,7 @@ class AtomicEngine:
             self.db = None
 
         # --- New intelligence components ---
+        from core.scope import ScopePolicy
         from core.context import ContextIntelligence
         from core.prioritizer import EndpointPrioritizer
         from core.baseline import BaselineEngine
@@ -114,6 +117,7 @@ class AtomicEngine:
         from core.learning import LearningStore
         from core.adaptive import AdaptiveController
 
+        self.scope = ScopePolicy(self)
         self.context = ContextIntelligence(self)
         self.prioritizer = EndpointPrioritizer(self)
         self.baseline_engine = BaselineEngine(self)
@@ -157,8 +161,9 @@ class AtomicEngine:
         """Scan a target URL.
 
         Follows the CORE FLOW:
-        Discover → Extract Inputs → Analyze Context → Prioritize →
-        Baseline → Test → Analyze → Verify → Report → Learn → Adapt
+        §1 Scope → §2 Discover → §3 Extract/Classify → §4 Context →
+        §5 Prioritize → §6 Baseline → §7 Test → §8 Analyze →
+        §9 Verify → Report → Learn → Adapt
         """
         self.target = target
         self.start_time = datetime.utcnow()
@@ -167,10 +172,22 @@ class AtomicEngine:
         print(f"{Colors.CYAN}  Scanning: {target}{Colors.RESET}")
         print(f"{Colors.BOLD}{'='*60}{Colors.RESET}\n")
 
+        # ── §1. SCOPE & POLICY ENGINE ────────────────────────────────
+        self.scope.set_target_scope(target)
+        self.scope.load_robots_txt(target)
+
         # Test connection
         if not self.requester.test_connection(target):
             print(f"{Colors.error(f'Cannot connect to {target}')}")
             return
+
+        # Tech fingerprinting on initial response
+        try:
+            init_resp = self.requester.request(target, 'GET')
+            if init_resp:
+                self.context.fingerprint_response(init_resp)
+        except Exception:
+            pass
 
         # Save scan to database
         if self.db:
@@ -183,7 +200,7 @@ class AtomicEngine:
 
         modules_config = self.config.get('modules', {})
 
-        # ── 1. DISCOVERY ─────────────────────────────────────────
+        # ── §2. DISCOVERY & GRAPH ENGINE ─────────────────────────────
         # Reconnaissance (optional)
         if modules_config.get('recon', False):
             try:
@@ -206,6 +223,15 @@ class AtomicEngine:
         urls, forms, parameters = crawler.crawl(target, depth)
         print(f"{Colors.info(f'Found {len(urls)} URLs, {len(forms)} forms, {len(parameters)} parameters')}")
 
+        # Print graph summary if verbose
+        if self.config.get('verbose') and crawler.endpoint_graph:
+            print(f"{Colors.info('Endpoint graph:')}")
+            print(crawler.get_graph_summary())
+
+        # Scope filter: remove out-of-scope URLs
+        urls = self.scope.filter_urls(urls)
+        parameters = self.scope.filter_parameters(parameters)
+
         # Target discovery & enumeration
         if modules_config.get('discovery', False):
             try:
@@ -214,7 +240,7 @@ class AtomicEngine:
                 discovery.run(target, crawler=crawler)
 
                 for ep in discovery.endpoints:
-                    if ep not in urls:
+                    if ep not in urls and self.scope.is_in_scope(ep):
                         urls.add(ep)
                         self.adaptive.add_new_endpoint(ep)
                         ep_parsed = urlparse(ep)
@@ -226,14 +252,15 @@ class AtomicEngine:
                 if self.config.get('verbose'):
                     print(f"{Colors.error(f'Discovery error: {e}')}")
 
-        # ── 2. INPUT EXTRACTION & 3. CONTEXT INTELLIGENCE ────────
+        # ── §3. INPUT EXTRACTION & CLASSIFICATION ────────────────────
+        # ── §4. CONTEXT INTELLIGENCE ─────────────────────────────────
         enriched_params = self.context.analyze_parameters(parameters)
 
-        # ── 4 & 5. PRIORITIZATION ────────────────────────────────
+        # ── §5. RISK-BASED PRIORITIZATION ────────────────────────────
         enriched_params = self.prioritizer.prioritize_parameters(enriched_params)
         prioritized_urls = self.prioritizer.prioritize_urls(urls)
 
-        # ── 6. BASELINE ENGINE ───────────────────────────────────
+        # ── §6. BASELINE ENGINE ──────────────────────────────────────
         print(f"{Colors.info('Building baselines...')}")
         seen_baselines = set()
         for ep in enriched_params:
@@ -244,12 +271,15 @@ class AtomicEngine:
                     ep['url'], ep['method'], ep['param'], ep['value'],
                 )
 
-        # ── 7. ADAPTIVE TESTING ──────────────────────────────────
+        # ── §7. ADAPTIVE TESTING (context-driven module selection) ───
         for module_key, module_instance in self._modules.items():
             print(f"\n{Colors.info(f'Running {module_instance.name} module...')}")
 
             for ep in enriched_params:
                 try:
+                    # Rate limit enforcement
+                    self.scope.enforce_rate_limit()
+
                     # Adaptive delay
                     import time
                     delay = self.adaptive.get_delay()
@@ -273,23 +303,25 @@ class AtomicEngine:
                     if self.config.get('verbose'):
                         print(f"{Colors.error(f'URL test error ({module_key}): {e}')}")
 
-        # ── 8-9. MULTI-SIGNAL ANALYSIS (scoring enrichment) ──────
+        # ── §8. MULTI-SIGNAL ANALYSIS (scoring enrichment) ───────────
         self._enrich_finding_signals()
 
-        # ── 10. VERIFICATION ─────────────────────────────────────
+        # ── §9. ADAPTIVE VERIFICATION ────────────────────────────────
         self.findings = self.verifier.verify_findings(self.findings)
 
-        # ── 13. SELF-LEARNING ────────────────────────────────────
+        # ── SELF-LEARNING ────────────────────────────────────────────
         for f in self.findings:
             self.learning.record_success(f.technique, f.payload)
         self.learning.update_thresholds(self.findings)
         self.learning.save()
 
-        # ── 14. ADAPTIVE LOOP (re-discovery if needed) ───────────
+        # ── ADAPTIVE LOOP (re-discovery if needed) ───────────────────
         if self.adaptive.should_rediscover() and modules_config.get('discovery', False):
             try:
                 new_params = []
                 for ep_url in self.adaptive.new_endpoints:
+                    if not self.scope.is_in_scope(ep_url):
+                        continue
                     ep_parsed = urlparse(ep_url)
                     if ep_parsed.query:
                         for name, values in parse_qs(ep_parsed.query).items():
@@ -311,7 +343,7 @@ class AtomicEngine:
                 if self.config.get('verbose'):
                     print(f"{Colors.error(f'Adaptive re-scan error: {e}')}")
 
-        # ── Post-exploitation ────────────────────────────────────
+        # ── Post-exploitation ────────────────────────────────────────
         if modules_config.get('shell', False) and self.findings:
             try:
                 from modules.uploader import ShellUploader
@@ -332,7 +364,7 @@ class AtomicEngine:
 
         self.end_time = datetime.utcnow()
 
-        # ── Print summary ────────────────────────────────────────
+        # ── Print summary ────────────────────────────────────────────
         self._print_summary()
 
     def _enrich_finding_signals(self):
@@ -418,6 +450,15 @@ class AtomicEngine:
             for sev in ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO']:
                 if sev in severities:
                     print(f"    {sev}: {severities[sev]}")
+
+        # Scope summary
+        scope_summary = self.scope.get_scope_summary()
+        if scope_summary['blocked_count'] > 0:
+            print(f"\n  {Colors.YELLOW}Scope:{Colors.RESET} {scope_summary['blocked_count']} out-of-scope URLs blocked")
+
+        # Tech fingerprint summary
+        if self.context.detected_tech:
+            print(f"  {Colors.CYAN}Detected tech:{Colors.RESET} {', '.join(sorted(self.context.detected_tech))}")
 
         # Adaptive intelligence summary
         adaptive_summary = self.adaptive.get_scan_summary()

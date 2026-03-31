@@ -2,10 +2,16 @@
 # -*- coding: utf-8 -*-
 """
 ATOMIC FRAMEWORK v8.0 - ULTIMATE EDITION
-Endpoint Prioritization Module
+Risk-Based Prioritization Engine
 
 Scores endpoints by type and context, builds a priority queue so the
 scanner processes the highest-value targets first.
+
+Priority tiers:
+  - Authenticated endpoints → HIGH
+  - File uploads → HIGH
+  - API / admin endpoints → HIGH
+  - Public static pages → LOW
 """
 
 import os
@@ -36,6 +42,9 @@ LOW_PRIORITY_PATTERNS = [
     (r'(?i)(static|assets|images|fonts|vendor|lib)', -0.4, 'static_dir'),
     (r'(?i)(about|privacy|terms|faq|help|sitemap|robots)', -0.3, 'informational'),
 ]
+
+# Minimum score below which endpoints are skipped entirely
+SKIP_THRESHOLD = 0.15
 
 
 class EndpointPrioritizer:
@@ -74,6 +83,18 @@ class EndpointPrioritizer:
         }
         score += source_boost.get(source, 0.0)
 
+        # Additional boost for authenticated context (param hints)
+        auth_params = re.compile(
+            r'(?i)(token|session|auth|bearer|cookie|jwt|api_?key)',
+        )
+        if param and auth_params.search(param):
+            score = max(score, 0.85)
+
+        # Additional boost for file-upload context
+        upload_params = re.compile(r'(?i)(file|upload|attachment|document|image)')
+        if param and upload_params.search(param):
+            score = max(score, 0.8)
+
         return max(0.0, min(1.0, score))
 
     def prioritize_parameters(self, enriched_params):
@@ -81,7 +102,11 @@ class EndpointPrioritizer:
 
         *enriched_params*: list of dicts from ContextIntelligence.analyze_parameters().
         Returns the list sorted HIGH → LOW priority with a 'priority' key added.
+        Low-value endpoints below SKIP_THRESHOLD are removed.
         """
+        scored = []
+        skipped = 0
+
         for ep in enriched_params:
             base_score = self.score_endpoint(
                 ep['url'], ep['method'], ep['param'], ep['source'],
@@ -91,18 +116,27 @@ class EndpointPrioritizer:
             combined = 0.6 * base_score + 0.4 * max_prediction
             ep['priority'] = round(combined, 3)
 
-        enriched_params.sort(key=lambda x: x['priority'], reverse=True)
+            if ep['priority'] >= SKIP_THRESHOLD:
+                scored.append(ep)
+            else:
+                skipped += 1
 
-        if self.verbose and enriched_params:
-            high = sum(1 for p in enriched_params if p['priority'] >= 0.7)
-            med = sum(1 for p in enriched_params if 0.4 <= p['priority'] < 0.7)
-            low = sum(1 for p in enriched_params if p['priority'] < 0.4)
-            print(f"{Colors.info(f'Priority queue: {high} HIGH, {med} MEDIUM, {low} LOW')}")
+        scored.sort(key=lambda x: x['priority'], reverse=True)
 
-        return enriched_params
+        if self.verbose:
+            high = sum(1 for p in scored if p['priority'] >= 0.7)
+            med = sum(1 for p in scored if 0.4 <= p['priority'] < 0.7)
+            low = sum(1 for p in scored if p['priority'] < 0.4)
+            print(f"{Colors.info(f'Priority queue: {high} HIGH, {med} MEDIUM, {low} LOW (skipped {skipped})')}")
+
+        return scored
 
     def prioritize_urls(self, urls):
-        """Sort plain URL set by priority. Returns list of (url, score)."""
+        """Sort plain URL set by priority. Returns list of (url, score).
+
+        Filters out URLs below SKIP_THRESHOLD.
+        """
         scored = [(url, self.score_endpoint(url)) for url in urls]
+        scored = [(u, s) for u, s in scored if s >= SKIP_THRESHOLD]
         scored.sort(key=lambda x: x[1], reverse=True)
         return scored

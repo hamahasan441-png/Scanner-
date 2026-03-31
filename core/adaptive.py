@@ -9,6 +9,7 @@ Monitors scan behaviour in real time and adjusts parameters:
   - High noise → tighten thresholds
   - Strong signals → increase depth
   - New endpoints → return to discovery
+  - Payload threshold adjustment (learn from noise)
 """
 
 import os
@@ -29,6 +30,12 @@ WAF_HEADER_HINTS = [
 
 # Extra delay (seconds) added when WAF is detected
 WAF_EXTRA_DELAY = 1.0
+
+# Noise threshold for tightening scoring
+NOISE_THRESHOLD = 0.5
+
+# Adjustment added to thresholds when noise is high
+NOISE_THRESHOLD_ADJUSTMENT = 0.1
 
 
 class AdaptiveController:
@@ -51,6 +58,10 @@ class AdaptiveController:
         self.extra_delay = 0.0
         self.payload_mutation = False
         self.depth_boost = 0
+
+        # Payload strategy tracking
+        self._blocked_payloads = set()
+        self._successful_payloads = set()
 
     # ------------------------------------------------------------------
     # WAF detection
@@ -102,6 +113,14 @@ class AdaptiveController:
         """Record noise detected in a response (e.g., random tokens, dynamic content)."""
         self.noise_level = min(1.0, self.noise_level + noise_amount)
 
+    def record_blocked_payload(self, payload):
+        """Track a payload that was blocked (WAF / filter)."""
+        self._blocked_payloads.add(payload)
+
+    def record_successful_payload(self, payload):
+        """Track a payload that produced a signal."""
+        self._successful_payloads.add(payload)
+
     # ------------------------------------------------------------------
     # Adaptive decisions
     # ------------------------------------------------------------------
@@ -115,6 +134,10 @@ class AdaptiveController:
         """Return True if payloads should be mutated for evasion."""
         return self.payload_mutation or self.waf_detected
 
+    def should_rotate_payload(self, payload):
+        """Return True if the given payload was previously blocked and should be rotated."""
+        return payload in self._blocked_payloads
+
     def get_depth_boost(self):
         """Return additional crawl/test depth based on signal strength."""
         if self.signal_strength >= 0.7:
@@ -125,7 +148,7 @@ class AdaptiveController:
 
     def should_tighten_thresholds(self):
         """Return True when noise is high and thresholds should be tightened."""
-        return self.noise_level >= 0.5
+        return self.noise_level >= NOISE_THRESHOLD
 
     def get_adjusted_thresholds(self, base_thresholds):
         """Return thresholds adjusted for current noise level.
@@ -133,9 +156,10 @@ class AdaptiveController:
         Tightens thresholds when noise is high to reduce false positives.
         """
         adjusted = dict(base_thresholds)
-        if self.noise_level >= 0.5:
+        if self.noise_level >= NOISE_THRESHOLD:
             adjusted['timing_min_delay'] = base_thresholds.get('timing_min_delay', 4.0) + 0.5
             adjusted['diff_min_chars'] = base_thresholds.get('diff_min_chars', 50) + 20
+            adjusted['min_confidence'] = base_thresholds.get('min_confidence', 0.45) + NOISE_THRESHOLD_ADJUSTMENT
         return adjusted
 
     def add_new_endpoint(self, url):
@@ -157,4 +181,6 @@ class AdaptiveController:
             'block_rate': round(block_rate, 3),
             'extra_delay': self.extra_delay,
             'depth_boost': self.get_depth_boost(),
+            'blocked_payloads': len(self._blocked_payloads),
+            'successful_payloads': len(self._successful_payloads),
         }

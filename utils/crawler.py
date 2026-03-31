@@ -16,7 +16,7 @@ from config import Colors
 
 
 class Crawler:
-    """Web Crawler"""
+    """Web Crawler with endpoint graph tracking"""
     
     def __init__(self, engine):
         self.engine = engine
@@ -32,6 +32,9 @@ class Crawler:
             'media': set(),
             'comments': [],
         }
+        # Graph representation: tracks relationships between endpoints
+        self.endpoint_graph = {}  # url → {methods, params, auth_state, related}
+        self.auth_indicators = set()  # URLs that appear to require authentication
     
     def crawl(self, start_url: str, depth: int = 3):
         """Crawl website"""
@@ -93,6 +96,9 @@ class Crawler:
                 
                 # Extract HTML comments (may contain debug info or paths)
                 self._extract_comments(soup, url)
+
+                # Build graph entry for this URL
+                self._update_graph(url, response, soup)
                 
             except Exception as e:
                 if self.engine.config.get('verbose'):
@@ -226,3 +232,79 @@ class Crawler:
             text = comment.strip()
             if text:
                 self.resources['comments'].append({'url': url, 'comment': text})
+
+    # ------------------------------------------------------------------
+    # Endpoint graph (§2 of the pipeline)
+    # ------------------------------------------------------------------
+
+    def _update_graph(self, url, response, soup):
+        """Build or update the graph entry for a crawled URL.
+
+        Tracks: methods, input parameters, authentication state, and
+        related endpoints discovered from this page.
+        """
+        parsed = urlparse(url)
+        path = parsed.path or '/'
+
+        if path not in self.endpoint_graph:
+            self.endpoint_graph[path] = {
+                'url': url,
+                'methods': set(),
+                'params': set(),
+                'auth_state': 'unknown',
+                'related': set(),
+            }
+
+        entry = self.endpoint_graph[path]
+        entry['methods'].add('GET')
+
+        # Track parameters from URL query
+        if parsed.query:
+            for name in parse_qs(parsed.query):
+                entry['params'].add(name)
+
+        # Track form parameters and their methods
+        for form in soup.find_all('form'):
+            method = form.get('method', 'get').upper()
+            entry['methods'].add(method)
+            for inp in form.find_all(['input', 'textarea', 'select']):
+                name = inp.get('name')
+                if name:
+                    entry['params'].add(name)
+
+        # Detect authentication state from response
+        if response:
+            auth_hints = ['login', 'signin', 'auth', 'session', 'token']
+            path_lower = path.lower()
+            headers_lower = str(response.headers).lower()
+
+            if any(h in path_lower for h in auth_hints):
+                entry['auth_state'] = 'auth_endpoint'
+                self.auth_indicators.add(url)
+            elif 'set-cookie' in headers_lower:
+                entry['auth_state'] = 'sets_cookie'
+            elif response.status_code in (401, 403):
+                entry['auth_state'] = 'requires_auth'
+                self.auth_indicators.add(url)
+
+        # Track related links from this page
+        for link in soup.find_all('a', href=True):
+            href = urljoin(url, link['href'])
+            href_path = urlparse(href).path or '/'
+            if href_path != path:
+                entry['related'].add(href_path)
+
+    def get_graph_summary(self):
+        """Return a plain-text summary of the endpoint graph.
+
+        Format: User → /login → token → /api/user → /admin
+        """
+        lines = []
+        for path, data in self.endpoint_graph.items():
+            methods = ','.join(sorted(data['methods']))
+            params = ','.join(sorted(data['params'])) if data['params'] else 'none'
+            related = ' → '.join(sorted(data['related'])[:5]) if data['related'] else 'none'
+            lines.append(
+                f"  [{methods}] {path} (params: {params}, auth: {data['auth_state']}) → {related}"
+            )
+        return '\n'.join(lines)

@@ -2,11 +2,17 @@
 # -*- coding: utf-8 -*-
 """
 ATOMIC FRAMEWORK v8.0 - ULTIMATE EDITION
-Verification Module
+Adaptive Verification Engine
 
 Re-tests HIGH and CRITICAL findings with payload variations to confirm
 consistency and remove false positives caused by instability, random
 noise, or WAF interference.
+
+Verification strategy:
+  - Re-test HIGH confidence findings with variations
+  - Correlate signals: boolean-based, time-based, error-based, reflection-based
+  - Remove false positives: inconsistent signals, random dynamic differences
+  - Adjust payload thresholds if needed (learn from noise)
 """
 
 import os
@@ -18,15 +24,17 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import Colors
 
 # Number of re-test rounds for verification
-VERIFY_ROUNDS = 2
+VERIFY_ROUNDS = 3
 # Minimum confirmations to keep a finding
 MIN_CONFIRMATIONS = 2
 # Findings with confidence above this threshold skip verification
 VERIFICATION_CONFIDENCE_THRESHOLD = 0.95
+# Maximum length variance (ratio) allowed between verify rounds for consistency
+MAX_LENGTH_VARIANCE_RATIO = 0.20
 
 
 class Verifier:
-    """Re-tests findings and removes false positives."""
+    """Re-tests findings and removes false positives using multi-signal correlation."""
 
     def __init__(self, engine):
         self.engine = engine
@@ -37,14 +45,22 @@ class Verifier:
         """Verify HIGH/CRITICAL findings and return the filtered list.
 
         Lower-severity findings are kept as-is.
+        Findings that fail signal correlation are downgraded or removed.
         """
         verified = []
         removed = 0
+        downgraded = 0
 
         for finding in findings:
             if finding.severity in ('HIGH', 'CRITICAL') and finding.confidence < VERIFICATION_CONFIDENCE_THRESHOLD:
-                if self._verify_single(finding):
+                result = self._verify_with_correlation(finding)
+                if result == 'confirmed':
                     verified.append(finding)
+                elif result == 'downgrade':
+                    finding.severity = 'LOW'
+                    finding.confidence = max(0.0, finding.confidence * 0.5)
+                    verified.append(finding)
+                    downgraded += 1
                 else:
                     removed += 1
                     if self.verbose:
@@ -52,34 +68,63 @@ class Verifier:
             else:
                 verified.append(finding)
 
-        if removed > 0:
-            print(f"{Colors.info(f'Verification complete: {removed} false positive(s) removed, {len(verified)} confirmed')}")
+        if removed > 0 or downgraded > 0:
+            print(f"{Colors.info(f'Verification: {removed} removed, {downgraded} downgraded, {len(verified)} confirmed')}")
 
         return verified
 
-    def _verify_single(self, finding):
-        """Re-test a single finding multiple times.
+    def _verify_with_correlation(self, finding):
+        """Verify a finding using multi-signal correlation.
 
-        Returns True if the finding is consistently reproducible.
+        Returns 'confirmed', 'downgrade', or 'removed'.
         """
         confirmations = 0
+        response_lengths = []
 
         for _ in range(VERIFY_ROUNDS):
             try:
-                confirmed = self._retest(finding)
+                confirmed, resp_len = self._retest(finding)
                 if confirmed:
                     confirmations += 1
+                if resp_len is not None:
+                    response_lengths.append(resp_len)
             except Exception:
                 pass
             time.sleep(0.2)
 
-        return confirmations >= MIN_CONFIRMATIONS
+        # Check consistency of response lengths across rounds
+        length_consistent = self._check_length_consistency(response_lengths)
+
+        if confirmations >= MIN_CONFIRMATIONS and length_consistent:
+            return 'confirmed'
+        elif confirmations >= 1:
+            return 'downgrade'
+        return 'removed'
+
+    def _check_length_consistency(self, lengths):
+        """Check if response lengths are consistent across verification rounds.
+
+        Inconsistent lengths suggest random dynamic content, not a real vuln.
+        """
+        if len(lengths) < 2:
+            return True  # not enough data to judge
+
+        mean_len = sum(lengths) / len(lengths)
+        if mean_len == 0:
+            return True
+
+        max_deviation = max(abs(l - mean_len) for l in lengths)
+        return (max_deviation / mean_len) <= MAX_LENGTH_VARIANCE_RATIO
 
     def _retest(self, finding):
-        """Send the same payload again and check for similar evidence."""
+        """Send the same payload again and check for similar evidence.
+
+        Returns (confirmed: bool, response_length: int or None).
+        """
         if not finding.param or not finding.payload:
             # URL-level findings (CORS, JWT) — re-fetch and check
-            return self._retest_url(finding)
+            confirmed = self._retest_url(finding)
+            return confirmed, None
 
         data = {finding.param: finding.payload}
         method = 'POST'  # default; adjust if needed
@@ -89,34 +134,35 @@ class Verifier:
         elapsed = time.time() - start
 
         if response is None:
-            return False
+            return False, None
 
         response_text = response.text.lower()
+        resp_len = len(response.text)
 
         # Check for the same type of evidence
         technique_lower = finding.technique.lower()
 
         if 'time-based' in technique_lower or 'blind' in technique_lower:
-            return elapsed >= 4.0
+            return elapsed >= 4.0, resp_len
 
         if 'error' in technique_lower:
             evidence_lower = finding.evidence.lower()
             if 'error' in evidence_lower:
                 keywords = ['sql', 'syntax', 'mysql', 'postgresql', 'oracle', 'sqlite', 'mssql']
-                return any(kw in response_text for kw in keywords)
+                return any(kw in response_text for kw in keywords), resp_len
 
         if 'xss' in technique_lower or 'reflected' in technique_lower:
-            return finding.payload in response.text
+            return finding.payload in response.text, resp_len
 
         if 'union' in technique_lower:
-            return abs(len(response.text) - len(finding.evidence)) > 20
+            return abs(len(response.text) - len(finding.evidence)) > 20, resp_len
 
         if 'command' in technique_lower:
             indicators = ['uid=', 'root:', 'bin/', '/bin/sh', 'windows']
-            return any(ind in response_text for ind in indicators)
+            return any(ind in response_text for ind in indicators), resp_len
 
         # Generic: check if response still differs from a clean request
-        return True
+        return True, resp_len
 
     def _retest_url(self, finding):
         """Re-test a URL-level finding."""

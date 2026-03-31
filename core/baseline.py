@@ -2,12 +2,16 @@
 # -*- coding: utf-8 -*-
 """
 ATOMIC FRAMEWORK v8.0 - ULTIMATE EDITION
-Statistical Baseline Engine
+Baseline & Response Analysis Engine
 
 Sends multiple clean requests to establish a stable baseline for each
 endpoint, recording timing statistics (mean, variance), response length,
 and a structural fingerprint.  Modules compare test results against
 these baselines for accurate anomaly detection.
+
+Additionally provides a multi-repeat payload testing helper that sends
+3-5 copies of a payload request and aggregates the results, reducing
+noise and improving confidence.
 """
 
 import os
@@ -22,10 +26,15 @@ from config import Colors
 
 # Number of clean requests per baseline measurement
 BASELINE_SAMPLES = 3
+# Number of repeat requests for payload verification
+PAYLOAD_REPEAT_MIN = 3
+PAYLOAD_REPEAT_MAX = 5
 # Maximum baselines to cache (LRU-style)
 MAX_CACHE_SIZE = 500
 # Maximum number of HTML tags used for structural fingerprinting
 MAX_FINGERPRINT_TAGS = 200
+# Maximum response length stdev to consider consistent across repeats
+MAX_LENGTH_STDEV_THRESHOLD = 50
 
 
 class BaselineResult:
@@ -147,3 +156,70 @@ class BaselineEngine:
         tags = re.findall(r'</?[a-zA-Z][^>]*>', html_body)
         skeleton = ''.join(tags[:MAX_FINGERPRINT_TAGS])
         return hashlib.md5(skeleton.encode('utf-8', errors='ignore')).hexdigest()
+
+    # ------------------------------------------------------------------
+    # Multi-repeat payload testing (§7 of the pipeline)
+    # ------------------------------------------------------------------
+
+    def repeat_payload_test(self, url, method, param, payload, repeats=None):
+        """Send a payload request multiple times and aggregate results.
+
+        Returns a dict with aggregated timing, lengths, response texts,
+        and consistency metrics.  This is used by the verification and
+        scoring engines to build multi-factor confidence.
+        """
+        if repeats is None:
+            repeats = PAYLOAD_REPEAT_MIN
+
+        timings = []
+        lengths = []
+        status_codes = []
+        texts = []
+
+        data = {param: payload} if param else None
+
+        for _ in range(repeats):
+            try:
+                start = time.time()
+                resp = self.requester.request(url, method, data=data)
+                elapsed = time.time() - start
+
+                if resp is not None:
+                    timings.append(elapsed)
+                    lengths.append(len(resp.text))
+                    status_codes.append(resp.status_code)
+                    texts.append(resp.text)
+            except Exception:
+                pass
+
+        result = {
+            'timings': timings,
+            'lengths': lengths,
+            'status_codes': status_codes,
+            'texts': texts,
+            'repeat_count': len(timings),
+        }
+
+        if timings:
+            result['time_mean'] = statistics.mean(timings)
+            result['time_stdev'] = statistics.stdev(timings) if len(timings) > 1 else 0.0
+        else:
+            result['time_mean'] = 0.0
+            result['time_stdev'] = 0.0
+
+        if lengths:
+            result['length_mean'] = statistics.mean(lengths)
+            result['length_stdev'] = statistics.stdev(lengths) if len(lengths) > 1 else 0.0
+            result['length_consistent'] = result['length_stdev'] < MAX_LENGTH_STDEV_THRESHOLD
+        else:
+            result['length_mean'] = 0.0
+            result['length_stdev'] = 0.0
+            result['length_consistent'] = False
+
+        # Status consistency check
+        if status_codes:
+            result['status_consistent'] = len(set(status_codes)) == 1
+        else:
+            result['status_consistent'] = False
+
+        return result
