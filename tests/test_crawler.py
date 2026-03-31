@@ -16,12 +16,11 @@ class _MockResponse:
 class _MockRequester:
     def __init__(self, responses=None):
         self._responses = responses or {}
-        self._default = None
 
     def request(self, url, method, **kwargs):
         if url in self._responses:
             return self._responses[url]
-        return self._default
+        return None
 
 
 class _MockEngine:
