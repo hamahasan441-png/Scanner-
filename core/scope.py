@@ -11,14 +11,11 @@ Enforces target scope and scanning policies:
   - Enforces rate-limit policies
 """
 
-import os
-import sys
 import re
 import time
 from urllib.parse import urlparse, urljoin
 from urllib.robotparser import RobotFileParser
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from config import Colors
 

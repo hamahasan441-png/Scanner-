@@ -5,9 +5,6 @@ ATOMIC FRAMEWORK - Database Module
 SQLite/SQLAlchemy database operations
 """
 
-import os
-import sys
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 try:
     from sqlalchemy import create_engine, Column, String, Integer, Float, DateTime, Text, ForeignKey, JSON

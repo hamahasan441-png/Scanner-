@@ -6,11 +6,9 @@ Report generation module
 """
 
 import os
-import sys
 import json
 from datetime import datetime
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from config import Config, Colors
 

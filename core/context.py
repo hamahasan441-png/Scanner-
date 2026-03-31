@@ -16,12 +16,9 @@ Responsibilities:
   - Ignore non-controllable inputs
 """
 
-import os
-import sys
 import re
 from urllib.parse import urlparse, parse_qs
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from config import Colors
 

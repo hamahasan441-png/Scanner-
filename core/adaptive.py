@@ -12,11 +12,8 @@ Monitors scan behaviour in real time and adjusts parameters:
   - Payload threshold adjustment (learn from noise)
 """
 
-import os
-import sys
 import time
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from config import Colors
 

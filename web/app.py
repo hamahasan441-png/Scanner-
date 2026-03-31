@@ -5,13 +5,11 @@ ATOMIC FRAMEWORK v8.0 - ULTIMATE EDITION
 Flask Web Dashboard
 """
 import os
-import sys
 import json
 import threading
 import uuid
 from datetime import datetime
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from config import Config, Colors
 from core.engine import AtomicEngine, Finding

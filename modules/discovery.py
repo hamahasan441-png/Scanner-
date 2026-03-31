@@ -12,14 +12,11 @@ vulnerability testing. Includes:
   - AI-powered smart endpoint prioritization
 """
 
-import os
-import sys
 import re
 import xml.etree.ElementTree as ET
 from urllib.parse import urljoin, urlparse, parse_qs
 from collections import Counter
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from config import Colors
 

@@ -14,13 +14,11 @@ Additionally provides a multi-repeat payload testing helper that sends
 noise and improving confidence.
 """
 
-import os
-import sys
 import time
 import hashlib
 import statistics
+from collections import OrderedDict
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from config import Colors
 from core.normalizer import normalize
@@ -100,7 +98,7 @@ class BaselineEngine:
         self.engine = engine
         self.requester = engine.requester
         self.verbose = engine.config.get('verbose', False)
-        self._cache = {}  # key → BaselineResult
+        self._cache = OrderedDict()  # key → BaselineResult (LRU)
 
     def _cache_key(self, url, method, param):
         return f"{method}:{url}:{param}"
@@ -112,6 +110,7 @@ class BaselineEngine:
         """
         key = self._cache_key(url, method, param)
         if key in self._cache:
+            self._cache.move_to_end(key)  # mark as recently used
             return self._cache[key]
         return self.measure(url, method, param, value)
 
@@ -151,10 +150,9 @@ class BaselineEngine:
         result.status_code = last_status
         result.structure_hash = self._structure_fingerprint(last_body)
 
-        # Cache management
+        # Cache management (LRU eviction)
         if len(self._cache) >= MAX_CACHE_SIZE:
-            oldest_key = next(iter(self._cache))
-            del self._cache[oldest_key]
+            self._cache.popitem(last=False)  # remove least recently used
         self._cache[key] = result
 
         return result
@@ -171,7 +169,7 @@ class BaselineEngine:
         import re
         tags = re.findall(r'</?[a-zA-Z][^>]*>', html_body)
         skeleton = ''.join(tags[:MAX_FINGERPRINT_TAGS])
-        return hashlib.md5(skeleton.encode('utf-8', errors='ignore')).hexdigest()
+        return hashlib.sha256(skeleton.encode('utf-8', errors='ignore')).hexdigest()
 
     # ------------------------------------------------------------------
     # Reflection Gate (§ pre-test filter)

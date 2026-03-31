@@ -15,11 +15,8 @@ Verification strategy:
   - Adjust payload thresholds if needed (learn from noise)
 """
 
-import os
-import sys
 import time
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from config import Colors
 from core.normalizer import normalize
@@ -132,7 +129,7 @@ class Verifier:
             return confirmed, None
 
         data = {finding.param: finding.payload}
-        method = 'POST'  # default; adjust if needed
+        method = getattr(finding, 'method', 'GET')
 
         start = time.time()
         response = self.requester.request(finding.url, method, data=data)

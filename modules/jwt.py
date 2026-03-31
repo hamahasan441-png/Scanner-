@@ -5,13 +5,10 @@ ATOMIC FRAMEWORK - JWT Module
 JWT Security testing module
 """
 
-import os
-import sys
 import re
 import base64
 import json
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from config import Colors
 
