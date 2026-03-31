@@ -23,13 +23,13 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from core.baseline import BaselineEngine
 from core.normalizer import normalize
 
-# Signal weight constants (from pipeline §7-8)
-WEIGHT_TIMING = 3
-WEIGHT_ERROR = 2
-WEIGHT_REFLECTION = 2
-WEIGHT_DIFF = 1
+# Default signal weight constants (from pipeline §7-8)
+DEFAULT_WEIGHT_TIMING = 3
+DEFAULT_WEIGHT_ERROR = 2
+DEFAULT_WEIGHT_REFLECTION = 2
+DEFAULT_WEIGHT_DIFF = 1
 
-TOTAL_WEIGHT = WEIGHT_TIMING + WEIGHT_ERROR + WEIGHT_REFLECTION + WEIGHT_DIFF
+TOTAL_WEIGHT = DEFAULT_WEIGHT_TIMING + DEFAULT_WEIGHT_ERROR + DEFAULT_WEIGHT_REFLECTION + DEFAULT_WEIGHT_DIFF
 
 # Confidence thresholds
 CONFIDENCE_HIGH = 0.75
@@ -44,31 +44,34 @@ class SignalSet:
 
     __slots__ = (
         'timing_signal', 'error_signal', 'reflection_signal', 'diff_signal',
-        'raw_scores',
+        'raw_scores', '_weights',
     )
 
-    def __init__(self):
+    def __init__(self, weights=None):
         self.timing_signal = 0.0     # 0.0 - 1.0
         self.error_signal = 0.0      # 0.0 - 1.0
         self.reflection_signal = 0.0  # 0.0 - 1.0
         self.diff_signal = 0.0       # 0.0 - 1.0
         self.raw_scores = {}
+        self._weights = weights or {
+            'timing': DEFAULT_WEIGHT_TIMING,
+            'error': DEFAULT_WEIGHT_ERROR,
+            'reflection': DEFAULT_WEIGHT_REFLECTION,
+            'diff': DEFAULT_WEIGHT_DIFF,
+        }
 
     @property
     def combined_score(self):
-        """Weighted confidence score (0.0 - 1.0).
-
-        Formula: score = (len_diff × W_DIFF + error_pattern × W_ERROR
-                          + timing_stable × W_TIMING + reflection × W_REFLECTION)
-                         / TOTAL_WEIGHT
-        """
+        """Weighted confidence score (0.0 - 1.0)."""
+        w = self._weights
         total = (
-            self.timing_signal * WEIGHT_TIMING
-            + self.error_signal * WEIGHT_ERROR
-            + self.reflection_signal * WEIGHT_REFLECTION
-            + self.diff_signal * WEIGHT_DIFF
+            self.timing_signal * w['timing']
+            + self.error_signal * w['error']
+            + self.reflection_signal * w['reflection']
+            + self.diff_signal * w['diff']
         )
-        return round(total / TOTAL_WEIGHT, 3)
+        total_weight = sum(w.values())
+        return round(total / total_weight, 3) if total_weight > 0 else 0.0
 
     @property
     def active_signal_count(self):
@@ -113,22 +116,48 @@ class SignalScorer:
     def __init__(self, engine):
         self.engine = engine
 
+    def _get_weights(self):
+        """Load signal weights from learning store or use defaults."""
+        try:
+            learned = self.engine.learning.get_signal_weights()
+            return {
+                'timing': learned.get('timing', DEFAULT_WEIGHT_TIMING),
+                'error': learned.get('error', DEFAULT_WEIGHT_ERROR),
+                'reflection': learned.get('reflection', DEFAULT_WEIGHT_REFLECTION),
+                'diff': learned.get('diff', DEFAULT_WEIGHT_DIFF),
+            }
+        except (AttributeError, TypeError):
+            return {
+                'timing': DEFAULT_WEIGHT_TIMING,
+                'error': DEFAULT_WEIGHT_ERROR,
+                'reflection': DEFAULT_WEIGHT_REFLECTION,
+                'diff': DEFAULT_WEIGHT_DIFF,
+            }
+
     def score_timing(self, baseline, elapsed):
         """Score based on response time deviation.
 
-        Returns 0.0 - 1.0 where 1.0 indicates very high timing anomaly.
+        Uses baseline-relative dynamic thresholds that adapt to
+        network conditions.  Returns 0.0 - 1.0 where 1.0 indicates
+        very high timing anomaly.
         """
         if baseline is None or baseline.time_mean == 0:
             return 0.0
 
         deviation = baseline.timing_deviation(elapsed)
-        # Significant if > 3 sigma or absolute delay > baseline + 4s
         absolute_diff = elapsed - baseline.time_mean
-        if deviation >= 5 or absolute_diff >= 4.0:
+
+        # Dynamic thresholds based on observed network jitter
+        network_jitter = baseline.time_stdev * 2
+        high_threshold = max(4.0, baseline.time_mean + network_jitter + 3.0)
+        med_threshold = max(2.5, baseline.time_mean + network_jitter + 1.5)
+        low_threshold = max(1.5, baseline.time_mean + network_jitter + 0.5)
+
+        if deviation >= 5 or absolute_diff >= high_threshold:
             return 1.0
-        elif deviation >= 3 or absolute_diff >= 2.5:
+        elif deviation >= 3 or absolute_diff >= med_threshold:
             return 0.7
-        elif deviation >= 2 or absolute_diff >= 1.5:
+        elif deviation >= 2 or absolute_diff >= low_threshold:
             return 0.4
         return 0.0
 
@@ -217,7 +246,8 @@ class SignalScorer:
     def analyze(self, baseline, elapsed, response_text, payload,
                 error_patterns=None, baseline_text=''):
         """Run all signal checks and return a :class:`SignalSet`."""
-        signals = SignalSet()
+        weights = self._get_weights()
+        signals = SignalSet(weights=weights)
         signals.timing_signal = self.score_timing(baseline, elapsed)
         signals.error_signal = self.score_error(
             baseline_text, response_text, error_patterns or [],

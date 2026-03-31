@@ -10,7 +10,7 @@ import sys
 import random
 import time
 import warnings
-from urllib.parse import urlencode, quote, unquote
+from urllib.parse import urlencode, quote, unquote, urlparse
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -156,12 +156,25 @@ class Requester:
         
         return list(set(variants))
     
+    def _validate_url(self, url: str) -> bool:
+        """Validate that a URL has a proper scheme and network location."""
+        try:
+            result = urlparse(url)
+            return all([result.scheme in ('http', 'https'), result.netloc])
+        except Exception:
+            return False
+
     def request(self, url: str, method: str = 'GET', 
                 data: dict = None, headers: dict = None,
                 files: dict = None, timeout: int = None,
                 allow_redirects: bool = True) -> object:
         """Make HTTP request with advanced evasion"""
         if not self.session:
+            return None
+
+        if not self._validate_url(url):
+            if self.config.get('verbose'):
+                print(f"{Colors.error(f'Invalid URL: {url}')}")
             return None
         
         # Apply evasion timing if available
@@ -185,6 +198,8 @@ class Requester:
             data = evaded_data
         
         try:
+            verify_ssl = self.config.get('verify_ssl', False)
+
             if method.upper() == 'GET':
                 response = self.session.get(
                     url,
@@ -192,7 +207,7 @@ class Requester:
                     headers=req_headers,
                     timeout=timeout or self.timeout,
                     allow_redirects=allow_redirects,
-                    verify=False
+                    verify=verify_ssl
                 )
             elif method.upper() == 'POST':
                 if files:
@@ -203,7 +218,7 @@ class Requester:
                         headers=req_headers,
                         timeout=timeout or self.timeout,
                         allow_redirects=allow_redirects,
-                        verify=False
+                        verify=verify_ssl
                     )
                 elif isinstance(data, (bytes, str)):
                     # Raw body (e.g., XML payloads)
@@ -213,7 +228,7 @@ class Requester:
                         headers=req_headers,
                         timeout=timeout or self.timeout,
                         allow_redirects=allow_redirects,
-                        verify=False
+                        verify=verify_ssl
                     )
                 else:
                     response = self.session.post(
@@ -222,7 +237,7 @@ class Requester:
                         headers=req_headers,
                         timeout=timeout or self.timeout,
                         allow_redirects=allow_redirects,
-                        verify=False
+                        verify=verify_ssl
                     )
             elif method.upper() == 'PUT':
                 response = self.session.put(
@@ -231,7 +246,7 @@ class Requester:
                     headers=req_headers,
                     timeout=timeout or self.timeout,
                     allow_redirects=allow_redirects,
-                    verify=False
+                    verify=verify_ssl
                 )
             else:
                 response = self.session.request(
@@ -241,7 +256,7 @@ class Requester:
                     headers=req_headers,
                     timeout=timeout or self.timeout,
                     allow_redirects=allow_redirects,
-                    verify=False
+                    verify=verify_ssl
                 )
             
             self.total_requests += 1

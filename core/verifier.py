@@ -132,7 +132,7 @@ class Verifier:
             return confirmed, None
 
         data = {finding.param: finding.payload}
-        method = 'POST'  # default; adjust if needed
+        method = getattr(finding, 'method', 'GET')
 
         start = time.time()
         response = self.requester.request(finding.url, method, data=data)

@@ -13,6 +13,7 @@ CORE FLOW:
 
 import os
 import sys
+import time
 import uuid
 import json
 from datetime import datetime
@@ -50,6 +51,7 @@ class Finding:
     """Vulnerability finding"""
     technique: str = ''
     url: str = ''
+    method: str = 'GET'
     param: str = ''
     payload: str = ''
     evidence: str = ''
@@ -340,7 +342,6 @@ class AtomicEngine:
 
                 def _do_test(m=module_instance, e=ep):
                     self.scope.enforce_rate_limit()
-                    import time
                     delay = self.adaptive.get_delay()
                     if delay > 0:
                         time.sleep(delay)
@@ -381,10 +382,15 @@ class AtomicEngine:
         self.ai.save()
 
         # ── ADAPTIVE LOOP (re-discovery if needed) ───────────────────
-        if self.adaptive.should_rediscover() and modules_config.get('discovery', False):
+        MAX_REDISCOVERY_ROUNDS = 3
+        rediscovery_count = 0
+        while (self.adaptive.should_rediscover()
+               and modules_config.get('discovery', False)
+               and rediscovery_count < MAX_REDISCOVERY_ROUNDS):
+            rediscovery_count += 1
             try:
                 new_params = []
-                for ep_url in self.adaptive.new_endpoints:
+                for ep_url in list(self.adaptive.new_endpoints):
                     if not self.scope.is_in_scope(ep_url):
                         continue
                     ep_parsed = urlparse(ep_url)
@@ -392,6 +398,7 @@ class AtomicEngine:
                         for name, values in parse_qs(ep_parsed.query).items():
                             for val in values:
                                 new_params.append((ep_url, 'get', name, val, 'adaptive'))
+                self.adaptive.new_endpoints.clear()  # reset after processing
                 if new_params:
                     new_enriched = self.context.analyze_parameters(new_params)
                     new_enriched = self.prioritizer.prioritize_parameters(new_enriched)
@@ -407,6 +414,7 @@ class AtomicEngine:
             except Exception as e:
                 if self.config.get('verbose'):
                     print(f"{Colors.error(f'Adaptive re-scan error: {e}')}")
+                break
 
         # ── Post-exploitation ────────────────────────────────────────
         if modules_config.get('shell', False) and self.findings:
@@ -451,9 +459,8 @@ class AtomicEngine:
     def _enrich_finding_signals(self):
         """Run multi-signal analysis on existing findings to refine confidence."""
         for finding in self.findings:
-            method = getattr(finding, 'method', 'POST')
             baseline = self.baseline_engine.get_baseline(
-                finding.url, method, finding.param, '',
+                finding.url, finding.method, finding.param, '',
             )
             signals = self.scorer.analyze(
                 baseline=baseline,
