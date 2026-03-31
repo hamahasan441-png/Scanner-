@@ -37,7 +37,7 @@ if ! command -v python3 &>/dev/null && ! command -v python &>/dev/null; then
 fi
 
 PYTHON=$(command -v python3 || command -v python)
-PY_VERSION=$($PYTHON -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
+PY_VERSION=$($PYTHON -c 'import sys; print("{}.{}".format(sys.version_info.major, sys.version_info.minor))')
 echo -e "${BLUE}[*] Using Python ${PY_VERSION}${NC}"
 
 # Update packages

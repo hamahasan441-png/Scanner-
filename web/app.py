@@ -74,19 +74,22 @@ def _require_api_key(f):
 # ---------------------------------------------------------------------------
 _RATE_WINDOW = 60          # seconds
 _RATE_MAX_REQUESTS = 60    # max requests per window per IP
+_RATE_CLEANUP_EVERY = 100  # prune stale IPs every N requests
 
 _rate_counters: dict = defaultdict(list)
 _rate_lock = threading.Lock()
+_rate_request_count = 0
 
 
 def _rate_limit(f):
     """Decorator that applies a per-IP request rate limit."""
     @wraps(f)
     def decorated(*args, **kwargs):
+        global _rate_request_count
         client_ip = request.remote_addr or '0.0.0.0'
         now = time.monotonic()
         with _rate_lock:
-            # Prune expired timestamps
+            # Prune expired timestamps for this IP
             _rate_counters[client_ip] = [
                 t for t in _rate_counters[client_ip] if now - t < _RATE_WINDOW
             ]
@@ -96,6 +99,17 @@ def _rate_limit(f):
                     'data': 'Rate limit exceeded. Try again later.',
                 }), 429
             _rate_counters[client_ip].append(now)
+
+            # Periodically purge IPs with no recent activity
+            _rate_request_count += 1
+            if _rate_request_count >= _RATE_CLEANUP_EVERY:
+                _rate_request_count = 0
+                stale = [
+                    ip for ip, ts in _rate_counters.items()
+                    if not ts or (now - ts[-1]) >= _RATE_WINDOW
+                ]
+                for ip in stale:
+                    del _rate_counters[ip]
         return f(*args, **kwargs)
     return decorated
 
