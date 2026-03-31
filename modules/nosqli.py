@@ -5,12 +5,9 @@ ATOMIC FRAMEWORK - NoSQL Injection Module
 NoSQL Injection detection and exploitation
 """
 
-import os
-import sys
 import re
 import json
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from config import Payloads, Colors
 

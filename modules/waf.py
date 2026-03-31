@@ -5,12 +5,9 @@ ATOMIC FRAMEWORK v8.0 - ULTIMATE EDITION
 WAF Bypass Module - Advanced techniques
 """
 
-import os
-import sys
 import re
 import random
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from config import Colors
 

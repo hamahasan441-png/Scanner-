@@ -15,11 +15,8 @@ Verification strategy:
   - Adjust payload thresholds if needed (learn from noise)
 """
 
-import os
-import sys
 import time
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from config import Colors
 from core.normalizer import normalize

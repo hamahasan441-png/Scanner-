@@ -6,11 +6,8 @@ Detects open redirect vulnerabilities by injecting redirect payloads
 into parameters commonly used for URL redirection.
 """
 
-import os
-import sys
 from urllib.parse import urlparse
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from config import Payloads, Colors
 

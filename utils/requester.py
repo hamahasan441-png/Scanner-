@@ -5,14 +5,11 @@ ATOMIC FRAMEWORK v8.0 - ULTIMATE EDITION
 Advanced HTTP request handler with evasion
 """
 
-import os
-import sys
 import random
 import time
 import warnings
 from urllib.parse import urlencode, quote, unquote, urlparse
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 try:
     import requests

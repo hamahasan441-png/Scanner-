@@ -5,8 +5,6 @@ ATOMIC FRAMEWORK v8.0 - ULTIMATE EDITION
 Advanced Evasion Engine
 """
 
-import os
-import sys
 import re
 import math
 import time
@@ -16,7 +14,6 @@ import base64
 import urllib.parse
 import html
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import Config, Colors, Payloads
 
 

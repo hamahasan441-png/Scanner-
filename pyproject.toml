@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=65.0"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "atomic-framework"
+version = "8.0.0"
+description = "ATOMIC Web Vulnerability Scanner"
+requires-python = ">=3.9"
+dependencies = [
+    "requests>=2.28.0",
+    "beautifulsoup4>=4.11.0",
+    "lxml>=4.9.0",
+    "urllib3>=1.26.0",
+    "sqlalchemy>=1.4.0",
+    "fpdf>=2.6.0",
+    "PyJWT>=2.6.0",
+    "cryptography>=38.0.0",
+    "pysocks>=1.7.1",
+    "flask>=2.2.0",
+    "flask-socketio>=5.3.0",
+    "flask-cors>=3.0.0",
+    "colorama>=0.4.6",
+    "tqdm>=4.64.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "black>=24.0.0",
+    "mypy>=1.8.0",
+    "flake8>=7.0.0",
+]
+
+[tool.setuptools.packages.find]
+include = ["core*", "modules*", "utils*", "web*"]

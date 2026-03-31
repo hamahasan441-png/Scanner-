@@ -7,11 +7,8 @@ checking for logic bypasses, authorization changes, or behaviour
 differences.
 """
 
-import os
-import sys
 from urllib.parse import urlencode, urlparse, parse_qs, urlunparse
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from config import Payloads, Colors
 

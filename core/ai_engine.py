@@ -10,7 +10,6 @@ learning and heuristic models.
 """
 
 import os
-import sys
 import json
 import math
 import time
@@ -18,7 +17,6 @@ import random
 import hashlib
 from collections import defaultdict
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from config import Config, Colors
 

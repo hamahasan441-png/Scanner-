@@ -6,11 +6,9 @@ OS Command Injection detection and exploitation
 """
 
 import os
-import sys
 import re
 import time
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from config import Payloads, Colors
 

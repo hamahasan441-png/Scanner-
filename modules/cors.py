@@ -5,12 +5,9 @@ ATOMIC FRAMEWORK - CORS Module
 CORS Misconfiguration detection
 """
 
-import os
-import sys
 import re
 from urllib.parse import urlparse
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from config import Colors
 

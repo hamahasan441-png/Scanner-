@@ -15,10 +15,7 @@ Confidence formula:
           / TOTAL_WEIGHT
 """
 
-import os
-import sys
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from core.baseline import BaselineEngine
 from core.normalizer import normalize

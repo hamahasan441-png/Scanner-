@@ -14,14 +14,11 @@ Additionally provides a multi-repeat payload testing helper that sends
 noise and improving confidence.
 """
 
-import os
-import sys
 import time
 import hashlib
 import statistics
 from collections import OrderedDict
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from config import Colors
 from core.normalizer import normalize

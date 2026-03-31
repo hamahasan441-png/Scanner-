@@ -11,8 +11,6 @@ CORE FLOW:
   §9 Adaptive Verify → Report → Learn → Adapt
 """
 
-import os
-import sys
 import time
 import uuid
 import json
@@ -21,7 +19,6 @@ from dataclasses import dataclass, field
 from typing import Optional
 from urllib.parse import urlparse, parse_qs
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from config import Config, Colors, MITRE_CWE_MAP
 

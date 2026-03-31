@@ -5,10 +5,7 @@ ATOMIC FRAMEWORK v8.0 - ULTIMATE EDITION
 Banner display module
 """
 
-import os
-import sys
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from config import Config, Colors
 
