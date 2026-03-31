@@ -496,7 +496,9 @@ def run_post_exploit(scan_id):
         summary = post_engine.get_summary()
         return jsonify({'status': 'success', 'data': summary})
     except Exception as exc:
-        return jsonify({'status': 'error', 'data': str(exc)}), 500
+        logger.error('Post-exploitation error: %s', exc)
+        return jsonify({'status': 'error',
+                        'message': 'Post-exploitation failed'}), 500
 
 
 @app.route('/api/stats', methods=['GET'])
