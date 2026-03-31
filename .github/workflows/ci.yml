@@ -1,0 +1,93 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+permissions:
+  contents: read
+
+jobs:
+  lint-and-validate:
+    name: Lint & Validate
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.9", "3.10", "3.11", "3.12"]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Cache pip packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ matrix.python-version }}-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-${{ matrix.python-version }}-
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          # fpdf>=2.6.0 in requirements.txt refers to fpdf2 package
+          sed 's/^fpdf>=.*/fpdf2>=2.6.0/' requirements.txt > /tmp/requirements_ci.txt
+          pip install -r /tmp/requirements_ci.txt
+          pip install flake8
+
+      - name: Python syntax validation
+        run: |
+          echo "Validating Python syntax across all modules..."
+          python -m py_compile main.py
+          python -m py_compile config.py
+          for dir in core modules utils web; do
+            if [ -d "$dir" ]; then
+              find "$dir" -name '*.py' -exec python -m py_compile {} +
+            fi
+          done
+          echo "All files passed syntax validation."
+
+      - name: Module import validation
+        run: |
+          echo "Validating core imports..."
+          python -c "from core.engine import AtomicEngine"
+          python -c "from core.banner import print_banner"
+          python -c "from core.reporter import ReportGenerator"
+          python -c "from config import Config, Payloads, Colors"
+          echo "Validating module imports..."
+          python -c "from modules.sqli import SQLiModule"
+          python -c "from modules.xss import XSSModule"
+          python -c "from modules.lfi import LFIModule"
+          python -c "from modules.cmdi import CommandInjectionModule"
+          python -c "from modules.ssrf import SSRFModule"
+          python -c "from modules.ssti import SSTIModule"
+          python -c "from modules.xxe import XXEModule"
+          python -c "from modules.idor import IDORModule"
+          python -c "from modules.nosqli import NoSQLModule"
+          python -c "from modules.cors import CORSModule"
+          python -c "from modules.jwt import JWTModule"
+          python -c "from modules.uploader import ShellUploader"
+          python -c "from modules.waf import WAFBypass"
+          python -c "from modules.dumper import DataDumper"
+          python -c "from modules.reconnaissance import ReconModule"
+          echo "Validating utility imports..."
+          python -c "from utils.requester import Requester"
+          python -c "from utils.crawler import Crawler"
+          python -c "from utils.evasion import EvasionEngine"
+          python -c "from utils.helpers import check_dependencies"
+          python -c "from utils.database import Database"
+          echo "All imports validated successfully."
+
+      - name: Lint with flake8
+        run: |
+          # Stop on syntax errors or undefined names
+          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+          # Warn on style issues (non-blocking)
+          flake8 . --count --exit-zero --max-complexity=15 --max-line-length=150 --statistics
