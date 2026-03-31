@@ -89,6 +89,11 @@ pkg install python clang libffi openssl git -y
 pip install -r requirements.txt
 ```
 
+> **Note:** On Termux, packages like `lxml`, `cryptography`, and `paramiko` are excluded from `requirements.txt` because building their C extensions can hang or take very long. They are not required for core functionality. If you need them, install separately:
+> ```bash
+> pip install lxml cryptography paramiko
+> ```
+
 ### Linux
 ```bash
 sudo apt-get install python3 python3-pip -y

@@ -19,9 +19,8 @@ def check_dependencies():
         'requests': 'HTTP requests library',
         'bs4': 'HTML parsing (beautifulsoup4)',
         'sqlalchemy': 'Database ORM',
-        'fpdf': 'PDF report generation',
+        'fpdf': 'PDF report generation (fpdf2)',
         'jwt': 'JWT token handling (PyJWT)',
-        'lxml': 'XML/HTML parser',
         'urllib3': 'HTTP client',
     }
     
@@ -29,6 +28,7 @@ def check_dependencies():
         'flask': 'Web interface',
         'flask_socketio': 'Real-time updates',
         'flask_cors': 'CORS support',
+        'lxml': 'XML/HTML parser (faster parsing)',
         'cryptography': 'Encryption support',
         'paramiko': 'SSH connections',
         'pysocks': 'SOCKS proxy support',
@@ -68,17 +68,15 @@ def install_deps():
         'requests',
         'beautifulsoup4',
         'sqlalchemy',
-        'fpdf',
+        'fpdf2',
         'PyJWT',
-        'lxml',
         'urllib3',
         'flask',
         'flask-socketio',
         'flask-cors',
-        'cryptography',
-        'paramiko',
         'pysocks',
         'colorama',
+        'tqdm',
     ]
     
     for dep in deps:
