@@ -287,6 +287,19 @@ class AtomicEngine:
                     ep['url'], ep['method'], ep['param'], ep['value'],
                 )
 
+        # ── §6b. REFLECTION GATE ─────────────────────────────────────
+        # Pre-check which parameters reflect user input.  Modules that
+        # depend on reflection (XSS, SSTI) are skipped for non-reflecting
+        # parameters, avoiding useless payload spam.
+        from core.baseline import REFLECTION_DEPENDENT_MODULES
+        reflection_map = {}  # (method:url:param) → bool
+        for ep in enriched_params:
+            rkey = f"{ep['method']}:{ep['url']}:{ep['param']}"
+            if rkey not in reflection_map:
+                reflection_map[rkey] = self.baseline_engine.reflection_check(
+                    ep['url'], ep['method'], ep['param'], ep['value'],
+                )
+
         # ── §7. ADAPTIVE TESTING (AI-driven module selection) ────────
         # Determine module execution order via AI strategy
         ordered_modules = []
@@ -310,6 +323,14 @@ class AtomicEngine:
                 # Skip already tested endpoints (persistence / resume)
                 if self.persistence.is_tested(ep_key):
                     continue
+
+                # ── Reflection gate: skip reflection-dependent modules
+                #    when the parameter does not echo user input.
+                if module_key in REFLECTION_DEPENDENT_MODULES:
+                    rkey = f"{ep['method']}:{ep['url']}:{ep['param']}"
+                    if not reflection_map.get(rkey, False):
+                        self.persistence.mark_tested(ep_key)
+                        continue
 
                 def _do_test(m=module_instance, e=ep):
                     self.scope.enforce_rate_limit()
@@ -423,15 +444,19 @@ class AtomicEngine:
 
     def _enrich_finding_signals(self):
         """Run multi-signal analysis on existing findings to refine confidence."""
+        from core.baseline import normalize_response
+
         for finding in self.findings:
             method = getattr(finding, 'method', 'POST')
             baseline = self.baseline_engine.get_baseline(
                 finding.url, method, finding.param, '',
             )
+            # Normalize evidence before scoring to remove dynamic noise
+            normalized_evidence = normalize_response(finding.evidence)
             signals = self.scorer.analyze(
                 baseline=baseline,
                 elapsed=0,
-                response_text=finding.evidence,
+                response_text=normalized_evidence,
                 payload=finding.payload,
                 error_patterns=['error', 'syntax', 'exception', 'warning'],
                 baseline_text='',

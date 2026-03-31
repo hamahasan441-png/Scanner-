@@ -15,10 +15,13 @@ noise and improving confidence.
 """
 
 import os
+import re
 import sys
 import time
 import hashlib
 import statistics
+import random
+import string
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -35,6 +38,39 @@ MAX_CACHE_SIZE = 500
 MAX_FINGERPRINT_TAGS = 200
 # Maximum response length stdev to consider consistent across repeats
 MAX_LENGTH_STDEV_THRESHOLD = 50
+
+# Modules that require parameter reflection to be useful
+REFLECTION_DEPENDENT_MODULES = frozenset({'xss', 'ssti'})
+
+# Pre-compiled patterns for response normalization
+_TIMESTAMP_RE = re.compile(r'\d{10,}')
+_SESSION_RE = re.compile(r'session=[^\s&"\']*')
+_CSRF_RE = re.compile(r'csrf[_-]?(?:token)?=[^\s&"\']*', re.IGNORECASE)
+_NONCE_RE = re.compile(r'nonce=[^\s&"\']*', re.IGNORECASE)
+_WHITESPACE_RE = re.compile(r'\s+')
+
+
+def normalize_response(html):
+    """Remove dynamic noise from an HTML response before comparison.
+
+    Strips timestamps, session tokens, CSRF tokens, nonces, and collapses
+    whitespace so that two responses differing only in ephemeral values
+    compare as equal.
+    """
+    if not html:
+        return ''
+    html = _TIMESTAMP_RE.sub('', html)
+    html = _SESSION_RE.sub('', html)
+    html = _CSRF_RE.sub('', html)
+    html = _NONCE_RE.sub('', html)
+    html = _WHITESPACE_RE.sub(' ', html).strip()
+    return html
+
+
+def _generate_probe_token():
+    """Return a unique, easily detectable probe string."""
+    suffix = ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
+    return f'atomicprobe{suffix}'
 
 
 class BaselineResult:
@@ -85,6 +121,7 @@ class BaselineEngine:
         self.requester = engine.requester
         self.verbose = engine.config.get('verbose', False)
         self._cache = {}  # key → BaselineResult
+        self._reflection_cache = {}  # key → bool
 
     def _cache_key(self, url, method, param):
         return f"{method}:{url}:{param}"
@@ -152,10 +189,56 @@ class BaselineEngine:
         """
         if not html_body:
             return ''
-        import re
         tags = re.findall(r'</?[a-zA-Z][^>]*>', html_body)
         skeleton = ''.join(tags[:MAX_FINGERPRINT_TAGS])
         return hashlib.md5(skeleton.encode('utf-8', errors='ignore')).hexdigest()
+
+    # ------------------------------------------------------------------
+    # Reflection gate (pre-filter for reflection-dependent tests)
+    # ------------------------------------------------------------------
+
+    def reflection_check(self, url, method, param, value):
+        """Send a unique probe and check whether it is reflected in the response.
+
+        Returns ``True`` if the probe value appears in the response body,
+        meaning this parameter echoes user input and is a candidate for
+        reflection-based attacks (XSS, SSTI, etc.).
+        Results are cached per endpoint+param.
+        """
+        key = self._cache_key(url, method, param)
+        if key in self._reflection_cache:
+            return self._reflection_cache[key]
+
+        probe = _generate_probe_token()
+        data = {param: probe} if param else None
+
+        reflected = False
+        try:
+            resp = self.requester.request(url, method, data=data)
+            if resp is not None:
+                reflected = probe in resp.text
+        except Exception:
+            pass
+
+        self._reflection_cache[key] = reflected
+
+        if self.verbose:
+            status = 'reflected' if reflected else 'not reflected'
+            print(f"  {Colors.CYAN}[reflection]{Colors.RESET} {param} → {status}")
+
+        return reflected
+
+    # ------------------------------------------------------------------
+    # Anomaly detection helper
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def is_anomaly(baseline, response_text):
+        """Return ``True`` when *response_text* deviates more than 2 σ
+        from the baseline length."""
+        if baseline is None or not response_text:
+            return False
+        return baseline.length_deviation(len(response_text)) > 2
 
     # ------------------------------------------------------------------
     # Multi-repeat payload testing (§7 of the pipeline)

@@ -121,6 +121,8 @@ class Verifier:
 
         Returns (confirmed: bool, response_length: int or None).
         """
+        from core.baseline import normalize_response
+
         if not finding.param or not finding.payload:
             # URL-level findings (CORS, JWT) — re-fetch and check
             confirmed = self._retest_url(finding)
@@ -136,8 +138,10 @@ class Verifier:
         if response is None:
             return False, None
 
-        response_text = response.text.lower()
-        resp_len = len(response.text)
+        # Normalize to strip dynamic noise before comparing
+        normalized = normalize_response(response.text)
+        response_text = normalized.lower()
+        resp_len = len(normalized)
 
         # Check for the same type of evidence
         technique_lower = finding.technique.lower()
@@ -155,7 +159,8 @@ class Verifier:
             return finding.payload in response.text, resp_len
 
         if 'union' in technique_lower:
-            return abs(len(response.text) - len(finding.evidence)) > 20, resp_len
+            normalized_evidence = normalize_response(finding.evidence)
+            return abs(len(normalized) - len(normalized_evidence)) > 20, resp_len
 
         if 'command' in technique_lower:
             indicators = ['uid=', 'root:', 'bin/', '/bin/sh', 'windows']
