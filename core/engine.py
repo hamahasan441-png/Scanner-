@@ -364,6 +364,19 @@ class AtomicEngine:
 
         self.end_time = datetime.utcnow()
 
+        # ── Update database record with final metrics ────────────────
+        if self.db:
+            try:
+                self.db.update_scan(
+                    self.scan_id,
+                    end_time=self.end_time,
+                    findings_count=len(self.findings),
+                    total_requests=self.requester.total_requests,
+                )
+            except Exception as e:
+                if self.config.get('verbose'):
+                    print(f"{Colors.warning(f'Could not update scan record: {e}')}")
+
         # ── Print summary ────────────────────────────────────────────
         self._print_summary()
 
@@ -473,7 +486,13 @@ class AtomicEngine:
         """Generate reports for the current scan"""
         try:
             from core.reporter import ReportGenerator
-            generator = ReportGenerator(self.scan_id, self.findings, self.target, self.start_time, self.end_time, self.requester.total_requests)
+            output_dir = self.config.get('output_dir', Config.REPORTS_DIR)
+            generator = ReportGenerator(
+                self.scan_id, self.findings, self.target,
+                self.start_time, self.end_time,
+                self.requester.total_requests,
+                output_dir=output_dir,
+            )
             generator.generate('html')
             generator.generate('json')
         except Exception as e:

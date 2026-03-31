@@ -136,6 +136,23 @@ class Database:
             session.close()
         except Exception as e:
             print(f"[!] Error saving finding: {e}")
+
+    def update_scan(self, scan_id, **kwargs):
+        """Update scan metadata (e.g. end_time, findings_count, total_requests)"""
+        if not self.Session:
+            return
+
+        try:
+            session = self.Session()
+            scan = session.query(ScanModel).filter_by(scan_id=scan_id).first()
+            if scan:
+                for key, value in kwargs.items():
+                    if hasattr(scan, key):
+                        setattr(scan, key, value)
+                session.commit()
+            session.close()
+        except Exception as e:
+            print(f"[!] Error updating scan: {e}")
     
     def save_shell(self, shell_id, url, shell_type, password=None):
         """Save active shell"""
