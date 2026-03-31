@@ -141,6 +141,8 @@ class NoSQLModule:
             'mongodb', 'mongoerror', 'bson', 'objectid',
             '$ne', '$gt', '$regex', '$where', '_id',
         ]
+        # Pre-lowered for efficient comparison
+        nosql_success_lower = [ind.lower() for ind in nosql_success_indicators]
         auth_bypass_indicators = ['welcome', 'dashboard', 'logged in', 'profile', 'admin']
         
         for payload in json_payloads:
@@ -159,8 +161,8 @@ class NoSQLModule:
                 
                 # Check for NoSQL error indicators that are NEW (not in baseline)
                 new_nosql_indicators = sum(
-                    1 for ind in nosql_success_indicators
-                    if ind.lower() in response_text and ind.lower() not in baseline_text
+                    1 for ind in nosql_success_lower
+                    if ind in response_text and ind not in baseline_text
                 )
                 
                 if new_nosql_indicators >= 1:
