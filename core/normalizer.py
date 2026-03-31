@@ -19,12 +19,12 @@ import re
 
 # Patterns that introduce per-request noise
 _DYNAMIC_PATTERNS = [
-    re.compile(r'\d{10,}'),                   # Unix timestamps / large numbers
+    re.compile(r'(?:timestamp|time|_ts|_t)\s*[=:]\s*\d{10,}'),  # timestamps in key=value contexts
     re.compile(r'session[_-]?[iI]d\s*=\s*["\']?[\w\-]+'),  # session=... / session_id=...
     re.compile(r'csrf[_-]?token?\s*=\s*["\']?[\w\-]+'),     # csrf=... / csrf_token=...
     re.compile(r'nonce\s*=\s*["\']?[\w\-]+'),                # nonce=...
     re.compile(r'_token\s*=\s*["\']?[\w\-]+'),               # _token=...
-    re.compile(r'[a-f0-9]{32,}'),              # MD5/SHA hashes, long hex tokens
+    re.compile(r'(?:token|secret|key|auth)\s*[=:]\s*["\']?[a-f0-9]{32,}'),  # hex tokens in key=value
     re.compile(r'Set-Cookie:.*', re.IGNORECASE),             # Set-Cookie headers in body
 ]
 

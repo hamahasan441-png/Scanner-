@@ -188,7 +188,9 @@ class BaselineEngine:
         Returns True if the probe value is reflected, False otherwise.
         """
         import uuid
-        probe = f"probe_{uuid.uuid4().hex[:12]}"
+        # Use a fully random alphanumeric string to avoid WAF detection
+        # and collisions with existing page content.
+        probe = uuid.uuid4().hex
         data = {param: probe} if param else None
 
         try:

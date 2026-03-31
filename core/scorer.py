@@ -198,8 +198,8 @@ class SignalScorer:
         normalized_text = normalize(response_text)
         length_dev = baseline.length_deviation(len(normalized_text))
 
-        # Structural fingerprint comparison
-        current_hash = BaselineEngine._structure_fingerprint(response_text)
+        # Structural fingerprint comparison (also on normalized text)
+        current_hash = BaselineEngine._structure_fingerprint(normalized_text)
         structure_changed = (
             baseline.structure_hash
             and current_hash
