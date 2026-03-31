@@ -96,11 +96,12 @@ jobs:
           pip install pip-audit
 
       - name: Run pip-audit
-        run: pip-audit --strict --desc --fix --dry-run || true
+        run: pip-audit --strict --desc
+        continue-on-error: true
 
       - name: Run pip-audit (JSON report)
-        run: |
-          pip-audit --format json --output pip-audit-results.json || true
+        run: pip-audit --format json --output pip-audit-results.json
+        continue-on-error: true
 
       - name: Upload pip-audit results
         if: always()

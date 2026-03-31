@@ -47,7 +47,11 @@ jobs:
           echo "Validating Python syntax across all modules..."
           python -m py_compile main.py
           python -m py_compile config.py
-          find core modules utils web -name '*.py' -exec python -m py_compile {} +
+          for dir in core modules utils web; do
+            if [ -d "$dir" ]; then
+              find "$dir" -name '*.py' -exec python -m py_compile {} +
+            fi
+          done
           echo "All files passed syntax validation."
 
       - name: Module import validation
