@@ -155,6 +155,7 @@ class AtomicEngine:
             'open_redirect': ('modules.open_redirect', 'OpenRedirectModule'),
             'crlf': ('modules.crlf', 'CRLFModule'),
             'hpp': ('modules.hpp', 'HPPModule'),
+            'vulnx': ('modules.vulnx', 'VulnXModule'),
         }
 
         modules_config = self.config.get('modules', {})

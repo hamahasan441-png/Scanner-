@@ -51,6 +51,17 @@ mkdir -p reports
 mkdir -p shells
 mkdir -p wordlists
 mkdir -p logs
+mkdir -p tools
+
+# Install vulnx CMS scanner
+echo -e "${BLUE}[*] Installing vulnx CMS scanner...${NC}"
+if [ -d "tools/vulnx" ]; then
+    echo -e "${YELLOW}[!] vulnx already installed, updating...${NC}"
+    cd tools/vulnx && git pull && cd ../..
+else
+    git clone --depth 1 https://github.com/anouarbensaad/vulnx.git tools/vulnx
+fi
+echo -e "${GREEN}[+] vulnx installed${NC}"
 
 # Make main.py executable
 echo -e "${BLUE}[*] Setting permissions...${NC}"

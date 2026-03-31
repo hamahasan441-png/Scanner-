@@ -5,6 +5,7 @@ reports/
 shells/
 logs/
 wordlists/
+tools/
 *.egg-info/
 dist/
 build/

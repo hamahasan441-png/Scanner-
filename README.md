@@ -50,6 +50,14 @@ python main.py -t https://target.com --full --evasion insane --waf-bypass
 - **JWT** — JWT Security Weaknesses
 - **File Upload** — Upload bypass tests (20+ extension variants)
 
+### 🔎 VulnX CMS Integration
+- **Powered by [vulnx](https://github.com/anouarbensaad/vulnx)** — automated CMS vulnerability detection
+- **CMS Detection** — WordPress, Joomla, Drupal, PrestaShop, Magento, OpenCart
+- **Auto Shell Injection** — attempts injection only when the vulnerability permits
+- **Built-in Fallback** — lightweight CMS path probing when vulnx is not installed
+- Enable: `python main.py -t https://target.com --vulnx`
+- Auto-install: `bash setup.sh` clones vulnx into `tools/vulnx`
+
 ### 🛡️ Advanced Evasion Engine
 - **6 evasion levels**: none, low, medium, high, insane, stealth
 - **Polymorphic payload mutation** — encoding chains, case alternation, comment injection, whitespace randomization, null bytes, CHAR() splitting, string concatenation, JS obfuscation, HTML entities, mixed encoding
@@ -145,6 +153,7 @@ python main.py --shell-manager                 # Manage active shells
 | | `--sqli, --xss, --lfi, --cmdi` | Individual modules |
 | | `--ssrf, --ssti, --xxe, --idor` | Individual modules |
 | | `--nosql, --cors, --jwt, --upload` | Individual modules |
+| | `--vulnx` | VulnX CMS vulnerability scanning |
 | **Exploit** | `--shell` | Attempt shell upload |
 | | `--dump` | Attempt data dump |
 | | `--os-shell` | Get OS shell |
@@ -177,6 +186,7 @@ Scanner-/
 │   ├── ssrf.py, ssti.py, xxe.py, idor.py  # Attack modules
 │   ├── nosqli.py, cors.py, jwt.py         # Attack modules
 │   ├── uploader.py, dumper.py              # Exploitation
+│   ├── vulnx.py                            # VulnX CMS scanner integration
 │   ├── waf.py                              # WAF detection & bypass
 │   ├── reconnaissance.py                   # Recon module
 │   └── shell/manager.py                    # Shell management
@@ -191,7 +201,9 @@ Scanner-/
 │   ├── templates/index.html # Dashboard UI
 │   └── static/style.css     # Dashboard styles
 ├── reports/                 # Generated reports
-└── shells/                  # Shell files
+├── shells/                  # Shell files
+└── tools/
+    └── vulnx/               # vulnx CMS scanner (auto-installed)
 ```
 
 ## Safety & Legal Notice
@@ -212,3 +224,5 @@ This project is for educational purposes only.
 
 ATOMIC Framework v8.0 - ULTIMATE EDITION
 Codename: PHOENIX
+
+VulnX CMS Scanner by [anouarbensaad](https://github.com/anouarbensaad/vulnx)

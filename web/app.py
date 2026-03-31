@@ -181,6 +181,7 @@ def start_scan():
     all_module_keys = [
         'sqli', 'xss', 'lfi', 'cmdi', 'ssrf', 'ssti',
         'xxe', 'idor', 'nosql', 'cors', 'jwt', 'upload',
+        'vulnx',
     ]
     modules_dict = {}
     for key in all_module_keys:

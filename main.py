@@ -101,6 +101,8 @@ def main():
                        help='Enable CRLF injection detection')
     parser.add_argument('--hpp', action='store_true',
                        help='Enable HTTP parameter pollution detection')
+    parser.add_argument('--vulnx', action='store_true',
+                       help='Enable VulnX CMS vulnerability scanning')
     
     # Exploitation options
     parser.add_argument('--shell', action='store_true',
@@ -284,6 +286,7 @@ def main():
         'open_redirect': args.open_redirect or args.full,
         'crlf': args.crlf or args.full,
         'hpp': args.hpp or args.full,
+        'vulnx': args.vulnx or args.full,
         'shell': args.shell,
         'dump': args.dump,
         'os_shell': args.os_shell,
