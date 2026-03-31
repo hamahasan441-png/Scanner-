@@ -65,12 +65,13 @@ $PYTHON -m pip install -r requirements.txt || fail "Failed to install Python dep
 echo -e "${BLUE}[*] Installing optional dependencies...${NC}"
 for opt_dep in lxml cryptography paramiko; do
     echo -e "${BLUE}[*] Trying ${opt_dep}...${NC}"
-    if $PYTHON -m pip install "$opt_dep" --only-binary :all: -q 2>/dev/null; then
+    if $PYTHON -m pip install "$opt_dep" --only-binary :all: -q 2>/tmp/atomic_opt_dep.log; then
         echo -e "${GREEN}[+] ${opt_dep} installed${NC}"
     else
-        echo -e "${YELLOW}[!] ${opt_dep} skipped (no pre-built wheel available)${NC}"
+        echo -e "${YELLOW}[!] ${opt_dep} skipped (no pre-built wheel available — not required for core functionality)${NC}"
     fi
 done
+rm -f /tmp/atomic_opt_dep.log
 
 # Create necessary directories
 echo -e "${BLUE}[*] Creating directories...${NC}"
