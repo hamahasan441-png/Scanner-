@@ -119,7 +119,7 @@ class Repeater:
         effective_host = host or headers.get("Host") or headers.get("host", "")
         scheme = "https" if use_ssl else "http"
 
-        if port in (80, 443):
+        if (not use_ssl and port == 80) or (use_ssl and port == 443):
             url = f"{scheme}://{effective_host}{path}"
         else:
             url = f"{scheme}://{effective_host}:{port}{path}"
