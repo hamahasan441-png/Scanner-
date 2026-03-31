@@ -22,6 +22,7 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from config import Colors
+from core.normalizer import normalize
 
 # Number of re-test rounds for verification
 VERIFY_ROUNDS = 3
@@ -75,6 +76,10 @@ class Verifier:
 
     def _verify_with_correlation(self, finding):
         """Verify a finding using multi-signal correlation.
+
+        Normalizes response text before comparing lengths so that
+        dynamic noise (timestamps, session tokens) does not cause
+        spurious inconsistency.
 
         Returns 'confirmed', 'downgrade', or 'removed'.
         """
@@ -136,8 +141,9 @@ class Verifier:
         if response is None:
             return False, None
 
-        response_text = response.text.lower()
-        resp_len = len(response.text)
+        normalized_body = normalize(response.text)
+        response_text = normalized_body.lower()
+        resp_len = len(normalized_body)
 
         # Check for the same type of evidence
         technique_lower = finding.technique.lower()
