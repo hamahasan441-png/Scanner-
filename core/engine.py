@@ -336,8 +336,7 @@ class AtomicEngine:
 
                 self.persistence.execute_with_retry(_do_url_test, url_key)
 
-        # ── Persistence: retry any failed endpoints ──────────────────
-        self.persistence.retry_failed_endpoints(lambda _: None)
+        # ── Persistence: save progress ────────────────────────────────
         self.persistence.save_progress()
 
         # ── §8. MULTI-SIGNAL ANALYSIS (scoring enrichment) ───────────

@@ -173,6 +173,9 @@ class PersistenceEngine:
                     return True
             except KeyboardInterrupt:
                 raise
+            except (ConnectionError, TimeoutError, OSError) as e:
+                if self.verbose:
+                    print(f"{Colors.warning(f'Retry {retries+1}/{MAX_TOTAL_ROUNDS} for {endpoint_key}: {e}')}")
             except Exception as e:
                 if self.verbose:
                     print(f"{Colors.warning(f'Retry {retries+1}/{MAX_TOTAL_ROUNDS} for {endpoint_key}: {e}')}")

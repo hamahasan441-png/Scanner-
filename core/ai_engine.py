@@ -22,6 +22,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from config import Config, Colors
 
+# Anomaly detection thresholds
+MIN_BASELINE_TIME = 0.001
 AI_DATA_FILE = os.path.join(Config.BASE_DIR, '.atomic_ai_data.json')
 
 # Feature weights for vulnerability prediction
@@ -288,14 +290,14 @@ class AIEngine:
 
         # Timing anomaly (z-score based)
         if baseline_time > 0:
-            time_deviation = abs(response_time - baseline_time) / max(baseline_time, 0.001)
+            time_deviation = abs(response_time - baseline_time) / max(baseline_time, MIN_BASELINE_TIME)
             time_score = min(1.0, time_deviation / 3.0)
             scores.append(time_score * 0.4)
 
         # Length anomaly
         if baseline_length > 0:
             length_deviation = abs(response_length - baseline_length) / max(baseline_length, 1)
-            length_score = min(1.0, length_deviation / 0.5)
+            length_score = min(1.0, length_deviation / LENGTH_DEVIATION_THRESHOLD)
             scores.append(length_score * 0.3)
 
         # Status code anomaly
