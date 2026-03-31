@@ -43,10 +43,10 @@ MAX_LENGTH_STDEV_THRESHOLD = 50
 REFLECTION_DEPENDENT_MODULES = frozenset({'xss', 'ssti'})
 
 # Pre-compiled patterns for response normalization
-_TIMESTAMP_RE = re.compile(r'\d{10,}')
-_SESSION_RE = re.compile(r'session=[^\s&"\']*')
-_CSRF_RE = re.compile(r'csrf[_-]?(?:token)?=[^\s&"\']*', re.IGNORECASE)
-_NONCE_RE = re.compile(r'nonce=[^\s&"\']*', re.IGNORECASE)
+_TIMESTAMP_RE = re.compile(r'\b\d{10,13}\b')
+_SESSION_RE = re.compile(r'session=[^\s&"\',:;]*', re.IGNORECASE)
+_CSRF_RE = re.compile(r'csrf[_-]?(?:token)?=[^\s&"\',:;]*', re.IGNORECASE)
+_NONCE_RE = re.compile(r'nonce=[^\s&"\',:;]*', re.IGNORECASE)
 _WHITESPACE_RE = re.compile(r'\s+')
 
 
@@ -236,9 +236,13 @@ class BaselineEngine:
     def is_anomaly(baseline, response_text):
         """Return ``True`` when *response_text* deviates more than 2 σ
         from the baseline length."""
-        if baseline is None or not response_text:
+        if baseline is None:
             return False
-        return baseline.length_deviation(len(response_text)) > 2
+        resp_len = len(response_text) if response_text else 0
+        # An empty response is anomalous if the baseline has substantial content
+        if resp_len == 0 and baseline.length_mean > 0:
+            return True
+        return baseline.length_deviation(resp_len) > 2
 
     # ------------------------------------------------------------------
     # Multi-repeat payload testing (§7 of the pipeline)

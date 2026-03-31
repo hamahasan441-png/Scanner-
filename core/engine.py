@@ -292,9 +292,13 @@ class AtomicEngine:
         # depend on reflection (XSS, SSTI) are skipped for non-reflecting
         # parameters, avoiding useless payload spam.
         from core.baseline import REFLECTION_DEPENDENT_MODULES
+
+        def _ep_key(ep):
+            return f"{ep['method']}:{ep['url']}:{ep['param']}"
+
         reflection_map = {}  # (method:url:param) → bool
         for ep in enriched_params:
-            rkey = f"{ep['method']}:{ep['url']}:{ep['param']}"
+            rkey = _ep_key(ep)
             if rkey not in reflection_map:
                 reflection_map[rkey] = self.baseline_engine.reflection_check(
                     ep['url'], ep['method'], ep['param'], ep['value'],
@@ -327,8 +331,7 @@ class AtomicEngine:
                 # ── Reflection gate: skip reflection-dependent modules
                 #    when the parameter does not echo user input.
                 if module_key in REFLECTION_DEPENDENT_MODULES:
-                    rkey = f"{ep['method']}:{ep['url']}:{ep['param']}"
-                    if not reflection_map.get(rkey, False):
+                    if not reflection_map.get(_ep_key(ep), False):
                         self.persistence.mark_tested(ep_key)
                         continue
 
