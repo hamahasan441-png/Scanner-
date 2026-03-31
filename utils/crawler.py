@@ -151,8 +151,6 @@ class Crawler:
             rel = ' '.join(link.get('rel', []))
             if 'stylesheet' in rel:
                 self.resources['stylesheets'].add(href)
-            elif urlparse(href).netloc == base_domain:
-                self.resources['stylesheets'].add(href)
 
         # Images
         for img in soup.find_all('img', src=True):

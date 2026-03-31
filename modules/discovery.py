@@ -240,7 +240,7 @@ class DiscoveryModule:
 
             try:
                 resp = self.requester.request(full_url, 'GET')
-                if resp and resp.status_code not in (404, 403, 500, 502, 503, 0):
+                if resp and resp.status_code not in (404, 500, 502, 503, 0):
                     self.endpoints.add(full_url)
                     self.directories.add(path)
                     found += 1
@@ -282,7 +282,7 @@ class DiscoveryModule:
     # ──────────────────────────────────────
 
     def _smart_analysis(self, target: str):
-        """Heuristic-based smart analysis that categorizes and prioritises
+        """Heuristic-based smart analysis that categorizes and prioritizes
         discovered endpoints.  This acts as a lightweight "AI" layer that
         scores endpoints by their likely security impact so the tester can
         focus on high-value targets first.
@@ -356,11 +356,11 @@ class DiscoveryModule:
 
         # Summary
         print(f"\n  {Colors.BOLD}Summary{Colors.RESET}")
-        print(f"    Total endpoints discovered : {len(self.endpoints)}")
-        print(f"    Sitemap URLs               : {len(self.sitemap_urls)}")
-        print(f"    robots.txt allowed paths    : {len(self.robots_paths['allowed'])}")
-        print(f"    robots.txt disallowed paths : {len(self.robots_paths['disallowed'])}")
-        print(f"    Live directories            : {len(self.directories)}")
+        print(f"    Total endpoints discovered  : {len(self.endpoints)}")
+        print(f"    Sitemap URLs                : {len(self.sitemap_urls)}")
+        print(f"    robots.txt allowed paths     : {len(self.robots_paths['allowed'])}")
+        print(f"    robots.txt disallowed paths  : {len(self.robots_paths['disallowed'])}")
+        print(f"    Live directories             : {len(self.directories)}")
 
         # Robots
         if self.robots_paths['disallowed']:
