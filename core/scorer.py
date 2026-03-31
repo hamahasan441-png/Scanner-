@@ -21,6 +21,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from core.baseline import BaselineEngine
+from core.normalizer import normalize
 
 # Signal weight constants (from pipeline §7-8)
 WEIGHT_TIMING = 3
@@ -134,14 +135,16 @@ class SignalScorer:
     def score_error(self, baseline_text, response_text, error_patterns):
         """Score based on error pattern presence.
 
+        Normalizes both texts before comparison to ignore dynamic noise.
+
         *error_patterns*: list of strings to search for in the response.
         Returns 0.0 - 1.0.
         """
         if not response_text:
             return 0.0
 
-        response_lower = response_text.lower()
-        baseline_lower = (baseline_text or '').lower()
+        response_lower = normalize(response_text).lower()
+        baseline_lower = normalize(baseline_text or '').lower()
 
         matches = 0
         for pat in error_patterns:
@@ -184,15 +187,19 @@ class SignalScorer:
     def score_diff(self, baseline, response_text):
         """Score based on structural/length diff from baseline.
 
+        Normalizes the response to remove dynamic noise (timestamps,
+        session tokens, CSRF tokens) before computing the diff.
+
         Returns 0.0 - 1.0.
         """
         if baseline is None or not response_text:
             return 0.0
 
-        length_dev = baseline.length_deviation(len(response_text))
+        normalized_text = normalize(response_text)
+        length_dev = baseline.length_deviation(len(normalized_text))
 
-        # Structural fingerprint comparison
-        current_hash = BaselineEngine._structure_fingerprint(response_text)
+        # Structural fingerprint comparison (also on normalized text)
+        current_hash = BaselineEngine._structure_fingerprint(normalized_text)
         structure_changed = (
             baseline.structure_hash
             and current_hash

@@ -301,6 +301,25 @@ class AtomicEngine:
         else:
             ordered_modules = list(self._modules.items())
 
+        # ── Reflection Gate ──────────────────────────────────────────
+        # Modules that only make sense when user input is reflected in
+        # the response body.  If no reflection is detected for a param,
+        # these modules are skipped to avoid useless payload spam.
+        REFLECTION_DEPENDENT_MODULES = {'xss', 'ssti'}
+        reflection_cache = {}  # (url, method, param) → bool
+
+        for ep in enriched_params:
+            r_key = (ep['url'], ep['method'], ep['param'])
+            if r_key not in reflection_cache:
+                reflection_cache[r_key] = self.baseline_engine.reflection_check(
+                    ep['url'], ep['method'], ep['param'], ep['value'],
+                )
+
+        reflected_count = sum(1 for v in reflection_cache.values() if v)
+        skipped_count = len(reflection_cache) - reflected_count
+        if skipped_count > 0:
+            print(f"{Colors.info(f'Reflection gate: {reflected_count} reflected, {skipped_count} non-reflected (XSS/SSTI skipped)')}")
+
         for module_key, module_instance in ordered_modules:
             print(f"\n{Colors.info(f'Running {module_instance.name} module...')}")
 
@@ -310,6 +329,14 @@ class AtomicEngine:
                 # Skip already tested endpoints (persistence / resume)
                 if self.persistence.is_tested(ep_key):
                     continue
+
+                # ── Reflection Gate: skip reflection-dependent modules
+                # when the parameter value is not reflected in responses.
+                if module_key in REFLECTION_DEPENDENT_MODULES:
+                    r_key = (ep['url'], ep['method'], ep['param'])
+                    if not reflection_cache.get(r_key, False):
+                        self.persistence.mark_tested(ep_key)
+                        continue
 
                 def _do_test(m=module_instance, e=ep):
                     self.scope.enforce_rate_limit()

@@ -23,6 +23,7 @@ import statistics
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from config import Colors
+from core.normalizer import normalize
 
 # Number of clean requests per baseline measurement
 BASELINE_SAMPLES = 3
@@ -75,6 +76,21 @@ class BaselineResult:
         if self.length_mean > 0:
             return abs(length - self.length_mean) / max(self.length_mean, 1)
         return 0.0
+
+    def is_anomaly(self, response_text):
+        """Return True if the response length is a statistical anomaly.
+
+        An anomaly is defined as a response whose length deviates by more
+        than 2 standard deviations from the baseline mean.  This provides
+        a quick gate to skip further analysis on unremarkable responses.
+        """
+        length = len(response_text) if response_text else 0
+        if self.length_stdev > 0:
+            return abs(length - self.length_mean) > (2 * self.length_stdev)
+        # When stdev is zero (identical baseline responses), any change is anomalous
+        if self.length_mean > 0:
+            return abs(length - self.length_mean) > 0
+        return False
 
 
 class BaselineEngine:
@@ -158,6 +174,35 @@ class BaselineEngine:
         return hashlib.md5(skeleton.encode('utf-8', errors='ignore')).hexdigest()
 
     # ------------------------------------------------------------------
+    # Reflection Gate (§ pre-test filter)
+    # ------------------------------------------------------------------
+
+    def reflection_check(self, url, method, param, value):
+        """Check whether *value* is reflected in the response body.
+
+        Sends a unique probe value and checks if it appears in the
+        response text.  If there is no reflection, injection tests
+        that rely on output (XSS, SSTI, template injection) can be
+        safely skipped for this parameter.
+
+        Returns True if the probe value is reflected, False otherwise.
+        """
+        import uuid
+        # Use a fully random alphanumeric string to avoid WAF detection
+        # and collisions with existing page content.
+        probe = uuid.uuid4().hex
+        data = {param: probe} if param else None
+
+        try:
+            resp = self.requester.request(url, method, data=data)
+            if resp is not None and probe in resp.text:
+                return True
+        except Exception:
+            pass
+
+        return False
+
+    # ------------------------------------------------------------------
     # Multi-repeat payload testing (§7 of the pipeline)
     # ------------------------------------------------------------------
 
@@ -197,6 +242,7 @@ class BaselineEngine:
             'lengths': lengths,
             'status_codes': status_codes,
             'texts': texts,
+            'normalized_texts': [normalize(t) for t in texts],
             'repeat_count': len(timings),
         }
 
@@ -221,5 +267,11 @@ class BaselineEngine:
             result['status_consistent'] = len(set(status_codes)) == 1
         else:
             result['status_consistent'] = False
+
+        # Repeatability: normalized responses must be identical across runs
+        normalized = result['normalized_texts']
+        result['repeatable'] = (
+            len(normalized) >= 2 and len(set(normalized)) == 1
+        )
 
         return result
