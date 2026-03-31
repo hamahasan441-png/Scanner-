@@ -395,6 +395,72 @@ class AIEngine:
         return 'unknown'
 
     # ------------------------------------------------------------------
+    # Post-Exploitation Strategy
+    # ------------------------------------------------------------------
+
+    # Maps vulnerability families to ordered exploitation actions
+    _EXPLOIT_ACTION_MAP = {
+        'sqli': ['extract_db_info', 'extract_tables', 'extract_data'],
+        'cmdi': ['enumerate_system', 'upload_shell'],
+        'lfi': ['extract_files'],
+        'ssrf': ['harvest_metadata'],
+        'ssti': ['prove_rce'],
+        'upload': ['deploy_shell'],
+    }
+
+    _SEVERITY_RANK = {
+        'CRITICAL': 5,
+        'HIGH': 4,
+        'MEDIUM': 3,
+        'LOW': 2,
+        'INFO': 1,
+    }
+
+    def get_exploit_strategy(self, findings: list) -> list:
+        """Produce an AI-ranked exploitation plan for confirmed findings.
+
+        Each entry is ``{'finding': <Finding>, 'actions': [str, ...]}``.
+        Findings are ranked by a composite score of severity, confidence,
+        and historical success rate of the vulnerability family.
+        """
+        if not findings:
+            return []
+
+        scored = []
+        for finding in findings:
+            vuln_type = self._technique_to_type(finding.technique)
+            actions = list(self._EXPLOIT_ACTION_MAP.get(vuln_type, []))
+            if not actions:
+                continue
+
+            sev = self._SEVERITY_RANK.get(finding.severity, 0)
+            conf = finding.confidence
+
+            # Historical boost: families that succeeded before are
+            # prioritised more aggressively.
+            history_boost = 0.0
+            if vuln_type in self.vuln_history:
+                history_boost = min(0.2, sum(
+                    self.vuln_history[vuln_type].values()
+                ) * 0.05)
+
+            score = sev * conf + history_boost
+            scored.append({
+                'finding': finding,
+                'actions': actions,
+                '_score': score,
+            })
+
+        # Sort highest score first
+        scored.sort(key=lambda e: e['_score'], reverse=True)
+
+        # Strip internal score key before returning
+        for entry in scored:
+            entry.pop('_score', None)
+
+        return scored
+
+    # ------------------------------------------------------------------
     # Summary
     # ------------------------------------------------------------------
 
