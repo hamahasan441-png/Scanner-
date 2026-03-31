@@ -8,6 +8,11 @@ Collects multiple detection signals (timing, reflection, error patterns,
 structural diff) from a test response and computes a combined confidence
 score.  This replaces the static per-module confidence values with a
 data-driven composite score.
+
+Confidence formula:
+  score = (len_diff × W_DIFF + error_pattern × W_ERROR
+           + timing_stable × W_TIMING + reflection × W_REFLECTION)
+          / TOTAL_WEIGHT
 """
 
 import os
@@ -17,7 +22,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from core.baseline import BaselineEngine
 
-# Signal weight constants (from problem statement §9)
+# Signal weight constants (from pipeline §7-8)
 WEIGHT_TIMING = 3
 WEIGHT_ERROR = 2
 WEIGHT_REFLECTION = 2
@@ -28,6 +33,9 @@ TOTAL_WEIGHT = WEIGHT_TIMING + WEIGHT_ERROR + WEIGHT_REFLECTION + WEIGHT_DIFF
 # Confidence thresholds
 CONFIDENCE_HIGH = 0.75
 CONFIDENCE_MEDIUM = 0.45
+
+# Minimum number of consistent signals required to label HIGH
+MIN_SIGNALS_FOR_HIGH = 2
 
 
 class SignalSet:
@@ -47,7 +55,12 @@ class SignalSet:
 
     @property
     def combined_score(self):
-        """Weighted confidence score (0.0 - 1.0)."""
+        """Weighted confidence score (0.0 - 1.0).
+
+        Formula: score = (len_diff × W_DIFF + error_pattern × W_ERROR
+                          + timing_stable × W_TIMING + reflection × W_REFLECTION)
+                         / TOTAL_WEIGHT
+        """
         total = (
             self.timing_signal * WEIGHT_TIMING
             + self.error_signal * WEIGHT_ERROR
@@ -57,9 +70,25 @@ class SignalSet:
         return round(total / TOTAL_WEIGHT, 3)
 
     @property
+    def active_signal_count(self):
+        """Count how many signals are active (> 0.3)."""
+        count = 0
+        if self.timing_signal > 0.3:
+            count += 1
+        if self.error_signal > 0.3:
+            count += 1
+        if self.reflection_signal > 0.3:
+            count += 1
+        if self.diff_signal > 0.3:
+            count += 1
+        return count
+
+    @property
     def confidence_label(self):
         score = self.combined_score
-        if score >= CONFIDENCE_HIGH:
+        active = self.active_signal_count
+        # Require at least MIN_SIGNALS_FOR_HIGH active signals for HIGH label
+        if score >= CONFIDENCE_HIGH and active >= MIN_SIGNALS_FOR_HIGH:
             return 'HIGH'
         elif score >= CONFIDENCE_MEDIUM:
             return 'MEDIUM'
@@ -72,6 +101,7 @@ class SignalSet:
             'reflection': round(self.reflection_signal, 3),
             'diff': round(self.diff_signal, 3),
             'combined': self.combined_score,
+            'active_signals': self.active_signal_count,
             'label': self.confidence_label,
         }
 
