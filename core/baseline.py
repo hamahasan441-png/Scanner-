@@ -33,6 +33,8 @@ PAYLOAD_REPEAT_MAX = 5
 MAX_CACHE_SIZE = 500
 # Maximum number of HTML tags used for structural fingerprinting
 MAX_FINGERPRINT_TAGS = 200
+# Maximum response length stdev to consider consistent across repeats
+MAX_LENGTH_STDEV_THRESHOLD = 50
 
 
 class BaselineResult:
@@ -208,7 +210,7 @@ class BaselineEngine:
         if lengths:
             result['length_mean'] = statistics.mean(lengths)
             result['length_stdev'] = statistics.stdev(lengths) if len(lengths) > 1 else 0.0
-            result['length_consistent'] = result['length_stdev'] < 50
+            result['length_consistent'] = result['length_stdev'] < MAX_LENGTH_STDEV_THRESHOLD
         else:
             result['length_mean'] = 0.0
             result['length_stdev'] = 0.0

@@ -29,8 +29,8 @@ VERIFY_ROUNDS = 3
 MIN_CONFIRMATIONS = 2
 # Findings with confidence above this threshold skip verification
 VERIFICATION_CONFIDENCE_THRESHOLD = 0.95
-# Maximum length variance (%) allowed between verify rounds for consistency
-MAX_LENGTH_VARIANCE_PCT = 0.20
+# Maximum length variance (ratio) allowed between verify rounds for consistency
+MAX_LENGTH_VARIANCE_RATIO = 0.20
 
 
 class Verifier:
@@ -114,7 +114,7 @@ class Verifier:
             return True
 
         max_deviation = max(abs(l - mean_len) for l in lengths)
-        return (max_deviation / mean_len) <= MAX_LENGTH_VARIANCE_PCT
+        return (max_deviation / mean_len) <= MAX_LENGTH_VARIANCE_RATIO
 
     def _retest(self, finding):
         """Send the same payload again and check for similar evidence.

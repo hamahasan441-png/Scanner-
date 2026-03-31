@@ -34,6 +34,9 @@ WAF_EXTRA_DELAY = 1.0
 # Noise threshold for tightening scoring
 NOISE_THRESHOLD = 0.5
 
+# Adjustment added to thresholds when noise is high
+NOISE_THRESHOLD_ADJUSTMENT = 0.1
+
 
 class AdaptiveController:
     """Adjusts scan behaviour based on runtime signals."""
@@ -156,7 +159,7 @@ class AdaptiveController:
         if self.noise_level >= NOISE_THRESHOLD:
             adjusted['timing_min_delay'] = base_thresholds.get('timing_min_delay', 4.0) + 0.5
             adjusted['diff_min_chars'] = base_thresholds.get('diff_min_chars', 50) + 20
-            adjusted['min_confidence'] = base_thresholds.get('min_confidence', 0.45) + 0.1
+            adjusted['min_confidence'] = base_thresholds.get('min_confidence', 0.45) + NOISE_THRESHOLD_ADJUSTMENT
         return adjusted
 
     def add_new_endpoint(self, url):
