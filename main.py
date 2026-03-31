@@ -287,7 +287,7 @@ def main():
         if not args.target:
             print(f"{Colors.error('Intruder requires -t/--target')}")
             sys.exit(1)
-        from core.intruder import Intruder
+        from core.intruder import Intruder, MARKER
         intruder = Intruder(
             timeout=args.timeout,
             proxy=args.proxy,
@@ -308,17 +308,18 @@ def main():
         qs = parse_qs(parsed.query)
         if qs:
             for param in qs:
-                marker = f'\u00a7{param}\u00a7'
+                marker = f'{MARKER}{param}{MARKER}'
                 intruder.set_positions([{
                     'name': param, 'location': 'url', 'marker': marker,
                 }])
                 intruder.add_payload_set(param, payloads)
         else:
             intruder.set_positions([{
-                'name': 'FUZZ', 'location': 'url', 'marker': '\u00a7FUZZ\u00a7',
+                'name': 'FUZZ', 'location': 'url',
+                'marker': f'{MARKER}FUZZ{MARKER}',
             }])
             intruder.add_payload_set('FUZZ', payloads)
-            new_url = args.target.rstrip('/') + '/\u00a7FUZZ\u00a7'
+            new_url = args.target.rstrip('/') + f'/{MARKER}FUZZ{MARKER}'
             intruder.set_target('GET', new_url)
 
         print(f"{Colors.info(f'Intruder attacking {args.target} [{args.intruder_type}]')}")
@@ -352,17 +353,19 @@ def main():
             if token:
                 seq.add_token(token)
         report = seq.generate_report()
-        print(f"\n{Colors.BOLD}Token Sequencer Analysis{Colors.RESET}")
-        print(f"  Tokens analyzed: {report.get('token_count', 0)}")
+        summary = report.get('summary', {})
         analysis = report.get('analysis', {})
+        print(f"\n{Colors.BOLD}Token Sequencer Analysis{Colors.RESET}")
+        print(f"  Tokens analyzed: {summary.get('token_count', 0)}")
         print(f"  Entropy: {analysis.get('entropy', 0):.4f} bits/char ({analysis.get('entropy_rating', 'N/A')})")
-        chi = analysis.get('chi_squared', {})
-        print(f"  Chi-squared: {chi.get('value', 0):.2f} (random: {chi.get('is_random', False)})")
+        chi_val = analysis.get('chi_squared', 0)
+        chi_random = analysis.get('chi_squared_random', False)
+        print(f"  Chi-squared: {chi_val:.2f} (random: {chi_random})")
         print(f"  Unique ratio: {analysis.get('uniqueness_ratio', 0):.2%}")
-        pred = report.get('predictability', {})
-        print(f"  Predictable: {pred.get('is_predictable', False)} (confidence: {pred.get('confidence', 0):.1%})")
-        if pred.get('reason'):
-            print(f"  Reason: {pred['reason']}")
+        print(f"  Predictable: {summary.get('is_predictable', False)} (confidence: {summary.get('predictability_confidence', 0):.1%})")
+        reason = summary.get('predictability_reason', '')
+        if reason:
+            print(f"  Reason: {reason}")
         return
 
     if args.compare:
