@@ -441,4 +441,9 @@ MITRE_CWE_MAP = {
     "Information Disclosure": ("T1592", "CWE-200"),
     "CRLF Injection": ("T1190", "CWE-93"),
     "HTTP Parameter Pollution": ("T1190", "CWE-235"),
+    "Network Exploit": ("T1190", "CWE-200"),
+    "Tech Exploit": ("T1190", "CWE-1104"),
+    "Service Exposure": ("T1190", "CWE-284"),
+    "Missing Security Header": ("T1189", "CWE-693"),
+    "Version Disclosure": ("T1592", "CWE-200"),
 }

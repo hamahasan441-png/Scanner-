@@ -40,6 +40,9 @@ REMEDIATION_MAP = {
     'open redirect': 'Validate and whitelist redirect URLs. Avoid using user input in redirect targets.',
     'crlf': 'Strip or encode CR/LF characters from user input before including in HTTP headers.',
     'http parameter pollution': 'Normalize duplicate parameters server-side. Validate input at each processing layer.',
+    'network exploit': 'Patch or upgrade affected network services. Restrict access via firewall rules and network segmentation.',
+    'tech exploit': 'Update detected technologies and frameworks to latest versions. Remove version disclosure headers.',
+    'missing security header': 'Add recommended security headers (HSTS, CSP, X-Frame-Options, X-Content-Type-Options).',
 }
 
 
@@ -220,17 +223,39 @@ class AtomicEngine:
                 if self.config.get('verbose'):
                     print(f"{Colors.error(f'Recon error: {e}')}")
 
-        # Port scanning (optional)
+        # Port scanning (optional) + network exploit scanning
         port_spec = modules_config.get('ports')
+        port_results = []
         if port_spec:
             try:
                 from modules.port_scanner import PortScanner
                 scanner = PortScanner(self)
                 hostname = urlparse(target).hostname
-                scanner.run(hostname, port_spec)
+                port_results = scanner.run(hostname, port_spec)
             except Exception as e:
                 if self.config.get('verbose'):
                     print(f"{Colors.error(f'Port scan error: {e}')}")
+
+        # Network exploit scanning (runs after port scan)
+        if port_results and modules_config.get('net_exploit', False):
+            try:
+                from modules.network_exploits import NetworkExploitScanner
+                net_exploit = NetworkExploitScanner(self)
+                hostname = urlparse(target).hostname
+                net_exploit.run(hostname, port_results)
+            except Exception as e:
+                if self.config.get('verbose'):
+                    print(f"{Colors.error(f'Network exploit scan error: {e}')}")
+
+        # Technology exploit scanning
+        if modules_config.get('tech_exploit', False):
+            try:
+                from modules.tech_exploits import TechExploitScanner
+                tech_exploit = TechExploitScanner(self)
+                tech_exploit.run(target)
+            except Exception as e:
+                if self.config.get('verbose'):
+                    print(f"{Colors.error(f'Technology exploit scan error: {e}')}")
 
         # Crawl target
         from utils.crawler import Crawler

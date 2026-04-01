@@ -156,6 +156,10 @@ def main():
                        help='Directory brute force')
     parser.add_argument('--discovery', action='store_true',
                        help='Enable target discovery & enumeration (robots.txt, sitemap, smart analysis)')
+    parser.add_argument('--net-exploit', action='store_true',
+                       help='Enable network exploit scanning (maps open ports/services to known CVEs)')
+    parser.add_argument('--tech-exploit', action='store_true',
+                       help='Enable technology exploit scanning (maps detected technologies to known CVEs)')
     
     # Report options
     parser.add_argument('--report', 
@@ -486,6 +490,8 @@ def main():
         'tech_detect': args.tech_detect or args.full,
         'dir_brute': args.dir_brute or args.full,
         'discovery': args.discovery or args.full,
+        'net_exploit': getattr(args, 'net_exploit', False) or args.full,
+        'tech_exploit': getattr(args, 'tech_exploit', False) or args.full,
     }
     
     # If no specific modules selected, enable basic ones
