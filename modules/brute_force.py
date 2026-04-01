@@ -59,6 +59,7 @@ LOCKOUT_INDICATORS = [
 ]
 
 MAX_ATTEMPTS = 500  # safety cap
+SUCCESS_LENGTH_CHANGE_THRESHOLD = 0.4  # min body-length ratio change to signal success
 
 
 class BruteForceModule:
@@ -260,7 +261,7 @@ class BruteForceModule:
         # Significant body-length change from baseline failure
         if baseline_len > 0:
             ratio = abs(len(resp_lower) - baseline_len) / baseline_len
-            if ratio > 0.4 and not has_failure:
+            if ratio > SUCCESS_LENGTH_CHANGE_THRESHOLD and not has_failure:
                 return True
 
         return False

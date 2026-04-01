@@ -142,14 +142,21 @@ class PortScanner:
         try:
             sock.connect((host, port))
             result['state'] = 'open'
-            # Attempt banner grab (safe for most services)
+            # Attempt banner grab — first try passive read (many services
+            # send a banner immediately), then fall back to sending a probe.
             try:
-                sock.sendall(b'\r\n')
+                sock.settimeout(1.5)
                 banner = sock.recv(1024)
                 if banner:
                     result['banner'] = banner.decode('utf-8', errors='replace').strip()[:120]
             except (socket.timeout, OSError):
-                pass
+                try:
+                    sock.sendall(b'\r\n')
+                    banner = sock.recv(1024)
+                    if banner:
+                        result['banner'] = banner.decode('utf-8', errors='replace').strip()[:120]
+                except (socket.timeout, OSError):
+                    pass
         except (socket.timeout, ConnectionRefusedError, OSError):
             pass
         finally:

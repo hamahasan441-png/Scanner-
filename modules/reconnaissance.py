@@ -44,10 +44,7 @@ class ReconModule:
         print(f"{Colors.CYAN}  Reconnaissance{Colors.RESET}")
         print(f"{Colors.BOLD}{'─' * 60}{Colors.RESET}\n")
 
-        domain = urlparse(target).netloc
-        # Strip port if present
-        if ':' in domain:
-            domain = domain.rsplit(':', 1)[0]
+        domain = urlparse(target).hostname or urlparse(target).netloc
 
         self._dns_lookup(domain)
         self._detect_tech(target)

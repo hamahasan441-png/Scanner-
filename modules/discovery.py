@@ -66,6 +66,11 @@ COMMON_PATHS = [
 ]
 
 
+# ── Custom-404 detection thresholds ──────────────────────────────────────
+_CUSTOM_404_LENGTH_THRESHOLD = 50       # max byte-length diff from canary
+_CUSTOM_404_SIMILARITY_THRESHOLD = 0.9  # min word-overlap ratio to consider same
+
+
 class DiscoveryModule:
     """Target Discovery & Enumeration Module"""
 
@@ -259,10 +264,10 @@ class DiscoveryModule:
                     # to our canary, treat it as a false positive.
                     if baseline_len > 0 and resp.status_code == 200:
                         body_len = len(resp.text)
-                        if abs(body_len - baseline_len) < 50:
+                        if abs(body_len - baseline_len) < _CUSTOM_404_LENGTH_THRESHOLD:
                             resp_words = set(resp.text.lower().split()[:50])
                             overlap = len(baseline_words & resp_words)
-                            if baseline_words and overlap / len(baseline_words) > 0.9:
+                            if baseline_words and overlap / len(baseline_words) > _CUSTOM_404_SIMILARITY_THRESHOLD:
                                 continue  # likely a custom 404
 
                     self.endpoints.add(full_url)
