@@ -124,6 +124,8 @@ def main():
                        help='Enable brute force attacks')
     parser.add_argument('--exploit-chain', action='store_true',
                        help='Enable exploit chaining')
+    parser.add_argument('--auto-exploit', action='store_true',
+                       help='AI-driven post-exploitation: auto extract data, upload shells, enumerate systems')
     
     # Evasion options
     parser.add_argument('-e', '--evasion', 
@@ -477,6 +479,7 @@ def main():
         'os_shell': args.os_shell,
         'brute': args.brute,
         'exploit_chain': args.exploit_chain,
+        'auto_exploit': args.auto_exploit,
         'recon': args.recon or args.full,
         'subdomains': args.subdomains or args.full,
         'ports': args.ports,

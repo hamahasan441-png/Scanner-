@@ -470,6 +470,37 @@ def list_shells():
         return jsonify({'status': 'error', 'data': str(exc)}), 500
 
 
+@app.route('/api/exploit/<scan_id>', methods=['POST'])
+@_require_api_key
+@_rate_limit
+def run_post_exploit(scan_id):
+    """Run AI-driven post-exploitation on confirmed findings for a scan.
+
+    Reads findings from the database, instantiates the PostExploitEngine,
+    and returns the exploitation results.
+    """
+    scan_info = _active_scans.get(scan_id)
+    if scan_info is None:
+        return jsonify({'status': 'error',
+                        'message': 'Scan not found or not active'}), 404
+
+    engine = scan_info.get('engine')
+    if engine is None or not engine.findings:
+        return jsonify({'status': 'error',
+                        'message': 'No confirmed findings to exploit'}), 400
+
+    try:
+        from core.post_exploit import PostExploitEngine
+        post_engine = PostExploitEngine(engine)
+        post_engine.run(engine.findings)
+        summary = post_engine.get_summary()
+        return jsonify({'status': 'success', 'data': summary})
+    except Exception as exc:
+        logger.error('Post-exploitation error: %s', exc)
+        return jsonify({'status': 'error',
+                        'message': 'Post-exploitation failed'}), 500
+
+
 @app.route('/api/stats', methods=['GET'])
 @_require_api_key
 @_rate_limit

@@ -414,6 +414,18 @@ class AtomicEngine:
                 break
 
         # ── Post-exploitation ────────────────────────────────────────
+        # AI-driven auto-exploit: orchestrates data extraction, shell
+        # upload, and system enumeration based on confirmed findings.
+        if modules_config.get('auto_exploit', False) and self.findings:
+            try:
+                from core.post_exploit import PostExploitEngine
+                post_engine = PostExploitEngine(self)
+                self.post_exploit_results = post_engine.run(self.findings)
+            except Exception as e:
+                if self.config.get('verbose'):
+                    print(f"{Colors.error(f'Post-exploitation error: {e}')}")
+
+        # Legacy manual flags kept for backward compatibility
         if modules_config.get('shell', False) and self.findings:
             try:
                 from modules.uploader import ShellUploader
