@@ -46,7 +46,7 @@ class OSShellHandler:
         if shell_info:
             self._shell_url = shell_info['url']
             self._shell_param = shell_info.get('password', 'cmd')
-            print(f"{Colors.success(f'Reusing existing shell: {self._shell_url}')}")
+            print(f"{Colors.success('Reusing existing shell session')}")
         else:
             # 2. Attempt fresh upload
             self._shell_url = self._deploy_shell(findings, forms or [])

@@ -215,9 +215,10 @@ class BruteForceModule:
                     'password': password,
                 }
                 self.results.append(cred)
+                masked_pw = password[:2] + '*' * max(0, len(password) - 2)
                 print(
                     f"  {Colors.GREEN}[FOUND]{Colors.RESET} "
-                    f"{cred['username']}:{cred['password']}  →  {action}"
+                    f"{cred['username']}:{masked_pw}  →  {action}"
                 )
                 # Add as finding to the engine
                 self._add_finding(action, username, password)
@@ -274,8 +275,8 @@ class BruteForceModule:
             url=url,
             method='POST',
             param=f'username={username or "(none)"}',
-            payload=f'password={password}',
-            evidence=f'Valid credentials found: {username or "(none)"}:{password}',
+            payload=f'password={"*" * len(password)}',
+            evidence=f'Valid credentials found for user: {username or "(none)"}',
             severity='HIGH',
             confidence=0.9,
         )
