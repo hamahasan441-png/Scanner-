@@ -220,6 +220,18 @@ class AtomicEngine:
                 if self.config.get('verbose'):
                     print(f"{Colors.error(f'Recon error: {e}')}")
 
+        # Port scanning (optional)
+        port_spec = modules_config.get('ports')
+        if port_spec:
+            try:
+                from modules.port_scanner import PortScanner
+                scanner = PortScanner(self)
+                hostname = urlparse(target).hostname
+                scanner.run(hostname, port_spec)
+            except Exception as e:
+                if self.config.get('verbose'):
+                    print(f"{Colors.error(f'Port scan error: {e}')}")
+
         # Crawl target
         from utils.crawler import Crawler
         crawler = Crawler(self)
@@ -443,6 +455,33 @@ class AtomicEngine:
             except Exception as e:
                 if self.config.get('verbose'):
                     print(f"{Colors.error(f'Data dump error: {e}')}")
+
+        if modules_config.get('os_shell', False) and self.findings:
+            try:
+                from core.os_shell import OSShellHandler
+                handler = OSShellHandler(self)
+                handler.run(self.findings, forms)
+            except Exception as e:
+                if self.config.get('verbose'):
+                    print(f"{Colors.error(f'OS shell error: {e}')}")
+
+        if modules_config.get('brute', False):
+            try:
+                from modules.brute_force import BruteForceModule
+                bruter = BruteForceModule(self)
+                bruter.run(forms)
+            except Exception as e:
+                if self.config.get('verbose'):
+                    print(f"{Colors.error(f'Brute force error: {e}')}")
+
+        if modules_config.get('exploit_chain', False) and self.findings:
+            try:
+                from core.exploit_chain import ExploitChainEngine
+                chainer = ExploitChainEngine(self)
+                chainer.run(self.findings)
+            except Exception as e:
+                if self.config.get('verbose'):
+                    print(f"{Colors.error(f'Exploit chain error: {e}')}")
 
         self.end_time = datetime.utcnow()
 
