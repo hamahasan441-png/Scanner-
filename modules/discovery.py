@@ -224,9 +224,26 @@ class DiscoveryModule:
     # ──────────────────────────────────────
 
     def _dir_brute(self, base_url: str):
-        """Probe common paths to discover hidden endpoints."""
+        """Probe common paths to discover hidden endpoints.
+
+        Uses a baseline 404 fingerprint to avoid false positives from
+        custom error pages that return HTTP 200.
+        """
         print(f"{Colors.info(f'Directory brute-force ({len(COMMON_PATHS)} paths)...')}")
         found = 0
+
+        # Build a baseline "not found" fingerprint so we can detect
+        # custom 404 pages that return 200.
+        baseline_len = 0
+        baseline_words: set = set()
+        try:
+            canary_url = urljoin(base_url, '/atomic_nonexistent_path_9f3a1b')
+            canary_resp = self.requester.request(canary_url, 'GET')
+            if canary_resp:
+                baseline_len = len(canary_resp.text)
+                baseline_words = set(canary_resp.text.lower().split()[:50])
+        except Exception:
+            pass
 
         for path in COMMON_PATHS:
             full_url = urljoin(base_url, path)
@@ -238,14 +255,25 @@ class DiscoveryModule:
             try:
                 resp = self.requester.request(full_url, 'GET')
                 if resp and resp.status_code not in (404, 500, 502, 503, 0):
+                    # Custom 404 detection: if response body is very similar
+                    # to our canary, treat it as a false positive.
+                    if baseline_len > 0 and resp.status_code == 200:
+                        body_len = len(resp.text)
+                        if abs(body_len - baseline_len) < 50:
+                            resp_words = set(resp.text.lower().split()[:50])
+                            overlap = len(baseline_words & resp_words)
+                            if baseline_words and overlap / len(baseline_words) > 0.9:
+                                continue  # likely a custom 404
+
                     self.endpoints.add(full_url)
                     self.directories.add(path)
                     found += 1
 
                     if self.engine.config.get('verbose'):
                         print(f"  {Colors.GREEN}[{resp.status_code}]{Colors.RESET} {path}")
-            except Exception:
-                pass
+            except Exception as e:
+                if self.engine.config.get('verbose'):
+                    print(f"{Colors.warning(f'  Dir brute error on {path}: {e}')}")
 
         print(f"{Colors.success(f'Directory brute-force: {found} live paths found')}")
 
