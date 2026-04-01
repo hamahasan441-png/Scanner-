@@ -215,10 +215,11 @@ class BruteForceModule:
                     'password': password,
                 }
                 self.results.append(cred)
+                display_user = username or '(none)'
                 masked_pw = password[:2] + '*' * max(0, len(password) - 2)
                 print(
                     f"  {Colors.GREEN}[FOUND]{Colors.RESET} "
-                    f"{cred['username']}:{masked_pw}  →  {action}"
+                    f"{display_user}:{masked_pw}  →  {action}"
                 )
                 # Add as finding to the engine
                 self._add_finding(action, username, password)
