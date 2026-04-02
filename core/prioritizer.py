@@ -51,6 +51,14 @@ class EndpointPrioritizer:
         self.engine = engine
         self.verbose = engine.config.get('verbose', False)
 
+        # Load keyword buckets from rules engine when available
+        rules = getattr(engine, 'rules', None)
+        self._keyword_buckets = {}
+        self._priority_order = []
+        if rules:
+            self._keyword_buckets = rules.get_keyword_buckets()
+            self._priority_order = rules.get_priority_order()
+
     def score_endpoint(self, url, method='GET', param='', source=''):
         """Compute priority score for a single endpoint (0.0-1.0)."""
         score = 0.5  # neutral base

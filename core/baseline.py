@@ -34,6 +34,8 @@ MAX_CACHE_SIZE = 500
 MAX_FINGERPRINT_TAGS = 200
 # Maximum response length stdev to consider consistent across repeats
 MAX_LENGTH_STDEV_THRESHOLD = 50
+# Default noisy timing threshold (stdev/mean ratio)
+DEFAULT_NOISY_THRESHOLD = 0.35
 
 
 class BaselineResult:
@@ -58,6 +60,22 @@ class BaselineResult:
         self.length_stdev = 0.0
         self.status_code = 0
         self.structure_hash = ''
+
+    @property
+    def is_noisy(self):
+        """Return True if the endpoint has noisy timing (stdev/mean > threshold)."""
+        if self.time_mean <= 0:
+            return False
+        return (self.time_stdev / self.time_mean) > DEFAULT_NOISY_THRESHOLD
+
+    @property
+    def timing_p95(self):
+        """Estimate 95th percentile from timing samples."""
+        if not self.time_samples:
+            return 0.0
+        sorted_samples = sorted(self.time_samples)
+        idx = int(len(sorted_samples) * 0.95)
+        return sorted_samples[min(idx, len(sorted_samples) - 1)]
 
     def timing_deviation(self, elapsed):
         """Return how many standard deviations *elapsed* is above the mean."""
@@ -100,6 +118,16 @@ class BaselineEngine:
         self.verbose = engine.config.get('verbose', False)
         self._cache = OrderedDict()  # key → BaselineResult (LRU)
 
+        # Load sample counts from rules engine when available
+        rules = getattr(engine, 'rules', None)
+        if rules:
+            self._min_samples, self._max_samples = rules.get_baseline_samples()
+            self._noisy_threshold = rules.get_noisy_threshold()
+        else:
+            self._min_samples = BASELINE_SAMPLES
+            self._max_samples = PAYLOAD_REPEAT_MAX
+            self._noisy_threshold = DEFAULT_NOISY_THRESHOLD
+
     def _cache_key(self, url, method, param):
         return f"{method}:{url}:{param}"
 
@@ -126,7 +154,7 @@ class BaselineEngine:
 
         data = {param: value} if param else None
 
-        for _ in range(BASELINE_SAMPLES):
+        for _ in range(self._min_samples):
             try:
                 start = time.time()
                 resp = self.requester.request(url, method, data=data)

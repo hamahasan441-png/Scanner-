@@ -39,6 +39,19 @@ class Verifier:
         self.requester = engine.requester
         self.verbose = engine.config.get('verbose', False)
 
+        # Load verification config from rules engine when available
+        rules = getattr(engine, 'rules', None)
+        if rules:
+            vcfg = rules.get_verification_config()
+            self._verify_rounds = vcfg.get('min_repro_runs_for_high_or_confirmed', VERIFY_ROUNDS)
+            self._min_confirmations = vcfg.get('min_strong_signals', MIN_CONFIRMATIONS)
+            self._auto_demote_rules = rules.get_auto_demote_rules()
+        else:
+            self._verify_rounds = VERIFY_ROUNDS
+            self._min_confirmations = MIN_CONFIRMATIONS
+            self._auto_demote_rules = []
+        self._rules = rules
+
     def verify_findings(self, findings):
         """Verify HIGH/CRITICAL findings and return the filtered list.
 
@@ -57,6 +70,10 @@ class Verifier:
                 elif result == 'downgrade':
                     finding.severity = 'LOW'
                     finding.confidence = max(0.0, finding.confidence * 0.5)
+                    # Record downgrade reason from auto-demotion rules
+                    if self._auto_demote_rules:
+                        finding.signals = dict(finding.signals) if finding.signals else {}
+                        finding.signals['downgrade_reason'] = 'auto_demote_verification'
                     verified.append(finding)
                     downgraded += 1
                 else:
@@ -83,7 +100,7 @@ class Verifier:
         confirmations = 0
         response_lengths = []
 
-        for _ in range(VERIFY_ROUNDS):
+        for _ in range(self._verify_rounds):
             try:
                 confirmed, resp_len = self._retest(finding)
                 if confirmed:
@@ -97,7 +114,7 @@ class Verifier:
         # Check consistency of response lengths across rounds
         length_consistent = self._check_length_consistency(response_lengths)
 
-        if confirmations >= MIN_CONFIRMATIONS and length_consistent:
+        if confirmations >= self._min_confirmations and length_consistent:
             return 'confirmed'
         elif confirmations >= 1:
             return 'downgrade'

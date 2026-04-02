@@ -112,6 +112,9 @@ class SignalScorer:
 
     def __init__(self, engine):
         self.engine = engine
+        # Load scoring label thresholds from rules engine when available
+        rules = getattr(engine, 'rules', None)
+        self._rules = rules
 
     def _get_weights(self):
         """Load signal weights from learning store or use defaults."""
