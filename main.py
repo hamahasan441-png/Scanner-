@@ -116,6 +116,16 @@ def main():
                        help='Enable GraphQL injection detection')
     parser.add_argument('--proto-pollution', action='store_true',
                        help='Enable prototype pollution detection')
+    parser.add_argument('--race', action='store_true',
+                       help='Enable race condition detection')
+    parser.add_argument('--websocket', action='store_true',
+                       help='Enable WebSocket injection detection')
+    parser.add_argument('--deser', action='store_true',
+                       help='Enable deserialization vulnerability detection')
+    parser.add_argument('--osint', action='store_true',
+                       help='Enable OSINT reconnaissance')
+    parser.add_argument('--fuzz', action='store_true',
+                       help='Enable fuzzing (parameter, header, method, vhost)')
     
     # Exploitation options
     parser.add_argument('--shell', action='store_true',
@@ -484,6 +494,11 @@ def main():
         'hpp': args.hpp or args.full,
         'graphql': args.graphql or args.full,
         'proto_pollution': args.proto_pollution or args.full,
+        'race_condition': getattr(args, 'race', False) or args.full,
+        'websocket': getattr(args, 'websocket', False) or args.full,
+        'deserialization': getattr(args, 'deser', False) or args.full,
+        'osint': getattr(args, 'osint', False) or args.full,
+        'fuzzer': getattr(args, 'fuzz', False) or args.full,
         'shell': args.shell,
         'dump': args.dump,
         'os_shell': args.os_shell,

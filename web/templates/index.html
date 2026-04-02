@@ -102,6 +102,83 @@
 
     .empty-msg { color: var(--text-muted); font-size: 0.85rem; padding: 1rem 0; text-align: center; }
 
+    /* Navigation tabs */
+    .nav-tabs {
+        display: flex; gap: 0; margin-bottom: 1.5rem;
+        border-bottom: 2px solid var(--border);
+        overflow-x: auto;
+    }
+    .nav-tab {
+        padding: 0.6rem 1.4rem; border: none; background: none;
+        color: var(--text-muted); font-size: 0.9rem; cursor: pointer;
+        border-bottom: 2px solid transparent; margin-bottom: -2px;
+        transition: color 0.2s, border-color 0.2s;
+        white-space: nowrap;
+    }
+    .nav-tab:hover { color: var(--text-primary); }
+    .nav-tab.active {
+        color: var(--accent); border-bottom-color: var(--accent); font-weight: 600;
+    }
+    .nav-panel { display: none; }
+    .nav-panel.active { display: block; }
+
+    /* Glassmorphism cards */
+    .glass-card {
+        background: rgba(22, 33, 62, 0.7);
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 12px;
+        padding: 1.2rem;
+        transition: transform 0.2s, box-shadow 0.2s;
+    }
+    .glass-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 32px rgba(233, 69, 96, 0.15);
+    }
+
+    /* Progress ring */
+    .progress-ring { position: relative; width: 80px; height: 80px; margin: 0 auto; }
+    .progress-ring svg { transform: rotate(-90deg); }
+    .progress-ring circle {
+        fill: none; stroke-width: 6; stroke-linecap: round;
+        transition: stroke-dashoffset 0.5s ease;
+    }
+    .progress-ring .bg { stroke: var(--border); }
+    .progress-ring .fg { stroke: var(--accent); }
+    .progress-ring .label {
+        position: absolute; top: 50%; left: 50%;
+        transform: translate(-50%, -50%);
+        font-size: 1.1rem; font-weight: 700;
+    }
+
+    /* Vulnerability trend mini-chart */
+    .trend-chart {
+        display: flex; align-items: flex-end; gap: 3px;
+        height: 40px; padding: 0.3rem 0;
+    }
+    .trend-bar {
+        flex: 1; min-width: 4px; background: var(--accent);
+        border-radius: 2px 2px 0 0; transition: height 0.3s;
+        opacity: 0.7;
+    }
+    .trend-bar:hover { opacity: 1; }
+
+    /* Module category badges */
+    .module-category {
+        font-size: 0.7rem; color: var(--accent); font-weight: 700;
+        text-transform: uppercase; letter-spacing: 1px;
+        margin-bottom: 0.3rem; display: block;
+    }
+
+    /* Advanced scan config */
+    .advanced-toggle {
+        color: var(--accent); cursor: pointer; font-size: 0.85rem;
+        border: none; background: none; padding: 0.3rem 0;
+    }
+    .advanced-config { display: none; margin-top: 0.8rem; }
+    .advanced-config.show { display: block; }
+
     /* Scan mode tabs */
     .scan-mode-tabs {
         display: flex; gap: 0; margin-bottom: 1rem;
@@ -125,21 +202,31 @@
     <!-- Header -->
     <header>
         <h1>☢ <span>ATOMIC</span> FRAMEWORK</h1>
-        <p class="subtitle">v{{ version }} &mdash; Web Dashboard</p>
+        <p class="subtitle">v{{ version }} &mdash; Advanced Security Scanner Dashboard</p>
     </header>
 
+    <!-- Navigation Tabs -->
+    <nav class="nav-tabs">
+        <button class="nav-tab active" onclick="switchPanel('dashboard')">📊 Dashboard</button>
+        <button class="nav-tab" onclick="switchPanel('scanner')">🚀 Scanner</button>
+        <button class="nav-tab" onclick="switchPanel('scans')">⏳ Active Scans</button>
+        <button class="nav-tab" onclick="switchPanel('history')">📋 History</button>
+        <button class="nav-tab" onclick="switchPanel('findings')">🔍 Findings</button>
+    </nav>
+
+    <!-- Dashboard Panel -->
+    <div id="panel-dashboard" class="nav-panel active">
     <!-- Stats -->
     <section>
-        <h2>📊 Dashboard</h2>
         <div class="grid grid-5" id="stats-grid">
-            <div class="card stat-card"><h3>Total Scans</h3><div class="value" id="stat-scans">-</div></div>
-            <div class="card stat-card"><h3>Findings</h3><div class="value" id="stat-findings">-</div></div>
-            <div class="card stat-card critical"><h3>Critical</h3><div class="value" id="stat-critical">-</div></div>
-            <div class="card stat-card high"><h3>High</h3><div class="value" id="stat-high">-</div></div>
-            <div class="card stat-card medium"><h3>Medium</h3><div class="value" id="stat-medium">-</div></div>
+            <div class="glass-card stat-card"><h3>Total Scans</h3><div class="value" id="stat-scans">-</div></div>
+            <div class="glass-card stat-card"><h3>Findings</h3><div class="value" id="stat-findings">-</div></div>
+            <div class="glass-card stat-card critical"><h3>Critical</h3><div class="value" id="stat-critical">-</div></div>
+            <div class="glass-card stat-card high"><h3>High</h3><div class="value" id="stat-high">-</div></div>
+            <div class="glass-card stat-card medium"><h3>Medium</h3><div class="value" id="stat-medium">-</div></div>
         </div>
         <!-- Severity breakdown bar -->
-        <div class="card" style="margin-top:1rem;">
+        <div class="glass-card" style="margin-top:1rem;">
             <h3 style="margin-bottom:0.5rem;">Severity Breakdown</h3>
             <div id="severity-bar" style="display:flex;height:24px;border-radius:6px;overflow:hidden;background:var(--bg-input);">
                 <div id="bar-critical" style="background:var(--severity-critical);height:100%;transition:width 0.4s;" title="Critical"></div>
@@ -156,12 +243,43 @@
                 <span>⚪ Info: <b id="lbl-info">0</b></span>
             </div>
         </div>
-    </section>
 
-    <!-- New Scan Form -->
+        <!-- Vulnerability Trend Chart -->
+        <div class="grid grid-2" style="margin-top:1rem;">
+            <div class="glass-card">
+                <h3>Vulnerability Trend (Last 10 Scans)</h3>
+                <div id="vuln-trend" class="trend-chart">
+                    <div class="trend-bar" style="height:0%"></div>
+                    <div class="trend-bar" style="height:0%"></div>
+                    <div class="trend-bar" style="height:0%"></div>
+                    <div class="trend-bar" style="height:0%"></div>
+                    <div class="trend-bar" style="height:0%"></div>
+                    <div class="trend-bar" style="height:0%"></div>
+                    <div class="trend-bar" style="height:0%"></div>
+                    <div class="trend-bar" style="height:0%"></div>
+                    <div class="trend-bar" style="height:0%"></div>
+                    <div class="trend-bar" style="height:0%"></div>
+                </div>
+            </div>
+            <div class="glass-card">
+                <h3>Scan Completion Rate</h3>
+                <div class="progress-ring" id="completion-ring">
+                    <svg viewBox="0 0 80 80">
+                        <circle class="bg" cx="40" cy="40" r="34" stroke-dasharray="213.6" stroke-dashoffset="0"></circle>
+                        <circle class="fg" cx="40" cy="40" r="34" stroke-dasharray="213.6" stroke-dashoffset="213.6" id="ring-fg"></circle>
+                    </svg>
+                    <div class="label" id="ring-label">0%</div>
+                </div>
+            </div>
+        </div>
+    </section>
+    </div>
+
+    <!-- Scanner Panel -->
+    <div id="panel-scanner" class="nav-panel">
     <section>
         <h2>🚀 New Scan</h2>
-        <div class="card">
+        <div class="glass-card">
             <form id="scan-form" onsubmit="return startScan(event)">
                 <!-- Scan mode tabs -->
                 <div class="scan-mode-tabs">
@@ -199,6 +317,14 @@
                         <label><input type="checkbox" name="module" value="cors"> CORS</label>
                         <label><input type="checkbox" name="module" value="jwt"> JWT</label>
                         <label><input type="checkbox" name="module" value="upload"> Upload</label>
+                        <label><input type="checkbox" name="module" value="open_redirect"> Redirect</label>
+                        <label><input type="checkbox" name="module" value="crlf"> CRLF</label>
+                        <label><input type="checkbox" name="module" value="hpp"> HPP</label>
+                        <label><input type="checkbox" name="module" value="graphql"> GraphQL</label>
+                        <label><input type="checkbox" name="module" value="proto_pollution"> Prototype</label>
+                        <label><input type="checkbox" name="module" value="race_condition"> Race</label>
+                        <label><input type="checkbox" name="module" value="websocket"> WebSocket</label>
+                        <label><input type="checkbox" name="module" value="deserialization"> Deser</label>
                     </div>
                 </div>
 
@@ -229,17 +355,49 @@
                     <label for="full-scan" style="cursor:pointer;font-size:0.9rem;">Full Scan (all modules, max depth)</label>
                 </div>
 
+                <button type="button" class="advanced-toggle" onclick="this.nextElementSibling.classList.toggle('show')">▸ Advanced Options</button>
+                <div class="advanced-config">
+                    <div class="grid grid-3">
+                        <div class="toggle-row">
+                            <input type="checkbox" id="opt-recon">
+                            <label for="opt-recon" style="cursor:pointer;font-size:0.85rem;">🔎 Recon (subdomains, tech detect)</label>
+                        </div>
+                        <div class="toggle-row">
+                            <input type="checkbox" id="opt-osint">
+                            <label for="opt-osint" style="cursor:pointer;font-size:0.85rem;">🌐 OSINT</label>
+                        </div>
+                        <div class="toggle-row">
+                            <input type="checkbox" id="opt-fuzz">
+                            <label for="opt-fuzz" style="cursor:pointer;font-size:0.85rem;">🔨 Fuzzer</label>
+                        </div>
+                        <div class="toggle-row">
+                            <input type="checkbox" id="opt-exploit">
+                            <label for="opt-exploit" style="cursor:pointer;font-size:0.85rem;">💥 Auto-Exploit</label>
+                        </div>
+                        <div class="toggle-row">
+                            <input type="checkbox" id="opt-ports">
+                            <label for="opt-ports" style="cursor:pointer;font-size:0.85rem;">🔌 Port Scan</label>
+                        </div>
+                        <div class="toggle-row">
+                            <input type="checkbox" id="opt-brute">
+                            <label for="opt-brute" style="cursor:pointer;font-size:0.85rem;">🔑 Brute Force</label>
+                        </div>
+                    </div>
+                </div>
+
                 <div style="margin-top:1rem;">
                     <button type="submit" class="btn btn-primary" id="scan-btn">▶ Start Scan</button>
                 </div>
             </form>
         </div>
     </section>
+    </div>
 
-    <!-- Active Scans -->
+    <!-- Active Scans Panel -->
+    <div id="panel-scans" class="nav-panel">
     <section>
         <h2>⏳ Active Scans</h2>
-        <div class="card">
+        <div class="glass-card">
             <table>
                 <thead><tr><th>Scan ID</th><th>Target</th><th>Started</th><th>Status</th><th>Findings</th></tr></thead>
                 <tbody id="active-scans-body">
@@ -248,11 +406,13 @@
             </table>
         </div>
     </section>
+    </div>
 
-    <!-- Scan History -->
+    <!-- History Panel -->
+    <div id="panel-history" class="nav-panel">
     <section>
         <h2>📋 Scan History</h2>
-        <div class="card">
+        <div class="glass-card">
             <table>
                 <thead><tr><th>Scan ID</th><th>Target</th><th>Date</th><th>Findings</th><th>Requests</th><th>Actions</th></tr></thead>
                 <tbody id="history-body">
@@ -261,14 +421,17 @@
             </table>
         </div>
     </section>
+    </div>
 
     <!-- Findings Panel -->
+    <div id="panel-findings" class="nav-panel">
     <section id="findings-panel">
         <h2>🔍 Findings &mdash; <span id="findings-scan-id"></span></h2>
-        <div class="card" id="findings-list">
-            <p class="empty-msg">Select a scan to view findings.</p>
+        <div class="glass-card" id="findings-list">
+            <p class="empty-msg">Select a scan from History to view findings.</p>
         </div>
     </section>
+    </div>
 </div>
 
 <footer>
@@ -293,6 +456,22 @@
         const d = new Date(iso);
         return d.toLocaleString();
     }
+
+    /* ---- Panel switching ---- */
+    window.switchPanel = function(name) {
+        document.querySelectorAll('.nav-tab').forEach(function(b) { b.classList.remove('active'); });
+        document.querySelectorAll('.nav-panel').forEach(function(p) { p.classList.remove('active'); });
+        var panel = document.getElementById('panel-' + name);
+        if (panel) panel.classList.add('active');
+        // Highlight correct tab
+        var tabs = document.querySelectorAll('.nav-tab');
+        var tabMap = {dashboard:0, scanner:1, scans:2, history:3, findings:4};
+        if (tabMap[name] !== undefined && tabs[tabMap[name]]) tabs[tabMap[name]].classList.add('active');
+        // Load data for active panel
+        if (name === 'history') loadHistory();
+        if (name === 'scans') loadActiveScans();
+        if (name === 'dashboard') { loadStats(); updateTrendChart(); }
+    };
 
     /* ---- Scan mode switcher ---- */
     window.switchScanMode = function(mode) {
@@ -419,11 +598,11 @@
 
     /* ---- Findings ---- */
     window._viewFindings = async function(scanId) {
+        window.switchPanel('findings');
         const panel = document.getElementById('findings-panel');
         const list = document.getElementById('findings-list');
         const label = document.getElementById('findings-scan-id');
         label.textContent = scanId;
-        panel.classList.add('active');
         list.innerHTML = '<p class="empty-msg"><span class="spinner"></span> Loading…</p>';
         try {
             const r = await fetch(API + '/api/findings/' + scanId);
@@ -529,11 +708,39 @@
         return false;
     };
 
+    /* ---- Trend Chart ---- */
+    var _trendData = [];
+    async function updateTrendChart() {
+        try {
+            const r = await fetch(API + '/api/scans');
+            const j = await r.json();
+            if (j.status !== 'success') return;
+            var scans = j.data.slice(0, 10).reverse();
+            var maxF = 1;
+            _trendData = scans.map(function(s) { var c = s.findings_count || 0; if (c > maxF) maxF = c; return c; });
+            var bars = document.querySelectorAll('#vuln-trend .trend-bar');
+            for (var i = 0; i < bars.length; i++) {
+                bars[i].style.height = (i < _trendData.length ? Math.max(5, (_trendData[i] / maxF) * 100) : 0) + '%';
+                bars[i].title = i < _trendData.length ? _trendData[i] + ' findings' : '';
+            }
+            // Update completion ring
+            var total = j.data.length || 1;
+            var completed = j.data.filter(function(s) { return s.status !== 'running'; }).length;
+            var pct = Math.round((completed / total) * 100);
+            var ring = document.getElementById('ring-fg');
+            if (ring) ring.style.strokeDashoffset = 213.6 - (213.6 * pct / 100);
+            var lbl = document.getElementById('ring-label');
+            if (lbl) lbl.textContent = pct + '%';
+        } catch (_) {}
+    }
+
     /* ---- Init ---- */
     window._knownActive = {};
     loadStats();
     loadHistory();
+    updateTrendChart();
     setInterval(function() { loadActiveScans(); }, 3000);
+    setInterval(function() { updateTrendChart(); }, 15000);
 })();
 </script>
 </body>

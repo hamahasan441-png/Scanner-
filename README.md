@@ -297,37 +297,64 @@ python main.py --clear-db                                     # Clear scan datab
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                        ATOMIC FRAMEWORK                         │
-│                         main.py (CLI)                           │
-├─────────────┬──────────────┬────────────────┬───────────────────┤
-│  Web UI     │  Burp Tools  │  Core Engine   │  AI Engine        │
-│  (Flask)    │  Proxy       │  (Orchestrator)│  (ML Prediction)  │
-│  Dashboard  │  Repeater    │  Crawler       │  Adaptive Testing │
-│  REST API   │  Intruder    │  Requester     │  Learning Store   │
-│  WebSocket  │  Decoder     │  Baseline      │  Confidence Cal.  │
-│             │  Sequencer   │  Verifier      │  Exploit Strategy │
-│             │  Comparer    │  Scorer        │                   │
-├─────────────┴──────────────┴────────┬───────┴───────────────────┤
-│              §1 Setup               │      §2 Discovery         │
-│  • Scope enforcement                │  • Crawling & params      │
-│  • WAF detection                    │  • Reconnaissance         │
-│  • Baseline establishment           │  • Port scanning          │
-│  • Context intelligence             │  • Tech/CVE mapping       │
-│  • Endpoint prioritization          │  • Directory brute force  │
-├─────────────────────────────────────┼───────────────────────────┤
-│          §3 Vulnerability Scan      │    §4 Post-Exploitation   │
-│  • 27+ attack modules               │  • Shell upload           │
-│  • Adaptive payload selection       │  • Data dumping           │
-│  • Signal scoring & verification    │  • OS shell               │
-│  • False positive elimination       │  • Brute force            │
-│  • Finding registration             │  • Exploit chaining       │
-│                                     │  • AI auto-exploit        │
-├─────────────────────────────────────┴───────────────────────────┤
-│                        §5 Reporting                             │
-│  HTML │ JSON │ CSV │ TXT │ PDF │ XML │ SARIF                    │
-│  MITRE ATT&CK │ CWE │ CVSS │ Remediation                      │
-└─────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────┐
+│                         ☢  ATOMIC FRAMEWORK                             │
+│                            main.py (CLI)                                │
+├──────────────┬──────────────┬─────────────────┬─────────────────────────┤
+│   Web UI     │  Burp Tools  │   Core Engine   │   AI Engine             │
+│  (Flask)     │  Proxy       │  (Orchestrator) │  (ML Prediction)        │
+│  Dashboard   │  Repeater    │  Crawler        │  Adaptive Testing       │
+│  REST API    │  Intruder    │  Requester      │  Learning Store         │
+│  WebSocket   │  Decoder     │  Baseline       │  Confidence Cal.        │
+│  Trend Chart │  Sequencer   │  Verifier       │  Exploit Strategy       │
+│  Glass UI    │  Comparer    │  Scorer         │  WAF Evasion Profiles   │
+├──────────────┴──────────────┴────────┬────────┴─────────────────────────┤
+│              §1 Setup                │       §2 Discovery               │
+│  • Scope enforcement                 │  • Crawling & param extraction   │
+│  • WAF detection & fingerprinting    │  • Reconnaissance (SSL, headers) │
+│  • Baseline establishment            │  • Port scanning (TCP + UDP)     │
+│  • Context intelligence              │  • Tech/CVE mapping              │
+│  • Endpoint prioritization           │  • OSINT & Subdomain discovery   │
+│  • Cloud/K8s asset detection         │  • Fuzzing (param, header, vhost)│
+├──────────────────────────────────────┼──────────────────────────────────┤
+│       §3 Vulnerability Scan          │     §4 Post-Exploitation         │
+│  • 30+ attack modules (20 types)     │  • Shell upload (SVG, ZIP, MVG)  │
+│  • SQLi: 2nd-order, OOB, WAF bypass  │  • Data dumping (DB extraction)  │
+│  • XSS: mXSS, blind, CSP bypass     │  • OS shell (reverse/bind)       │
+│  • SSRF: DNS rebind, K8s, PDF gen    │  • Brute force (auth, dirs)      │
+│  • SSTI: sandbox escape, blind       │  • Exploit chaining              │
+│  • JWT: JKU/X5U, kid, token replay   │  • AI auto-exploit strategies    │
+│  • NoSQL: timing, pipeline, Redis    │  • Race condition exploitation   │
+│  • Race conditions, WebSocket, Deser │  • WebSocket hijacking           │
+│  • Signal scoring & verification     │  • Deserialization gadget chains │
+│  • False positive elimination        │                                  │
+├──────────────────────────────────────┴──────────────────────────────────┤
+│                         §5 Reporting                                    │
+│  HTML │ JSON │ CSV │ TXT │ PDF │ XML │ SARIF (GitHub Code Scanning)     │
+│  MITRE ATT&CK │ CWE │ CVSS │ Remediation │ AI Confidence Scores        │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+### Scan Pipeline Flow
+
+```
+Target URL
+    │
+    ▼
+┌─────────┐     ┌──────────┐     ┌──────────────┐     ┌─────────────┐
+│  Scope  │────▶│  Recon   │────▶│  Crawl &     │────▶│ Vulnerability│
+│  Check  │     │  OSINT   │     │  Parameter   │     │ Scanning     │
+│  WAF    │     │  Ports   │     │  Discovery   │     │ (30+ modules)│
+└─────────┘     └──────────┘     └──────────────┘     └──────┬──────┘
+                                                              │
+    ┌─────────────────────────────────────────────────────────┘
+    │
+    ▼
+┌──────────────┐     ┌──────────────┐     ┌──────────────┐
+│  AI Engine   │────▶│  Post-       │────▶│  Report      │
+│  Correlation │     │  Exploitation│     │  Generation  │
+│  Scoring     │     │  Chaining    │     │  7 formats   │
+└──────────────┘     └──────────────┘     └──────────────┘
 ```
 
 ## Project Structure
@@ -362,33 +389,38 @@ Scanner-/
 │   ├── intruder.py              # Intruder attack orchestration (Burp-style)
 │   └── banner.py                # ASCII banner display
 │
-├── modules/                     # Attack & scan modules (27+)
+├── modules/                     # Attack & scan modules (30+)
 │   ├── base.py                  # Abstract BaseModule interface
-│   ├── sqli.py                  # SQL Injection (5 techniques + data extraction)
-│   ├── xss.py                   # Cross-Site Scripting (reflected, stored, DOM, polyglot)
-│   ├── lfi.py                   # Local/Remote File Inclusion
-│   ├── cmdi.py                  # Command Injection / RCE
-│   ├── ssrf.py                  # Server-Side Request Forgery + cloud metadata
-│   ├── ssti.py                  # Server-Side Template Injection (9 engines)
+│   ├── sqli.py                  # SQL Injection (8 techniques: error, blind, union, 2nd-order, OOB, WAF bypass)
+│   ├── xss.py                   # Cross-Site Scripting (reflected, stored, DOM, mXSS, blind, CSP bypass, polyglot)
+│   ├── lfi.py                   # Local/Remote File Inclusion (PHP filters, Windows paths, log poisoning → RCE)
+│   ├── cmdi.py                  # Command Injection (basic, blind, OOB, argument injection, env injection)
+│   ├── ssrf.py                  # SSRF (internal, cloud, DNS rebinding, PDF gen, Kubernetes metadata)
+│   ├── ssti.py                  # SSTI (12 engines, sandbox escape, blind/timing)
 │   ├── xxe.py                   # XML External Entity
-│   ├── nosqli.py                # NoSQL Injection (MongoDB, CouchDB)
+│   ├── nosqli.py                # NoSQL Injection (operators, JSON, JS, blind timing, aggregation, Redis)
 │   ├── idor.py                  # Insecure Direct Object Reference
 │   ├── cors.py                  # CORS Misconfiguration
-│   ├── jwt.py                   # JWT Security Weaknesses
+│   ├── jwt.py                   # JWT (none alg, confusion, JKU/X5U, kid injection, token replay)
 │   ├── crlf.py                  # CRLF Injection
 │   ├── hpp.py                   # HTTP Parameter Pollution
 │   ├── open_redirect.py         # Open Redirect Detection
 │   ├── graphql.py               # GraphQL Injection (introspection, query, mutation)
 │   ├── proto_pollution.py       # Prototype Pollution (__proto__, constructor)
-│   ├── uploader.py              # File Upload Bypass (20+ variants)
+│   ├── race_condition.py        # Race Condition (TOCTOU, parallel request timing)
+│   ├── websocket.py             # WebSocket Injection (message injection, hijacking)
+│   ├── deserialization.py       # Deserialization (Java, PHP, Python, Ruby, .NET gadget chains)
+│   ├── uploader.py              # File Upload (20+ variants, SVG XSS, ImageTragick, ZIP symlink)
 │   ├── dumper.py                # Data extraction / database dumping
 │   ├── waf.py                   # WAF detection & bypass (13+ WAFs)
 │   ├── brute_force.py           # Brute force attacks
-│   ├── reconnaissance.py        # Subdomain enumeration, tech detection
+│   ├── reconnaissance.py        # Subdomain, tech detect, SSL/TLS, security headers, cloud assets
 │   ├── discovery.py             # robots.txt, sitemap, API discovery
-│   ├── port_scanner.py          # TCP port scanning
+│   ├── port_scanner.py          # TCP + UDP port scanning with service fingerprinting
 │   ├── network_exploits.py      # CVE mapping for open ports/services
 │   ├── tech_exploits.py         # CVE mapping for detected technologies
+│   ├── osint.py                 # OSINT (Google dorking, GitHub leaks, Wayback Machine)
+│   ├── fuzzer.py                # Fuzzing (parameter, header, method, vhost fuzzing)
 │   └── shell/manager.py         # Web shell management
 │
 ├── utils/                       # Utility modules (9)

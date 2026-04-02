@@ -10,6 +10,7 @@ ports, comma-separated lists, and ranges (e.g. ``80,443,8080`` or
 of dicts for downstream use by the engine.
 """
 
+import re
 import socket
 import concurrent.futures
 from typing import List, Dict, Optional
@@ -128,6 +129,61 @@ class PortScanner:
         return results
 
     # ─── internals ───────────────────────────────────────────────────
+
+    def _scan_udp(self, host, ports):
+        """Scan top UDP ports"""
+        udp_results = []
+        top_udp = {53: 'DNS', 123: 'NTP', 161: 'SNMP', 500: 'ISAKMP', 514: 'Syslog', 1900: 'SSDP'}
+        
+        for port, service in top_udp.items():
+            if ports and port not in ports:
+                continue
+            try:
+                sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                sock.settimeout(2)
+                sock.sendto(b'\x00' * 8, (host, port))
+                try:
+                    data, _ = sock.recvfrom(1024)
+                    udp_results.append({
+                        'port': port, 'protocol': 'udp', 'state': 'open',
+                        'service': service, 'banner': data[:50].decode('utf-8', errors='ignore'),
+                    })
+                    print(f"{Colors.good(f'UDP {port}/{service}: OPEN')}")
+                except socket.timeout:
+                    udp_results.append({
+                        'port': port, 'protocol': 'udp', 'state': 'open|filtered',
+                        'service': service, 'banner': '',
+                    })
+                finally:
+                    sock.close()
+            except Exception:
+                pass
+        
+        return udp_results
+
+    def _fingerprint_version(self, banner):
+        """Extract service version from banner"""
+        version_patterns = {
+            'SSH': r'SSH-[\d.]+-([\w._-]+)',
+            'Apache': r'Apache/([\d.]+)',
+            'nginx': r'nginx/([\d.]+)',
+            'OpenSSL': r'OpenSSL/([\d.a-z]+)',
+            'MySQL': r'([\d.]+)-MariaDB|mysql_native_password',
+            'PostgreSQL': r'PostgreSQL\s+([\d.]+)',
+            'Redis': r'redis_version:([\d.]+)',
+            'MongoDB': r'MongoDB\s+([\d.]+)',
+            'ProFTPD': r'ProFTPD\s+([\d.]+)',
+            'vsftpd': r'vsftpd\s+([\d.]+)',
+            'Microsoft': r'Microsoft .+ ([\d.]+)',
+        }
+        
+        results = {}
+        for product, pattern in version_patterns.items():
+            match = re.search(pattern, banner, re.IGNORECASE)
+            if match:
+                results[product] = match.group(1)
+        
+        return results
 
     def _probe_port(self, host: str, port: int) -> Dict:
         """Attempt a TCP connection and optional banner grab."""

