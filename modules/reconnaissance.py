@@ -49,6 +49,11 @@ class ReconModule:
         self._dns_lookup(domain)
         self._detect_tech(target)
         self._whois_lookup(domain)
+        self._analyze_ssl_tls(domain)
+        self._audit_security_headers(target)
+        self._detect_subdomain_takeover(domain)
+        self._detect_cloud_assets(target)
+        self._enumerate_api_endpoints(target)
 
     # ─── DNS ─────────────────────────────────────────────────────────
 
@@ -204,6 +209,231 @@ class ReconModule:
         except Exception as e:
             if self.verbose:
                 print(f"{Colors.error(f'WHOIS error: {e}')}")
+
+    # ─── SSL/TLS ──────────────────────────────────────────────────────
+
+    def _analyze_ssl_tls(self, domain):
+        """SSL/TLS certificate analysis"""
+        import ssl
+        import socket as _socket
+        try:
+            context = ssl.create_default_context()
+            with _socket.create_connection((domain, 443), timeout=5) as sock:
+                with context.wrap_socket(sock, server_hostname=domain) as ssock:
+                    cert = ssock.getpeercert()
+                    
+                    # Extract SAN
+                    san = cert.get('subjectAltName', ())
+                    san_names = [name for typ, name in san if typ == 'DNS']
+                    
+                    # Check expiry
+                    import datetime
+                    not_after = cert.get('notAfter', '')
+                    
+                    # Certificate info
+                    issuer = dict(x[0] for x in cert.get('issuer', ()))
+                    subject = dict(x[0] for x in cert.get('subject', ()))
+                    
+                    issuer_name = issuer.get("organizationName", "Unknown")
+                    subject_cn = subject.get("commonName", "Unknown")
+                    san_str = ", ".join(san_names[:10])
+                    
+                    print(f"{Colors.info(f'SSL Issuer: {issuer_name}')}")
+                    print(f"{Colors.info(f'SSL Subject: {subject_cn}')}")
+                    print(f"{Colors.info(f'SSL Expires: {not_after}')}")
+                    if san_names:
+                        print(f"{Colors.info(f'SSL SANs: {san_str}')}")
+                    
+                    # Check for weaknesses
+                    if len(san_names) > 20:
+                        from core.engine import Finding
+                        finding = Finding(
+                            technique="Recon (Wildcard/Many SANs)",
+                            url=f"https://{domain}", severity='INFO', confidence=0.8,
+                            param='SSL', payload=f'{len(san_names)} SANs',
+                            evidence=f"Certificate has {len(san_names)} SANs — potential shared hosting",
+                        )
+                        self.engine.add_finding(finding)
+        except Exception as e:
+            if self.verbose:
+                print(f"{Colors.warning(f'SSL/TLS analysis error: {e}')}")
+
+    # ─── Security Headers ───────────────────────────────────────────
+
+    def _audit_security_headers(self, url):
+        """Audit HTTP security headers"""
+        try:
+            response = self.requester.request(url, 'GET')
+            if not response:
+                return
+            
+            headers = response.headers
+            missing_headers = []
+            
+            security_headers = {
+                'Strict-Transport-Security': 'HSTS',
+                'X-Frame-Options': 'Clickjacking Protection',
+                'Content-Security-Policy': 'CSP',
+                'X-Content-Type-Options': 'MIME Sniffing Protection',
+                'Permissions-Policy': 'Permissions Policy',
+                'Referrer-Policy': 'Referrer Policy',
+                'X-XSS-Protection': 'XSS Protection',
+            }
+            
+            for header, description in security_headers.items():
+                if header not in headers:
+                    missing_headers.append(f"{header} ({description})")
+                else:
+                    print(f"{Colors.info(f'Security Header: {header}: {headers[header][:80]}')}")
+            
+            if missing_headers:
+                from core.engine import Finding
+                severity = 'HIGH' if len(missing_headers) >= 4 else 'MEDIUM' if len(missing_headers) >= 2 else 'LOW'
+                finding = Finding(
+                    technique="Recon (Missing Security Headers)",
+                    url=url, severity=severity, confidence=0.95,
+                    param='Headers', payload=f'{len(missing_headers)} missing',
+                    evidence=f"Missing: {'; '.join(missing_headers[:5])}",
+                )
+                self.engine.add_finding(finding)
+        except Exception as e:
+            if self.verbose:
+                print(f"{Colors.warning(f'Header audit error: {e}')}")
+
+    # ─── Subdomain Takeover ─────────────────────────────────────────
+
+    def _detect_subdomain_takeover(self, domain):
+        """Check for subdomain takeover via dangling CNAMEs"""
+        takeover_signatures = {
+            'github.io': "There isn't a GitHub Pages site here",
+            'herokuapp.com': 'No such app',
+            'amazonaws.com': 'NoSuchBucket',
+            'azure-api.net': 'not found',
+            'cloudfront.net': 'Bad request',
+            'ghost.io': 'Domain is not configured',
+            'shopify.com': 'Sorry, this shop is currently unavailable',
+            'tumblr.com': "There's nothing here",
+            'wordpress.com': 'Do you want to register',
+            'zendesk.com': 'Help Center Closed',
+        }
+        
+        try:
+            import dns.resolver
+        except ImportError:
+            return
+        
+        subdomains = ['www', 'mail', 'blog', 'dev', 'staging', 'api', 'cdn', 'admin']
+        
+        for sub in subdomains:
+            fqdn = f"{sub}.{domain}"
+            try:
+                answers = dns.resolver.resolve(fqdn, 'CNAME')
+                for rdata in answers:
+                    cname = str(rdata.target).rstrip('.')
+                    for service, signature in takeover_signatures.items():
+                        if service in cname:
+                            try:
+                                resp = self.requester.request(f"http://{fqdn}", 'GET')
+                                if resp and signature.lower() in resp.text.lower():
+                                    from core.engine import Finding
+                                    finding = Finding(
+                                        technique="Recon (Subdomain Takeover)",
+                                        url=f"http://{fqdn}", severity='HIGH', confidence=0.85,
+                                        param='CNAME', payload=cname,
+                                        evidence=f"CNAME points to {service} which shows: {signature}",
+                                    )
+                                    self.engine.add_finding(finding)
+                            except Exception:
+                                pass
+            except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer, dns.resolver.NoNameservers, Exception):
+                continue
+
+    # ─── Cloud Assets ───────────────────────────────────────────────
+
+    def _detect_cloud_assets(self, url):
+        """Detect cloud storage assets (S3, Azure Blobs, GCP)"""
+        try:
+            response = self.requester.request(url, 'GET')
+            if not response:
+                return
+            
+            text = response.text
+            cloud_patterns = {
+                'AWS S3': [
+                    r'https?://[\w.-]+\.s3[\w.-]*\.amazonaws\.com',
+                    r'https?://s3[\w.-]*\.amazonaws\.com/[\w.-]+',
+                    r's3://[\w.-]+',
+                ],
+                'Azure Blob': [
+                    r'https?://[\w.-]+\.blob\.core\.windows\.net',
+                ],
+                'GCP Storage': [
+                    r'https?://storage\.googleapis\.com/[\w.-]+',
+                    r'https?://[\w.-]+\.storage\.googleapis\.com',
+                    r'gs://[\w.-]+',
+                ],
+            }
+            
+            found = {}
+            for provider, patterns in cloud_patterns.items():
+                for pattern in patterns:
+                    matches = re.findall(pattern, text)
+                    if matches:
+                        found.setdefault(provider, []).extend(matches[:3])
+            
+            if found:
+                all_assets = []
+                for provider, assets in found.items():
+                    all_assets.extend([f"{provider}: {a}" for a in assets])
+                from core.engine import Finding
+                finding = Finding(
+                    technique="Recon (Cloud Asset Detection)",
+                    url=url, severity='INFO', confidence=0.9,
+                    param='N/A', payload=f'{len(all_assets)} assets',
+                    evidence="; ".join(all_assets[:5]),
+                )
+                self.engine.add_finding(finding)
+        except Exception:
+            pass
+
+    # ─── API Endpoints ──────────────────────────────────────────────
+
+    def _enumerate_api_endpoints(self, url):
+        """Detect API versioning and enumerate endpoints"""
+        base_url = f"{urlparse(url).scheme}://{urlparse(url).netloc}"
+        api_paths = [
+            '/api', '/api/v1', '/api/v2', '/api/v3',
+            '/api/docs', '/api/swagger', '/api/openapi',
+            '/swagger.json', '/openapi.json',
+            '/graphql', '/graphiql',
+            '/api/health', '/api/status', '/api/version',
+            '/.well-known/openid-configuration',
+        ]
+        
+        found_endpoints = []
+        for path in api_paths:
+            try:
+                test_url = f"{base_url}{path}"
+                response = self.requester.request(test_url, 'GET')
+                if response and response.status_code in (200, 301, 302):
+                    found_endpoints.append(f"{path} ({response.status_code})")
+            except Exception:
+                continue
+        
+        if found_endpoints:
+            print(f"{Colors.info(f'API Endpoints: {len(found_endpoints)} found')}")
+            for ep in found_endpoints:
+                print(f"  {Colors.info(ep)}")
+            from core.engine import Finding
+            finding = Finding(
+                technique="Recon (API Endpoint Enumeration)",
+                url=base_url, severity='INFO', confidence=0.85,
+                param='N/A', payload=f'{len(found_endpoints)} endpoints',
+                evidence="; ".join(found_endpoints[:5]),
+            )
+            self.engine.add_finding(finding)
+
+    # ─── WHOIS parsing ──────────────────────────────────────────────
 
     @staticmethod
     def _parse_whois(raw: str) -> Dict[str, str]:
