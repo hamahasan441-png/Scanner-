@@ -7,11 +7,12 @@ Flask Web Dashboard
 import os
 import json
 import logging
+import re
 import threading
 import time
 import uuid
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timezone
 from functools import wraps
 
 
@@ -43,6 +44,10 @@ if FLASK_AVAILABLE:
     CORS(app)
 
 _active_scans = {}
+_scans_lock = threading.Lock()
+
+# Scan-ID must be a hex UUID (no slashes, dots, or traversal chars).
+_SAFE_SCAN_ID = re.compile(r'^[a-zA-Z0-9_-]+$')
 
 
 # ---------------------------------------------------------------------------
@@ -126,25 +131,28 @@ def _get_db():
 
 def _run_scan(scan_id, target, config):
     """Background scan runner."""
-    _active_scans[scan_id] = {
-        'status': 'running',
-        'target': target,
-        'start_time': datetime.utcnow().isoformat(),
-        'findings': 0,
-    }
+    with _scans_lock:
+        _active_scans[scan_id] = {
+            'status': 'running',
+            'target': target,
+            'start_time': datetime.now(timezone.utc).isoformat(),
+            'findings': 0,
+        }
     try:
         engine = AtomicEngine(config)
         engine.scan_id = scan_id
         engine.scan(target)
         engine.generate_reports()
-        _active_scans[scan_id]['status'] = 'completed'
-        _active_scans[scan_id]['findings'] = len(engine.findings)
-        _active_scans[scan_id]['end_time'] = datetime.utcnow().isoformat()
+        with _scans_lock:
+            _active_scans[scan_id]['status'] = 'completed'
+            _active_scans[scan_id]['findings'] = len(engine.findings)
+            _active_scans[scan_id]['end_time'] = datetime.now(timezone.utc).isoformat()
     except Exception as exc:
         logger.exception("Scan %s failed", scan_id)
-        _active_scans[scan_id]['status'] = 'failed'
-        _active_scans[scan_id]['error'] = str(exc)
-        _active_scans[scan_id]['end_time'] = datetime.utcnow().isoformat()
+        with _scans_lock:
+            _active_scans[scan_id]['status'] = 'failed'
+            _active_scans[scan_id]['error'] = str(exc)
+            _active_scans[scan_id]['end_time'] = datetime.now(timezone.utc).isoformat()
 
 
 # ---------------------------------------------------------------------------
@@ -437,10 +445,19 @@ def download_report(scan_id, fmt):
             'data': f'Invalid format. Allowed: {", ".join(allowed_formats)}',
         }), 400
 
-    filename = f'report_{scan_id}.{fmt}'
-    reports_dir = Config.REPORTS_DIR
+    # Reject scan_ids containing path-traversal characters
+    if not _SAFE_SCAN_ID.match(scan_id):
+        return jsonify({'status': 'error', 'data': 'Invalid scan ID'}), 400
 
-    if not os.path.isfile(os.path.join(reports_dir, filename)):
+    filename = f'report_{scan_id}.{fmt}'
+    reports_dir = os.path.realpath(Config.REPORTS_DIR)
+
+    # Ensure resolved path stays within reports directory
+    full_path = os.path.realpath(os.path.join(reports_dir, filename))
+    if not full_path.startswith(reports_dir + os.sep) and full_path != reports_dir:
+        return jsonify({'status': 'error', 'data': 'Invalid scan ID'}), 400
+
+    if not os.path.isfile(full_path):
         return jsonify({'status': 'error', 'data': 'Report not found'}), 404
 
     return send_from_directory(reports_dir, filename, as_attachment=True)

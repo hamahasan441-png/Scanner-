@@ -104,14 +104,20 @@ class OSShellHandler:
                 return True
         return False
 
+    # Characters that could allow command chaining in a shell context
+    _SHELL_META = set(';|&`$(){}')
+
     def _exec(self, cmd: str) -> Optional[str]:
         """Execute *cmd* through the web shell and return stdout."""
         if not self._shell_url:
             return None
+        # Reject commands containing shell metacharacters to prevent chaining
+        if self._SHELL_META.intersection(cmd):
+            return None
         try:
-            import requests as _requests
+            from urllib.parse import quote as _url_quote
             sep = '&' if '?' in self._shell_url else '?'
-            url = f"{self._shell_url}{sep}{self._shell_param}={_requests.utils.quote(cmd)}"
+            url = f"{self._shell_url}{sep}{self._shell_param}={_url_quote(cmd)}"
             resp = self.requester.request(url, 'GET')
             return resp.text if resp else None
         except Exception:

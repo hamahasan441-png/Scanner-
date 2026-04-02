@@ -14,7 +14,7 @@ CORE FLOW:
 import time
 import uuid
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from dataclasses import dataclass, field
 from typing import Optional
 from urllib.parse import urlparse, parse_qs
@@ -178,7 +178,7 @@ class AtomicEngine:
         §9 Verify → Report → Learn → Adapt
         """
         self.target = target
-        self.start_time = datetime.utcnow()
+        self.start_time = datetime.now(timezone.utc)
 
         print(f"\n{Colors.BOLD}{'='*60}{Colors.RESET}")
         print(f"{Colors.CYAN}  Scanning: {target}{Colors.RESET}")
@@ -508,7 +508,7 @@ class AtomicEngine:
                 if self.config.get('verbose'):
                     print(f"{Colors.error(f'Exploit chain error: {e}')}")
 
-        self.end_time = datetime.utcnow()
+        self.end_time = datetime.now(timezone.utc)
 
         # ── Clear persistence progress on complete scan ───────────────
         self.persistence.clear_progress()
