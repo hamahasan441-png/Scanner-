@@ -159,6 +159,11 @@ class AtomicEngine:
             'hpp': ('modules.hpp', 'HPPModule'),
             'graphql': ('modules.graphql', 'GraphQLModule'),
             'proto_pollution': ('modules.proto_pollution', 'ProtoPollutionModule'),
+            'race_condition': ('modules.race_condition', 'RaceConditionModule'),
+            'websocket': ('modules.websocket', 'WebSocketModule'),
+            'deserialization': ('modules.deserialization', 'DeserializationModule'),
+            'osint': ('modules.osint', 'OSINTModule'),
+            'fuzzer': ('modules.fuzzer', 'FuzzerModule'),
         }
 
         modules_config = self.config.get('modules', {})

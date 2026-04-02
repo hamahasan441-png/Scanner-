@@ -37,6 +37,11 @@ VULN_CORRELATIONS = {
     ('upload', 'cmdi'): {'chain': 'upload_rce', 'boost': 0.45, 'label': 'Upload→RCE Chain'},
     ('xss', 'sqli'): {'chain': 'xss_sqli', 'boost': 0.15, 'label': 'XSS→SQLi Pivot'},
     ('idor', 'sqli'): {'chain': 'idor_sqli', 'boost': 0.2, 'label': 'IDOR→SQLi Escalation'},
+    ('deserialization', 'cmdi'): {'chain': 'deser_rce', 'boost': 0.5, 'label': 'Deserialization→RCE Chain'},
+    ('race_condition', 'idor'): {'chain': 'race_idor', 'boost': 0.25, 'label': 'Race→IDOR Escalation'},
+    ('websocket', 'xss'): {'chain': 'ws_xss', 'boost': 0.2, 'label': 'WebSocket→XSS Pivot'},
+    ('websocket', 'sqli'): {'chain': 'ws_sqli', 'boost': 0.3, 'label': 'WebSocket→SQLi Pivot'},
+    ('ssrf', 'deserialization'): {'chain': 'ssrf_deser', 'boost': 0.4, 'label': 'SSRF→Deserialization Chain'},
 }
 
 # Exploit difficulty factors per vulnerability type
@@ -53,6 +58,9 @@ EXPLOIT_DIFFICULTY = {
     'upload': {'base': 0.35, 'factors': ['extension_check', 'content_check', 'sandbox']},
     'cors': {'base': 0.2, 'factors': ['origin_check']},
     'jwt': {'base': 0.3, 'factors': ['algorithm_check', 'key_strength']},
+    'race_condition': {'base': 0.5, 'factors': ['concurrency', 'timing_window']},
+    'websocket': {'base': 0.35, 'factors': ['origin_check', 'auth_on_ws']},
+    'deserialization': {'base': 0.4, 'factors': ['language_specific', 'gadget_chain']},
 }
 
 # Tech-specific payload boost patterns
@@ -97,6 +105,21 @@ TECH_PAYLOAD_HINTS = {
     },
     'sqlite': {
         'sqli': ['sqlite_master', 'sqlite_version', 'ATTACH'],
+    },
+    'tomcat': {
+        'deserialization': ['aced', 'java.io', 'ObjectInputStream'],
+    },
+    'laravel': {
+        'deserialization': ['O:', 'unserialize', '__wakeup'],
+        'ssti': ['{{ ', '{% ', 'blade'],
+    },
+    'rails': {
+        'deserialization': ['Marshal.load', 'YAML.load'],
+        'cmdi': ['system', 'exec', 'backtick'],
+    },
+    'spring': {
+        'deserialization': ['aced', 'ObjectInputStream', 'BeanFactory'],
+        'ssti': ['${', 'SpEL'],
     },
 }
 
