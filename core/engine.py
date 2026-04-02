@@ -217,6 +217,13 @@ class AtomicEngine:
 
     def get_pipeline_state(self) -> dict:
         """Return the current pipeline state for the dashboard."""
+        attack_routes = None
+        if getattr(self, 'attack_router', None) is not None:
+            try:
+                attack_routes = self.attack_router.get_pipeline_state()
+            except Exception:
+                attack_routes = None
+
         return {
             'scan_id': self.scan_id,
             'target': self.target,
@@ -227,10 +234,7 @@ class AtomicEngine:
             'collect': self.pipeline['collect'],
             'findings_count': len(self.findings),
             'events': self.pipeline['events'][-50:],
-            'attack_routes': (
-                self.attack_router.get_pipeline_state()
-                if self.attack_router else None
-            ),
+            'attack_routes': attack_routes,
         }
 
     def scan(self, target: str):
