@@ -115,9 +115,9 @@ ROUTE_TABLE = {
 _CLASSIFY_MAP = [
     ('nosql', 'nosql'),
     ('mongodb', 'nosql'),
+    ('blind sql', 'sqli'),
     ('sql injection', 'sqli'),
     ('sqli', 'sqli'),
-    ('blind sql', 'sqli'),
     ('union-based', 'sqli'),
     ('error-based', 'sqli'),
     ('time-based sql', 'sqli'),

@@ -362,10 +362,15 @@ def start_scan():
 @_require_api_key
 @_rate_limit
 def scan_status(scan_id):
-    """Return the current status of a scan including pipeline state."""
+    """Return the current status of a scan including pipeline state.
+
+    For active scans the response includes real-time pipeline data from the
+    engine (phase, events, attack routes).  The internal ``engine`` reference
+    is never serialised into the JSON response.
+    """
     if scan_id in _active_scans:
         info = dict(_active_scans[scan_id])
-        # Add live pipeline data from engine
+        # Add live pipeline data from engine (exclude engine object from JSON)
         engine = info.pop('engine', None)
         if engine and hasattr(engine, 'get_pipeline_state'):
             info['pipeline'] = engine.get_pipeline_state()

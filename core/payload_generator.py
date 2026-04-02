@@ -453,17 +453,22 @@ class PayloadGenerator:
 
     def _generate_curl(self, finding) -> str:
         """Generate a curl command to reproduce the finding."""
+        payload_safe = self._escape_shell(finding.payload)
         if finding.method.upper() == 'GET':
             sep = '&' if '?' in finding.url else '?'
-            # Use repr-safe payload in the URL
-            payload_safe = finding.payload.replace("'", "'\\''") if finding.payload else ''
             return f"curl -v '{finding.url}{sep}{finding.param}={payload_safe}'"
         else:
-            payload_safe = finding.payload.replace("'", "'\\''") if finding.payload else ''
             return (
                 f"curl -v -X POST '{finding.url}' "
                 f"-d '{finding.param}={payload_safe}'"
             )
+
+    @staticmethod
+    def _escape_shell(value: str) -> str:
+        """Escape a string for safe use in a single-quoted shell argument."""
+        if not value:
+            return ''
+        return value.replace("'", "'\\''")
 
     @staticmethod
     def _generate_steps(finding, family: str) -> list:
