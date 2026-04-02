@@ -18,6 +18,7 @@ from functools import wraps
 
 from config import Config, Colors
 from core.engine import AtomicEngine, Finding
+from core.rules_engine import RulesEngine
 from utils.database import Database, ScanModel, FindingModel, SQLALCHEMY_AVAILABLE
 
 try:
@@ -982,6 +983,156 @@ def trigger_attack_route(scan_id):
     except Exception as exc:
         logger.error('Attack router error: %s', exc)
         return jsonify({'status': 'error', 'data': 'Attack routing failed'}), 500
+
+
+# ---------------------------------------------------------------------------
+# Scanner Rules API endpoints
+# ---------------------------------------------------------------------------
+
+# Shared rules engine instance (lazy-initialized)
+_rules_engine = None
+_rules_lock = threading.Lock()
+
+
+def _get_rules_engine():
+    """Return the shared RulesEngine instance, creating it on first access."""
+    global _rules_engine
+    if _rules_engine is None:
+        with _rules_lock:
+            if _rules_engine is None:
+                _rules_engine = RulesEngine()
+    return _rules_engine
+
+
+@app.route('/api/rules', methods=['GET'])
+@_require_api_key
+@_rate_limit
+def get_scanner_rules():
+    """Return the full scanner rules configuration."""
+    try:
+        rules = _get_rules_engine()
+        return jsonify({'status': 'success', 'data': rules.to_dict()})
+    except Exception as exc:
+        return jsonify({'status': 'error', 'data': str(exc)}), 500
+
+
+@app.route('/api/rules/profile', methods=['GET'])
+@_require_api_key
+@_rate_limit
+def get_rules_profile():
+    """Return the active profile name and pipeline stages."""
+    try:
+        rules = _get_rules_engine()
+        return jsonify({
+            'status': 'success',
+            'data': {
+                'profile': rules.profile,
+                'pipeline_stages': rules.pipeline_stages,
+            },
+        })
+    except Exception as exc:
+        return jsonify({'status': 'error', 'data': str(exc)}), 500
+
+
+@app.route('/api/rules/runtime', methods=['GET'])
+@_require_api_key
+@_rate_limit
+def get_rules_runtime():
+    """Return runtime defaults from scanner rules."""
+    try:
+        rules = _get_rules_engine()
+        return jsonify({'status': 'success', 'data': rules.runtime})
+    except Exception as exc:
+        return jsonify({'status': 'error', 'data': str(exc)}), 500
+
+
+@app.route('/api/rules/scoring', methods=['GET'])
+@_require_api_key
+@_rate_limit
+def get_rules_scoring():
+    """Return scoring configuration."""
+    try:
+        rules = _get_rules_engine()
+        return jsonify({'status': 'success', 'data': rules.scoring})
+    except Exception as exc:
+        return jsonify({'status': 'error', 'data': str(exc)}), 500
+
+
+@app.route('/api/rules/vulnmap', methods=['GET'])
+@_require_api_key
+@_rate_limit
+def get_rules_vulnmap():
+    """Return the vulnerability map configuration."""
+    try:
+        rules = _get_rules_engine()
+        return jsonify({'status': 'success', 'data': rules.vuln_map})
+    except Exception as exc:
+        return jsonify({'status': 'error', 'data': str(exc)}), 500
+
+
+@app.route('/api/rules/vulnmap/<vuln_type>', methods=['GET'])
+@_require_api_key
+@_rate_limit
+def get_rules_vuln_config(vuln_type):
+    """Return configuration for a specific vulnerability type."""
+    try:
+        rules = _get_rules_engine()
+        cfg = rules.get_vuln_config(vuln_type)
+        if not cfg:
+            return jsonify({'status': 'error', 'data': f'Unknown vulnerability type: {vuln_type}'}), 404
+        return jsonify({'status': 'success', 'data': cfg})
+    except Exception as exc:
+        return jsonify({'status': 'error', 'data': str(exc)}), 500
+
+
+@app.route('/api/rules/verification', methods=['GET'])
+@_require_api_key
+@_rate_limit
+def get_rules_verification():
+    """Return verification configuration."""
+    try:
+        rules = _get_rules_engine()
+        return jsonify({'status': 'success', 'data': rules.verification})
+    except Exception as exc:
+        return jsonify({'status': 'error', 'data': str(exc)}), 500
+
+
+@app.route('/api/rules/baseline', methods=['GET'])
+@_require_api_key
+@_rate_limit
+def get_rules_baseline():
+    """Return baseline configuration."""
+    try:
+        rules = _get_rules_engine()
+        return jsonify({'status': 'success', 'data': rules.baseline})
+    except Exception as exc:
+        return jsonify({'status': 'error', 'data': str(exc)}), 500
+
+
+@app.route('/api/rules/reporting', methods=['GET'])
+@_require_api_key
+@_rate_limit
+def get_rules_reporting():
+    """Return reporting configuration."""
+    try:
+        rules = _get_rules_engine()
+        return jsonify({'status': 'success', 'data': rules.reporting})
+    except Exception as exc:
+        return jsonify({'status': 'error', 'data': str(exc)}), 500
+
+
+@app.route('/api/rules/reload', methods=['POST'])
+@_require_api_key
+@_rate_limit
+def reload_scanner_rules():
+    """Reload scanner rules from the YAML file."""
+    global _rules_engine
+    try:
+        with _rules_lock:
+            _rules_engine = RulesEngine()
+        return jsonify({'status': 'success', 'data': 'Rules reloaded'})
+    except Exception as exc:
+        return jsonify({'status': 'error', 'data': str(exc)}), 500
 
 
 # ---------------------------------------------------------------------------
