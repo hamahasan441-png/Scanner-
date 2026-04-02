@@ -566,12 +566,14 @@ def execute_shell_command(shell_id):
         from modules.shell.manager import ShellManager
         manager = ShellManager()
         result = manager.execute_command(shell_id, cmd)
+        # Sanitize output: strip ANSI color codes and limit length
+        clean_result = re.sub(r'\x1b\[[0-9;]*m', '', result) if result else ''
         _emit_ws('shell_command', {
             'shell_id': shell_id,
             'command': cmd,
-            'output_length': len(result) if result else 0,
+            'output_length': len(clean_result),
         })
-        return jsonify({'status': 'success', 'data': {'output': result or ''}})
+        return jsonify({'status': 'success', 'data': {'output': clean_result[:50000]}})
     except Exception as exc:
         logger.error('Shell execute error: %s', exc)
         return jsonify({'status': 'error', 'data': 'Command execution failed'}), 500
