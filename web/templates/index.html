@@ -224,6 +224,18 @@
     .advanced-config { display: none; margin-top: 0.8rem; }
     .advanced-config.show { display: block; }
 
+    /* Rules panel */
+    #panel-rules h3 {
+        font-size: 0.92rem;
+        color: var(--text-muted);
+        margin-bottom: 0.4rem;
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+    }
+    #panel-rules h4 { font-size: 0.85rem; }
+    #rules-vulnmap .badge { font-size: 0.76rem; }
+
     /* Scan mode tabs */
     .scan-mode-tabs {
         display: flex; gap: 0; margin-bottom: 1rem;
@@ -260,6 +272,7 @@
         <button class="nav-tab" onclick="switchPanel('scans')">⏳ Active Scans</button>
         <button class="nav-tab" onclick="switchPanel('history')">📋 History</button>
         <button class="nav-tab" onclick="switchPanel('findings')">🔍 Findings</button>
+        <button class="nav-tab" onclick="switchPanel('rules')">⚙️ Rules</button>
         <button class="nav-tab" onclick="switchPanel('livefeed')">📡 Live Feed</button>
     </nav>
 
@@ -608,6 +621,130 @@
     </div>
 
     <!-- Live Feed Panel -->
+    <!-- Scanner Rules Panel -->
+    <div id="panel-rules" class="nav-panel">
+    <section>
+        <h2>⚙️ Scanner Rules Configuration</h2>
+        <p style="color:var(--text-muted);font-size:0.85rem;margin-bottom:1rem;">
+            View and manage the active scanner rules profile, pipeline stages, scoring, verification, and vulnerability map.
+        </p>
+
+        <!-- Rules action bar -->
+        <div style="display:flex;gap:0.5rem;margin-bottom:1.2rem;">
+            <button class="btn btn-primary btn-sm" onclick="loadRules()">🔄 Refresh</button>
+            <button class="btn btn-sm" style="background:var(--bg-input);color:var(--text-primary);border:1px solid var(--border);" onclick="reloadRules()">♻️ Reload from File</button>
+        </div>
+
+        <!-- Profile & Pipeline -->
+        <div class="grid grid-2" style="margin-bottom:1rem;">
+            <div class="glass-card">
+                <h3>📋 Active Profile</h3>
+                <div id="rules-profile" style="font-size:1.4rem;font-weight:700;color:var(--accent);margin:0.5rem 0;" >—</div>
+                <div style="font-size:0.82rem;color:var(--text-muted);">Pipeline Stages:</div>
+                <div id="rules-pipeline" style="display:flex;flex-wrap:wrap;gap:0.4rem;margin-top:0.4rem;"></div>
+            </div>
+            <div class="glass-card">
+                <h3>⏱ Runtime Defaults</h3>
+                <div id="rules-runtime" style="font-size:0.88rem;line-height:2;"></div>
+            </div>
+        </div>
+
+        <!-- Scoring -->
+        <div class="glass-card" style="margin-bottom:1rem;">
+            <h3>🎯 Scoring Configuration</h3>
+            <div id="rules-scoring-formula" style="font-family:monospace;font-size:0.85rem;color:var(--accent);padding:0.6rem;background:var(--bg-input);border-radius:6px;margin:0.5rem 0;overflow-x:auto;"></div>
+            <div class="grid grid-2" style="margin-top:0.8rem;">
+                <div>
+                    <h4 style="font-size:0.85rem;color:var(--text-muted);margin-bottom:0.5rem;">Components</h4>
+                    <div id="rules-scoring-components"></div>
+                </div>
+                <div>
+                    <h4 style="font-size:0.85rem;color:var(--text-muted);margin-bottom:0.5rem;">Confidence Labels</h4>
+                    <div id="rules-scoring-labels"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Verification -->
+        <div class="glass-card" style="margin-bottom:1rem;">
+            <h3>✅ Verification Rules</h3>
+            <div class="grid grid-3" style="margin-top:0.6rem;">
+                <div>
+                    <div style="font-size:0.78rem;color:var(--text-muted);">Min Repro Runs</div>
+                    <div id="rules-verif-repro" style="font-size:1.3rem;font-weight:700;">—</div>
+                </div>
+                <div>
+                    <div style="font-size:0.78rem;color:var(--text-muted);">Min Strong Signals</div>
+                    <div id="rules-verif-signals" style="font-size:1.3rem;font-weight:700;">—</div>
+                </div>
+                <div>
+                    <div style="font-size:0.78rem;color:var(--text-muted);">Secondary Proof Required</div>
+                    <div id="rules-verif-secondary" style="font-size:1.3rem;font-weight:700;">—</div>
+                </div>
+            </div>
+            <div style="margin-top:0.8rem;">
+                <div style="font-size:0.82rem;color:var(--text-muted);margin-bottom:0.3rem;">Auto-Demote Rules:</div>
+                <div id="rules-demote-tags" style="display:flex;flex-wrap:wrap;gap:0.4rem;"></div>
+            </div>
+        </div>
+
+        <!-- Baseline -->
+        <div class="glass-card" style="margin-bottom:1rem;">
+            <h3>📏 Baseline Configuration</h3>
+            <div class="grid grid-3" style="margin-top:0.6rem;">
+                <div>
+                    <div style="font-size:0.78rem;color:var(--text-muted);">Min Samples</div>
+                    <div id="rules-bl-min" style="font-size:1.3rem;font-weight:700;">—</div>
+                </div>
+                <div>
+                    <div style="font-size:0.78rem;color:var(--text-muted);">Max Samples</div>
+                    <div id="rules-bl-max" style="font-size:1.3rem;font-weight:700;">—</div>
+                </div>
+                <div>
+                    <div style="font-size:0.78rem;color:var(--text-muted);">Noisy Threshold</div>
+                    <div id="rules-bl-noisy" style="font-size:1.3rem;font-weight:700;">—</div>
+                </div>
+            </div>
+            <div style="margin-top:0.8rem;">
+                <div style="font-size:0.82rem;color:var(--text-muted);margin-bottom:0.3rem;">Required Metrics:</div>
+                <div id="rules-bl-metrics" style="display:flex;flex-wrap:wrap;gap:0.4rem;"></div>
+            </div>
+            <div style="margin-top:0.6rem;">
+                <div style="font-size:0.82rem;color:var(--text-muted);margin-bottom:0.3rem;">Strip Patterns:</div>
+                <div id="rules-bl-strips" style="display:flex;flex-wrap:wrap;gap:0.4rem;"></div>
+            </div>
+        </div>
+
+        <!-- Reporting -->
+        <div class="glass-card" style="margin-bottom:1rem;">
+            <h3>📝 Reporting</h3>
+            <div class="grid grid-2" style="margin-top:0.6rem;">
+                <div>
+                    <div style="font-size:0.82rem;color:var(--text-muted);margin-bottom:0.3rem;">Main Report Labels:</div>
+                    <div id="rules-rpt-main" style="display:flex;flex-wrap:wrap;gap:0.4rem;"></div>
+                </div>
+                <div>
+                    <div style="font-size:0.82rem;color:var(--text-muted);margin-bottom:0.3rem;">Appendix Labels:</div>
+                    <div id="rules-rpt-appendix" style="display:flex;flex-wrap:wrap;gap:0.4rem;"></div>
+                </div>
+            </div>
+            <div style="margin-top:0.6rem;">
+                <div style="font-size:0.82rem;color:var(--text-muted);margin-bottom:0.3rem;">Required Evidence Fields:</div>
+                <div id="rules-rpt-evidence" style="display:flex;flex-wrap:wrap;gap:0.4rem;"></div>
+            </div>
+        </div>
+
+        <!-- Vulnerability Map -->
+        <div class="glass-card">
+            <h3>🗺️ Vulnerability Map</h3>
+            <p style="font-size:0.82rem;color:var(--text-muted);margin-bottom:0.8rem;">
+                Click a vulnerability type to expand its configuration.
+            </p>
+            <div id="rules-vulnmap"></div>
+        </div>
+    </section>
+    </div>
+
     <div id="panel-livefeed" class="nav-panel">
     <section>
         <h2>📡 Live Event Feed</h2>
@@ -660,7 +797,7 @@
         if (panel) panel.classList.add('active');
         // Highlight correct tab
         var tabs = document.querySelectorAll('.nav-tab');
-        var tabMap = {dashboard:0, scanner:1, pipeline:2, exploits:3, shells:4, scans:5, history:6, findings:7, livefeed:8};
+        var tabMap = {dashboard:0, scanner:1, pipeline:2, exploits:3, shells:4, scans:5, history:6, findings:7, rules:8, livefeed:9};
         if (tabMap[name] !== undefined && tabs[tabMap[name]]) tabs[tabMap[name]].classList.add('active');
         // Load data for active panel
         if (name === 'history') loadHistory();
@@ -669,6 +806,7 @@
         if (name === 'pipeline') loadPipeline();
         if (name === 'exploits') loadExploitResults();
         if (name === 'shells') loadShells();
+        if (name === 'rules') loadRules();
         if (name === 'livefeed') startLiveFeed();
     };
 
@@ -1279,6 +1417,242 @@
             }
         } catch (_) {}
     }
+
+    /* ---- Scanner Rules ---- */
+    var _rulesLoaded = false;
+
+    window.loadRules = async function() {
+        try {
+            var r = await fetch(API + '/api/rules');
+            var j = await r.json();
+            if (j.status !== 'success') return;
+            var rules = j.data;
+            _rulesLoaded = true;
+
+            // Profile & Pipeline
+            document.getElementById('rules-profile').textContent = rules.profile || '—';
+            var pipeDiv = document.getElementById('rules-pipeline');
+            pipeDiv.innerHTML = '';
+            var stages = (rules.pipeline || {}).stages || [];
+            stages.forEach(function(s, i) {
+                var badge = document.createElement('span');
+                badge.className = 'badge';
+                badge.style.cssText = 'background:var(--bg-input);color:var(--accent);border:1px solid var(--border);font-size:0.78rem;';
+                badge.textContent = (i + 1) + '. ' + s.replace(/_/g, ' ');
+                pipeDiv.appendChild(badge);
+            });
+
+            // Runtime
+            var rt = rules.runtime_defaults || {};
+            var rtDiv = document.getElementById('rules-runtime');
+            rtDiv.innerHTML =
+                '<div><b>Threads:</b> ' + esc(rt.threads) + '</div>' +
+                '<div><b>Timeout:</b> ' + esc(rt.timeout_seconds) + 's</div>' +
+                '<div><b>Retries:</b> ' + esc(rt.retries) + '</div>' +
+                '<div><b>Delay:</b> ' + esc(rt.delay_seconds) + 's</div>' +
+                '<div><b>Jitter:</b> ' + (rt.jitter ? '✅' : '❌') + '</div>' +
+                '<div><b>Backoff:</b> ' + esc(rt.backoff) + '</div>';
+
+            // Scoring
+            var scoring = rules.scoring || {};
+            document.getElementById('rules-scoring-formula').textContent = scoring.formula || '—';
+
+            var compDiv = document.getElementById('rules-scoring-components');
+            compDiv.innerHTML = '';
+            var comps = scoring.components || {};
+            Object.keys(comps).forEach(function(k) {
+                var bounds = comps[k];
+                var bar = document.createElement('div');
+                bar.style.cssText = 'display:flex;align-items:center;gap:0.5rem;margin-bottom:0.4rem;';
+                var maxVal = bounds[1] || 1;
+                var pct = Math.round((maxVal / 30) * 100);
+                bar.innerHTML =
+                    '<span style="min-width:140px;font-size:0.82rem;color:var(--text-primary);">' + esc(k.replace(/_/g, ' ')) + '</span>' +
+                    '<div style="flex:1;height:8px;background:var(--bg-input);border-radius:4px;overflow:hidden;">' +
+                    '<div style="height:100%;width:' + Math.min(pct, 100) + '%;background:var(--accent);border-radius:4px;"></div></div>' +
+                    '<span style="font-size:0.78rem;color:var(--text-muted);min-width:50px;text-align:right;">[' + bounds[0] + '-' + bounds[1] + ']</span>';
+                compDiv.appendChild(bar);
+            });
+
+            var lblDiv = document.getElementById('rules-scoring-labels');
+            lblDiv.innerHTML = '';
+            var labels = scoring.labels || {};
+            var labelColors = {suspected:'var(--severity-info)', likely:'var(--severity-low)', high:'var(--severity-high)', confirmed:'var(--severity-critical)'};
+            Object.keys(labels).forEach(function(k) {
+                var bounds = labels[k];
+                var row = document.createElement('div');
+                row.style.cssText = 'display:flex;align-items:center;gap:0.5rem;margin-bottom:0.5rem;';
+                row.innerHTML =
+                    '<span class="badge" style="background:' + (labelColors[k] || 'var(--bg-input)') + ';color:#fff;min-width:80px;text-align:center;">' + esc(k) + '</span>' +
+                    '<span style="font-size:0.85rem;color:var(--text-primary);">' + bounds[0] + ' – ' + bounds[1] + ' pts</span>';
+                lblDiv.appendChild(row);
+            });
+
+            // Verification
+            var verif = rules.verification || {};
+            document.getElementById('rules-verif-repro').textContent = verif.min_repro_runs_for_high_or_confirmed || '—';
+            document.getElementById('rules-verif-signals').textContent = verif.min_strong_signals || '—';
+            document.getElementById('rules-verif-secondary').textContent = verif.confirmed_requires_secondary_proof ? '✅ Yes' : '❌ No';
+
+            var demoteDiv = document.getElementById('rules-demote-tags');
+            demoteDiv.innerHTML = '';
+            (verif.auto_demote_rules || []).forEach(function(rule) {
+                var tag = document.createElement('span');
+                tag.className = 'badge';
+                tag.style.cssText = 'background:rgba(231,76,60,0.15);color:var(--severity-high);border:1px solid rgba(231,76,60,0.3);';
+                tag.textContent = rule.replace(/_/g, ' ');
+                demoteDiv.appendChild(tag);
+            });
+
+            // Baseline
+            var bl = rules.baseline || {};
+            document.getElementById('rules-bl-min').textContent = bl.min_samples || '—';
+            document.getElementById('rules-bl-max').textContent = bl.max_samples || '—';
+            document.getElementById('rules-bl-noisy').textContent = ((bl.timing_stability || {}).noisy_threshold || '—');
+
+            var metricsDiv = document.getElementById('rules-bl-metrics');
+            metricsDiv.innerHTML = '';
+            (bl.required_metrics || []).forEach(function(m) {
+                var tag = document.createElement('span');
+                tag.className = 'badge';
+                tag.style.cssText = 'background:var(--bg-input);color:var(--text-primary);border:1px solid var(--border);';
+                tag.textContent = m.replace(/_/g, ' ');
+                metricsDiv.appendChild(tag);
+            });
+
+            var stripDiv = document.getElementById('rules-bl-strips');
+            stripDiv.innerHTML = '';
+            ((bl.normalization || {}).strip_patterns || []).forEach(function(p) {
+                var tag = document.createElement('span');
+                tag.className = 'badge';
+                tag.style.cssText = 'background:rgba(52,152,219,0.15);color:var(--severity-low);border:1px solid rgba(52,152,219,0.3);';
+                tag.textContent = p.replace(/_/g, ' ');
+                stripDiv.appendChild(tag);
+            });
+
+            // Reporting
+            var rpt = rules.reporting || {};
+            renderTagList('rules-rpt-main', rpt.main_labels || [], 'background:rgba(46,204,113,0.15);color:var(--success);border:1px solid rgba(46,204,113,0.3);');
+            renderTagList('rules-rpt-appendix', rpt.appendix_labels || [], 'background:var(--bg-input);color:var(--text-muted);border:1px solid var(--border);');
+            renderTagList('rules-rpt-evidence', rpt.evidence_required || [], 'background:var(--bg-input);color:var(--text-primary);border:1px solid var(--border);font-size:0.72rem;');
+
+            // Vulnerability Map
+            renderVulnMap(rules.vuln_map || {});
+
+        } catch (e) {
+            console.error('[ATOMIC] Failed to load rules:', e);
+        }
+    };
+
+    function renderTagList(containerId, items, style) {
+        var div = document.getElementById(containerId);
+        div.innerHTML = '';
+        items.forEach(function(item) {
+            var tag = document.createElement('span');
+            tag.className = 'badge';
+            tag.style.cssText = style;
+            tag.textContent = item.replace(/_/g, ' ');
+            div.appendChild(tag);
+        });
+    }
+
+    function renderVulnMap(vulnMap) {
+        var container = document.getElementById('rules-vulnmap');
+        container.innerHTML = '';
+
+        var vulnColors = {
+            sqli: '#e74c3c', xss: '#e67e22', ssrf: '#3498db', idor: '#9b59b6',
+            ssti: '#1abc9c', xxe: '#f39c12', jwt_auth: '#e94560', upload: '#2ecc71',
+            cmdi: '#dc3545', open_redirect: '#f1c40f', cors: '#95a5a6', graphql_authz: '#8e44ad'
+        };
+
+        var vulnIcons = {
+            sqli: '💉', xss: '🔥', ssrf: '🌐', idor: '🔓',
+            ssti: '📝', xxe: '📄', jwt_auth: '🔑', upload: '📤',
+            cmdi: '💻', open_redirect: '↗️', cors: '🌍', graphql_authz: '📊'
+        };
+
+        Object.keys(vulnMap).forEach(function(vuln) {
+            var cfg = vulnMap[vuln];
+            var color = vulnColors[vuln] || 'var(--accent)';
+            var icon = vulnIcons[vuln] || '🔍';
+
+            var card = document.createElement('div');
+            card.style.cssText = 'border:1px solid ' + color + '33;border-radius:8px;margin-bottom:0.6rem;overflow:hidden;transition:all 0.2s;';
+
+            var header = document.createElement('div');
+            header.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:0.7rem 1rem;cursor:pointer;background:' + color + '11;';
+            header.innerHTML =
+                '<div style="display:flex;align-items:center;gap:0.5rem;">' +
+                '<span style="font-size:1.1rem;">' + icon + '</span>' +
+                '<span style="font-weight:700;color:' + color + ';">' + esc(vuln.replace(/_/g, ' ').toUpperCase()) + '</span></div>' +
+                '<span style="font-size:0.78rem;color:var(--text-muted);">' +
+                (cfg.paths || []).length + ' paths · ' + (cfg.params || []).length + ' params ▾</span>';
+
+            var body = document.createElement('div');
+            body.style.cssText = 'display:none;padding:0.8rem 1rem;border-top:1px solid ' + color + '22;';
+
+            // Paths
+            var pathsHtml = '<div style="margin-bottom:0.6rem;"><div style="font-size:0.78rem;color:var(--text-muted);margin-bottom:0.3rem;">Target Paths:</div><div style="display:flex;flex-wrap:wrap;gap:0.3rem;">';
+            (cfg.paths || []).forEach(function(p) {
+                pathsHtml += '<span class="badge" style="background:' + color + '22;color:' + color + ';font-family:monospace;font-size:0.78rem;">' + esc(p) + '</span>';
+            });
+            pathsHtml += '</div></div>';
+
+            // Params
+            var paramsHtml = '<div style="margin-bottom:0.6rem;"><div style="font-size:0.78rem;color:var(--text-muted);margin-bottom:0.3rem;">Target Parameters:</div><div style="display:flex;flex-wrap:wrap;gap:0.3rem;">';
+            (cfg.params || []).forEach(function(p) {
+                paramsHtml += '<span class="badge" style="background:var(--bg-input);color:var(--text-primary);border:1px solid var(--border);font-family:monospace;font-size:0.78rem;">' + esc(p) + '</span>';
+            });
+            paramsHtml += '</div></div>';
+
+            // Strong signals
+            var sigHtml = '<div style="margin-bottom:0.6rem;"><div style="font-size:0.78rem;color:var(--text-muted);margin-bottom:0.3rem;">Strong Signals:</div><div style="display:flex;flex-wrap:wrap;gap:0.3rem;">';
+            (cfg.strong_signals || []).forEach(function(s) {
+                sigHtml += '<span class="badge" style="background:rgba(46,204,113,0.15);color:var(--success);border:1px solid rgba(46,204,113,0.3);">' + esc(s.replace(/_/g, ' ')) + '</span>';
+            });
+            sigHtml += '</div></div>';
+
+            // Secondary proof
+            var secHtml = '';
+            if (cfg.secondary_proof && cfg.secondary_proof.length) {
+                secHtml = '<div style="margin-bottom:0.6rem;"><div style="font-size:0.78rem;color:var(--text-muted);margin-bottom:0.3rem;">Secondary Proof:</div><div style="display:flex;flex-wrap:wrap;gap:0.3rem;">';
+                cfg.secondary_proof.forEach(function(s) {
+                    secHtml += '<span class="badge" style="background:rgba(52,152,219,0.15);color:var(--severity-low);border:1px solid rgba(52,152,219,0.3);">' + esc(s.replace(/_/g, ' ')) + '</span>';
+                });
+                secHtml += '</div></div>';
+            }
+
+            // Reject if
+            var rejHtml = '<div><div style="font-size:0.78rem;color:var(--text-muted);margin-bottom:0.3rem;">Reject If:</div><div style="display:flex;flex-wrap:wrap;gap:0.3rem;">';
+            (cfg.reject_if || []).forEach(function(r) {
+                rejHtml += '<span class="badge" style="background:rgba(231,76,60,0.15);color:var(--severity-high);border:1px solid rgba(231,76,60,0.3);">' + esc(r.replace(/_/g, ' ')) + '</span>';
+            });
+            rejHtml += '</div></div>';
+
+            body.innerHTML = pathsHtml + paramsHtml + sigHtml + secHtml + rejHtml;
+
+            header.onclick = function() {
+                body.style.display = body.style.display === 'none' ? 'block' : 'none';
+            };
+
+            card.appendChild(header);
+            card.appendChild(body);
+            container.appendChild(card);
+        });
+    }
+
+    window.reloadRules = async function() {
+        try {
+            var r = await fetch(API + '/api/rules/reload', { method: 'POST' });
+            var j = await r.json();
+            if (j.status === 'success') {
+                loadRules();
+            }
+        } catch (e) {
+            console.error('[ATOMIC] Failed to reload rules:', e);
+        }
+    };
 
     /* ---- WebSocket (SocketIO) integration ---- */
     window._wsSocket = null;

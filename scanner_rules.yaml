@@ -1,0 +1,300 @@
+# ATOMIC FRAMEWORK v8.0 - Scanner Rules
+# Profile: accuracy_only — prioritize precision over speed
+# This file configures the entire scanning pipeline, from discovery
+# through scoring and reporting, including per-vulnerability-type
+# signal definitions and evidence requirements.
+
+profile: "accuracy_only"
+
+pipeline:
+  stages:
+    - discovery
+    - baseline
+    - context_classification
+    - prioritized_testing
+    - verification
+    - scoring
+    - reporting
+
+runtime_defaults:
+  threads: 10
+  timeout_seconds: 15
+  retries: 2
+  delay_seconds: 0.25
+  jitter: true
+  backoff: exponential
+
+discovery:
+  waf_bypass: true
+  reconscan: true
+  sources:
+    - links
+    - forms
+    - js_references
+    - api_patterns
+    - graphql_endpoints
+  collect_inputs:
+    - query_params
+    - path_params
+    - form_fields
+    - json_keys
+    - headers
+    - cookies
+    - jwt_claims
+    - multipart_fields
+  endpoint_profile_fields:
+    - method
+    - content_type
+    - response_type
+    - auth_context_tag
+    - object_ref_presence
+
+baseline:
+  min_samples: 3
+  max_samples: 5
+  required_metrics:
+    - status_code
+    - normalized_body_hash
+    - body_length
+    - timing_mean
+    - timing_stdev
+    - timing_p95
+  normalization:
+    strip_patterns:
+      - timestamps
+      - request_ids
+      - csrf_tokens
+      - nonces
+      - rotating_tokens
+      - random_fragments
+  timing_stability:
+    formula: "stdev/mean"
+    noisy_threshold: 0.35
+
+prioritization:
+  order:
+    - auth_admin_account
+    - object_reference_apis
+    - upload_import_export
+    - fetch_webhook_pdf_image_proxy
+    - search_filter_sort_report
+    - remaining
+  endpoint_keyword_buckets:
+    auth_admin_account:
+      - "login"
+      - "register"
+      - "reset"
+      - "profile"
+      - "admin"
+      - "account"
+    object_reference_apis:
+      - "user"
+      - "order"
+      - "invoice"
+      - "account"
+      - "id"
+    upload_import_export:
+      - "upload"
+      - "import"
+      - "export"
+      - "download"
+      - "attachment"
+      - "avatar"
+    fetch_webhook_pdf_image_proxy:
+      - "fetch"
+      - "preview"
+      - "webhook"
+      - "pdf"
+      - "image-proxy"
+      - "proxy"
+    search_filter_sort_report:
+      - "search"
+      - "filter"
+      - "sort"
+      - "report"
+      - "list"
+
+context_classification:
+  sinks:
+    - sql_like
+    - html_js_attribute_reflection
+    - server_side_url_fetch
+    - object_authorization_reference
+    - template_render
+    - xml_parser
+    - file_processor
+    - command_like_processor
+    - redirect_target
+    - cors_policy
+    - graphql_authz
+
+verification:
+  min_repro_runs_for_high_or_confirmed: 3
+  min_strong_signals: 2
+  confirmed_requires_secondary_proof: true
+  auto_demote_rules:
+    - reflection_only
+    - single_timing_spike
+    - generic_500_only
+    - missing_secondary_proof
+    - unstable_baseline_timing_only
+  noisy_timing_cap:
+    enabled: true
+    max_label_if_timing_only_on_noisy_endpoint: likely
+
+scoring:
+  formula: "repro + context_fit + primary_signal + secondary_proof + impact - instability_penalty - ambiguity_penalty"
+  components:
+    repro: [0, 30]
+    context_fit: [0, 20]
+    primary_signal: [0, 20]
+    secondary_proof: [0, 20]
+    impact: [0, 10]
+    instability_penalty: [0, 20]
+    ambiguity_penalty: [0, 10]
+  labels:
+    suspected: [0, 39]
+    likely: [40, 64]
+    high: [65, 84]
+    confirmed: [85, 100]
+
+reporting:
+  main_labels:
+    - high
+    - confirmed
+  appendix_labels:
+    - suspected
+    - likely
+  require_why_not_confirmed: true
+  evidence_required:
+    - endpoint
+    - method
+    - parameter
+    - context
+    - baseline_stats
+    - observed_deltas
+    - confirmation_runs
+    - secondary_proof_artifact
+    - confidence_score
+    - confidence_reasons
+    - downgrade_reason
+
+vuln_map:
+  sqli:
+    paths: ["/search", "/items", "/product", "/report", "/filter"]
+    params: ["id", "q", "cat", "sort", "order", "filter", "page", "limit", "offset", "where"]
+    strong_signals:
+      - deterministic_boolean_differential
+      - repeated_timing_anomaly
+    secondary_proof:
+      - repeatable_logic_or_content_delta
+    reject_if:
+      - single_timing_spike
+      - generic_db_error_only
+
+  xss:
+    paths: ["/search", "/comment", "/feedback", "/profile", "/chat"]
+    params: ["q", "name", "title", "message", "bio", "content"]
+    strong_signals:
+      - executable_sink_context
+      - execution_context_proof
+    secondary_proof:
+      - deterministic_context_execution
+    reject_if:
+      - reflection_only
+      - escaped_reflection_only
+
+  ssrf:
+    paths: ["/fetch", "/preview", "/webhook", "/pdf", "/image-proxy", "/import"]
+    params: ["url", "uri", "endpoint", "callback", "webhook_url", "src"]
+    strong_signals:
+      - server_side_fetch_behavior_delta
+      - correlated_oob_event
+    secondary_proof:
+      - correlated_tokenized_callback_or_fetch_trace
+    reject_if:
+      - network_error_only
+
+  idor:
+    paths: ["/users/{id}", "/orders/{id}", "/invoice"]
+    params: ["id", "user_id", "order_id", "invoice_id", "uuid"]
+    strong_signals:
+      - cross_identity_access_delta
+    secondary_proof:
+      - controlled_ab_identity_access_proof
+    reject_if:
+      - own_or_public_resource_confusion
+
+  ssti:
+    paths: ["/template", "/render", "/preview", "/theme"]
+    params: ["template", "body", "content", "title"]
+    strong_signals:
+      - template_expression_handling_anomaly
+    secondary_proof:
+      - deterministic_expression_evaluation
+    reject_if:
+      - literal_echo_only
+
+  xxe:
+    paths: ["/xml", "/soap", "/saml", "/import"]
+    params: ["xml_body", "xml_file"]
+    strong_signals:
+      - entity_processing_behavior_signal
+    secondary_proof:
+      - entity_resolution_or_oob_correlation
+    reject_if:
+      - parser_error_only
+
+  jwt_auth:
+    paths: ["/api", "/me", "/admin"]
+    params: ["authorization", "token_cookie", "jwt"]
+    strong_signals:
+      - authz_decision_change_after_token_mutation
+    secondary_proof:
+      - repeatable_privilege_boundary_change
+    reject_if:
+      - decode_or_format_only_difference
+
+  upload:
+    paths: ["/upload", "/avatar", "/attachment", "/import"]
+    params: ["file", "filename", "content_type", "multipart_field"]
+    strong_signals:
+      - unsafe_processing_pattern
+    secondary_proof:
+      - controlled_processing_impact
+    reject_if:
+      - upload_acceptance_only
+
+  cmdi:
+    paths: ["/ping", "/traceroute", "/convert", "/diagnostic"]
+    params: ["host", "cmd", "args", "filename"]
+    strong_signals:
+      - deterministic_command_like_effect
+    secondary_proof:
+      - repeatable_parameter_tied_effect
+    reject_if:
+      - timeout_or_error_only
+
+  open_redirect:
+    paths: ["/redirect", "/next", "/return", "/continue"]
+    params: ["next", "url", "return", "redirect"]
+    strong_signals:
+      - external_redirect_acceptance
+    secondary_proof:
+      - policy_violating_external_redirect_proof
+
+  cors:
+    paths: ["*"]
+    params: ["origin", "access-control-request-method", "access-control-request-headers"]
+    strong_signals:
+      - origin_reflection_with_risky_policy
+    secondary_proof:
+      - exploitable_credentialed_cross_origin_condition
+
+  graphql_authz:
+    paths: ["/graphql"]
+    params: ["query", "variables", "operationName"]
+    strong_signals:
+      - unauthorized_field_or_object_access
+    secondary_proof:
+      - repeatable_authz_boundary_bypass

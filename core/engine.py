@@ -21,6 +21,7 @@ from urllib.parse import urlparse, parse_qs
 
 
 from config import Config, Colors, MITRE_CWE_MAP
+from core.rules_engine import RulesEngine
 
 # Remediation suggestions keyed by vulnerability family
 REMEDIATION_MAP = {
@@ -94,6 +95,19 @@ class AtomicEngine:
         self.end_time = None
         self.target = None
         self.post_exploit_results = []
+
+        # --- Scanner rules engine ---
+        rules_path = config.get('rules_path')
+        self.rules = RulesEngine(rules_path=rules_path, config=config)
+
+        # Apply runtime defaults from rules when not set in config
+        rt = self.rules.runtime
+        if 'threads' not in config:
+            config['threads'] = rt.get('threads', 10)
+        if 'timeout' not in config:
+            config['timeout'] = rt.get('timeout_seconds', 15)
+        if 'delay' not in config:
+            config['delay'] = rt.get('delay_seconds', 0.25)
 
         # --- Pipeline tracking (3-partition architecture) ---
         self.pipeline = {

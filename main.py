@@ -208,6 +208,8 @@ def main():
                        help='Verbose output')
     parser.add_argument('--quiet', '-q', action='store_true',
                        help='Quiet mode')
+    parser.add_argument('--rules',
+                       help='Path to scanner rules YAML file (default: scanner_rules.yaml)')
     
     # Web dashboard
     parser.add_argument('--web', action='store_true',
@@ -473,6 +475,7 @@ def main():
         'verbose': args.verbose,
         'quiet': args.quiet,
         'output_dir': args.output or Config.REPORTS_DIR,
+        'rules_path': getattr(args, 'rules', None),
     }
     
     # Build module configuration

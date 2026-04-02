@@ -31,6 +31,9 @@ tqdm==4.67.3
 # DNS resolution
 dnspython==2.7.0
 
+# YAML configuration
+PyYAML==6.0.1
+
 # Optional: C-extension packages (may require compilation on some platforms)
 # Install separately if needed:
 #   pip install lxml>=4.9.0 cryptography>=38.0.0 paramiko>=2.12.0
