@@ -29,6 +29,12 @@ try:
 except ImportError:
     FLASK_AVAILABLE = False
 
+try:
+    from flask_socketio import SocketIO, emit
+    SOCKETIO_AVAILABLE = True
+except ImportError:
+    SOCKETIO_AVAILABLE = False
+
 logger = logging.getLogger(__name__)
 
 app = Flask(
@@ -42,6 +48,11 @@ app.config['SECRET_KEY'] = os.environ.get('ATOMIC_SECRET_KEY', uuid.uuid4().hex)
 
 if FLASK_AVAILABLE:
     CORS(app)
+
+# SocketIO for real-time updates (falls back to polling if unavailable)
+socketio = None
+if SOCKETIO_AVAILABLE:
+    socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 
 _active_scans = {}
 _scans_lock = threading.Lock()
@@ -129,6 +140,15 @@ def _get_db():
         return None
 
 
+def _emit_ws(event, data):
+    """Emit a WebSocket event to all connected clients (no-op if SocketIO unavailable)."""
+    if socketio is not None:
+        try:
+            socketio.emit(event, data, namespace='/')
+        except Exception:
+            pass
+
+
 def _run_scan(scan_id, target, config):
     """Background scan runner."""
     with _scans_lock:
@@ -140,9 +160,12 @@ def _run_scan(scan_id, target, config):
             'engine': None,
             'pipeline': {'phase': 'init', 'events': []},
         }
+    _emit_ws('scan_started', {'scan_id': scan_id, 'target': target})
     try:
         engine = AtomicEngine(config)
         engine.scan_id = scan_id
+        # Attach a live-event callback so the engine pushes events to SocketIO
+        engine._ws_callback = lambda evt, d: _emit_ws(evt, {**d, 'scan_id': scan_id})
         with _scans_lock:
             _active_scans[scan_id]['engine'] = engine
         engine.scan(target)
@@ -152,12 +175,17 @@ def _run_scan(scan_id, target, config):
             _active_scans[scan_id]['findings'] = len(engine.findings)
             _active_scans[scan_id]['end_time'] = datetime.now(timezone.utc).isoformat()
             _active_scans[scan_id]['pipeline'] = engine.get_pipeline_state()
+        _emit_ws('scan_completed', {
+            'scan_id': scan_id,
+            'findings': len(engine.findings),
+        })
     except Exception as exc:
         logger.exception("Scan %s failed", scan_id)
         with _scans_lock:
             _active_scans[scan_id]['status'] = 'failed'
             _active_scans[scan_id]['error'] = str(exc)
             _active_scans[scan_id]['end_time'] = datetime.now(timezone.utc).isoformat()
+        _emit_ws('scan_failed', {'scan_id': scan_id})
 
 
 # ---------------------------------------------------------------------------
@@ -504,10 +532,76 @@ def list_shells():
                 'url': s.get('url', ''),
                 'shell_type': s.get('shell_type', ''),
                 'created_at': str(s.get('created_at', '')),
+                'password': s.get('password', 'cmd'),
             })
         return jsonify({'status': 'success', 'data': data})
     except Exception as exc:
-        return jsonify({'status': 'error', 'data': str(exc)}), 500
+        return jsonify({'status': 'error', 'data': 'Failed to list shells'}), 500
+
+
+@app.route('/api/shell/<shell_id>/execute', methods=['POST'])
+@_require_api_key
+@_rate_limit
+def execute_shell_command(shell_id):
+    """Execute a command on a deployed shell.
+
+    Expects JSON body: {"command": "ls -la"}
+    Returns the command output.
+    """
+    body = request.get_json(silent=True) or {}
+    cmd = body.get('command', '').strip()
+    if not cmd:
+        return jsonify({'status': 'error', 'data': 'No command provided'}), 400
+
+    # Validate shell_id format (alphanumeric + dashes only)
+    if not re.match(r'^[a-zA-Z0-9_-]+$', shell_id):
+        return jsonify({'status': 'error', 'data': 'Invalid shell ID'}), 400
+
+    try:
+        from modules.shell.manager import ShellManager
+        manager = ShellManager()
+        result = manager.execute_command(shell_id, cmd)
+        _emit_ws('shell_command', {
+            'shell_id': shell_id,
+            'command': cmd,
+            'output_length': len(result) if result else 0,
+        })
+        return jsonify({'status': 'success', 'data': {'output': result or ''}})
+    except Exception as exc:
+        logger.error('Shell execute error: %s', exc)
+        return jsonify({'status': 'error', 'data': 'Command execution failed'}), 500
+
+
+@app.route('/api/shell/<shell_id>/info', methods=['GET'])
+@_require_api_key
+@_rate_limit
+def shell_info(shell_id):
+    """Return details for a specific shell."""
+    if not re.match(r'^[a-zA-Z0-9_-]+$', shell_id):
+        return jsonify({'status': 'error', 'data': 'Invalid shell ID'}), 400
+
+    db = _get_db()
+    if db is None:
+        return jsonify({'status': 'error', 'data': 'Database unavailable'}), 500
+
+    try:
+        shells = db.get_shells()
+        for s in shells:
+            if s.get('shell_id', '') == shell_id or s.get('shell_id', '').startswith(shell_id):
+                return jsonify({
+                    'status': 'success',
+                    'data': {
+                        'shell_id': s.get('shell_id', ''),
+                        'url': s.get('url', ''),
+                        'shell_type': s.get('shell_type', ''),
+                        'created_at': str(s.get('created_at', '')),
+                        'last_used': str(s.get('last_used', '')),
+                        'password': s.get('password', 'cmd'),
+                    },
+                })
+        return jsonify({'status': 'error', 'data': 'Shell not found'}), 404
+    except Exception:
+        return jsonify({'status': 'error', 'data': 'Failed to get shell info'}), 500
 
 
 @app.route('/api/exploit/<scan_id>', methods=['POST'])
@@ -884,6 +978,66 @@ def trigger_attack_route(scan_id):
 
 
 # ---------------------------------------------------------------------------
+# SocketIO event handlers (real-time WebSocket updates)
+# ---------------------------------------------------------------------------
+
+if SOCKETIO_AVAILABLE and socketio is not None:
+    @socketio.on('connect')
+    def handle_connect():
+        """Client connected — send current active scans."""
+        with _scans_lock:
+            active = {
+                sid: {
+                    'status': info.get('status'),
+                    'target': info.get('target'),
+                    'findings': info.get('findings', 0),
+                    'start_time': info.get('start_time'),
+                }
+                for sid, info in _active_scans.items()
+                if info.get('status') == 'running'
+            }
+        emit('active_scans', active)
+
+    @socketio.on('subscribe_scan')
+    def handle_subscribe(data):
+        """Client wants live events for a specific scan."""
+        scan_id = data.get('scan_id', '') if isinstance(data, dict) else ''
+        if not scan_id or not re.match(r'^[a-zA-Z0-9_-]+$', scan_id):
+            return
+        scan_info = _active_scans.get(scan_id)
+        if scan_info and scan_info.get('engine'):
+            engine = scan_info['engine']
+            if hasattr(engine, 'get_pipeline_state'):
+                emit('pipeline_state', engine.get_pipeline_state())
+
+    @socketio.on('shell_command')
+    def handle_shell_command(data):
+        """Execute a shell command via WebSocket."""
+        if not isinstance(data, dict):
+            return
+        shell_id = data.get('shell_id', '')
+        cmd = data.get('command', '').strip()
+        if not shell_id or not cmd:
+            emit('shell_output', {'error': 'Missing shell_id or command'})
+            return
+        if not re.match(r'^[a-zA-Z0-9_-]+$', shell_id):
+            emit('shell_output', {'error': 'Invalid shell ID'})
+            return
+        try:
+            from modules.shell.manager import ShellManager
+            manager = ShellManager()
+            result = manager.execute_command(shell_id, cmd)
+            emit('shell_output', {
+                'shell_id': shell_id,
+                'command': cmd,
+                'output': result or '',
+            })
+        except Exception as exc:
+            logger.error('WS shell execute error: %s', exc)
+            emit('shell_output', {'error': 'Command execution failed'})
+
+
+# ---------------------------------------------------------------------------
 # App factory & runner
 # ---------------------------------------------------------------------------
 
@@ -902,7 +1056,12 @@ def create_app(host='0.0.0.0', port=5000, debug=False):
         else:
             logger.warning("No ATOMIC_API_KEY set — API endpoints are open")
         logger.warning("FOR AUTHORIZED TESTING ONLY")
-        app.run(host=host, port=port, debug=debug)
+        # Use SocketIO runner if available (enables WebSocket), else plain Flask
+        if socketio is not None:
+            socketio.run(app, host=host, port=port, debug=debug,
+                         allow_unsafe_werkzeug=True)
+        else:
+            app.run(host=host, port=port, debug=debug)
 
     return app, run_app
 

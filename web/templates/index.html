@@ -491,19 +491,24 @@
         </p>
 
         <!-- Pipeline phase cards -->
-        <div class="grid grid-3" id="pipeline-phases">
+        <div class="grid grid-4" id="pipeline-phases">
             <div class="glass-card" id="phase-recon" style="border-left:4px solid var(--severity-info);">
-                <h3>🔎 Partition 1: Recon & Scan</h3>
+                <h3>🔎 Phase 1: Recon</h3>
                 <div class="phase-status" id="phase-recon-status">⏳ Pending</div>
                 <div class="phase-detail" id="phase-recon-detail" style="font-size:0.82rem;color:var(--text-muted);margin-top:0.5rem;"></div>
             </div>
+            <div class="glass-card" id="phase-scan" style="border-left:4px solid var(--severity-medium);">
+                <h3>🔍 Phase 2: Scan</h3>
+                <div class="phase-status" id="phase-scan-status">⏳ Pending</div>
+                <div class="phase-detail" id="phase-scan-detail" style="font-size:0.82rem;color:var(--text-muted);margin-top:0.5rem;"></div>
+            </div>
             <div class="glass-card" id="phase-exploit" style="border-left:4px solid var(--severity-high);">
-                <h3>💥 Partition 2: Attack Router</h3>
+                <h3>💥 Phase 3: Exploit</h3>
                 <div class="phase-status" id="phase-exploit-status">⏳ Pending</div>
                 <div class="phase-detail" id="phase-exploit-detail" style="font-size:0.82rem;color:var(--text-muted);margin-top:0.5rem;"></div>
             </div>
             <div class="glass-card" id="phase-collect" style="border-left:4px solid #2ecc71;">
-                <h3>📦 Partition 3: Data Collection</h3>
+                <h3>📦 Phase 4: Collect</h3>
                 <div class="phase-status" id="phase-collect-status">⏳ Pending</div>
                 <div class="phase-detail" id="phase-collect-detail" style="font-size:0.82rem;color:var(--text-muted);margin-top:0.5rem;"></div>
             </div>
@@ -579,6 +584,18 @@
                     <tr><td colspan="5" class="empty-msg">No active shells. Deploy shells via Auto-Exploit.</td></tr>
                 </tbody>
             </table>
+        </div>
+
+        <!-- Shell Terminal -->
+        <div class="glass-card" style="margin-top:1rem;" id="shell-terminal-card" hidden>
+            <h3>🖥️ Shell Terminal — <span id="shell-terminal-id"></span></h3>
+            <div id="shell-terminal-output" style="background:#0d1117;border-radius:6px;padding:0.8rem;max-height:400px;overflow-y:auto;font-family:monospace;font-size:0.82rem;color:#c9d1d9;white-space:pre-wrap;min-height:100px;"></div>
+            <div style="display:flex;gap:0.5rem;margin-top:0.5rem;">
+                <span style="color:var(--accent);font-family:monospace;padding:0.4rem 0;">$</span>
+                <input type="text" id="shell-cmd-input" placeholder="Type command and press Enter…" style="flex:1;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);padding:0.4rem 0.6rem;font-family:monospace;font-size:0.85rem;" onkeydown="if(event.key==='Enter')window._sendShellCmd()">
+                <button class="btn btn-primary btn-sm" onclick="window._sendShellCmd()">Send</button>
+                <button class="btn btn-danger btn-sm" onclick="window._closeShellTerminal()">Close</button>
+            </div>
         </div>
 
         <div class="glass-card" style="margin-top:1rem;">
@@ -969,12 +986,11 @@
             var d = j.data;
 
             // Update phase cards
-            var phases = ['recon', 'exploit', 'collect'];
-            var phaseMap = {recon: 'phase-recon', exploit: 'phase-exploit', collect: 'phase-collect'};
+            var phases = ['recon', 'scan', 'exploit', 'collect'];
             phases.forEach(function(p) {
-                var info = d[p === 'exploit' ? 'exploit' : (p === 'collect' ? 'collect' : 'recon')] || {};
-                var statusEl = document.getElementById(phaseMap[p] + '-status');
-                var detailEl = document.getElementById(phaseMap[p] + '-detail');
+                var info = d[p] || {};
+                var statusEl = document.getElementById('phase-' + p + '-status');
+                var detailEl = document.getElementById('phase-' + p + '-detail');
                 var status = info.status || 'pending';
                 var icon = status === 'completed' ? '✅' : (status === 'running' ? '🔄' : (status === 'failed' ? '❌' : '⏳'));
                 if (statusEl) statusEl.innerHTML = icon + ' ' + status.charAt(0).toUpperCase() + status.slice(1);
@@ -1142,8 +1158,67 @@
         } catch (_) {}
     }
 
+    /* ---- Shell Terminal ---- */
+    var _activeShellId = '';
+
     window._interactShell = function(shellId) {
-        alert('Shell interaction for ' + shellId + ' — Use CLI: python main.py --shell-manager --shell-id ' + shellId);
+        _activeShellId = shellId;
+        document.getElementById('shell-terminal-id').textContent = shellId;
+        document.getElementById('shell-terminal-output').innerHTML = '<span style="color:#2ecc71;">Connected to shell ' + esc(shellId) + '</span>\n<span style="color:var(--text-muted);">Type commands below. Use "help" for options.</span>\n\n';
+        document.getElementById('shell-terminal-card').hidden = false;
+        document.getElementById('shell-cmd-input').focus();
+    };
+
+    window._closeShellTerminal = function() {
+        _activeShellId = '';
+        document.getElementById('shell-terminal-card').hidden = true;
+        document.getElementById('shell-terminal-output').innerHTML = '';
+    };
+
+    window._sendShellCmd = async function() {
+        var input = document.getElementById('shell-cmd-input');
+        var cmd = input.value.trim();
+        if (!cmd || !_activeShellId) return;
+        input.value = '';
+
+        var output = document.getElementById('shell-terminal-output');
+        output.innerHTML += '<span style="color:var(--accent);">$ ' + esc(cmd) + '</span>\n';
+
+        if (cmd === 'clear') { output.innerHTML = ''; return; }
+        if (cmd === 'exit' || cmd === 'quit') { window._closeShellTerminal(); return; }
+
+        output.innerHTML += '<span style="color:var(--text-muted);"><span class="spinner"></span> Executing...</span>\n';
+        output.scrollTop = output.scrollHeight;
+
+        try {
+            // Try WebSocket first, fall back to REST API
+            if (window._wsSocket && window._wsSocket.connected) {
+                window._wsSocket.emit('shell_command', { shell_id: _activeShellId, command: cmd });
+            } else {
+                var r = await fetch(API + '/api/shell/' + _activeShellId + '/execute', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ command: cmd }),
+                });
+                var j = await r.json();
+                // Remove the "Executing..." line
+                var lines = output.innerHTML.split('\n');
+                lines = lines.filter(function(l) { return l.indexOf('Executing...') === -1; });
+                output.innerHTML = lines.join('\n');
+
+                if (j.status === 'success' && j.data) {
+                    output.innerHTML += esc(j.data.output || '(empty)') + '\n';
+                } else {
+                    output.innerHTML += '<span style="color:var(--severity-critical);">Error: ' + esc(j.data || 'Command failed') + '</span>\n';
+                }
+            }
+        } catch (e) {
+            var lines2 = output.innerHTML.split('\n');
+            lines2 = lines2.filter(function(l) { return l.indexOf('Executing...') === -1; });
+            output.innerHTML = lines2.join('\n');
+            output.innerHTML += '<span style="color:var(--severity-critical);">Connection error</span>\n';
+        }
+        output.scrollTop = output.scrollHeight;
     };
 
     /* ---- Live Feed ---- */
@@ -1204,6 +1279,115 @@
             }
         } catch (_) {}
     }
+
+    /* ---- WebSocket (SocketIO) integration ---- */
+    window._wsSocket = null;
+    (function initWebSocket() {
+        // Try to load SocketIO client from CDN
+        var script = document.createElement('script');
+        script.src = 'https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js';
+        script.onload = function() {
+            try {
+                var socket = io(API, { transports: ['websocket', 'polling'] });
+                window._wsSocket = socket;
+
+                socket.on('connect', function() {
+                    console.log('[ATOMIC] WebSocket connected');
+                });
+
+                socket.on('active_scans', function(data) {
+                    if (data && typeof data === 'object') {
+                        Object.keys(data).forEach(function(sid) {
+                            window._knownActive[sid] = true;
+                        });
+                        _updateScanSelects();
+                    }
+                });
+
+                socket.on('scan_started', function(data) {
+                    if (data && data.scan_id) {
+                        window._knownActive[data.scan_id] = true;
+                        _updateScanSelects();
+                    }
+                });
+
+                socket.on('scan_completed', function(data) {
+                    if (data && data.scan_id) {
+                        loadStats();
+                        loadHistory();
+                    }
+                });
+
+                socket.on('pipeline_event', function(ev) {
+                    // Push to live feed if currently watching
+                    if (_livefeedScanId && ev && ev.scan_id === _livefeedScanId) {
+                        var container = document.getElementById('livefeed-events');
+                        if (container && container.querySelector('.empty-msg')) container.innerHTML = '';
+
+                        var color = '#c9d1d9';
+                        if (ev.type === 'finding_new') color = 'var(--severity-high)';
+                        else if (ev.type === 'phase_start') color = 'var(--accent)';
+                        else if (ev.type === 'phase_end') color = '#2ecc71';
+
+                        var ts = ev.timestamp ? new Date(ev.timestamp).toLocaleTimeString() : '';
+                        var detail = '';
+                        if (ev.data) {
+                            if (ev.data.technique) detail = ev.data.technique;
+                            else if (ev.data.phase) detail = ev.data.phase;
+                            else detail = JSON.stringify(ev.data).substring(0, 120);
+                        }
+
+                        if (container) {
+                            var line = document.createElement('div');
+                            line.style.cssText = 'padding:0.2rem 0;border-bottom:1px solid rgba(255,255,255,0.05);';
+                            line.innerHTML = '<span style="color:var(--text-muted);min-width:70px;display:inline-block;">' + ts + '</span> ' +
+                                '<span style="color:' + color + ';font-weight:600;min-width:140px;display:inline-block;">' + esc(ev.type) + '</span> ' +
+                                '<span style="color:#c9d1d9;">' + esc(detail) + '</span>';
+                            container.appendChild(line);
+                            var lc = document.getElementById('livefeed-container');
+                            if (lc) lc.scrollTop = lc.scrollHeight;
+                        }
+                    }
+                });
+
+                socket.on('pipeline_state', function(data) {
+                    // Full pipeline state received after subscribe
+                    if (data && data.phase) {
+                        // Auto-update pipeline view
+                        loadPipeline();
+                    }
+                });
+
+                socket.on('shell_output', function(data) {
+                    // Shell output via WebSocket
+                    if (!data) return;
+                    var output = document.getElementById('shell-terminal-output');
+                    if (!output) return;
+                    // Remove "Executing..." spinner
+                    var lines = output.innerHTML.split('\n');
+                    lines = lines.filter(function(l) { return l.indexOf('Executing...') === -1; });
+                    output.innerHTML = lines.join('\n');
+
+                    if (data.error) {
+                        output.innerHTML += '<span style="color:var(--severity-critical);">' + esc(data.error) + '</span>\n';
+                    } else {
+                        output.innerHTML += esc(data.output || '(empty)') + '\n';
+                    }
+                    output.scrollTop = output.scrollHeight;
+                });
+
+                socket.on('disconnect', function() {
+                    console.log('[ATOMIC] WebSocket disconnected');
+                });
+            } catch (e) {
+                console.log('[ATOMIC] WebSocket init failed, using polling fallback');
+            }
+        };
+        script.onerror = function() {
+            console.log('[ATOMIC] SocketIO CDN unavailable, using polling fallback');
+        };
+        document.head.appendChild(script);
+    })();
 
     /* ---- Init ---- */
     window._knownActive = {};

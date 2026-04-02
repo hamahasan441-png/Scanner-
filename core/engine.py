@@ -105,6 +105,7 @@ class AtomicEngine:
             'collect': {'status': 'pending', 'data': {}},
         }
         self.attack_router = None
+        self._ws_callback = None  # WebSocket event callback (set by web app)
 
         # Initialize evasion engine
         try:
@@ -207,6 +208,12 @@ class AtomicEngine:
         # Cap events list to prevent memory bloat
         if len(self.pipeline['events']) > 500:
             self.pipeline['events'] = self.pipeline['events'][-500:]
+        # Push to WebSocket if callback is set
+        if self._ws_callback:
+            try:
+                self._ws_callback('pipeline_event', event)
+            except Exception:
+                pass
 
     def get_pipeline_state(self) -> dict:
         """Return the current pipeline state for the dashboard."""
