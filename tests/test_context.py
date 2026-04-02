@@ -321,5 +321,108 @@ class TestGetRecommendedModules(unittest.TestCase):
         self.assertNotIn('sqli', vuln_types)
 
 
+# ---------------------------------------------------------------------------
+# Response fingerprint intelligence tests
+# ---------------------------------------------------------------------------
+
+class TestResponseFingerprinting(unittest.TestCase):
+
+    def setUp(self):
+        self.ctx = ContextIntelligence(_MockEngine())
+
+    def test_record_and_get_fingerprint(self):
+        resp = _MockResponse(
+            headers={'Content-Type': 'text/html'},
+            text='<html>OK</html>',
+        )
+        resp.status_code = 200
+        self.ctx.record_response_fingerprint('http://x.com/page', 'id', resp)
+        fp = self.ctx.get_response_pattern('http://x.com/page', 'id')
+        self.assertIsNotNone(fp)
+        self.assertEqual(fp['status'], 200)
+
+    def test_get_unknown_fingerprint_returns_none(self):
+        self.assertIsNone(self.ctx.get_response_pattern('http://x.com', 'q'))
+
+    def test_none_response_no_crash(self):
+        self.ctx.record_response_fingerprint('http://x.com', 'q', None)
+        self.assertIsNone(self.ctx.get_response_pattern('http://x.com', 'q'))
+
+
+# ---------------------------------------------------------------------------
+# Behavior tracking tests
+# ---------------------------------------------------------------------------
+
+class TestBehaviorTracking(unittest.TestCase):
+
+    def setUp(self):
+        self.ctx = ContextIntelligence(_MockEngine())
+
+    def test_record_and_get_behavior(self):
+        self.ctx.record_behavior('id', 'reflected', 'value echoed in HTML')
+        behaviors = self.ctx.get_param_behaviors('id')
+        self.assertEqual(len(behaviors), 1)
+        self.assertEqual(behaviors[0]['type'], 'reflected')
+
+    def test_multiple_behaviors(self):
+        self.ctx.record_behavior('q', 'reflected')
+        self.ctx.record_behavior('q', 'filtered')
+        behaviors = self.ctx.get_param_behaviors('q')
+        self.assertEqual(len(behaviors), 2)
+
+    def test_unknown_param_returns_empty(self):
+        self.assertEqual(self.ctx.get_param_behaviors('unknown'), [])
+
+
+# ---------------------------------------------------------------------------
+# Tech recommendations tests
+# ---------------------------------------------------------------------------
+
+class TestTechRecommendations(unittest.TestCase):
+
+    def setUp(self):
+        self.ctx = ContextIntelligence(_MockEngine())
+
+    def test_php_recommendations(self):
+        self.ctx.detected_tech = {'php'}
+        recs = self.ctx.get_tech_specific_recommendations()
+        vuln_types = [r['vuln_type'] for r in recs]
+        self.assertIn('sqli', vuln_types)
+        self.assertIn('lfi', vuln_types)
+
+    def test_express_recommendations(self):
+        self.ctx.detected_tech = {'express'}
+        recs = self.ctx.get_tech_specific_recommendations()
+        vuln_types = [r['vuln_type'] for r in recs]
+        self.assertIn('nosql', vuln_types)
+
+    def test_no_tech_no_recommendations(self):
+        recs = self.ctx.get_tech_specific_recommendations()
+        self.assertEqual(recs, [])
+
+
+# ---------------------------------------------------------------------------
+# Intelligence summary tests
+# ---------------------------------------------------------------------------
+
+class TestIntelligenceSummary(unittest.TestCase):
+
+    def setUp(self):
+        self.ctx = ContextIntelligence(_MockEngine())
+
+    def test_initial_summary(self):
+        summary = self.ctx.get_intelligence_summary()
+        self.assertEqual(summary['detected_tech'], [])
+        self.assertEqual(summary['response_fingerprints'], 0)
+        self.assertEqual(summary['behavior_patterns'], 0)
+
+    def test_summary_reflects_state(self):
+        self.ctx.detected_tech = {'php', 'mysql'}
+        self.ctx.record_behavior('id', 'reflected')
+        summary = self.ctx.get_intelligence_summary()
+        self.assertEqual(len(summary['detected_tech']), 2)
+        self.assertEqual(summary['behavior_patterns'], 1)
+
+
 if __name__ == '__main__':
     unittest.main()

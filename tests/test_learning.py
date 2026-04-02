@@ -259,5 +259,126 @@ class TestUpdateThresholds(unittest.TestCase):
         self.assertEqual(store.thresholds['diff_min_chars'], 50)
 
 
+# ---------------------------------------------------------------------------
+# Domain intelligence tests
+# ---------------------------------------------------------------------------
+
+
+class TestDomainIntelligence(unittest.TestCase):
+
+    def test_record_domain_profile(self):
+        store = _make_store()
+        store.record_domain_profile('example.com', {'php', 'mysql'}, ['sqli', 'xss'])
+        profile = store.get_domain_intelligence('example.com')
+        self.assertIsNotNone(profile)
+        self.assertEqual(profile['scan_count'], 1)
+        self.assertEqual(profile['total_vulns'], 2)
+
+    def test_multiple_scans_aggregate(self):
+        store = _make_store()
+        store.record_domain_profile('example.com', {'php'}, ['sqli'])
+        store.record_domain_profile('example.com', {'mysql'}, ['xss'])
+        profile = store.get_domain_intelligence('example.com')
+        self.assertEqual(profile['scan_count'], 2)
+        self.assertEqual(profile['total_vulns'], 2)
+        self.assertIn('php', profile['tech_stack'])
+        self.assertIn('mysql', profile['tech_stack'])
+
+    def test_unknown_domain_returns_none(self):
+        store = _make_store()
+        self.assertIsNone(store.get_domain_intelligence('unknown.com'))
+
+
+# ---------------------------------------------------------------------------
+# Tech-payload learning tests
+# ---------------------------------------------------------------------------
+
+
+class TestTechPayloadHistory(unittest.TestCase):
+
+    def test_record_tech_payload_success(self):
+        store = _make_store()
+        store.record_tech_payload_success('php', 'lfi', 'php://filter')
+        self.assertIn('php', store.tech_payload_history)
+        self.assertIn('lfi', store.tech_payload_history['php'])
+
+    def test_get_tech_priority_payloads(self):
+        store = _make_store()
+        store.record_tech_payload_success('php', 'lfi', 'php://filter')
+        store.record_tech_payload_success('php', 'lfi', 'php://filter')
+        store.record_tech_payload_success('php', 'lfi', '../etc/passwd')
+        payloads = ['../etc/passwd', 'php://filter', 'other']
+        result = store.get_tech_priority_payloads('php', 'lfi', payloads)
+        self.assertEqual(result[0], 'php://filter')
+
+    def test_no_history_preserves_order(self):
+        store = _make_store()
+        payloads = ['a', 'b', 'c']
+        result = store.get_tech_priority_payloads('unknown', 'sqli', payloads)
+        self.assertEqual(result, payloads)
+
+
+# ---------------------------------------------------------------------------
+# Signal accuracy tracking tests
+# ---------------------------------------------------------------------------
+
+
+class TestSignalAccuracy(unittest.TestCase):
+
+    def test_record_true_positive(self):
+        store = _make_store()
+        store.record_signal_outcome('timing', True)
+        self.assertEqual(store.signal_accuracy['timing']['true_positive'], 1)
+
+    def test_record_false_positive(self):
+        store = _make_store()
+        store.record_signal_outcome('error', False)
+        self.assertEqual(store.signal_accuracy['error']['false_positive'], 1)
+
+    def test_unknown_signal_ignored(self):
+        store = _make_store()
+        store.record_signal_outcome('unknown_signal', True)
+        self.assertNotIn('unknown_signal', store.signal_accuracy)
+
+    def test_learned_weights_adjust_with_data(self):
+        store = _make_store()
+        # Give timing high accuracy
+        for _ in range(10):
+            store.record_signal_outcome('timing', True)
+        # Give diff low accuracy
+        for _ in range(10):
+            store.record_signal_outcome('diff', False)
+        for _ in range(2):
+            store.record_signal_outcome('diff', True)
+        weights = store.get_signal_weights()
+        # Timing should be boosted, diff should be dampened
+        self.assertGreater(weights['timing'], weights['diff'])
+
+
+# ---------------------------------------------------------------------------
+# Learning summary tests
+# ---------------------------------------------------------------------------
+
+
+class TestLearningSummary(unittest.TestCase):
+
+    def test_initial_summary(self):
+        store = _make_store()
+        summary = store.get_learning_summary()
+        self.assertEqual(summary['successful_patterns'], 0)
+        self.assertEqual(summary['failed_patterns'], 0)
+        self.assertEqual(summary['domain_profiles'], 0)
+
+    def test_summary_reflects_records(self):
+        store = _make_store()
+        store.record_success('sqli', 'payload1')
+        store.record_failure('xss', 'payload2')
+        store.record_domain_profile('example.com', set(), [])
+        summary = store.get_learning_summary()
+        self.assertEqual(summary['successful_patterns'], 1)
+        self.assertEqual(summary['failed_patterns'], 1)
+        self.assertEqual(summary['domain_profiles'], 1)
+
+
 if __name__ == '__main__':
     unittest.main()

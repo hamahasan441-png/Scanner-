@@ -5,11 +5,13 @@ ATOMIC FRAMEWORK v8.0 - ULTIMATE EDITION
 Adaptive Controller
 
 Monitors scan behaviour in real time and adjusts parameters:
-  - WAF detected → slow down, mutate payloads
+  - WAF detected → slow down, mutate payloads, apply WAF-specific profile
   - High noise → tighten thresholds
   - Strong signals → increase depth
   - New endpoints → return to discovery
   - Payload threshold adjustment (learn from noise)
+  - Rate limiting detection and auto-throttle
+  - Response pattern anomaly tracking
 """
 
 import time
@@ -33,6 +35,11 @@ NOISE_THRESHOLD = 0.5
 
 # Adjustment added to thresholds when noise is high
 NOISE_THRESHOLD_ADJUSTMENT = 0.1
+
+# Rate limit detection thresholds
+RATE_LIMIT_STATUS_CODES = {429}
+RATE_LIMIT_WINDOW = 30  # seconds
+RATE_LIMIT_THRESHOLD = 3  # hits within window to confirm rate limiting
 
 
 class AdaptiveController:
@@ -59,6 +66,14 @@ class AdaptiveController:
         # Payload strategy tracking
         self._blocked_payloads = set()
         self._successful_payloads = set()
+
+        # Rate limiting tracking
+        self._rate_limit_hits = []
+        self.rate_limited = False
+
+        # Response pattern tracking for anomaly detection
+        self._response_times = []
+        self._response_lengths = []
 
     # ------------------------------------------------------------------
     # WAF detection
@@ -180,4 +195,100 @@ class AdaptiveController:
             'depth_boost': self.get_depth_boost(),
             'blocked_payloads': len(self._blocked_payloads),
             'successful_payloads': len(self._successful_payloads),
+            'rate_limited': self.rate_limited,
+            'response_stability': self.get_response_stability(),
         }
+
+    # ------------------------------------------------------------------
+    # Rate limiting detection
+    # ------------------------------------------------------------------
+
+    def check_rate_limit(self, response):
+        """Detect rate limiting from response status codes and headers."""
+        if response is None:
+            return False
+
+        if response.status_code in RATE_LIMIT_STATUS_CODES:
+            now = time.time()
+            self._rate_limit_hits.append(now)
+            # Clean old hits outside the window
+            self._rate_limit_hits = [
+                t for t in self._rate_limit_hits
+                if now - t <= RATE_LIMIT_WINDOW
+            ]
+            if len(self._rate_limit_hits) >= RATE_LIMIT_THRESHOLD:
+                if not self.rate_limited:
+                    self.rate_limited = True
+                    self._adapt_for_rate_limit()
+                return True
+
+        # Check Retry-After header
+        retry_after = response.headers.get('Retry-After', '')
+        if retry_after:
+            if not self.rate_limited:
+                self.rate_limited = True
+                self._adapt_for_rate_limit()
+            return True
+
+        return False
+
+    def _adapt_for_rate_limit(self):
+        """Adjust parameters when rate limiting is detected."""
+        self.extra_delay = max(self.extra_delay, 3.0)
+        if self.verbose:
+            print(f"{Colors.warning('Rate limiting detected → increasing delay to 3.0s')}")
+
+    # ------------------------------------------------------------------
+    # Response pattern tracking
+    # ------------------------------------------------------------------
+
+    def record_response_pattern(self, response_time, response_length):
+        """Track response time and length for stability analysis."""
+        self._response_times.append(response_time)
+        self._response_lengths.append(response_length)
+        # Keep only recent samples
+        if len(self._response_times) > 100:
+            self._response_times = self._response_times[-100:]
+            self._response_lengths = self._response_lengths[-100:]
+
+    def get_response_stability(self):
+        """Calculate response stability score (0.0=unstable, 1.0=stable).
+
+        Uses coefficient of variation of response times and lengths.
+        """
+        if len(self._response_times) < 5:
+            return 1.0  # Assume stable until enough data
+
+        # Coefficient of variation for timing
+        mean_time = sum(self._response_times) / len(self._response_times)
+        if mean_time > 0:
+            variance_time = sum((t - mean_time) ** 2 for t in self._response_times) / len(self._response_times)
+            cv_time = (variance_time ** 0.5) / mean_time
+        else:
+            cv_time = 0.0
+
+        # Coefficient of variation for length
+        mean_len = sum(self._response_lengths) / len(self._response_lengths)
+        if mean_len > 0:
+            variance_len = sum((l - mean_len) ** 2 for l in self._response_lengths) / len(self._response_lengths)
+            cv_len = (variance_len ** 0.5) / mean_len
+        else:
+            cv_len = 0.0
+
+        # Combined stability: lower CV = more stable
+        combined_cv = (cv_time * 0.6 + cv_len * 0.4)
+        stability = max(0.0, min(1.0, 1.0 - combined_cv))
+        return round(stability, 3)
+
+    def get_recommended_concurrency(self):
+        """Recommend concurrency level based on observed behavior."""
+        if self.rate_limited:
+            return 1
+        if self.waf_detected:
+            return 1
+        stability = self.get_response_stability()
+        if stability >= 0.8:
+            return 3
+        elif stability >= 0.5:
+            return 2
+        return 1
