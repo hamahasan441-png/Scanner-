@@ -83,6 +83,9 @@ class ReportGenerator:
             'json': self._generate_json,
             'csv': self._generate_csv,
             'txt': self._generate_txt,
+            'pdf': self._generate_pdf,
+            'xml': self._generate_xml,
+            'sarif': self._generate_sarif,
         }
 
         generator = generators.get(fmt)
@@ -95,7 +98,7 @@ class ReportGenerator:
 
     def generate_all(self):
         """Generate reports in all formats"""
-        for fmt in ['html', 'json', 'csv', 'txt']:
+        for fmt in ['html', 'json', 'csv', 'txt', 'pdf', 'xml', 'sarif']:
             self.generate(fmt)
 
     def _get_findings_data(self):
@@ -348,6 +351,223 @@ class ReportGenerator:
         try:
             with open(filepath, 'w') as f:
                 f.write('\n'.join(lines))
+        except (IOError, OSError) as e:
+            print(f"{Colors.error(f'Cannot write report to {filepath}: {e}')}")
+            return None
+
+        return filepath
+
+    def _generate_pdf(self):
+        """Generate PDF report using fpdf2."""
+        try:
+            from fpdf import FPDF
+        except ImportError:
+            print(f"{Colors.error('fpdf2 not installed — cannot generate PDF report')}")
+            return None
+
+        filepath = os.path.join(self.output_dir, f'report_{self.scan_id}.pdf')
+        findings_data = self._get_findings_data()
+
+        duration = ''
+        if self.start_time and self.end_time:
+            duration = f"{(self.end_time - self.start_time).total_seconds():.1f}s"
+
+        pdf = FPDF()
+        pdf.set_auto_page_break(auto=True, margin=15)
+        pdf.add_page()
+
+        NL = dict(new_x='LMARGIN', new_y='NEXT')
+
+        # Title
+        pdf.set_font('Helvetica', 'B', 16)
+        pdf.cell(0, 10, f'ATOMIC Framework v{Config.VERSION} - Scan Report', **NL)
+        pdf.ln(5)
+
+        # Summary
+        pdf.set_font('Helvetica', '', 11)
+        pdf.cell(0, 7, f'Scan ID: {self.scan_id}', **NL)
+        pdf.cell(0, 7, f'Target: {self.target}', **NL)
+        pdf.cell(0, 7, f'Start: {self.start_time}', **NL)
+        pdf.cell(0, 7, f'End: {self.end_time}', **NL)
+        pdf.cell(0, 7, f'Duration: {duration}', **NL)
+        pdf.cell(0, 7, f'Findings: {len(findings_data)}', **NL)
+        pdf.ln(5)
+
+        # Findings
+        pdf.set_font('Helvetica', 'B', 13)
+        pdf.cell(0, 10, 'Findings', **NL)
+        pdf.set_font('Helvetica', '', 10)
+
+        for i, f in enumerate(findings_data, 1):
+            pdf.set_font('Helvetica', 'B', 10)
+            pdf.cell(0, 7, f"[{i}] {f.get('severity', 'INFO')} - {f.get('technique', '')}", **NL)
+            pdf.set_font('Helvetica', '', 9)
+            pdf.cell(0, 6, f"  URL: {f.get('url', '')[:120]}", **NL)
+            if f.get('param'):
+                pdf.cell(0, 6, f"  Param: {f.get('param', '')}", **NL)
+            if f.get('payload'):
+                pdf.cell(0, 6, f"  Payload: {f.get('payload', '')[:100]}", **NL)
+            if f.get('evidence'):
+                pdf.cell(0, 6, f"  Evidence: {f.get('evidence', '')[:100]}", **NL)
+            if f.get('remediation'):
+                pdf.cell(0, 6, f"  Fix: {f.get('remediation', '')[:120]}", **NL)
+            pdf.ln(2)
+
+        try:
+            pdf.output(filepath)
+        except (IOError, OSError) as e:
+            print(f"{Colors.error(f'Cannot write report to {filepath}: {e}')}")
+            return None
+
+        return filepath
+
+    def _generate_xml(self):
+        """Generate XML report."""
+        filepath = os.path.join(self.output_dir, f'report_{self.scan_id}.xml')
+        findings_data = self._get_findings_data()
+
+        duration = ''
+        if self.start_time and self.end_time:
+            duration = f"{(self.end_time - self.start_time).total_seconds():.1f}s"
+
+        from xml.sax.saxutils import escape as xml_escape
+
+        lines = [
+            '<?xml version="1.0" encoding="UTF-8"?>',
+            '<atomic-report>',
+            '  <scan>',
+            f'    <scan-id>{xml_escape(str(self.scan_id))}</scan-id>',
+            f'    <target>{xml_escape(str(self.target))}</target>',
+            f'    <start-time>{xml_escape(str(self.start_time))}</start-time>',
+            f'    <end-time>{xml_escape(str(self.end_time))}</end-time>',
+            f'    <duration>{xml_escape(duration)}</duration>',
+            f'    <total-requests>{self.total_requests}</total-requests>',
+            f'    <total-findings>{len(findings_data)}</total-findings>',
+            '  </scan>',
+            '  <findings>',
+        ]
+
+        for f in findings_data:
+            lines.append('    <finding>')
+            lines.append(f'      <severity>{xml_escape(str(f.get("severity", "INFO")))}</severity>')
+            lines.append(f'      <technique>{xml_escape(str(f.get("technique", "")))}</technique>')
+            lines.append(f'      <url>{xml_escape(str(f.get("url", "")))}</url>')
+            lines.append(f'      <param>{xml_escape(str(f.get("param", "")))}</param>')
+            lines.append(f'      <payload>{xml_escape(str(f.get("payload", "")))}</payload>')
+            lines.append(f'      <evidence>{xml_escape(str(f.get("evidence", "")))}</evidence>')
+            lines.append(f'      <confidence>{f.get("confidence", 0)}</confidence>')
+            lines.append(f'      <mitre-id>{xml_escape(str(f.get("mitre_id", "")))}</mitre-id>')
+            lines.append(f'      <cwe-id>{xml_escape(str(f.get("cwe_id", "")))}</cwe-id>')
+            lines.append(f'      <cvss>{f.get("cvss", 0)}</cvss>')
+            if f.get('remediation'):
+                lines.append(f'      <remediation>{xml_escape(str(f.get("remediation", "")))}</remediation>')
+            lines.append('    </finding>')
+
+        lines.append('  </findings>')
+        lines.append('</atomic-report>')
+
+        try:
+            with open(filepath, 'w', encoding='utf-8') as fh:
+                fh.write('\n'.join(lines))
+        except (IOError, OSError) as e:
+            print(f"{Colors.error(f'Cannot write report to {filepath}: {e}')}")
+            return None
+
+        return filepath
+
+    def _generate_sarif(self):
+        """Generate SARIF v2.1.0 report for GitHub Code Scanning integration."""
+        filepath = os.path.join(self.output_dir, f'report_{self.scan_id}.sarif')
+        findings_data = self._get_findings_data()
+
+        severity_to_sarif = {
+            'CRITICAL': 'error',
+            'HIGH': 'error',
+            'MEDIUM': 'warning',
+            'LOW': 'note',
+            'INFO': 'note',
+        }
+
+        rules = []
+        results = []
+        rule_ids_seen = set()
+
+        for f in findings_data:
+            technique = f.get('technique', 'Unknown')
+            rule_id = re.sub(r'[^a-zA-Z0-9_-]', '_', technique)
+
+            if rule_id not in rule_ids_seen:
+                rule_ids_seen.add(rule_id)
+                rule_entry = {
+                    'id': rule_id,
+                    'name': technique,
+                    'shortDescription': {'text': technique},
+                    'fullDescription': {'text': f.get('remediation', technique)},
+                    'defaultConfiguration': {
+                        'level': severity_to_sarif.get(f.get('severity', 'INFO'), 'note'),
+                    },
+                }
+                if f.get('cwe_id'):
+                    cwe_num = str(f['cwe_id']).replace('CWE-', '')
+                    rule_entry['properties'] = {
+                        'tags': ['security'],
+                        'security-severity': str(f.get('cvss', 0.0)),
+                    }
+                    rule_entry['relationships'] = [{
+                        'target': {
+                            'id': f['cwe_id'],
+                            'guid': f'{cwe_num}',
+                            'toolComponent': {'name': 'CWE', 'guid': 'cwe'},
+                        },
+                        'kinds': ['superset'],
+                    }]
+                rules.append(rule_entry)
+
+            result_entry = {
+                'ruleId': rule_id,
+                'level': severity_to_sarif.get(f.get('severity', 'INFO'), 'note'),
+                'message': {
+                    'text': (
+                        f"{technique} found on {f.get('url', '')} "
+                        f"(param: {f.get('param', 'N/A')}, "
+                        f"confidence: {f.get('confidence', 0):.0%})"
+                    ),
+                },
+                'locations': [{
+                    'physicalLocation': {
+                        'artifactLocation': {
+                            'uri': f.get('url', ''),
+                            'uriBaseId': 'TARGETROOT',
+                        },
+                    },
+                }],
+            }
+            if f.get('payload'):
+                result_entry['fingerprints'] = {
+                    'payload/v1': f['payload'][:200],
+                }
+            results.append(result_entry)
+
+        sarif = {
+            '$schema': 'https://raw.githubusercontent.com/oasis-tcs/sarif-spec/main/sarif-2.1/schema/sarif-schema-2.1.0.json',
+            'version': '2.1.0',
+            'runs': [{
+                'tool': {
+                    'driver': {
+                        'name': 'ATOMIC Framework',
+                        'version': Config.VERSION,
+                        'informationUri': 'https://github.com/hamahasan441-png/Scanner-',
+                        'rules': rules,
+                    },
+                },
+                'results': results,
+                'columnKind': 'utf16CodeUnits',
+            }],
+        }
+
+        try:
+            with open(filepath, 'w', encoding='utf-8') as fh:
+                json.dump(sarif, fh, indent=2, default=str)
         except (IOError, OSError) as e:
             print(f"{Colors.error(f'Cannot write report to {filepath}: {e}')}")
             return None

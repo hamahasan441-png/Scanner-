@@ -112,6 +112,10 @@ def main():
                        help='Enable CRLF injection detection')
     parser.add_argument('--hpp', action='store_true',
                        help='Enable HTTP parameter pollution detection')
+    parser.add_argument('--graphql', action='store_true',
+                       help='Enable GraphQL injection detection')
+    parser.add_argument('--proto-pollution', action='store_true',
+                       help='Enable prototype pollution detection')
     
     # Exploitation options
     parser.add_argument('--shell', action='store_true',
@@ -165,7 +169,7 @@ def main():
     parser.add_argument('--report', 
                        help='Generate report for scan ID')
     parser.add_argument('--format', 
-                       choices=['json', 'csv', 'html', 'pdf', 'xml', 'all'],
+                       choices=['json', 'csv', 'html', 'txt', 'pdf', 'xml', 'sarif', 'all'],
                        default='html',
                        help='Report format (default: html)')
     parser.add_argument('--list-scans', action='store_true',
@@ -478,6 +482,8 @@ def main():
         'open_redirect': args.open_redirect or args.full,
         'crlf': args.crlf or args.full,
         'hpp': args.hpp or args.full,
+        'graphql': args.graphql or args.full,
+        'proto_pollution': args.proto_pollution or args.full,
         'shell': args.shell,
         'dump': args.dump,
         'os_shell': args.os_shell,

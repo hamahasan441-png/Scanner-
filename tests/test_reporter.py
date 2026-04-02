@@ -366,7 +366,7 @@ class TestGenerateAll(unittest.TestCase):
         )
         rg.generate_all()
 
-        for ext in ('html', 'json', 'csv', 'txt'):
+        for ext in ('html', 'json', 'csv', 'txt', 'pdf', 'xml', 'sarif'):
             path = os.path.join(self.output_dir, f'report_all-1.{ext}')
             self.assertTrue(os.path.isfile(path), f'Missing {ext} report')
 

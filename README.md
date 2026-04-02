@@ -1,8 +1,8 @@
-# ATOMIC FRAMEWORK v8.0 - ULTIMATE EDITION
+# ATOMIC FRAMEWORK v8.0 — ULTIMATE EDITION
 
 ⚠️ **FOR AUTHORIZED TESTING ONLY** ⚠️
 
-A powerful, modular web security testing framework optimized for Termux (Android) and Linux systems. Features a Flask web dashboard, advanced evasion engine, and comprehensive vulnerability scanning.
+A powerful, modular web security testing framework optimized for Termux (Android) and Linux systems. Features an AI-powered vulnerability prediction engine, Burp Suite-style tools, exploit chaining, a Flask web dashboard, advanced evasion engine, and comprehensive vulnerability scanning across 27+ attack modules.
 
 ## Quick Install
 
@@ -22,57 +22,103 @@ python main.py -t https://target.com
 # Full scan with all modules
 python main.py -t https://target.com --full
 
-# Maximum evasion mode
+# AI-driven post-exploitation
+python main.py -t https://target.com --full --auto-exploit
+
+# Maximum evasion mode with WAF bypass
 python main.py -t https://target.com --full --evasion insane --waf-bypass
 ```
 
 ## Features
 
 ### 🚀 Flask Web Dashboard
-- **Real-time scanning** with live status updates
+- **Real-time scanning** with live WebSocket status updates
 - **Dark-themed UI** with severity-coded findings
-- **Scan management** — start, monitor, delete scans from browser
-- **Report downloads** — HTML, JSON, CSV, TXT
+- **Scan management** — start, monitor, cancel, delete scans from browser
+- **Report downloads** — HTML, JSON, CSV, TXT, PDF, XML, SARIF
 - **Dashboard statistics** — severity breakdown, scan history
+- **API endpoints** with optional API key authentication and rate limiting
+- **File/batch scan** — Single target or multi-target file upload
 - Launch: `python main.py --web`
 
-### ⚔️ Attack Modules (12)
+### ⚔️ Attack Modules (27+)
 - **SQL Injection** — Error-based, Union-based, Time-based, Boolean-based, Stacked queries
-- **NoSQL Injection** — MongoDB, CouchDB injection tests
-- **Command Injection** — RCE detection and exploitation
-- **XSS** — Reflected, Stored, DOM-based, Polyglot payloads
-- **LFI/RFI** — Local/Remote File Inclusion
-- **SSRF** — Server-Side Request Forgery with cloud metadata extraction
-- **SSTI** — Server-Side Template Injection (9 template engines)
-- **XXE** — XML External Entity
-- **IDOR** — Insecure Direct Object Reference
-- **CORS** — CORS Misconfiguration
-- **JWT** — JWT Security Weaknesses
-- **File Upload** — Upload bypass tests (20+ extension variants)
+- **NoSQL Injection** — MongoDB operator injection, CouchDB, JavaScript evaluation
+- **Command Injection** — RCE detection and exploitation, reverse shell generation
+- **XSS** — Reflected, Stored, DOM-based, Polyglot payloads (20+ variants)
+- **LFI/RFI** — Local/Remote File Inclusion with wrapper protocols (php://, file://, data://)
+- **SSRF** — Server-Side Request Forgery with cloud metadata extraction (AWS, GCP, Azure, DigitalOcean)
+- **SSTI** — Server-Side Template Injection (9 engines: Jinja2, Mako, Django, Twig, Velocity, Thymeleaf, FreeMarker, EL, Groovy)
+- **XXE** — XML External Entity injection, file disclosure, SSRF via XXE
+- **IDOR** — Insecure Direct Object Reference with authorization bypass
+- **CORS** — CORS Misconfiguration detection
+- **JWT** — Algorithm confusion, signature bypass, claim manipulation
+- **File Upload** — Upload bypass tests (20+ extension variants, magic bytes, polyglots)
+- **CRLF Injection** — Header injection detection
+- **HTTP Parameter Pollution** — HPP across multiple frameworks
+- **Open Redirect** — URL redirect detection
+- **GraphQL Injection** — Schema introspection, query injection, mutation abuse
+- **Prototype Pollution** — `__proto__` and constructor.prototype pollution
+- **Port Scanner** — TCP port scanning with service detection
+- **Network Exploit Mapping** — CVE mapping for open ports/services
+- **Technology Exploit Mapping** — CVE mapping for detected technologies
+- **WAF Detection & Bypass** — 13+ WAF signatures (Cloudflare, AWS WAF, ModSecurity, Sucuri, Akamai, Imperva, etc.)
+- **Brute Force** — Credential brute forcing
+- **Data Dumper** — Database extraction and file dumping
+- **Shell Uploader** — Automatic web shell deployment
+- **Discovery** — robots.txt, sitemap, API endpoint discovery
+- **Reconnaissance** — Subdomain enumeration, technology detection, DNS lookup
+
+### 🧠 AI-Powered Vulnerability Engine
+- **ML-based vulnerability prediction** — Feature extraction from URLs, parameters, and responses
+- **Smart payload selection** — Highest-scoring payloads tested first
+- **Anomaly detection** — Baseline response analysis with statistical methods
+- **Adaptive testing strategy** — Per-URL strategy generation based on context
+- **Confidence calibration** — Calibrated probability adjustments
+- **Vulnerability correlation** — Identifies related vulnerability patterns
+- **Exploit difficulty estimation** — Rates exploitation complexity
+- **Tech-aware payloads** — Payload hints based on detected technology stack
+- **WAF evasion profiles** — Adaptive evasion based on detected WAF
+
+### 🔗 Exploit Chaining & Post-Exploitation
+- **Multi-step exploit chains** — SSRF → SQLi → Dump, File Upload → RCE → Post-Exploit, LFI → Source Disclosure
+- **AI-driven post-exploitation** — Automatic exploitation prioritization via `--auto-exploit`
+- **Shell management** — Track uploaded shells, active enumeration, command logging
+- **OS shell interaction** — Interactive command execution via discovered vulnerabilities
+- **Persistence tracking** — Track exploitation state across scan sessions
 
 ### 🛡️ Advanced Evasion Engine
 - **6 evasion levels**: none, low, medium, high, insane, stealth
 - **Polymorphic payload mutation** — encoding chains, case alternation, comment injection, whitespace randomization, null bytes, CHAR() splitting, string concatenation, JS obfuscation, HTML entities, mixed encoding
 - **HTTP fingerprint spoofing** — 9 browser profiles with matching Sec-CH-UA headers, randomized Accept/Language/Encoding
 - **Anti-detection timing** — Gaussian-distributed delays, burst/pause patterns, exponential backoff on rate limiting
-- **WAF bypass** — 13+ WAF detection signatures, chunked transfer encoding, HTTP method override, header spoofing
+- **WAF bypass** — chunked transfer encoding, HTTP method override, header spoofing
 
-### 🔧 Advanced Features
-- **Shell Upload** — Automatic web shell deployment
-- **Data Dumper** — Database extraction and file dumping
-- **WAF Detection & Bypass** — Cloudflare, AWS WAF, ModSecurity, Sucuri, Akamai, and more
-- **Reconnaissance** — Subdomain enumeration, technology detection, DNS lookup
-- **Advanced Crawler** — Hidden parameter discovery, JS variable extraction, API endpoint detection
-- **Report Generation** — HTML, JSON, CSV, TXT
-- **Scan Persistence** — SQLite database for scan history and findings
-- **MITRE ATT&CK Mapping** — All findings mapped to MITRE techniques and CWE IDs
+### 🔧 Burp Suite-Style Tools
+- **Intercepting Proxy** — Man-in-the-middle proxy with request/response modification (`--proxy-server`)
+- **Repeater** — Replay and modify raw HTTP requests (`--repeater`)
+- **Intruder** — Automated payload injection with 4 attack types: sniper, battering ram, pitchfork, cluster bomb (`--intruder`)
+- **Decoder** — Smart multi-format encoding/decoding: Base64, URL, HTML, Hex, and more (`--decode` / `--encode`)
+- **Sequencer** — Token randomness and entropy analysis (`--sequencer`)
+- **Comparer** — HTTP response diffing and similarity analysis (`--compare`)
 
-### 🕵️ Additional Payload Categories
-- CRLF Injection
-- HTTP Parameter Pollution
-- Prototype Pollution
-- GraphQL Injection
-- Cloud Metadata Extraction (AWS, GCP, Azure, DigitalOcean)
+### 📊 Reporting & Intelligence
+- **Multi-format reports** — HTML, JSON, CSV, TXT, PDF, XML, SARIF
+- **MITRE ATT&CK mapping** — All findings mapped to MITRE techniques
+- **CWE identification** — Common Weakness Enumeration IDs
+- **CVSS scoring** — Automated severity calculation
+- **Remediation suggestions** — Actionable fix recommendations per finding
+- **Scan persistence** — SQLite database for scan history and findings
+- **SARIF output** — GitHub Code Scanning integration
+
+### 🔍 Smart Scanning Pipeline
+- **Adaptive testing** — Baseline establishment, parameter classification, context-aware testing
+- **Endpoint prioritization** — Risk-based ordering of test targets
+- **Signal scoring** — Multi-signal analysis (error, timing, status, reflection, diff)
+- **Finding verification** — Automatic false positive elimination
+- **Response normalization** — Removes dynamic content for accurate comparison
+- **Scope enforcement** — Policy-based URL/domain filtering
+- **Learning store** — Historical payload win/loss tracking
 
 ## Installation
 
@@ -121,6 +167,8 @@ python main.py -t https://target.com --full                   # All modules
 python main.py -t https://target.com -d 5 -T 100             # Deep scan
 python main.py -t https://target.com --sqli --xss --lfi      # Specific modules
 python main.py -t https://target.com --shell --dump           # Exploitation
+python main.py -t https://target.com --auto-exploit           # AI post-exploitation
+python main.py -t https://target.com --exploit-chain          # Multi-step chains
 python main.py -t https://target.com --evasion insane         # Max evasion
 python main.py -t https://target.com --full --waf-bypass      # WAF bypass
 python main.py -t https://target.com --full --tor             # Through Tor
@@ -128,11 +176,45 @@ python main.py -t https://target.com --evasion stealth -T 10  # Stealth mode
 python main.py -f targets.txt --full                          # Batch scan
 ```
 
-### Reports & History
+### Reconnaissance & Discovery
 ```bash
-python main.py --list-scans                    # List previous scans
-python main.py --report <scan_id> --format html  # Generate report
-python main.py --shell-manager                 # Manage active shells
+python main.py -t https://target.com --recon                  # Full reconnaissance
+python main.py -t https://target.com --subdomains             # Subdomain enumeration
+python main.py -t https://target.com --ports 80,443,8080      # Port scan
+python main.py -t https://target.com --tech-detect            # Technology detection
+python main.py -t https://target.com --dir-brute              # Directory brute force
+python main.py -t https://target.com --discovery              # robots.txt, sitemap, API
+python main.py -t https://target.com --net-exploit            # CVE mapping for ports
+python main.py -t https://target.com --tech-exploit           # CVE mapping for tech
+```
+
+### Burp Suite-Style Tools
+```bash
+python main.py --proxy-server                                 # Start intercepting proxy
+python main.py --proxy-server --proxy-intercept               # Proxy with intercept
+python main.py --repeater < request.txt                       # Replay raw HTTP request
+python main.py -t https://target.com?id=1 --intruder          # Intruder attack
+python main.py --decode "dGVzdA=="                            # Smart decode data
+python main.py --encode "test" --encode-type base64           # Encode data
+python main.py --sequencer < tokens.txt                       # Token randomness analysis
+python main.py --compare resp1.txt resp2.txt                  # Compare responses
+```
+
+### Reports & Shell Management
+```bash
+python main.py --list-scans                                   # List previous scans
+python main.py --report <scan_id> --format html               # Generate report
+python main.py --report <scan_id> --format sarif              # SARIF for GitHub
+python main.py --report <scan_id> --format all                # All formats
+python main.py --shell-manager                                # Manage active shells
+python main.py --shell-id <id> --shell-cmd "whoami"           # Execute shell command
+```
+
+### Utilities
+```bash
+python main.py --check-deps                                   # Verify dependencies
+python main.py --install-deps                                 # Install all dependencies
+python main.py --clear-db                                     # Clear scan database
 ```
 
 ## Command Line Options
@@ -142,68 +224,206 @@ python main.py --shell-manager                 # Manage active shells
 | **Target** | `-t, --target` | Target URL |
 | | `-f, --file` | File with list of targets |
 | | `--urls` | Comma-separated URLs |
-| **Scan** | `-d, --depth` | Crawl depth (default: 3) |
+| **Scan** | `-d, --depth` | Crawl depth (1-10, default: 3) |
 | | `-T, --threads` | Number of threads (default: 50) |
-| | `--timeout` | Request timeout (default: 15) |
+| | `--timeout` | Request timeout in seconds (default: 15) |
 | | `--delay` | Delay between requests (default: 0.1) |
 | **Modules** | `--full` | Enable all modules |
-| | `--sqli, --xss, --lfi, --cmdi` | Individual modules |
-| | `--ssrf, --ssti, --xxe, --idor` | Individual modules |
-| | `--nosql, --cors, --jwt, --upload` | Individual modules |
+| | `--sqli` | SQL Injection |
+| | `--xss` | Cross-Site Scripting |
+| | `--lfi` | Local/Remote File Inclusion |
+| | `--cmdi` | Command Injection |
+| | `--ssrf` | Server-Side Request Forgery |
+| | `--ssti` | Server-Side Template Injection |
+| | `--xxe` | XML External Entity |
+| | `--idor` | Insecure Direct Object Reference |
+| | `--nosql` | NoSQL Injection |
+| | `--cors` | CORS Misconfiguration |
+| | `--jwt` | JWT Security |
+| | `--upload` | File Upload Bypass |
+| | `--open-redirect` | Open Redirect |
+| | `--crlf` | CRLF Injection |
+| | `--hpp` | HTTP Parameter Pollution |
+| | `--graphql` | GraphQL Injection |
+| | `--proto-pollution` | Prototype Pollution |
 | **Exploit** | `--shell` | Attempt shell upload |
 | | `--dump` | Attempt data dump |
 | | `--os-shell` | Get OS shell |
+| | `--brute` | Brute force attacks |
+| | `--exploit-chain` | Multi-step exploit chaining |
+| | `--auto-exploit` | AI-driven post-exploitation |
 | **Evasion** | `-e, --evasion` | Level: none/low/medium/high/insane/stealth |
 | | `--waf-bypass` | Enable WAF bypass |
 | | `--tor` | Route through Tor |
 | | `--proxy` | Use HTTP proxy |
+| | `--rotate-proxy` | Rotate proxy addresses |
 | | `--rotate-ua` | Rotate User-Agent |
+| **Recon** | `--recon` | Full reconnaissance |
+| | `--subdomains` | Subdomain enumeration |
+| | `--ports` | Port scan (comma-separated) |
+| | `--tech-detect` | Technology detection |
+| | `--dir-brute` | Directory brute force |
+| | `--discovery` | robots.txt, sitemap, API discovery |
+| | `--net-exploit` | Map open ports to known CVEs |
+| | `--tech-exploit` | Map technologies to known CVEs |
 | **Web** | `--web` | Launch Flask dashboard |
 | | `--web-host` | Dashboard host (default: 0.0.0.0) |
 | | `--web-port` | Dashboard port (default: 5000) |
 | **Reports** | `--report` | Generate report for scan ID |
-| | `--format` | Report format (json/csv/html/txt/all) |
-| | `--list-scans` | List all scans |
+| | `--format` | Format: json/csv/html/txt/pdf/xml/sarif/all |
+| | `--list-scans` | List all previous scans |
+| | `-o, --output` | Output directory |
+| **Burp Tools** | `--proxy-server` | Start intercepting proxy |
+| | `--proxy-port` | Proxy listen port (default: 8080) |
+| | `--proxy-intercept` | Enable intercept mode |
+| | `--repeater` | Replay raw HTTP request from stdin |
+| | `--intruder` | Intruder attack on target |
+| | `--intruder-type` | Attack type: sniper/battering_ram/pitchfork/cluster_bomb |
+| | `--intruder-payloads` | Payload file for intruder |
+| | `--decode` | Smart decode data |
+| | `--encode` | Encode data |
+| | `--encode-type` | Encoding: url/base64/hex/html/unicode/all |
+| | `--sequencer` | Token randomness analysis |
+| | `--compare` | Compare two response files |
+| **Shells** | `--shell-manager` | Interactive shell manager |
+| | `--shell-id` | Target specific shell |
+| | `--shell-cmd` | Execute command on shell |
+| **Utility** | `--check-deps` | Verify dependencies |
+| | `--install-deps` | Install all dependencies |
+| | `--clear-db` | Clear scan database |
+| | `-v, --verbose` | Verbose output |
+| | `-q, --quiet` | Quiet mode |
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        ATOMIC FRAMEWORK                         │
+│                         main.py (CLI)                           │
+├─────────────┬──────────────┬────────────────┬───────────────────┤
+│  Web UI     │  Burp Tools  │  Core Engine   │  AI Engine        │
+│  (Flask)    │  Proxy       │  (Orchestrator)│  (ML Prediction)  │
+│  Dashboard  │  Repeater    │  Crawler       │  Adaptive Testing │
+│  REST API   │  Intruder    │  Requester     │  Learning Store   │
+│  WebSocket  │  Decoder     │  Baseline      │  Confidence Cal.  │
+│             │  Sequencer   │  Verifier      │  Exploit Strategy │
+│             │  Comparer    │  Scorer        │                   │
+├─────────────┴──────────────┴────────┬───────┴───────────────────┤
+│              §1 Setup               │      §2 Discovery         │
+│  • Scope enforcement                │  • Crawling & params      │
+│  • WAF detection                    │  • Reconnaissance         │
+│  • Baseline establishment           │  • Port scanning          │
+│  • Context intelligence             │  • Tech/CVE mapping       │
+│  • Endpoint prioritization          │  • Directory brute force  │
+├─────────────────────────────────────┼───────────────────────────┤
+│          §3 Vulnerability Scan      │    §4 Post-Exploitation   │
+│  • 27+ attack modules               │  • Shell upload           │
+│  • Adaptive payload selection       │  • Data dumping           │
+│  • Signal scoring & verification    │  • OS shell               │
+│  • False positive elimination       │  • Brute force            │
+│  • Finding registration             │  • Exploit chaining       │
+│                                     │  • AI auto-exploit        │
+├─────────────────────────────────────┴───────────────────────────┤
+│                        §5 Reporting                             │
+│  HTML │ JSON │ CSV │ TXT │ PDF │ XML │ SARIF                    │
+│  MITRE ATT&CK │ CWE │ CVSS │ Remediation                      │
+└─────────────────────────────────────────────────────────────────┘
+```
 
 ## Project Structure
 
 ```
 Scanner-/
-├── main.py                  # CLI entry point
-├── config.py                # Configuration, payloads, MITRE mapping
-├── requirements.txt         # Python dependencies
-├── setup.sh                 # Setup script
-├── core/
-│   ├── engine.py            # Scan orchestration engine
-│   ├── reporter.py          # Multi-format report generation
-│   └── banner.py            # ASCII banner
-├── modules/
-│   ├── sqli.py, xss.py, lfi.py, cmdi.py   # Attack modules
-│   ├── ssrf.py, ssti.py, xxe.py, idor.py  # Attack modules
-│   ├── nosqli.py, cors.py, jwt.py         # Attack modules
-│   ├── uploader.py, dumper.py              # Exploitation
-│   ├── waf.py                              # WAF detection & bypass
-│   ├── reconnaissance.py                   # Recon module
-│   └── shell/manager.py                    # Shell management
-├── utils/
-│   ├── requester.py         # Advanced HTTP client with evasion
-│   ├── crawler.py           # Web crawler with hidden param discovery
-│   ├── evasion.py           # Advanced evasion engine
-│   ├── database.py          # SQLAlchemy ORM
-│   └── helpers.py           # Utilities
-├── web/
-│   ├── app.py               # Flask web dashboard
-│   ├── templates/index.html # Dashboard UI
-│   └── static/style.css     # Dashboard styles
-├── reports/                 # Generated reports
-└── shells/                  # Shell files
+├── main.py                      # CLI entry point
+├── config.py                    # Configuration, payloads, MITRE ATT&CK mapping
+├── requirements.txt             # Python dependencies (pinned versions)
+├── pyproject.toml               # Package configuration
+├── setup.sh                     # Setup script
+│
+├── core/                        # Core engine components (21 modules)
+│   ├── engine.py                # Scan orchestration engine & Finding dataclass
+│   ├── ai_engine.py             # ML-based vulnerability prediction & adaptive strategies
+│   ├── reporter.py              # Multi-format report generation (HTML/JSON/CSV/TXT/PDF/XML/SARIF)
+│   ├── adaptive.py              # Adaptive testing controller
+│   ├── baseline.py              # Response baseline establishment & normalization
+│   ├── context.py               # Context intelligence gathering
+│   ├── prioritizer.py           # Risk-based endpoint prioritization
+│   ├── scorer.py                # Signal scoring system
+│   ├── verifier.py              # Finding verification & false positive elimination
+│   ├── normalizer.py            # Response normalization
+│   ├── learning.py              # Historical learning store for AI
+│   ├── scope.py                 # Scope policy enforcement
+│   ├── exploit_chain.py         # Multi-step exploitation chaining
+│   ├── post_exploit.py          # AI-driven post-exploitation
+│   ├── persistence.py           # Shell tracking & exploitation persistence
+│   ├── os_shell.py              # OS shell interaction
+│   ├── proxy.py                 # Intercepting proxy server (Burp-style)
+│   ├── repeater.py              # Request repeater (Burp-style)
+│   ├── intruder.py              # Intruder attack orchestration (Burp-style)
+│   └── banner.py                # ASCII banner display
+│
+├── modules/                     # Attack & scan modules (27+)
+│   ├── base.py                  # Abstract BaseModule interface
+│   ├── sqli.py                  # SQL Injection (5 techniques + data extraction)
+│   ├── xss.py                   # Cross-Site Scripting (reflected, stored, DOM, polyglot)
+│   ├── lfi.py                   # Local/Remote File Inclusion
+│   ├── cmdi.py                  # Command Injection / RCE
+│   ├── ssrf.py                  # Server-Side Request Forgery + cloud metadata
+│   ├── ssti.py                  # Server-Side Template Injection (9 engines)
+│   ├── xxe.py                   # XML External Entity
+│   ├── nosqli.py                # NoSQL Injection (MongoDB, CouchDB)
+│   ├── idor.py                  # Insecure Direct Object Reference
+│   ├── cors.py                  # CORS Misconfiguration
+│   ├── jwt.py                   # JWT Security Weaknesses
+│   ├── crlf.py                  # CRLF Injection
+│   ├── hpp.py                   # HTTP Parameter Pollution
+│   ├── open_redirect.py         # Open Redirect Detection
+│   ├── graphql.py               # GraphQL Injection (introspection, query, mutation)
+│   ├── proto_pollution.py       # Prototype Pollution (__proto__, constructor)
+│   ├── uploader.py              # File Upload Bypass (20+ variants)
+│   ├── dumper.py                # Data extraction / database dumping
+│   ├── waf.py                   # WAF detection & bypass (13+ WAFs)
+│   ├── brute_force.py           # Brute force attacks
+│   ├── reconnaissance.py        # Subdomain enumeration, tech detection
+│   ├── discovery.py             # robots.txt, sitemap, API discovery
+│   ├── port_scanner.py          # TCP port scanning
+│   ├── network_exploits.py      # CVE mapping for open ports/services
+│   ├── tech_exploits.py         # CVE mapping for detected technologies
+│   └── shell/manager.py         # Web shell management
+│
+├── utils/                       # Utility modules (9)
+│   ├── requester.py             # Advanced HTTP client with evasion & retries
+│   ├── crawler.py               # Web crawler with hidden param discovery
+│   ├── evasion.py               # Polymorphic evasion engine
+│   ├── database.py              # SQLAlchemy ORM (ScanModel, FindingModel)
+│   ├── decoder.py               # Smart encoding/decoding (Burp-style)
+│   ├── sequencer.py             # Token randomness analysis (Burp-style)
+│   ├── comparer.py              # Response diffing & similarity (Burp-style)
+│   └── helpers.py               # Utility functions
+│
+├── web/                         # Flask web dashboard
+│   ├── app.py                   # Flask application + REST API
+│   ├── templates/index.html     # Dark-themed dashboard UI
+│   └── static/style.css         # Dashboard styles
+│
+├── tests/                       # Test suite (57+ files, 1900+ tests)
+│   ├── conftest.py              # Pytest configuration
+│   └── test_*.py                # Unit & integration tests for all modules
+│
+└── .github/workflows/           # CI/CD pipelines
+    ├── ci.yml                   # Lint, validate, test (Python 3.9-3.12)
+    └── security.yml             # Bandit, CodeQL, pip-audit scans
 ```
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, testing, and contribution guidelines.
 
 ## Safety & Legal Notice
 
-This tool is intended for authorized security testing only. Always:
-- Obtain proper authorization before testing
-- Test only systems you own or have written permission to test
+This tool is intended for **authorized security testing only**. Always:
+- Obtain proper written authorization before testing
+- Test only systems you own or have explicit permission to test
 - Follow responsible disclosure practices
 - Comply with all applicable laws and regulations
 
@@ -215,5 +435,4 @@ This project is for educational purposes only.
 
 ## Credits
 
-ATOMIC Framework v8.0 - ULTIMATE EDITION
-Codename: PHOENIX
+ATOMIC Framework v8.0 — ULTIMATE EDITION | Codename: PHOENIX
