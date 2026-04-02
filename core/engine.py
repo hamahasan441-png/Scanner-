@@ -93,6 +93,18 @@ class AtomicEngine:
         self.start_time = None
         self.end_time = None
         self.target = None
+        self.post_exploit_results = []
+
+        # --- Pipeline tracking (3-partition architecture) ---
+        self.pipeline = {
+            'phase': 'init',           # init → recon → scan → exploit → collect → done
+            'events': [],              # chronological event log
+            'recon': {'status': 'pending', 'data': {}},
+            'scan': {'status': 'pending', 'data': {}},
+            'exploit': {'status': 'pending', 'data': {}},
+            'collect': {'status': 'pending', 'data': {}},
+        }
+        self.attack_router = None
 
         # Initialize evasion engine
         try:
@@ -176,6 +188,44 @@ class AtomicEngine:
                 except Exception as e:
                     print(f"{Colors.warning(f'Module {key} failed to load: {e}')}")
 
+    # ------------------------------------------------------------------
+    # Pipeline event system (3-partition tracking)
+    # ------------------------------------------------------------------
+
+    def emit_pipeline_event(self, event_type: str, data: dict = None):
+        """Record a pipeline event for live dashboard tracking.
+
+        Event types include: phase_start, phase_end, finding_new,
+        exploit_start, exploit_result, shell_uploaded, data_collected, etc.
+        """
+        event = {
+            'type': event_type,
+            'timestamp': datetime.now(timezone.utc).isoformat(),
+            'data': data or {},
+        }
+        self.pipeline['events'].append(event)
+        # Cap events list to prevent memory bloat
+        if len(self.pipeline['events']) > 500:
+            self.pipeline['events'] = self.pipeline['events'][-500:]
+
+    def get_pipeline_state(self) -> dict:
+        """Return the current pipeline state for the dashboard."""
+        return {
+            'scan_id': self.scan_id,
+            'target': self.target,
+            'phase': self.pipeline['phase'],
+            'recon': self.pipeline['recon'],
+            'scan': self.pipeline['scan'],
+            'exploit': self.pipeline['exploit'],
+            'collect': self.pipeline['collect'],
+            'findings_count': len(self.findings),
+            'events': self.pipeline['events'][-50:],
+            'attack_routes': (
+                self.attack_router.get_pipeline_state()
+                if self.attack_router else None
+            ),
+        }
+
     def scan(self, target: str):
         """Scan a target URL.
 
@@ -190,6 +240,11 @@ class AtomicEngine:
         print(f"\n{Colors.BOLD}{'='*60}{Colors.RESET}")
         print(f"{Colors.CYAN}  Scanning: {target}{Colors.RESET}")
         print(f"{Colors.BOLD}{'='*60}{Colors.RESET}\n")
+
+        # ── PIPELINE: Phase 1 - Recon & Scan ─────────────────────────
+        self.pipeline['phase'] = 'recon'
+        self.pipeline['recon']['status'] = 'running'
+        self.emit_pipeline_event('phase_start', {'phase': 'recon', 'target': target})
 
         # ── §1. SCOPE & POLICY ENGINE ────────────────────────────────
         self.scope.set_target_scope(target)
@@ -308,6 +363,21 @@ class AtomicEngine:
         # ── §3. INPUT EXTRACTION & CLASSIFICATION ────────────────────
         # ── §4. CONTEXT INTELLIGENCE ─────────────────────────────────
         enriched_params = self.context.analyze_parameters(parameters)
+
+        # ── PIPELINE: Recon complete, transition to Scan phase ────────
+        self.pipeline['recon']['status'] = 'completed'
+        self.pipeline['recon']['data'] = {
+            'urls': len(urls), 'forms': len(forms),
+            'parameters': len(parameters),
+        }
+        self.pipeline['phase'] = 'scan'
+        self.pipeline['scan']['status'] = 'running'
+        self.emit_pipeline_event('phase_start', {
+            'phase': 'scan',
+            'urls': len(urls),
+            'parameters': len(enriched_params),
+            'modules': list(self._modules.keys()),
+        })
 
         # ── AI: Predict vulnerabilities and build attack strategy ─────
         ai_strategy = self.ai.get_attack_strategy(target, enriched_params)
@@ -458,16 +528,46 @@ class AtomicEngine:
                 break
 
         # ── Post-exploitation ────────────────────────────────────────
+        # ── PIPELINE: Scan complete → Exploit phase (Partition 2) ──
+        self.pipeline['scan']['status'] = 'completed'
+        self.pipeline['scan']['data'] = {
+            'findings': len(self.findings),
+            'modules_used': list(self._modules.keys()),
+        }
+        self.emit_pipeline_event('phase_end', {'phase': 'scan', 'findings': len(self.findings)})
+
+        # ── PIPELINE: Partition 2 - Attack Router ─────────────────
+        # Route confirmed vulns to the right exploitation tool
+        self.pipeline['phase'] = 'exploit'
+        self.pipeline['exploit']['status'] = 'running'
+        self.emit_pipeline_event('phase_start', {
+            'phase': 'exploit', 'findings_to_route': len(self.findings),
+        })
+
         # AI-driven auto-exploit: orchestrates data extraction, shell
         # upload, and system enumeration based on confirmed findings.
         if modules_config.get('auto_exploit', False) and self.findings:
             try:
-                from core.post_exploit import PostExploitEngine
-                post_engine = PostExploitEngine(self)
-                self.post_exploit_results = post_engine.run(self.findings)
+                from core.attack_router import AttackRouter
+                self.attack_router = AttackRouter(self)
+                routes = self.attack_router.route(self.findings)
+                self.emit_pipeline_event('routes_planned', {
+                    'total_routes': len(routes),
+                    'families': list({r.family for r in routes}),
+                })
+                if routes:
+                    self.post_exploit_results = self.attack_router.execute(routes)
             except Exception as e:
                 if self.config.get('verbose'):
-                    print(f"{Colors.error(f'Post-exploitation error: {e}')}")
+                    print(f"{Colors.error(f'Attack router error: {e}')}")
+                # Fallback to direct PostExploitEngine
+                try:
+                    from core.post_exploit import PostExploitEngine
+                    post_engine = PostExploitEngine(self)
+                    self.post_exploit_results = post_engine.run(self.findings)
+                except Exception as e2:
+                    if self.config.get('verbose'):
+                        print(f"{Colors.error(f'Post-exploitation fallback error: {e2}')}")
 
         # Legacy manual flags kept for backward compatibility
         if modules_config.get('shell', False) and self.findings:
@@ -515,6 +615,22 @@ class AtomicEngine:
                 if self.config.get('verbose'):
                     print(f"{Colors.error(f'Exploit chain error: {e}')}")
 
+        # ── PIPELINE: Exploit phase complete → Collect phase ──────
+        self.pipeline['exploit']['status'] = 'completed'
+        self.pipeline['exploit']['data'] = {
+            'results': len(self.post_exploit_results) if self.post_exploit_results else 0,
+            'attack_routes': (
+                self.attack_router.get_pipeline_state()['total_routes']
+                if self.attack_router else 0
+            ),
+        }
+        self.emit_pipeline_event('phase_end', {'phase': 'exploit'})
+
+        # ── PIPELINE: Partition 3 - Data Collection ──────────────
+        self.pipeline['phase'] = 'collect'
+        self.pipeline['collect']['status'] = 'running'
+        self.emit_pipeline_event('phase_start', {'phase': 'collect'})
+
         self.end_time = datetime.now(timezone.utc)
 
         # ── Clear persistence progress on complete scan ───────────────
@@ -532,6 +648,20 @@ class AtomicEngine:
             except Exception as e:
                 if self.config.get('verbose'):
                     print(f"{Colors.warning(f'Could not update scan record: {e}')}")
+
+        # ── PIPELINE: All phases complete ─────────────────────────
+        self.pipeline['collect']['status'] = 'completed'
+        self.pipeline['collect']['data'] = {
+            'total_findings': len(self.findings),
+            'total_requests': self.requester.total_requests,
+            'exploit_results': len(self.post_exploit_results) if self.post_exploit_results else 0,
+        }
+        self.pipeline['phase'] = 'done'
+        self.emit_pipeline_event('phase_end', {'phase': 'collect'})
+        self.emit_pipeline_event('pipeline_complete', {
+            'findings': len(self.findings),
+            'duration': str(self.end_time - self.start_time) if self.start_time else '',
+        })
 
         # ── Print summary ────────────────────────────────────────────
         self._print_summary()
@@ -571,6 +701,15 @@ class AtomicEngine:
                 return
         
         self.findings.append(finding)
+
+        # Emit pipeline event for live dashboard
+        self.emit_pipeline_event('finding_new', {
+            'technique': finding.technique,
+            'severity': finding.severity,
+            'url': finding.url,
+            'param': finding.param,
+            'confidence': finding.confidence,
+        })
 
         # Print finding
         severity_color = {

@@ -137,16 +137,21 @@ def _run_scan(scan_id, target, config):
             'target': target,
             'start_time': datetime.now(timezone.utc).isoformat(),
             'findings': 0,
+            'engine': None,
+            'pipeline': {'phase': 'init', 'events': []},
         }
     try:
         engine = AtomicEngine(config)
         engine.scan_id = scan_id
+        with _scans_lock:
+            _active_scans[scan_id]['engine'] = engine
         engine.scan(target)
         engine.generate_reports()
         with _scans_lock:
             _active_scans[scan_id]['status'] = 'completed'
             _active_scans[scan_id]['findings'] = len(engine.findings)
             _active_scans[scan_id]['end_time'] = datetime.now(timezone.utc).isoformat()
+            _active_scans[scan_id]['pipeline'] = engine.get_pipeline_state()
     except Exception as exc:
         logger.exception("Scan %s failed", scan_id)
         with _scans_lock:
@@ -296,11 +301,18 @@ def start_scan():
     modules_dict = {}
     for key in all_module_keys:
         modules_dict[key] = full_scan or (key in modules)
+
+    auto_exploit = body.get('auto_exploit', False)
     modules_dict.update({
-        'recon': full_scan, 'subdomains': full_scan,
-        'tech_detect': full_scan, 'dir_brute': full_scan,
+        'recon': full_scan or body.get('recon', False),
+        'subdomains': full_scan,
+        'tech_detect': full_scan,
+        'dir_brute': full_scan,
         'shell': False, 'dump': False, 'os_shell': False,
-        'brute': False, 'exploit_chain': False, 'ports': None,
+        'brute': body.get('brute', False),
+        'exploit_chain': False,
+        'ports': body.get('ports'),
+        'auto_exploit': auto_exploit or full_scan,
     })
 
     # Launch one scan thread per valid target; share the same scan_id prefix
@@ -350,9 +362,15 @@ def start_scan():
 @_require_api_key
 @_rate_limit
 def scan_status(scan_id):
-    """Return the current status of a scan."""
+    """Return the current status of a scan including pipeline state."""
     if scan_id in _active_scans:
-        return jsonify({'status': 'success', 'data': _active_scans[scan_id]})
+        info = dict(_active_scans[scan_id])
+        # Add live pipeline data from engine
+        engine = info.pop('engine', None)
+        if engine and hasattr(engine, 'get_pipeline_state'):
+            info['pipeline'] = engine.get_pipeline_state()
+            info['findings'] = len(engine.findings)
+        return jsonify({'status': 'success', 'data': info})
 
     db = _get_db()
     if db is not None:
@@ -700,6 +718,162 @@ def api_list_encodings():
         from utils.decoder import Decoder
         return jsonify({'status': 'success', 'data': Decoder.list_encodings()})
     except Exception as exc:
+        return jsonify({'status': 'error', 'data': str(exc)}), 500
+
+
+# ---------------------------------------------------------------------------
+# Pipeline & Live Feed endpoints (Partition 3 - Dashboard)
+# ---------------------------------------------------------------------------
+
+@app.route('/api/pipeline/<scan_id>', methods=['GET'])
+@_require_api_key
+@_rate_limit
+def get_pipeline(scan_id):
+    """Return the real-time pipeline state for a scan."""
+    scan_info = _active_scans.get(scan_id)
+    if scan_info is None:
+        return jsonify({'status': 'error', 'data': 'Scan not found'}), 404
+
+    engine = scan_info.get('engine')
+    if engine and hasattr(engine, 'get_pipeline_state'):
+        pipeline = engine.get_pipeline_state()
+    else:
+        pipeline = scan_info.get('pipeline', {})
+
+    return jsonify({'status': 'success', 'data': pipeline})
+
+
+@app.route('/api/pipeline/<scan_id>/events', methods=['GET'])
+@_require_api_key
+@_rate_limit
+def get_pipeline_events(scan_id):
+    """Return pipeline events (optionally filtered by after_index)."""
+    scan_info = _active_scans.get(scan_id)
+    if scan_info is None:
+        return jsonify({'status': 'error', 'data': 'Scan not found'}), 404
+
+    engine = scan_info.get('engine')
+    after = request.args.get('after', 0, type=int)
+
+    events = []
+    if engine and hasattr(engine, 'pipeline'):
+        events = engine.pipeline.get('events', [])
+
+    # Return only events after the given index for incremental polling
+    filtered = events[after:]
+    return jsonify({
+        'status': 'success',
+        'data': {
+            'events': filtered,
+            'total': len(events),
+            'next_index': len(events),
+        },
+    })
+
+
+@app.route('/api/exploit-results/<scan_id>', methods=['GET'])
+@_require_api_key
+@_rate_limit
+def get_exploit_results(scan_id):
+    """Return exploitation results from the attack router."""
+    scan_info = _active_scans.get(scan_id)
+    if scan_info is None:
+        return jsonify({'status': 'error', 'data': 'Scan not found'}), 404
+
+    engine = scan_info.get('engine')
+    results = {
+        'attack_routes': [],
+        'post_exploit': [],
+        'shells': [],
+        'poc_data': [],
+    }
+
+    if engine:
+        # Attack router results
+        if hasattr(engine, 'attack_router') and engine.attack_router:
+            state = engine.attack_router.get_pipeline_state()
+            results['attack_routes'] = state.get('routes', [])
+
+        # Post-exploitation results
+        if hasattr(engine, 'post_exploit_results') and engine.post_exploit_results:
+            if isinstance(engine.post_exploit_results, list):
+                for r in engine.post_exploit_results:
+                    if isinstance(r, dict):
+                        results['post_exploit'].append(r)
+
+    # Shells from database
+    db = _get_db()
+    if db:
+        try:
+            shells = db.get_shells()
+            results['shells'] = [
+                {
+                    'shell_id': s.get('shell_id', ''),
+                    'url': s.get('url', ''),
+                    'shell_type': s.get('shell_type', ''),
+                    'created_at': str(s.get('created_at', '')),
+                }
+                for s in shells
+            ]
+        except Exception:
+            pass
+
+    return jsonify({'status': 'success', 'data': results})
+
+
+@app.route('/api/generate-poc/<scan_id>/<int:finding_index>', methods=['POST'])
+@_require_api_key
+@_rate_limit
+def generate_poc(scan_id, finding_index):
+    """Generate a POC for a specific finding."""
+    scan_info = _active_scans.get(scan_id)
+    if scan_info is None:
+        return jsonify({'status': 'error', 'data': 'Scan not found'}), 404
+
+    engine = scan_info.get('engine')
+    if engine is None or not engine.findings:
+        return jsonify({'status': 'error', 'data': 'No findings available'}), 400
+
+    if finding_index < 0 or finding_index >= len(engine.findings):
+        return jsonify({'status': 'error', 'data': 'Invalid finding index'}), 400
+
+    try:
+        from core.payload_generator import PayloadGenerator
+        generator = PayloadGenerator()
+        poc = generator.generate_poc(engine.findings[finding_index])
+        return jsonify({'status': 'success', 'data': poc})
+    except Exception as exc:
+        return jsonify({'status': 'error', 'data': str(exc)}), 500
+
+
+@app.route('/api/attack-route/<scan_id>', methods=['POST'])
+@_require_api_key
+@_rate_limit
+def trigger_attack_route(scan_id):
+    """Manually trigger the attack router for a scan's findings."""
+    scan_info = _active_scans.get(scan_id)
+    if scan_info is None:
+        return jsonify({'status': 'error', 'data': 'Scan not found'}), 404
+
+    engine = scan_info.get('engine')
+    if engine is None or not engine.findings:
+        return jsonify({'status': 'error', 'data': 'No findings to route'}), 400
+
+    try:
+        from core.attack_router import AttackRouter
+        router = AttackRouter(engine)
+        routes = router.route(engine.findings)
+        results = router.execute(routes)
+        engine.attack_router = router
+        return jsonify({
+            'status': 'success',
+            'data': {
+                'routes_planned': len(routes),
+                'results': results,
+            },
+        })
+    except Exception as exc:
+        logger.error('Attack router error: %s', exc)
         return jsonify({'status': 'error', 'data': str(exc)}), 500
 
 

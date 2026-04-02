@@ -102,6 +102,51 @@
 
     .empty-msg { color: var(--text-muted); font-size: 0.85rem; padding: 1rem 0; text-align: center; }
 
+    /* Grid layouts */
+    .grid { display: grid; gap: 1rem; }
+    .grid-2 { grid-template-columns: repeat(2, 1fr); }
+    .grid-3 { grid-template-columns: repeat(3, 1fr); }
+    .grid-4 { grid-template-columns: repeat(4, 1fr); }
+    .grid-5 { grid-template-columns: repeat(5, 1fr); }
+    @media (max-width: 768px) {
+        .grid-2, .grid-3, .grid-4, .grid-5 { grid-template-columns: 1fr; }
+    }
+
+    /* Phase status styling */
+    .phase-status {
+        font-size: 0.95rem; font-weight: 600; margin-top: 0.3rem;
+    }
+    .phase-detail { line-height: 1.5; }
+
+    /* Pulse animation for running items */
+    @keyframes pulse-glow {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.6; }
+    }
+    .status-running { animation: pulse-glow 1.5s ease-in-out infinite; }
+    .pulse { animation: pulse-glow 1.5s ease-in-out infinite; }
+
+    /* Spinner */
+    .spinner {
+        display: inline-block; width: 14px; height: 14px;
+        border: 2px solid var(--text-muted); border-top-color: var(--accent);
+        border-radius: 50%; animation: spin 0.6s linear infinite; vertical-align: middle;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Buttons */
+    .btn { display: inline-block; padding: 0.5rem 1.2rem; border: none; border-radius: 6px; cursor: pointer; font-size: 0.9rem; transition: all 0.2s; }
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-primary:hover { background: #c0392b; }
+    .btn-danger { background: transparent; color: var(--severity-critical); border: 1px solid var(--severity-critical); }
+    .btn-sm { padding: 0.25rem 0.7rem; font-size: 0.8rem; }
+    .badge { padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; }
+    .severity-critical { background: var(--severity-critical); color: #fff; }
+    .severity-high { background: var(--severity-high); color: #fff; }
+    .severity-medium { background: var(--severity-medium); color: #000; }
+    .severity-low { background: var(--severity-low); color: #fff; }
+    .severity-info { background: var(--severity-info); color: #fff; }
+
     /* Navigation tabs */
     .nav-tabs {
         display: flex; gap: 0; margin-bottom: 1.5rem;
@@ -209,9 +254,13 @@
     <nav class="nav-tabs">
         <button class="nav-tab active" onclick="switchPanel('dashboard')">📊 Dashboard</button>
         <button class="nav-tab" onclick="switchPanel('scanner')">🚀 Scanner</button>
+        <button class="nav-tab" onclick="switchPanel('pipeline')">⚡ Pipeline</button>
+        <button class="nav-tab" onclick="switchPanel('exploits')">💥 Exploits</button>
+        <button class="nav-tab" onclick="switchPanel('shells')">🐚 Shells</button>
         <button class="nav-tab" onclick="switchPanel('scans')">⏳ Active Scans</button>
         <button class="nav-tab" onclick="switchPanel('history')">📋 History</button>
         <button class="nav-tab" onclick="switchPanel('findings')">🔍 Findings</button>
+        <button class="nav-tab" onclick="switchPanel('livefeed')">📡 Live Feed</button>
     </nav>
 
     <!-- Dashboard Panel -->
@@ -432,6 +481,135 @@
         </div>
     </section>
     </div>
+
+    <!-- Pipeline Panel (3-Partition View) -->
+    <div id="panel-pipeline" class="nav-panel">
+    <section>
+        <h2>⚡ Attack Pipeline</h2>
+        <p style="color:var(--text-muted);font-size:0.85rem;margin-bottom:1rem;">
+            Real-time 3-partition pipeline: <strong>Recon & Scan</strong> → <strong>Attack Router</strong> → <strong>Data Collection</strong>
+        </p>
+
+        <!-- Pipeline phase cards -->
+        <div class="grid grid-3" id="pipeline-phases">
+            <div class="glass-card" id="phase-recon" style="border-left:4px solid var(--severity-info);">
+                <h3>🔎 Partition 1: Recon & Scan</h3>
+                <div class="phase-status" id="phase-recon-status">⏳ Pending</div>
+                <div class="phase-detail" id="phase-recon-detail" style="font-size:0.82rem;color:var(--text-muted);margin-top:0.5rem;"></div>
+            </div>
+            <div class="glass-card" id="phase-exploit" style="border-left:4px solid var(--severity-high);">
+                <h3>💥 Partition 2: Attack Router</h3>
+                <div class="phase-status" id="phase-exploit-status">⏳ Pending</div>
+                <div class="phase-detail" id="phase-exploit-detail" style="font-size:0.82rem;color:var(--text-muted);margin-top:0.5rem;"></div>
+            </div>
+            <div class="glass-card" id="phase-collect" style="border-left:4px solid #2ecc71;">
+                <h3>📦 Partition 3: Data Collection</h3>
+                <div class="phase-status" id="phase-collect-status">⏳ Pending</div>
+                <div class="phase-detail" id="phase-collect-detail" style="font-size:0.82rem;color:var(--text-muted);margin-top:0.5rem;"></div>
+            </div>
+        </div>
+
+        <!-- Attack routes table -->
+        <div class="glass-card" style="margin-top:1rem;">
+            <h3>🎯 Attack Routes</h3>
+            <table>
+                <thead><tr><th>Vuln Type</th><th>Target</th><th>Family</th><th>Actions</th><th>Status</th></tr></thead>
+                <tbody id="attack-routes-body">
+                    <tr><td colspan="5" class="empty-msg">No active pipeline — start a scan with Auto-Exploit enabled</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Select active scan for pipeline view -->
+        <div style="margin-top:1rem;">
+            <label style="font-size:0.85rem;color:var(--text-muted);">Watching scan:</label>
+            <select id="pipeline-scan-select" onchange="window._selectPipelineScan(this.value)" style="background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);padding:0.3rem 0.6rem;font-size:0.85rem;">
+                <option value="">— select scan —</option>
+            </select>
+        </div>
+    </section>
+    </div>
+
+    <!-- Exploits Panel -->
+    <div id="panel-exploits" class="nav-panel">
+    <section>
+        <h2>💥 Exploitation Results</h2>
+
+        <!-- Exploit summary cards -->
+        <div class="grid grid-4" id="exploit-stats">
+            <div class="glass-card stat-card"><h3>Routes Planned</h3><div class="value" id="ex-routes">0</div></div>
+            <div class="glass-card stat-card" style="border-top:3px solid #2ecc71;"><h3>Successful</h3><div class="value" style="color:#2ecc71;" id="ex-success">0</div></div>
+            <div class="glass-card stat-card" style="border-top:3px solid var(--severity-critical);"><h3>Failed</h3><div class="value" style="color:var(--severity-critical);" id="ex-failed">0</div></div>
+            <div class="glass-card stat-card" style="border-top:3px solid var(--severity-medium);"><h3>POCs Generated</h3><div class="value" style="color:var(--severity-medium);" id="ex-pocs">0</div></div>
+        </div>
+
+        <!-- Exploit results list -->
+        <div class="glass-card" style="margin-top:1rem;">
+            <h3>📋 Exploitation Actions</h3>
+            <div id="exploit-results-list">
+                <p class="empty-msg">No exploitation results yet. Run a scan with Auto-Exploit enabled.</p>
+            </div>
+        </div>
+
+        <!-- POC viewer -->
+        <div class="glass-card" style="margin-top:1rem;">
+            <h3>🔬 POC Generator</h3>
+            <p style="font-size:0.82rem;color:var(--text-muted);margin-bottom:0.5rem;">
+                Select a finding to generate a proof-of-concept with exploit payloads.
+            </p>
+            <select id="poc-finding-select" style="width:100%;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);padding:0.4rem 0.6rem;font-size:0.85rem;margin-bottom:0.5rem;">
+                <option value="">— select finding —</option>
+            </select>
+            <button class="btn btn-primary btn-sm" onclick="window._generatePoc()">Generate POC</button>
+            <div id="poc-output" style="margin-top:0.8rem;"></div>
+        </div>
+    </section>
+    </div>
+
+    <!-- Shells Panel -->
+    <div id="panel-shells" class="nav-panel">
+    <section>
+        <h2>🐚 Shell Management</h2>
+
+        <div class="glass-card">
+            <h3>Active Shells</h3>
+            <table>
+                <thead><tr><th>Shell ID</th><th>URL</th><th>Type</th><th>Created</th><th>Actions</th></tr></thead>
+                <tbody id="shells-body">
+                    <tr><td colspan="5" class="empty-msg">No active shells. Deploy shells via Auto-Exploit.</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="glass-card" style="margin-top:1rem;">
+            <h3>📊 Collected Data</h3>
+            <div id="collected-data-list">
+                <p class="empty-msg">No data collected yet.</p>
+            </div>
+        </div>
+    </section>
+    </div>
+
+    <!-- Live Feed Panel -->
+    <div id="panel-livefeed" class="nav-panel">
+    <section>
+        <h2>📡 Live Event Feed</h2>
+        <p style="color:var(--text-muted);font-size:0.85rem;margin-bottom:1rem;">
+            Real-time events from active scans. Auto-refreshes every 2 seconds.
+        </p>
+        <div style="margin-bottom:0.8rem;">
+            <label style="font-size:0.85rem;color:var(--text-muted);">Watching scan:</label>
+            <select id="livefeed-scan-select" onchange="window._selectLiveFeedScan(this.value)" style="background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);padding:0.3rem 0.6rem;font-size:0.85rem;">
+                <option value="">— select scan —</option>
+            </select>
+        </div>
+        <div class="glass-card" id="livefeed-container" style="max-height:500px;overflow-y:auto;font-family:monospace;font-size:0.82rem;">
+            <div id="livefeed-events">
+                <p class="empty-msg">Waiting for events...</p>
+            </div>
+        </div>
+    </section>
+    </div>
 </div>
 
 <footer>
@@ -465,12 +643,16 @@
         if (panel) panel.classList.add('active');
         // Highlight correct tab
         var tabs = document.querySelectorAll('.nav-tab');
-        var tabMap = {dashboard:0, scanner:1, scans:2, history:3, findings:4};
+        var tabMap = {dashboard:0, scanner:1, pipeline:2, exploits:3, shells:4, scans:5, history:6, findings:7, livefeed:8};
         if (tabMap[name] !== undefined && tabs[tabMap[name]]) tabs[tabMap[name]].classList.add('active');
         // Load data for active panel
         if (name === 'history') loadHistory();
         if (name === 'scans') loadActiveScans();
         if (name === 'dashboard') { loadStats(); updateTrendChart(); }
+        if (name === 'pipeline') loadPipeline();
+        if (name === 'exploits') loadExploitResults();
+        if (name === 'shells') loadShells();
+        if (name === 'livefeed') startLiveFeed();
     };
 
     /* ---- Scan mode switcher ---- */
@@ -666,13 +848,16 @@
         const depth = parseInt(document.getElementById('scan-depth').value, 10);
         const threads = parseInt(document.getElementById('scan-threads').value, 10);
         const fullScan = document.getElementById('full-scan').checked;
+        const autoExploit = document.getElementById('opt-exploit') ? document.getElementById('opt-exploit').checked : false;
+        const recon = document.getElementById('opt-recon') ? document.getElementById('opt-recon').checked : false;
+        const brute = document.getElementById('opt-brute') ? document.getElementById('opt-brute').checked : false;
 
         const btn = document.getElementById('scan-btn');
         btn.disabled = true;
         btn.innerHTML = '<span class="spinner"></span> Starting…';
 
         try {
-            var payload = { modules: modules, evasion: evasion, depth: depth, threads: threads, full_scan: fullScan };
+            var payload = { modules: modules, evasion: evasion, depth: depth, threads: threads, full_scan: fullScan, auto_exploit: autoExploit, recon: recon, brute: brute };
             if (targets.length === 1) {
                 payload.target = targets[0];
             } else {
@@ -697,6 +882,15 @@
                     msg += '\nSkipped invalid URLs: ' + j.data.skipped.join(', ');
                 }
                 alert(msg);
+                _updateScanSelects();
+                // Auto-switch to pipeline view
+                if (autoExploit || fullScan) {
+                    var firstId = ids.length > 0 ? ids[0].scan_id : '';
+                    if (firstId) { _pipelineScanId = firstId; _livefeedScanId = firstId; }
+                    window.switchPanel('pipeline');
+                } else {
+                    window.switchPanel('scans');
+                }
             } else {
                 alert('Error: ' + (j.data || 'Unknown'));
             }
@@ -734,13 +928,291 @@
         } catch (_) {}
     }
 
+    /* ---- Pipeline ---- */
+    var _pipelineScanId = '';
+    var _livefeedScanId = '';
+    var _livefeedNextIndex = 0;
+    var _livefeedTimer = null;
+
+    window._selectPipelineScan = function(scanId) { _pipelineScanId = scanId; if (scanId) loadPipeline(); };
+    window._selectLiveFeedScan = function(scanId) {
+        _livefeedScanId = scanId;
+        _livefeedNextIndex = 0;
+        document.getElementById('livefeed-events').innerHTML = '<p class="empty-msg">Waiting for events...</p>';
+        if (scanId) pollLiveFeed();
+    };
+
+    function _updateScanSelects() {
+        var ids = Object.keys(window._knownActive || {});
+        ['pipeline-scan-select', 'livefeed-scan-select'].forEach(function(selId) {
+            var sel = document.getElementById(selId);
+            if (!sel) return;
+            var current = sel.value;
+            var html = '<option value="">— select scan —</option>';
+            ids.forEach(function(sid) { html += '<option value="' + esc(sid) + '">' + esc(sid) + '</option>'; });
+            sel.innerHTML = html;
+            if (current && ids.indexOf(current) >= 0) sel.value = current;
+        });
+    }
+
+    async function loadPipeline() {
+        if (!_pipelineScanId) {
+            // Auto-select first active scan
+            var ids = Object.keys(window._knownActive || {});
+            if (ids.length > 0) { _pipelineScanId = ids[0]; document.getElementById('pipeline-scan-select').value = _pipelineScanId; }
+            else return;
+        }
+        try {
+            var r = await fetch(API + '/api/pipeline/' + _pipelineScanId);
+            var j = await r.json();
+            if (j.status !== 'success') return;
+            var d = j.data;
+
+            // Update phase cards
+            var phases = ['recon', 'exploit', 'collect'];
+            var phaseMap = {recon: 'phase-recon', exploit: 'phase-exploit', collect: 'phase-collect'};
+            phases.forEach(function(p) {
+                var info = d[p === 'exploit' ? 'exploit' : (p === 'collect' ? 'collect' : 'recon')] || {};
+                var statusEl = document.getElementById(phaseMap[p] + '-status');
+                var detailEl = document.getElementById(phaseMap[p] + '-detail');
+                var status = info.status || 'pending';
+                var icon = status === 'completed' ? '✅' : (status === 'running' ? '🔄' : (status === 'failed' ? '❌' : '⏳'));
+                if (statusEl) statusEl.innerHTML = icon + ' ' + status.charAt(0).toUpperCase() + status.slice(1);
+                if (detailEl && info.data) {
+                    var detail = Object.entries(info.data).map(function(e) { return e[0] + ': ' + e[1]; }).join(' | ');
+                    detailEl.textContent = detail;
+                }
+            });
+
+            // Update attack routes
+            var routes = (d.attack_routes && d.attack_routes.routes) ? d.attack_routes.routes : [];
+            var routesTbody = document.getElementById('attack-routes-body');
+            if (routes.length === 0) {
+                routesTbody.innerHTML = '<tr><td colspan="5" class="empty-msg">No attack routes yet</td></tr>';
+            } else {
+                routesTbody.innerHTML = routes.map(function(r) {
+                    var statusCls = r.status === 'completed' ? 'status-completed' : (r.status === 'running' ? 'status-running' : (r.status === 'failed' ? 'status-failed' : ''));
+                    return '<tr><td>' + esc(r.icon || '') + ' ' + esc(r.technique) + '</td>' +
+                        '<td>' + esc(r.url) + (r.param ? ':' + esc(r.param) : '') + '</td>' +
+                        '<td><span style="background:var(--bg-input);padding:0.15rem 0.5rem;border-radius:4px;font-size:0.78rem;">' + esc(r.family) + '</span></td>' +
+                        '<td>' + (r.actions || []).join(', ') + '</td>' +
+                        '<td class="' + statusCls + '">' + esc(r.status) + '</td></tr>';
+                }).join('');
+            }
+        } catch (_) {}
+    }
+
+    /* ---- Exploit Results ---- */
+    async function loadExploitResults() {
+        var ids = Object.keys(window._knownActive || {});
+        if (ids.length === 0) return;
+        var scanId = ids[0]; // Use first active scan
+
+        try {
+            var r = await fetch(API + '/api/exploit-results/' + scanId);
+            var j = await r.json();
+            if (j.status !== 'success') return;
+            var d = j.data;
+
+            var routes = d.attack_routes || [];
+            var postExploit = d.post_exploit || [];
+            var successCount = routes.filter(function(r) { return r.status === 'completed'; }).length;
+            var failedCount = routes.filter(function(r) { return r.status === 'failed'; }).length;
+
+            document.getElementById('ex-routes').textContent = routes.length;
+            document.getElementById('ex-success').textContent = successCount;
+            document.getElementById('ex-failed').textContent = failedCount;
+
+            // Render exploit results
+            var listEl = document.getElementById('exploit-results-list');
+            if (routes.length === 0 && postExploit.length === 0) {
+                listEl.innerHTML = '<p class="empty-msg">No exploitation results yet.</p>';
+            } else {
+                var items = routes.map(function(r) {
+                    var sev = (r.severity || 'info').toLowerCase();
+                    var statusIcon = r.status === 'completed' ? '✅' : (r.status === 'failed' ? '❌' : '🔄');
+                    return '<div class="finding-item ' + esc(sev) + '" style="margin-bottom:0.6rem;">' +
+                        '<div class="fi-header"><strong>' + esc(r.icon || '') + ' ' + esc(r.label || r.technique) + '</strong>' +
+                        '<span>' + statusIcon + ' ' + esc(r.status) + '</span></div>' +
+                        '<div class="finding-meta">' +
+                        '<span>Target: ' + esc(r.url) + '</span>' +
+                        (r.param ? '<span>Param: ' + esc(r.param) + '</span>' : '') +
+                        '<span>Family: ' + esc(r.family) + '</span>' +
+                        '</div>' +
+                        '<div style="margin-top:0.3rem;font-size:0.82rem;color:var(--text-muted);">Actions: ' + (r.actions || []).join(' → ') + '</div>' +
+                        (r.results && r.results.length ? '<pre>' + esc(JSON.stringify(r.results[0], null, 2).substring(0, 300)) + '</pre>' : '') +
+                        '</div>';
+                });
+                listEl.innerHTML = items.join('');
+            }
+
+            // Populate POC finding select
+            try {
+                var sr = await fetch(API + '/api/scan/' + scanId + '/status');
+                var sj = await sr.json();
+                if (sj.status === 'success' && sj.data && sj.data.pipeline) {
+                    var fc = sj.data.findings || 0;
+                    var pocSel = document.getElementById('poc-finding-select');
+                    var fr = await fetch(API + '/api/findings/' + scanId);
+                    var fj = await fr.json();
+                    if (fj.status === 'success' && fj.data.length) {
+                        pocSel.innerHTML = '<option value="">— select finding —</option>' +
+                            fj.data.map(function(f, i) {
+                                return '<option value="' + i + '">[' + esc(f.severity) + '] ' + esc(f.technique) + ' — ' + esc(f.param || f.url) + '</option>';
+                            }).join('');
+                        pocSel.dataset.scanId = scanId;
+                    }
+                }
+            } catch (_) {}
+        } catch (_) {}
+    }
+
+    /* ---- POC Generator ---- */
+    window._generatePoc = async function() {
+        var sel = document.getElementById('poc-finding-select');
+        var idx = sel.value;
+        var scanId = sel.dataset.scanId;
+        if (!idx || !scanId) { alert('Select a finding first.'); return; }
+
+        var output = document.getElementById('poc-output');
+        output.innerHTML = '<p class="empty-msg"><span class="spinner"></span> Generating POC...</p>';
+
+        try {
+            var r = await fetch(API + '/api/generate-poc/' + scanId + '/' + idx, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+            var j = await r.json();
+            if (j.status !== 'success') { output.innerHTML = '<p class="empty-msg">Error: ' + esc(j.data || 'Unknown') + '</p>'; return; }
+            var poc = j.data;
+            output.innerHTML =
+                '<div style="border-left:4px solid var(--accent);padding:0.8rem;border-radius:6px;background:var(--bg-input);">' +
+                '<h4 style="margin:0 0 0.5rem;">' + esc(poc.title) + '</h4>' +
+                '<p style="font-size:0.85rem;color:var(--text-muted);margin-bottom:0.5rem;">' + esc(poc.description) + '</p>' +
+                '<div style="font-size:0.82rem;"><strong>Target:</strong> ' + esc(poc.target) + '</div>' +
+                '<div style="font-size:0.82rem;"><strong>Param:</strong> ' + esc(poc.parameter) + '</div>' +
+                '<div style="font-size:0.82rem;"><strong>Severity:</strong> ' + esc(poc.severity) + '</div>' +
+                (poc.curl_command ? '<pre style="margin-top:0.5rem;">' + esc(poc.curl_command) + '</pre>' : '') +
+                (poc.exploit_payloads ? '<h4 style="margin-top:0.8rem;">Exploit Payloads</h4><pre>' +
+                    esc(JSON.stringify(poc.exploit_payloads, null, 2)) + '</pre>' : '') +
+                (poc.steps ? '<h4 style="margin-top:0.8rem;">Steps</h4><ol style="font-size:0.82rem;padding-left:1.2rem;">' +
+                    poc.steps.map(function(s) { return '<li>' + esc(s) + '</li>'; }).join('') + '</ol>' : '') +
+                '</div>';
+        } catch (e) {
+            output.innerHTML = '<p class="empty-msg">Error generating POC.</p>';
+        }
+    };
+
+    /* ---- Shells ---- */
+    async function loadShells() {
+        try {
+            var r = await fetch(API + '/api/shells');
+            var j = await r.json();
+            if (j.status !== 'success') return;
+            var tbody = document.getElementById('shells-body');
+            if (!j.data || !j.data.length) {
+                tbody.innerHTML = '<tr><td colspan="5" class="empty-msg">No active shells</td></tr>';
+                return;
+            }
+            tbody.innerHTML = j.data.map(function(s) {
+                return '<tr><td>' + esc(s.shell_id) + '</td><td>' + esc(s.url) + '</td>' +
+                    '<td><span style="background:var(--severity-critical);color:#fff;padding:0.1rem 0.5rem;border-radius:4px;font-size:0.78rem;">' + esc(s.shell_type) + '</span></td>' +
+                    '<td>' + fmtDate(s.created_at) + '</td>' +
+                    '<td><button class="btn btn-sm btn-primary" onclick="window._interactShell(\'' + esc(s.shell_id) + '\')">Interact</button></td></tr>';
+            }).join('');
+
+            // Also load collected data
+            var ids = Object.keys(window._knownActive || {});
+            if (ids.length > 0) {
+                var er = await fetch(API + '/api/exploit-results/' + ids[0]);
+                var ej = await er.json();
+                if (ej.status === 'success') {
+                    var dataEl = document.getElementById('collected-data-list');
+                    var routes = ej.data.attack_routes || [];
+                    var completed = routes.filter(function(r) { return r.status === 'completed' && r.results && r.results.length; });
+                    if (completed.length) {
+                        dataEl.innerHTML = completed.map(function(r) {
+                            return '<div class="finding-item" style="margin-bottom:0.5rem;">' +
+                                '<strong>' + esc(r.icon || '') + ' ' + esc(r.family) + '</strong> — ' + esc(r.label || '') +
+                                '<pre style="max-height:200px;overflow:auto;">' + esc(JSON.stringify(r.results, null, 2).substring(0, 500)) + '</pre>' +
+                                '</div>';
+                        }).join('');
+                    } else {
+                        dataEl.innerHTML = '<p class="empty-msg">No data collected yet.</p>';
+                    }
+                }
+            }
+        } catch (_) {}
+    }
+
+    window._interactShell = function(shellId) {
+        alert('Shell interaction for ' + shellId + ' — Use CLI: python main.py --shell-manager --shell-id ' + shellId);
+    };
+
+    /* ---- Live Feed ---- */
+    function startLiveFeed() {
+        if (_livefeedTimer) clearInterval(_livefeedTimer);
+        _livefeedTimer = setInterval(pollLiveFeed, 2000);
+        pollLiveFeed();
+    }
+
+    async function pollLiveFeed() {
+        if (!_livefeedScanId) {
+            // Auto-select
+            var ids = Object.keys(window._knownActive || {});
+            if (ids.length > 0) {
+                _livefeedScanId = ids[0];
+                document.getElementById('livefeed-scan-select').value = _livefeedScanId;
+            } else return;
+        }
+        try {
+            var r = await fetch(API + '/api/pipeline/' + _livefeedScanId + '/events?after=' + _livefeedNextIndex);
+            var j = await r.json();
+            if (j.status !== 'success') return;
+            var events = j.data.events || [];
+            _livefeedNextIndex = j.data.next_index || 0;
+
+            if (events.length > 0) {
+                var container = document.getElementById('livefeed-events');
+                if (container.querySelector('.empty-msg')) container.innerHTML = '';
+
+                events.forEach(function(ev) {
+                    var color = '#c9d1d9';
+                    if (ev.type === 'finding_new') color = 'var(--severity-high)';
+                    else if (ev.type === 'phase_start') color = 'var(--accent)';
+                    else if (ev.type === 'phase_end') color = '#2ecc71';
+                    else if (ev.type === 'route_start') color = 'var(--severity-medium)';
+                    else if (ev.type === 'route_complete') color = '#2ecc71';
+                    else if (ev.type === 'pipeline_complete') color = 'var(--accent)';
+
+                    var ts = ev.timestamp ? new Date(ev.timestamp).toLocaleTimeString() : '';
+                    var detail = '';
+                    if (ev.data) {
+                        if (ev.data.technique) detail = ev.data.technique + (ev.data.severity ? ' [' + ev.data.severity + ']' : '');
+                        else if (ev.data.phase) detail = ev.data.phase;
+                        else detail = JSON.stringify(ev.data).substring(0, 120);
+                    }
+
+                    var line = document.createElement('div');
+                    line.style.cssText = 'padding:0.2rem 0;border-bottom:1px solid rgba(255,255,255,0.05);';
+                    line.innerHTML = '<span style="color:var(--text-muted);min-width:70px;display:inline-block;">' + ts + '</span> ' +
+                        '<span style="color:' + color + ';font-weight:600;min-width:140px;display:inline-block;">' + esc(ev.type) + '</span> ' +
+                        '<span style="color:#c9d1d9;">' + esc(detail) + '</span>';
+                    container.appendChild(line);
+                });
+
+                // Auto-scroll
+                var liveContainer = document.getElementById('livefeed-container');
+                liveContainer.scrollTop = liveContainer.scrollHeight;
+            }
+        } catch (_) {}
+    }
+
     /* ---- Init ---- */
     window._knownActive = {};
     loadStats();
     loadHistory();
     updateTrendChart();
-    setInterval(function() { loadActiveScans(); }, 3000);
+    setInterval(function() { loadActiveScans(); _updateScanSelects(); }, 3000);
     setInterval(function() { updateTrendChart(); }, 15000);
+    setInterval(function() { if (_pipelineScanId) loadPipeline(); }, 2500);
 })();
 </script>
 </body>
