@@ -157,6 +157,8 @@ class AtomicEngine:
             'open_redirect': ('modules.open_redirect', 'OpenRedirectModule'),
             'crlf': ('modules.crlf', 'CRLFModule'),
             'hpp': ('modules.hpp', 'HPPModule'),
+            'graphql': ('modules.graphql', 'GraphQLModule'),
+            'proto_pollution': ('modules.proto_pollution', 'ProtoPollutionModule'),
         }
 
         modules_config = self.config.get('modules', {})
