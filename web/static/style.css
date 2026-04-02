@@ -1,19 +1,21 @@
 /* ATOMIC Framework – Dashboard Styles */
 
 :root {
-    --bg-primary: #1a1a2e;
-    --bg-card: #16213e;
-    --bg-input: #0f3460;
+    --bg-primary: #0d1117;
+    --bg-card: #161b22;
+    --bg-input: #0f1923;
     --accent: #e94560;
     --accent-hover: #ff6b81;
-    --text-primary: #eeeeee;
-    --text-muted: #a0a0b0;
-    --border: #2a2a4a;
+    --accent-glow: rgba(233, 69, 96, 0.3);
+    --text-primary: #e6edf3;
+    --text-muted: #8b949e;
+    --border: #21262d;
     --severity-critical: #dc3545;
     --severity-high: #e74c3c;
     --severity-medium: #f39c12;
     --severity-low: #3498db;
     --severity-info: #6c757d;
+    --success: #2ecc71;
 }
 
 /* Reset */
@@ -22,6 +24,8 @@
 body {
     font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
     background: var(--bg-primary);
+    background-image: radial-gradient(ellipse at 20% 0%, rgba(233, 69, 96, 0.08) 0%, transparent 50%),
+                      radial-gradient(ellipse at 80% 100%, rgba(52, 152, 219, 0.06) 0%, transparent 50%);
     color: var(--text-primary);
     line-height: 1.6;
     min-height: 100vh;
@@ -72,8 +76,8 @@ body {
     transition: background 0.2s, transform 0.1s;
 }
 .btn:active { transform: scale(0.97); }
-.btn-primary { background: var(--accent); color: #fff; }
-.btn-primary:hover { background: var(--accent-hover); }
+.btn-primary { background: var(--accent); color: #fff; box-shadow: 0 2px 12px var(--accent-glow); }
+.btn-primary:hover { background: var(--accent-hover); box-shadow: 0 4px 20px var(--accent-glow); }
 .btn-danger  { background: var(--severity-critical); color: #fff; }
 .btn-danger:hover  { background: #c82333; }
 .btn-sm { padding: 0.3rem 0.7rem; font-size: 0.8rem; }

