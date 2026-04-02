@@ -61,7 +61,7 @@ class TestSQLiModuleInit(unittest.TestCase):
     def test_error_signatures_has_all_db_types(self):
         from modules.sqli import SQLiModule
         mod = SQLiModule(_MockEngine())
-        expected = {'mysql', 'postgresql', 'mssql', 'oracle', 'sqlite', 'generic'}
+        expected = {'mysql', 'postgresql', 'mssql', 'oracle', 'sqlite', 'generic', 'mariadb', 'cockroachdb', 'clickhouse'}
         self.assertEqual(set(mod.error_signatures.keys()), expected)
 
     def test_error_signatures_are_non_empty_lists(self):
