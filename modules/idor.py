@@ -54,7 +54,7 @@ class IDORModule:
         """Test numeric ID for IDOR"""
         try:
             original_id = int(value)
-        except:
+        except (ValueError, TypeError):
             return
         
         # Test adjacent IDs
@@ -78,7 +78,7 @@ class IDORModule:
             
             baseline_len = len(baseline.text)
             baseline_code = baseline.status_code
-        except:
+        except Exception:
             return
         
         # Collect user data matches from baseline for comparison

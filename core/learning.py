@@ -83,7 +83,7 @@ class LearningStore:
             pass
 
     def save(self):
-        """Persist learning data to disk."""
+        """Persist learning data to disk (atomic write)."""
         data = {
             'successful_payloads': self.successful_payloads,
             'failed_payloads': self.failed_payloads,
@@ -95,9 +95,20 @@ class LearningStore:
             'updated': time.time(),
         }
         try:
-            with open(LEARNING_FILE, 'w') as f:
-                json.dump(data, f, indent=2, default=str)
-        except Exception:
+            import tempfile
+            dir_name = os.path.dirname(LEARNING_FILE) or '.'
+            fd, tmp_path = tempfile.mkstemp(dir=dir_name, suffix='.tmp')
+            try:
+                with os.fdopen(fd, 'w') as f:
+                    json.dump(data, f, indent=2, default=str)
+                os.replace(tmp_path, LEARNING_FILE)
+            except Exception:
+                # Clean up temp file on failure
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
+        except (IOError, OSError):
             pass
 
     # ------------------------------------------------------------------

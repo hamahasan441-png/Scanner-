@@ -507,6 +507,18 @@ class InterceptProxy:
                    if k.lower() not in ('host', 'proxy-connection')}
         body_bytes = req.body.encode('utf-8') if req.body else None
 
+        # Reject XML bodies that contain external entity declarations (XXE)
+        if body_bytes:
+            content_type = (headers.get('Content-Type', '') or '').lower()
+            if 'xml' in content_type or (req.body and req.body.lstrip().startswith('<?xml')):
+                body_upper = req.body.upper()
+                if '<!ENTITY' in body_upper or '<!DOCTYPE' in body_upper:
+                    return {
+                        'status': 400,
+                        'headers': {},
+                        'body': 'Request blocked: potentially dangerous XML entity declaration',
+                    }
+
         request = urllib.request.Request(
             url, data=body_bytes, headers=headers, method=req.method,
         )

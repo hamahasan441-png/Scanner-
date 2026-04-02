@@ -3,7 +3,7 @@
 """Unit tests for utils/database.py"""
 
 import unittest
-from datetime import datetime
+from datetime import datetime, timezone
 from config import Config
 
 
@@ -70,7 +70,7 @@ class TestDatabase(unittest.TestCase):
 
     def test_update_scan_modifies_fields(self):
         self.db.save_scan(scan_id="scan-2", target="http://example.com")
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         self.db.update_scan("scan-2", end_time=now, findings_count=5,
                             total_requests=100)
         from utils.database import ScanModel

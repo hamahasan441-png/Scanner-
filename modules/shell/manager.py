@@ -118,8 +118,8 @@ class ShellManager:
             response = requests.get(full_url, timeout=30, verify=False)
             
             # Update last used
-            from datetime import datetime
-            self.db.update_shell(shell_id, last_used=datetime.utcnow())
+            from datetime import datetime, timezone
+            self.db.update_shell(shell_id, last_used=datetime.now(timezone.utc))
             
             return response.text
             

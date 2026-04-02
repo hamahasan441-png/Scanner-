@@ -21,7 +21,7 @@ except ImportError:
         print("[!] SQLAlchemy not installed. Database features disabled.")
         print("    Run: pip install sqlalchemy")
 
-from datetime import datetime
+from datetime import datetime, timezone
 from config import Config, Colors
 
 Base = declarative_base() if SQLALCHEMY_AVAILABLE else None
@@ -35,7 +35,7 @@ class ScanModel(Base if SQLALCHEMY_AVAILABLE else object):
         id = Column(Integer, primary_key=True)
         scan_id = Column(String(50), unique=True, nullable=False)
         target = Column(String(500), nullable=False)
-        start_time = Column(DateTime, default=datetime.utcnow)
+        start_time = Column(DateTime, default=lambda: datetime.now(timezone.utc))
         end_time = Column(DateTime)
         total_requests = Column(Integer, default=0)
         findings_count = Column(Integer, default=0)
@@ -49,7 +49,7 @@ class FindingModel(Base if SQLALCHEMY_AVAILABLE else object):
         
         id = Column(Integer, primary_key=True)
         scan_id = Column(String(50), ForeignKey('scans.scan_id'))
-        timestamp = Column(DateTime, default=datetime.utcnow)
+        timestamp = Column(DateTime, default=lambda: datetime.now(timezone.utc))
         technique = Column(String(100))
         mitre_id = Column(String(20))
         cwe_id = Column(String(20))
@@ -73,7 +73,7 @@ class ShellModel(Base if SQLALCHEMY_AVAILABLE else object):
         url = Column(String(500))
         shell_type = Column(String(50))
         password = Column(String(100))
-        created_at = Column(DateTime, default=datetime.utcnow)
+        created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
         last_used = Column(DateTime)
         status = Column(String(20), default='active')
 
@@ -182,7 +182,7 @@ class Database:
                 'shell_id': s.shell_id,
                 'url': s.url,
                 'shell_type': s.shell_type,
-                'password': s.password,
+                'password': '********' if s.password else None,
                 'created_at': s.created_at,
             } for s in shells]
             session.close()

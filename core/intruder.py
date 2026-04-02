@@ -6,6 +6,7 @@ Intruder - Automated Customized Attack Tool"""
 import copy
 import itertools
 import time
+import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import requests
@@ -338,6 +339,8 @@ class Intruder:
                     position=variation["position"],
                 )
 
+        _results_lock = threading.Lock()
+
         with ThreadPoolExecutor(max_workers=self.threads) as pool:
             futures = {
                 pool.submit(_execute, idx, var): idx
@@ -345,7 +348,8 @@ class Intruder:
             }
             for future in as_completed(futures):
                 result = future.result()
-                self._results.append(result)
+                with _results_lock:
+                    self._results.append(result)
                 if callback:
                     callback(result)
 
