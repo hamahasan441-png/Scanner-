@@ -130,6 +130,11 @@ def _rate_limit(f):
     return decorated
 
 
+def _validate_shell_id(shell_id: str) -> bool:
+    """Validate shell_id format (alphanumeric, dashes, underscores only)."""
+    return bool(re.match(r'^[a-zA-Z0-9_-]+$', shell_id))
+
+
 def _get_db():
     """Get a database instance."""
     if not SQLALCHEMY_AVAILABLE:
@@ -554,7 +559,7 @@ def execute_shell_command(shell_id):
         return jsonify({'status': 'error', 'data': 'No command provided'}), 400
 
     # Validate shell_id format (alphanumeric + dashes only)
-    if not re.match(r'^[a-zA-Z0-9_-]+$', shell_id):
+    if not _validate_shell_id(shell_id):
         return jsonify({'status': 'error', 'data': 'Invalid shell ID'}), 400
 
     try:
@@ -577,7 +582,7 @@ def execute_shell_command(shell_id):
 @_rate_limit
 def shell_info(shell_id):
     """Return details for a specific shell."""
-    if not re.match(r'^[a-zA-Z0-9_-]+$', shell_id):
+    if not _validate_shell_id(shell_id):
         return jsonify({'status': 'error', 'data': 'Invalid shell ID'}), 400
 
     db = _get_db()
@@ -1002,7 +1007,7 @@ if SOCKETIO_AVAILABLE and socketio is not None:
     def handle_subscribe(data):
         """Client wants live events for a specific scan."""
         scan_id = data.get('scan_id', '') if isinstance(data, dict) else ''
-        if not scan_id or not re.match(r'^[a-zA-Z0-9_-]+$', scan_id):
+        if not scan_id or not _validate_shell_id(scan_id):
             return
         scan_info = _active_scans.get(scan_id)
         if scan_info and scan_info.get('engine'):
@@ -1020,7 +1025,7 @@ if SOCKETIO_AVAILABLE and socketio is not None:
         if not shell_id or not cmd:
             emit('shell_output', {'error': 'Missing shell_id or command'})
             return
-        if not re.match(r'^[a-zA-Z0-9_-]+$', shell_id):
+        if not _validate_shell_id(shell_id):
             emit('shell_output', {'error': 'Invalid shell ID'})
             return
         try:
@@ -1059,7 +1064,7 @@ def create_app(host='0.0.0.0', port=5000, debug=False):
         # Use SocketIO runner if available (enables WebSocket), else plain Flask
         if socketio is not None:
             socketio.run(app, host=host, port=port, debug=debug,
-                         allow_unsafe_werkzeug=True)
+                         allow_unsafe_werkzeug=debug)
         else:
             app.run(host=host, port=port, debug=debug)
 

@@ -1187,8 +1187,13 @@
         if (cmd === 'clear') { output.innerHTML = ''; return; }
         if (cmd === 'exit' || cmd === 'quit') { window._closeShellTerminal(); return; }
 
-        output.innerHTML += '<span style="color:var(--text-muted);"><span class="spinner"></span> Executing...</span>\n';
+        output.innerHTML += '<span style="color:var(--text-muted);" id="shell-spinner"><span class="spinner"></span> Executing...</span>\n';
         output.scrollTop = output.scrollHeight;
+
+        function _removeSpinner() {
+            var spinner = document.getElementById('shell-spinner');
+            if (spinner) spinner.remove();
+        }
 
         try {
             // Try WebSocket first, fall back to REST API
@@ -1201,10 +1206,7 @@
                     body: JSON.stringify({ command: cmd }),
                 });
                 var j = await r.json();
-                // Remove the "Executing..." line
-                var lines = output.innerHTML.split('\n');
-                lines = lines.filter(function(l) { return l.indexOf('Executing...') === -1; });
-                output.innerHTML = lines.join('\n');
+                _removeSpinner();
 
                 if (j.status === 'success' && j.data) {
                     output.innerHTML += esc(j.data.output || '(empty)') + '\n';
@@ -1213,9 +1215,7 @@
                 }
             }
         } catch (e) {
-            var lines2 = output.innerHTML.split('\n');
-            lines2 = lines2.filter(function(l) { return l.indexOf('Executing...') === -1; });
-            output.innerHTML = lines2.join('\n');
+            _removeSpinner();
             output.innerHTML += '<span style="color:var(--severity-critical);">Connection error</span>\n';
         }
         output.scrollTop = output.scrollHeight;
@@ -1363,10 +1363,9 @@
                     if (!data) return;
                     var output = document.getElementById('shell-terminal-output');
                     if (!output) return;
-                    // Remove "Executing..." spinner
-                    var lines = output.innerHTML.split('\n');
-                    lines = lines.filter(function(l) { return l.indexOf('Executing...') === -1; });
-                    output.innerHTML = lines.join('\n');
+                    // Remove spinner
+                    var spinner = document.getElementById('shell-spinner');
+                    if (spinner) spinner.remove();
 
                     if (data.error) {
                         output.innerHTML += '<span style="color:var(--severity-critical);">' + esc(data.error) + '</span>\n';

@@ -221,7 +221,9 @@ class AtomicEngine:
         if getattr(self, 'attack_router', None) is not None:
             try:
                 attack_routes = self.attack_router.get_pipeline_state()
-            except Exception:
+            except Exception as exc:
+                if self.config.get('verbose'):
+                    print(f"{Colors.warning(f'Attack router state error: {exc}')}")
                 attack_routes = None
 
         return {

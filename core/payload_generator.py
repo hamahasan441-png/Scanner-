@@ -456,19 +456,20 @@ class PayloadGenerator:
         payload_safe = self._escape_shell(finding.payload)
         if finding.method.upper() == 'GET':
             sep = '&' if '?' in finding.url else '?'
-            return f"curl -v '{finding.url}{sep}{finding.param}={payload_safe}'"
+            return f"curl -v '{finding.url}{sep}{finding.param}='{payload_safe}"
         else:
             return (
                 f"curl -v -X POST '{finding.url}' "
-                f"-d '{finding.param}={payload_safe}'"
+                f"-d '{finding.param}='{payload_safe}"
             )
 
     @staticmethod
     def _escape_shell(value: str) -> str:
-        """Escape a string for safe use in a single-quoted shell argument."""
+        """Escape a string for safe use in a shell argument."""
         if not value:
             return ''
-        return value.replace("'", "'\\''")
+        import shlex
+        return shlex.quote(value)
 
     @staticmethod
     def _generate_steps(finding, family: str) -> list:
