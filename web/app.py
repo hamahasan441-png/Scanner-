@@ -848,7 +848,8 @@ def generate_poc(scan_id, finding_index):
         poc = generator.generate_poc(engine.findings[finding_index])
         return jsonify({'status': 'success', 'data': poc})
     except Exception as exc:
-        return jsonify({'status': 'error', 'data': str(exc)}), 500
+        logger.error('POC generation error: %s', exc)
+        return jsonify({'status': 'error', 'data': 'POC generation failed'}), 500
 
 
 @app.route('/api/attack-route/<scan_id>', methods=['POST'])
@@ -879,7 +880,7 @@ def trigger_attack_route(scan_id):
         })
     except Exception as exc:
         logger.error('Attack router error: %s', exc)
-        return jsonify({'status': 'error', 'data': str(exc)}), 500
+        return jsonify({'status': 'error', 'data': 'Attack routing failed'}), 500
 
 
 # ---------------------------------------------------------------------------
