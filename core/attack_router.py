@@ -110,7 +110,11 @@ ROUTE_TABLE = {
 }
 
 # Technique string → family classification
+# NOTE: More specific patterns must come before generic ones
+# (e.g., 'nosql' before 'sql', 'blind sql' before 'sql')
 _CLASSIFY_MAP = [
+    ('nosql', 'nosql'),
+    ('mongodb', 'nosql'),
     ('sql injection', 'sqli'),
     ('sqli', 'sqli'),
     ('blind sql', 'sqli'),
@@ -143,8 +147,6 @@ _CLASSIFY_MAP = [
     ('xml external', 'xxe'),
     ('idor', 'idor'),
     ('insecure direct', 'idor'),
-    ('nosql', 'nosql'),
-    ('mongodb', 'nosql'),
     ('deserialization', 'deserialization'),
     ('unserialize', 'deserialization'),
     ('cve-', 'cve'),
