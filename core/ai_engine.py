@@ -806,13 +806,16 @@ class AIEngine:
         active_factors = []
 
         # WAF increases difficulty
-        if hasattr(self.engine, 'adaptive') and self.engine.adaptive.waf_detected:
+        if hasattr(self.engine, 'adaptive') and hasattr(self.engine.adaptive, 'waf_detected') and self.engine.adaptive.waf_detected:
             if 'waf' in difficulty_info['factors']:
                 base_difficulty += 0.2
                 active_factors.append('waf_detected')
 
         # High block rate increases difficulty
-        if hasattr(self.engine, 'adaptive'):
+        if (hasattr(self.engine, 'adaptive')
+                and hasattr(self.engine.adaptive, 'blocked_count')
+                and hasattr(self.engine.adaptive, 'total_tested')
+                and isinstance(self.engine.adaptive.total_tested, (int, float))):
             block_rate = self.engine.adaptive.blocked_count / max(self.engine.adaptive.total_tested, 1)
             if block_rate > 0.3:
                 base_difficulty += 0.15
