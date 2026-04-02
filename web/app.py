@@ -29,6 +29,12 @@ try:
 except ImportError:
     FLASK_AVAILABLE = False
 
+try:
+    from flask_socketio import SocketIO, emit
+    SOCKETIO_AVAILABLE = True
+except ImportError:
+    SOCKETIO_AVAILABLE = False
+
 logger = logging.getLogger(__name__)
 
 app = Flask(
@@ -42,6 +48,11 @@ app.config['SECRET_KEY'] = os.environ.get('ATOMIC_SECRET_KEY', uuid.uuid4().hex)
 
 if FLASK_AVAILABLE:
     CORS(app)
+
+# SocketIO for real-time updates (falls back to polling if unavailable)
+socketio = None
+if SOCKETIO_AVAILABLE:
+    socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 
 _active_scans = {}
 _scans_lock = threading.Lock()
@@ -119,6 +130,11 @@ def _rate_limit(f):
     return decorated
 
 
+def _validate_shell_id(shell_id: str) -> bool:
+    """Validate shell_id format (alphanumeric, dashes, underscores only)."""
+    return bool(re.match(r'^[a-zA-Z0-9_-]+$', shell_id))
+
+
 def _get_db():
     """Get a database instance."""
     if not SQLALCHEMY_AVAILABLE:
@@ -129,6 +145,15 @@ def _get_db():
         return None
 
 
+def _emit_ws(event, data):
+    """Emit a WebSocket event to all connected clients (no-op if SocketIO unavailable)."""
+    if socketio is not None:
+        try:
+            socketio.emit(event, data, namespace='/')
+        except Exception:
+            pass
+
+
 def _run_scan(scan_id, target, config):
     """Background scan runner."""
     with _scans_lock:
@@ -137,22 +162,35 @@ def _run_scan(scan_id, target, config):
             'target': target,
             'start_time': datetime.now(timezone.utc).isoformat(),
             'findings': 0,
+            'engine': None,
+            'pipeline': {'phase': 'init', 'events': []},
         }
+    _emit_ws('scan_started', {'scan_id': scan_id, 'target': target})
     try:
         engine = AtomicEngine(config)
         engine.scan_id = scan_id
+        # Attach a live-event callback so the engine pushes events to SocketIO
+        engine._ws_callback = lambda evt, d: _emit_ws(evt, {**d, 'scan_id': scan_id})
+        with _scans_lock:
+            _active_scans[scan_id]['engine'] = engine
         engine.scan(target)
         engine.generate_reports()
         with _scans_lock:
             _active_scans[scan_id]['status'] = 'completed'
             _active_scans[scan_id]['findings'] = len(engine.findings)
             _active_scans[scan_id]['end_time'] = datetime.now(timezone.utc).isoformat()
+            _active_scans[scan_id]['pipeline'] = engine.get_pipeline_state()
+        _emit_ws('scan_completed', {
+            'scan_id': scan_id,
+            'findings': len(engine.findings),
+        })
     except Exception as exc:
         logger.exception("Scan %s failed", scan_id)
         with _scans_lock:
             _active_scans[scan_id]['status'] = 'failed'
             _active_scans[scan_id]['error'] = str(exc)
             _active_scans[scan_id]['end_time'] = datetime.now(timezone.utc).isoformat()
+        _emit_ws('scan_failed', {'scan_id': scan_id})
 
 
 # ---------------------------------------------------------------------------
@@ -296,11 +334,18 @@ def start_scan():
     modules_dict = {}
     for key in all_module_keys:
         modules_dict[key] = full_scan or (key in modules)
+
+    auto_exploit = body.get('auto_exploit', False)
     modules_dict.update({
-        'recon': full_scan, 'subdomains': full_scan,
-        'tech_detect': full_scan, 'dir_brute': full_scan,
+        'recon': full_scan or body.get('recon', False),
+        'subdomains': full_scan,
+        'tech_detect': full_scan,
+        'dir_brute': full_scan,
         'shell': False, 'dump': False, 'os_shell': False,
-        'brute': False, 'exploit_chain': False, 'ports': None,
+        'brute': body.get('brute', False),
+        'exploit_chain': False,
+        'ports': body.get('ports'),
+        'auto_exploit': auto_exploit or full_scan,
     })
 
     # Launch one scan thread per valid target; share the same scan_id prefix
@@ -350,9 +395,20 @@ def start_scan():
 @_require_api_key
 @_rate_limit
 def scan_status(scan_id):
-    """Return the current status of a scan."""
+    """Return the current status of a scan including pipeline state.
+
+    For active scans the response includes real-time pipeline data from the
+    engine (phase, events, attack routes).  The internal ``engine`` reference
+    is never serialised into the JSON response.
+    """
     if scan_id in _active_scans:
-        return jsonify({'status': 'success', 'data': _active_scans[scan_id]})
+        info = dict(_active_scans[scan_id])
+        # Add live pipeline data from engine (exclude engine object from JSON)
+        engine = info.pop('engine', None)
+        if engine and hasattr(engine, 'get_pipeline_state'):
+            info['pipeline'] = engine.get_pipeline_state()
+            info['findings'] = len(engine.findings)
+        return jsonify({'status': 'success', 'data': info})
 
     db = _get_db()
     if db is not None:
@@ -481,10 +537,78 @@ def list_shells():
                 'url': s.get('url', ''),
                 'shell_type': s.get('shell_type', ''),
                 'created_at': str(s.get('created_at', '')),
+                'password': s.get('password', 'cmd'),
             })
         return jsonify({'status': 'success', 'data': data})
     except Exception as exc:
-        return jsonify({'status': 'error', 'data': str(exc)}), 500
+        return jsonify({'status': 'error', 'data': 'Failed to list shells'}), 500
+
+
+@app.route('/api/shell/<shell_id>/execute', methods=['POST'])
+@_require_api_key
+@_rate_limit
+def execute_shell_command(shell_id):
+    """Execute a command on a deployed shell.
+
+    Expects JSON body: {"command": "ls -la"}
+    Returns the command output.
+    """
+    body = request.get_json(silent=True) or {}
+    cmd = body.get('command', '').strip()
+    if not cmd:
+        return jsonify({'status': 'error', 'data': 'No command provided'}), 400
+
+    # Validate shell_id format (alphanumeric + dashes only)
+    if not _validate_shell_id(shell_id):
+        return jsonify({'status': 'error', 'data': 'Invalid shell ID'}), 400
+
+    try:
+        from modules.shell.manager import ShellManager
+        manager = ShellManager()
+        result = manager.execute_command(shell_id, cmd)
+        # Sanitize output: strip ANSI color codes and limit length
+        clean_result = re.sub(r'\x1b\[[0-9;]*m', '', result) if result else ''
+        _emit_ws('shell_command', {
+            'shell_id': shell_id,
+            'command': cmd,
+            'output_length': len(clean_result),
+        })
+        return jsonify({'status': 'success', 'data': {'output': clean_result[:50000]}})
+    except Exception as exc:
+        logger.error('Shell execute error: %s', exc)
+        return jsonify({'status': 'error', 'data': 'Command execution failed'}), 500
+
+
+@app.route('/api/shell/<shell_id>/info', methods=['GET'])
+@_require_api_key
+@_rate_limit
+def shell_info(shell_id):
+    """Return details for a specific shell."""
+    if not _validate_shell_id(shell_id):
+        return jsonify({'status': 'error', 'data': 'Invalid shell ID'}), 400
+
+    db = _get_db()
+    if db is None:
+        return jsonify({'status': 'error', 'data': 'Database unavailable'}), 500
+
+    try:
+        shells = db.get_shells()
+        for s in shells:
+            if s.get('shell_id', '') == shell_id or s.get('shell_id', '').startswith(shell_id):
+                return jsonify({
+                    'status': 'success',
+                    'data': {
+                        'shell_id': s.get('shell_id', ''),
+                        'url': s.get('url', ''),
+                        'shell_type': s.get('shell_type', ''),
+                        'created_at': str(s.get('created_at', '')),
+                        'last_used': str(s.get('last_used', '')),
+                        'password': s.get('password', 'cmd'),
+                    },
+                })
+        return jsonify({'status': 'error', 'data': 'Shell not found'}), 404
+    except Exception:
+        return jsonify({'status': 'error', 'data': 'Failed to get shell info'}), 500
 
 
 @app.route('/api/exploit/<scan_id>', methods=['POST'])
@@ -704,6 +828,223 @@ def api_list_encodings():
 
 
 # ---------------------------------------------------------------------------
+# Pipeline & Live Feed endpoints (Partition 3 - Dashboard)
+# ---------------------------------------------------------------------------
+
+@app.route('/api/pipeline/<scan_id>', methods=['GET'])
+@_require_api_key
+@_rate_limit
+def get_pipeline(scan_id):
+    """Return the real-time pipeline state for a scan."""
+    scan_info = _active_scans.get(scan_id)
+    if scan_info is None:
+        return jsonify({'status': 'error', 'data': 'Scan not found'}), 404
+
+    engine = scan_info.get('engine')
+    if engine and hasattr(engine, 'get_pipeline_state'):
+        pipeline = engine.get_pipeline_state()
+    else:
+        pipeline = scan_info.get('pipeline', {})
+
+    return jsonify({'status': 'success', 'data': pipeline})
+
+
+@app.route('/api/pipeline/<scan_id>/events', methods=['GET'])
+@_require_api_key
+@_rate_limit
+def get_pipeline_events(scan_id):
+    """Return pipeline events (optionally filtered by after_index)."""
+    scan_info = _active_scans.get(scan_id)
+    if scan_info is None:
+        return jsonify({'status': 'error', 'data': 'Scan not found'}), 404
+
+    engine = scan_info.get('engine')
+    after = request.args.get('after', 0, type=int)
+
+    events = []
+    if engine and hasattr(engine, 'pipeline'):
+        events = engine.pipeline.get('events', [])
+
+    # Return only events after the given index for incremental polling
+    filtered = events[after:]
+    return jsonify({
+        'status': 'success',
+        'data': {
+            'events': filtered,
+            'total': len(events),
+            'next_index': len(events),
+        },
+    })
+
+
+@app.route('/api/exploit-results/<scan_id>', methods=['GET'])
+@_require_api_key
+@_rate_limit
+def get_exploit_results(scan_id):
+    """Return exploitation results from the attack router."""
+    scan_info = _active_scans.get(scan_id)
+    if scan_info is None:
+        return jsonify({'status': 'error', 'data': 'Scan not found'}), 404
+
+    engine = scan_info.get('engine')
+    results = {
+        'attack_routes': [],
+        'post_exploit': [],
+        'shells': [],
+        'poc_data': [],
+    }
+
+    if engine:
+        # Attack router results
+        if hasattr(engine, 'attack_router') and engine.attack_router:
+            state = engine.attack_router.get_pipeline_state()
+            results['attack_routes'] = state.get('routes', [])
+
+        # Post-exploitation results
+        if hasattr(engine, 'post_exploit_results') and engine.post_exploit_results:
+            if isinstance(engine.post_exploit_results, list):
+                for r in engine.post_exploit_results:
+                    if isinstance(r, dict):
+                        results['post_exploit'].append(r)
+
+    # Shells from database
+    db = _get_db()
+    if db:
+        try:
+            shells = db.get_shells()
+            results['shells'] = [
+                {
+                    'shell_id': s.get('shell_id', ''),
+                    'url': s.get('url', ''),
+                    'shell_type': s.get('shell_type', ''),
+                    'created_at': str(s.get('created_at', '')),
+                }
+                for s in shells
+            ]
+        except Exception:
+            pass
+
+    return jsonify({'status': 'success', 'data': results})
+
+
+@app.route('/api/generate-poc/<scan_id>/<int:finding_index>', methods=['POST'])
+@_require_api_key
+@_rate_limit
+def generate_poc(scan_id, finding_index):
+    """Generate a POC for a specific finding."""
+    scan_info = _active_scans.get(scan_id)
+    if scan_info is None:
+        return jsonify({'status': 'error', 'data': 'Scan not found'}), 404
+
+    engine = scan_info.get('engine')
+    if engine is None or not engine.findings:
+        return jsonify({'status': 'error', 'data': 'No findings available'}), 400
+
+    if finding_index < 0 or finding_index >= len(engine.findings):
+        return jsonify({'status': 'error', 'data': 'Invalid finding index'}), 400
+
+    try:
+        from core.payload_generator import PayloadGenerator
+        generator = PayloadGenerator()
+        poc = generator.generate_poc(engine.findings[finding_index])
+        return jsonify({'status': 'success', 'data': poc})
+    except Exception as exc:
+        logger.error('POC generation error: %s', exc)
+        return jsonify({'status': 'error', 'data': 'POC generation failed'}), 500
+
+
+@app.route('/api/attack-route/<scan_id>', methods=['POST'])
+@_require_api_key
+@_rate_limit
+def trigger_attack_route(scan_id):
+    """Manually trigger the attack router for a scan's findings."""
+    scan_info = _active_scans.get(scan_id)
+    if scan_info is None:
+        return jsonify({'status': 'error', 'data': 'Scan not found'}), 404
+
+    engine = scan_info.get('engine')
+    if engine is None or not engine.findings:
+        return jsonify({'status': 'error', 'data': 'No findings to route'}), 400
+
+    try:
+        from core.attack_router import AttackRouter
+        router = AttackRouter(engine)
+        routes = router.route(engine.findings)
+        results = router.execute(routes)
+        engine.attack_router = router
+        return jsonify({
+            'status': 'success',
+            'data': {
+                'routes_planned': len(routes),
+                'results': results,
+            },
+        })
+    except Exception as exc:
+        logger.error('Attack router error: %s', exc)
+        return jsonify({'status': 'error', 'data': 'Attack routing failed'}), 500
+
+
+# ---------------------------------------------------------------------------
+# SocketIO event handlers (real-time WebSocket updates)
+# ---------------------------------------------------------------------------
+
+if SOCKETIO_AVAILABLE and socketio is not None:
+    @socketio.on('connect')
+    def handle_connect():
+        """Client connected — send current active scans."""
+        with _scans_lock:
+            active = {
+                sid: {
+                    'status': info.get('status'),
+                    'target': info.get('target'),
+                    'findings': info.get('findings', 0),
+                    'start_time': info.get('start_time'),
+                }
+                for sid, info in _active_scans.items()
+                if info.get('status') == 'running'
+            }
+        emit('active_scans', active)
+
+    @socketio.on('subscribe_scan')
+    def handle_subscribe(data):
+        """Client wants live events for a specific scan."""
+        scan_id = data.get('scan_id', '') if isinstance(data, dict) else ''
+        if not scan_id or not _validate_shell_id(scan_id):
+            return
+        scan_info = _active_scans.get(scan_id)
+        if scan_info and scan_info.get('engine'):
+            engine = scan_info['engine']
+            if hasattr(engine, 'get_pipeline_state'):
+                emit('pipeline_state', engine.get_pipeline_state())
+
+    @socketio.on('shell_command')
+    def handle_shell_command(data):
+        """Execute a shell command via WebSocket."""
+        if not isinstance(data, dict):
+            return
+        shell_id = data.get('shell_id', '')
+        cmd = data.get('command', '').strip()
+        if not shell_id or not cmd:
+            emit('shell_output', {'error': 'Missing shell_id or command'})
+            return
+        if not _validate_shell_id(shell_id):
+            emit('shell_output', {'error': 'Invalid shell ID'})
+            return
+        try:
+            from modules.shell.manager import ShellManager
+            manager = ShellManager()
+            result = manager.execute_command(shell_id, cmd)
+            emit('shell_output', {
+                'shell_id': shell_id,
+                'command': cmd,
+                'output': result or '',
+            })
+        except Exception as exc:
+            logger.error('WS shell execute error: %s', exc)
+            emit('shell_output', {'error': 'Command execution failed'})
+
+
+# ---------------------------------------------------------------------------
 # App factory & runner
 # ---------------------------------------------------------------------------
 
@@ -722,7 +1063,12 @@ def create_app(host='0.0.0.0', port=5000, debug=False):
         else:
             logger.warning("No ATOMIC_API_KEY set — API endpoints are open")
         logger.warning("FOR AUTHORIZED TESTING ONLY")
-        app.run(host=host, port=port, debug=debug)
+        # Use SocketIO runner if available (enables WebSocket), else plain Flask
+        if socketio is not None:
+            socketio.run(app, host=host, port=port, debug=debug,
+                         allow_unsafe_werkzeug=debug)
+        else:
+            app.run(host=host, port=port, debug=debug)
 
     return app, run_app
 

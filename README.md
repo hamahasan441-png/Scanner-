@@ -32,7 +32,7 @@ python main.py -t https://target.com --full --evasion insane --waf-bypass
 ## Features
 
 ### 🚀 Flask Web Dashboard
-- **Real-time scanning** with live WebSocket status updates
+- **Real-time scanning** with live WebSocket status updates (SocketIO with polling fallback)
 - **Dark-themed UI** with severity-coded findings
 - **Scan management** — start, monitor, cancel, delete scans from browser
 - **Report downloads** — HTML, JSON, CSV, TXT, PDF, XML, SARIF
