@@ -723,5 +723,48 @@ class TestSQLiDumpDatabase(unittest.TestCase):
         self.assertEqual(results, [])
 
 
+class TestSQLiSecondOrder(unittest.TestCase):
+    def test_second_order_detects_error(self):
+        from modules.sqli import SQLiModule
+        responses = [_MockResponse()] * 5 + [_MockResponse(text='you have an error in your sql syntax')] * 30
+        engine = _MockEngine(responses)
+        mod = SQLiModule(engine)
+        mod._test_second_order('http://target.com/register', 'POST', 'username', 'admin')
+        self.assertTrue(any('Second-Order' in f.technique for f in engine.findings))
+
+    def test_second_order_no_error(self):
+        from modules.sqli import SQLiModule
+        engine = _MockEngine([_MockResponse(text='OK')] * 50)
+        mod = SQLiModule(engine)
+        mod._test_second_order('http://target.com/register', 'POST', 'username', 'admin')
+        self.assertEqual(len([f for f in engine.findings if 'Second-Order' in f.technique]), 0)
+
+
+class TestSQLiOOB(unittest.TestCase):
+    def test_oob_payload_sent(self):
+        from modules.sqli import SQLiModule
+        engine = _MockEngine([_MockResponse()] * 5)
+        mod = SQLiModule(engine)
+        mod._test_oob_sqli('http://target.com/', 'GET', 'id', '1')
+        self.assertTrue(any('OOB' in f.technique for f in engine.findings))
+
+
+class TestSQLiWAFBypass(unittest.TestCase):
+    def test_waf_bypass_detects_error(self):
+        from modules.sqli import SQLiModule
+        resp = _MockResponse(text='you have an error in your sql syntax near UNION')
+        engine = _MockEngine([resp] * 20)
+        mod = SQLiModule(engine)
+        mod._test_waf_bypass_payloads('http://target.com/', 'GET', 'id', '1')
+        self.assertTrue(any('WAF Bypass' in f.technique for f in engine.findings))
+
+    def test_new_db_signatures(self):
+        from modules.sqli import SQLiModule
+        mod = SQLiModule(_MockEngine())
+        self.assertIn('mariadb', mod.error_signatures)
+        self.assertIn('cockroachdb', mod.error_signatures)
+        self.assertIn('clickhouse', mod.error_signatures)
+
+
 if __name__ == '__main__':
     unittest.main()

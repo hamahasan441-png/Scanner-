@@ -499,5 +499,35 @@ class TestXSSTestUrl(unittest.TestCase):
         self.assertIsNone(result)
 
 
+class TestXSSBlindCallback(unittest.TestCase):
+    def test_blind_xss_injected(self):
+        from modules.xss import XSSModule
+        engine = _MockEngine([_MockResponse()] * 5, config={'verbose': False, 'waf_bypass': False, 'callback_domain': 'test.example.com'})
+        mod = XSSModule(engine)
+        mod._test_blind_xss('http://target.com/', 'GET', 'q', 'test')
+        self.assertTrue(any('Blind XSS' in f.technique for f in engine.findings))
+
+
+class TestXSSPolyglot(unittest.TestCase):
+    def test_polyglot_reflected(self):
+        from modules.xss import XSSModule
+        payload = "'-alert()-'"
+        resp = _MockResponse(text=f"Search results for: {payload}")
+        engine = _MockEngine([resp] * 10)
+        mod = XSSModule(engine)
+        mod._test_polyglot('http://target.com/', 'GET', 'q', 'test')
+        self.assertTrue(any('Polyglot' in f.technique for f in engine.findings))
+
+
+class TestXSSmXSS(unittest.TestCase):
+    def test_mxss_onerror_reflected(self):
+        from modules.xss import XSSModule
+        resp = _MockResponse(text='<div>test onerror= content</div>')
+        engine = _MockEngine([resp] * 10)
+        mod = XSSModule(engine)
+        mod._test_mxss('http://target.com/', 'GET', 'q', 'test')
+        self.assertTrue(any('mXSS' in f.technique for f in engine.findings))
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -418,5 +418,25 @@ class TestSSTIIntegration(unittest.TestCase):
         self.assertIn('49', engine.findings[0].evidence)
 
 
+class TestSSTISandboxEscape(unittest.TestCase):
+    def test_sandbox_escape_detected(self):
+        from modules.ssti import SSTIModule
+        resp = _MockResponse(text='uid=0(root) gid=0(root)')
+        engine = _MockEngine([resp] * 10)
+        mod = SSTIModule(engine)
+        mod._test_sandbox_escape('http://target.com/', 'GET', 'name', 'test')
+        self.assertTrue(any('Sandbox Escape' in f.technique for f in engine.findings))
+
+
+class TestSSTIAdditionalEngines(unittest.TestCase):
+    def test_ejs_detected(self):
+        from modules.ssti import SSTIModule
+        resp = _MockResponse(text='Result: 49')
+        engine = _MockEngine([resp] * 10)
+        mod = SSTIModule(engine)
+        mod._test_additional_engines('http://target.com/', 'GET', 'name', 'test')
+        self.assertTrue(any('Ejs' in f.technique or 'ejs' in f.technique.lower() for f in engine.findings))
+
+
 if __name__ == '__main__':
     unittest.main()
