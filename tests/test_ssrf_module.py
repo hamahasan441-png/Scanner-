@@ -64,7 +64,7 @@ class TestSSRFModuleInit(unittest.TestCase):
     def test_cloud_endpoints_has_expected_providers(self):
         from modules.ssrf import SSRFModule
         mod = SSRFModule(_MockEngine())
-        expected = {'aws', 'gcp', 'azure', 'digitalocean', 'alibaba'}
+        expected = {'aws', 'gcp', 'azure', 'digitalocean', 'alibaba', 'aws_imdsv2', 'kubernetes'}
         self.assertEqual(set(mod.cloud_endpoints.keys()), expected)
 
     def test_cloud_endpoints_are_non_empty(self):
