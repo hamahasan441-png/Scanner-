@@ -393,7 +393,8 @@ class ContextIntelligence:
             )
             print(f"{Colors.info(f'Context analysis: {len(enriched)} inputs ({skipped} filtered), {high_count} with high-confidence predictions')}")
             if self.detected_tech:
-                print(f"{Colors.info(f'Detected tech: {", ".join(sorted(self.detected_tech))}')}")
+                tech_list = ", ".join(sorted(self.detected_tech))
+                print(f"{Colors.info(f'Detected tech: {tech_list}')}")
 
         return enriched
 
