@@ -39,6 +39,18 @@ class LearningStore:
             'baseline_samples': 3,
         }
 
+        # Domain intelligence: domain → {vulns_found, tech_stack, scan_count}
+        self.domain_profiles = {}
+        # Payload effectiveness by tech stack: tech → vuln_type → [payloads]
+        self.tech_payload_history = {}
+        # Signal weight learning: tracks which signals correlate with true findings
+        self.signal_accuracy = {
+            'timing': {'true_positive': 0, 'false_positive': 0},
+            'error': {'true_positive': 0, 'false_positive': 0},
+            'reflection': {'true_positive': 0, 'false_positive': 0},
+            'diff': {'true_positive': 0, 'false_positive': 0},
+        }
+
         self._load()
 
     # ------------------------------------------------------------------
@@ -57,9 +69,16 @@ class LearningStore:
             self.endpoint_patterns = data.get('endpoint_patterns', {})
             stored_thresholds = data.get('thresholds', {})
             self.thresholds.update(stored_thresholds)
+            self.domain_profiles = data.get('domain_profiles', {})
+            self.tech_payload_history = data.get('tech_payload_history', {})
+            self.signal_accuracy = data.get('signal_accuracy', self.signal_accuracy)
             if self.verbose:
                 total = sum(sum(v.values()) for v in self.successful_payloads.values())
-                print(f"{Colors.info(f'Loaded learning data: {total} successful patterns')}")
+                domains = len(self.domain_profiles)
+                msg = f'Loaded learning data: {total} successful patterns'
+                if domains:
+                    msg += f', {domains} domain profiles'
+                print(f"{Colors.info(msg)}")
         except Exception:
             pass
 
@@ -70,6 +89,9 @@ class LearningStore:
             'failed_payloads': self.failed_payloads,
             'endpoint_patterns': self.endpoint_patterns,
             'thresholds': self.thresholds,
+            'domain_profiles': self.domain_profiles,
+            'tech_payload_history': self.tech_payload_history,
+            'signal_accuracy': self.signal_accuracy,
             'updated': time.time(),
         }
         try:
@@ -150,3 +172,119 @@ class LearningStore:
         ]
         if diff_findings and len(diff_findings) >= 3:
             self.thresholds['diff_min_chars'] = max(30, self.thresholds['diff_min_chars'] - 5)
+
+    # ------------------------------------------------------------------
+    # Domain Intelligence
+    # ------------------------------------------------------------------
+
+    def record_domain_profile(self, domain, tech_stack, vulns_found):
+        """Record intelligence about a scanned domain."""
+        profile = self.domain_profiles.setdefault(domain, {
+            'scan_count': 0,
+            'total_vulns': 0,
+            'tech_stack': [],
+            'vuln_types': {},
+            'last_scan': 0,
+        })
+        profile['scan_count'] += 1
+        profile['total_vulns'] += len(vulns_found)
+        profile['tech_stack'] = list(set(profile.get('tech_stack', []) + list(tech_stack)))
+        profile['last_scan'] = time.time()
+        for vuln in vulns_found:
+            vuln_type = vuln if isinstance(vuln, str) else getattr(vuln, 'technique', 'unknown')
+            profile['vuln_types'][vuln_type] = profile['vuln_types'].get(vuln_type, 0) + 1
+
+    def get_domain_intelligence(self, domain):
+        """Return stored intelligence for a domain, or None."""
+        return self.domain_profiles.get(domain)
+
+    # ------------------------------------------------------------------
+    # Tech-Payload Learning
+    # ------------------------------------------------------------------
+
+    def record_tech_payload_success(self, tech, vuln_type, payload):
+        """Record that a payload worked for a specific tech stack."""
+        tech_bucket = self.tech_payload_history.setdefault(tech, {})
+        vuln_bucket = tech_bucket.setdefault(vuln_type, {})
+        vuln_bucket[payload] = vuln_bucket.get(payload, 0) + 1
+
+    def get_tech_priority_payloads(self, tech, vuln_type, all_payloads):
+        """Re-order payloads based on tech-specific history."""
+        tech_data = self.tech_payload_history.get(tech, {})
+        vuln_data = tech_data.get(vuln_type, {})
+        if not vuln_data:
+            return all_payloads
+
+        def sort_key(payload):
+            return -vuln_data.get(payload, 0)
+
+        return sorted(all_payloads, key=sort_key)
+
+    # ------------------------------------------------------------------
+    # Signal Weight Learning
+    # ------------------------------------------------------------------
+
+    def record_signal_outcome(self, signal_name, was_true_positive):
+        """Record whether a signal led to a true or false positive."""
+        if signal_name not in self.signal_accuracy:
+            return
+        if was_true_positive:
+            self.signal_accuracy[signal_name]['true_positive'] += 1
+        else:
+            self.signal_accuracy[signal_name]['false_positive'] += 1
+
+    def get_signal_weights(self):
+        """Return learned signal weights for the scorer.
+
+        Adjusts weights based on observed signal accuracy. Signals that
+        produce more true positives get higher weights.
+        """
+        base_weights = {
+            'timing': 3,
+            'error': 2,
+            'reflection': 2,
+            'diff': 1,
+        }
+
+        # Check if we have enough data to adjust
+        total_outcomes = sum(
+            s['true_positive'] + s['false_positive']
+            for s in self.signal_accuracy.values()
+        )
+        if total_outcomes < 20:
+            return self.thresholds.get('signal_weights', base_weights)
+
+        adjusted = {}
+        for signal, base_weight in base_weights.items():
+            accuracy = self.signal_accuracy.get(signal, {})
+            tp = accuracy.get('true_positive', 0)
+            fp = accuracy.get('false_positive', 0)
+            total = tp + fp
+            if total >= 5:
+                precision = tp / total
+                # Scale weight: high precision → boost, low precision → dampen
+                adjusted[signal] = max(0.5, base_weight * (0.5 + precision))
+            else:
+                adjusted[signal] = base_weight
+
+        return adjusted
+
+    def get_learning_summary(self):
+        """Return a summary of learning store state."""
+        total_success = sum(sum(v.values()) for v in self.successful_payloads.values())
+        total_fail = sum(sum(v.values()) for v in self.failed_payloads.values())
+        return {
+            'successful_patterns': total_success,
+            'failed_patterns': total_fail,
+            'endpoint_patterns': len(self.endpoint_patterns),
+            'domain_profiles': len(self.domain_profiles),
+            'tech_profiles': len(self.tech_payload_history),
+            'signal_accuracy': {
+                k: {
+                    'precision': (
+                        v['true_positive'] / max(v['true_positive'] + v['false_positive'], 1)
+                    )
+                }
+                for k, v in self.signal_accuracy.items()
+            },
+        }

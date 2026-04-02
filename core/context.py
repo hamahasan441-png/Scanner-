@@ -172,6 +172,10 @@ class ContextIntelligence:
         self.engine = engine
         self.verbose = engine.config.get('verbose', False)
         self.detected_tech = set()
+        # Response fingerprint cache for pattern intelligence
+        self._response_fingerprints = {}
+        # Behavior patterns: param → observed behaviors
+        self._behavior_patterns = {}
 
     # ------------------------------------------------------------------
     # Input filtering (§3 of the pipeline)
@@ -398,3 +402,84 @@ class ContextIntelligence:
         predictions = enriched_param.get('predictions', {})
         sorted_vulns = sorted(predictions.items(), key=lambda x: x[1], reverse=True)
         return [(vuln, weight) for vuln, weight in sorted_vulns if weight > 0]
+
+    # ------------------------------------------------------------------
+    # Response Pattern Intelligence (§5)
+    # ------------------------------------------------------------------
+
+    def record_response_fingerprint(self, url, param, response):
+        """Record response fingerprint for pattern-based intelligence."""
+        if response is None:
+            return
+
+        key = f'{url}:{param}'
+        fingerprint = {
+            'status': response.status_code,
+            'length': len(response.text or ''),
+            'content_type': response.headers.get('Content-Type', ''),
+            'has_error': any(
+                p in (response.text or '').lower()[:2000]
+                for p in ['error', 'exception', 'warning', 'fatal']
+            ),
+        }
+        self._response_fingerprints[key] = fingerprint
+
+    def get_response_pattern(self, url, param):
+        """Return stored response fingerprint for a URL+param."""
+        return self._response_fingerprints.get(f'{url}:{param}')
+
+    def record_behavior(self, param, behavior_type, details=''):
+        """Record observed behavior for a parameter.
+
+        behavior_type: 'reflected', 'filtered', 'error_triggered', 'time_based', 'blocked'
+        """
+        behaviors = self._behavior_patterns.setdefault(param, [])
+        behaviors.append({'type': behavior_type, 'details': details})
+
+    def get_param_behaviors(self, param):
+        """Return observed behaviors for a parameter."""
+        return self._behavior_patterns.get(param, [])
+
+    def get_tech_specific_recommendations(self):
+        """Return vulnerability test recommendations based on detected tech stack.
+
+        Maps detected technologies to most likely vulnerability types and
+        recommended testing approaches.
+        """
+        recommendations = []
+
+        tech_vuln_map = {
+            'php': [('sqli', 'MySQL-focused SQLi'), ('lfi', 'PHP wrapper LFI'),
+                    ('cmdi', 'PHP exec functions'), ('ssti', 'Twig/Smarty SSTI')],
+            'asp': [('sqli', 'MSSQL-focused SQLi'), ('cmdi', 'PowerShell injection')],
+            'django': [('ssti', 'Django template injection'), ('sqli', 'Django ORM bypass')],
+            'flask': [('ssti', 'Jinja2 SSTI'), ('lfi', 'Flask debug mode')],
+            'express': [('nosql', 'MongoDB injection'), ('ssti', 'EJS/Pug SSTI')],
+            'java': [('ssti', 'Freemarker/Velocity SSTI'), ('sqli', 'JDBC injection'),
+                     ('ssrf', 'Java URL class SSRF')],
+            'mysql': [('sqli', 'MySQL-specific payloads')],
+            'postgresql': [('sqli', 'PostgreSQL-specific payloads')],
+            'mssql': [('sqli', 'MSSQL stacked queries & xp_cmdshell')],
+            'mongodb': [('nosql', 'MongoDB operator injection')],
+            'sqlite': [('sqli', 'SQLite-specific payloads')],
+        }
+
+        for tech in self.detected_tech:
+            if tech in tech_vuln_map:
+                for vuln_type, description in tech_vuln_map[tech]:
+                    recommendations.append({
+                        'tech': tech,
+                        'vuln_type': vuln_type,
+                        'description': description,
+                    })
+
+        return recommendations
+
+    def get_intelligence_summary(self):
+        """Return a summary of context intelligence state."""
+        return {
+            'detected_tech': list(self.detected_tech),
+            'response_fingerprints': len(self._response_fingerprints),
+            'behavior_patterns': len(self._behavior_patterns),
+            'recommendations': len(self.get_tech_specific_recommendations()),
+        }
