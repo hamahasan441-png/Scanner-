@@ -37,3 +37,9 @@ PyYAML==6.0.1
 # Optional: C-extension packages (may require compilation on some platforms)
 # Install separately if needed:
 #   pip install lxml>=4.9.0 cryptography>=38.0.0 paramiko>=2.12.0
+
+# Optional: Async crawling (used by discovery module for high-performance crawling)
+#   pip install aiohttp>=3.9.0
+
+# Optional: Enhanced HTML parsing (discovery module uses lxml as BeautifulSoup backend)
+#   pip install lxml>=4.9.0
