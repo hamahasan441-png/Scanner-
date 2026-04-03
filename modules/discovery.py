@@ -16,6 +16,7 @@ import re
 import asyncio
 import subprocess
 import json
+import concurrent.futures
 import xml.etree.ElementTree as ET
 from urllib.parse import urljoin, urlparse, parse_qs, quote
 from urllib.request import urlopen, Request
@@ -437,6 +438,8 @@ class DiscoveryModule:
         async def _fetch(session, url):
             """Fetch a single URL and return its text content."""
             try:
+                # SSL verification disabled to handle self-signed certs
+                # common in security testing targets.
                 async with session.get(url, timeout=aiohttp.ClientTimeout(total=10),
                                        ssl=False) as resp:
                     if resp.status == 200 and 'text' in resp.content_type:
@@ -493,7 +496,6 @@ class DiscoveryModule:
 
             if loop and loop.is_running():
                 # We're already inside an event loop – run in a new thread
-                import concurrent.futures
                 with concurrent.futures.ThreadPoolExecutor() as pool:
                     future = pool.submit(asyncio.run, _crawl())
                     result = future.result(timeout=60)
@@ -655,6 +657,7 @@ class DiscoveryModule:
             "import sys, json\n"
             "from playwright.sync_api import sync_playwright\n"
             "with sync_playwright() as p:\n"
+            "    # --no-sandbox required for containerized / CI environments\n"
             "    browser = p.chromium.launch(headless=True)\n"
             "    page = browser.new_page()\n"
             "    page.goto(sys.argv[1], wait_until='networkidle', timeout=20000)\n"
@@ -685,6 +688,7 @@ class DiscoveryModule:
         puppeteer_script = (
             "const puppeteer = require('puppeteer');"
             "(async () => {"
+            "  // --no-sandbox required for containerized / CI environments\n"
             "  const browser = await puppeteer.launch({headless: 'new', args: ['--no-sandbox']});"
             "  const page = await browser.newPage();"
             "  await page.goto(process.argv[2], {waitUntil: 'networkidle0', timeout: 20000});"
@@ -720,6 +724,7 @@ class DiscoveryModule:
             "from selenium.webdriver.chrome.options import Options\n"
             "opts = Options()\n"
             "opts.add_argument('--headless')\n"
+            "# --no-sandbox required for containerized / CI environments\n"
             "opts.add_argument('--no-sandbox')\n"
             "opts.add_argument('--disable-dev-shm-usage')\n"
             "driver = webdriver.Chrome(options=opts)\n"
