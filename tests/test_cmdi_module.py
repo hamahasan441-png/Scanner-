@@ -2,9 +2,16 @@
 # -*- coding: utf-8 -*-
 """Unit tests for the Command Injection module (modules/cmdi.py)."""
 
+import os
+import sys
 import time
 import unittest
 from unittest.mock import MagicMock, patch
+
+# Ensure project root on path
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from modules.cmdi import CommandInjectionModule
 
 
 # ---------------------------------------------------------------------------
@@ -612,6 +619,168 @@ class TestCMDiEdgeCases(unittest.TestCase):
         mod = CommandInjectionModule(engine)
         mod._test_basic('http://example.com/vuln', 'GET', 'cmd', 'val')
         self.assertEqual(engine.findings[0].url, 'http://example.com/vuln')
+
+
+# ===========================================================================
+# CommandInjectionModule – sqlmap integration
+# ===========================================================================
+
+class TestCMDiFindSqlmap(unittest.TestCase):
+    """Tests for _find_sqlmap static method."""
+
+    def test_find_sqlmap_returns_string(self):
+        result = CommandInjectionModule._find_sqlmap()
+        self.assertIsInstance(result, str)
+
+    @patch('shutil.which', return_value='/usr/bin/sqlmap')
+    def test_find_sqlmap_via_which(self, mock_which):
+        result = CommandInjectionModule._find_sqlmap()
+        self.assertEqual(result, '/usr/bin/sqlmap')
+
+    @patch('shutil.which', return_value=None)
+    @patch('os.path.isfile', return_value=False)
+    def test_find_sqlmap_not_installed(self, mock_isfile, mock_which):
+        result = CommandInjectionModule._find_sqlmap()
+        self.assertEqual(result, '')
+
+
+class TestCMDiSqlmapOs(unittest.TestCase):
+    """Tests for _test_sqlmap_os method."""
+
+    def _make_module(self, sqlmap_enabled=True, verbose=False):
+        engine = _MockEngine(config={
+            'verbose': verbose,
+            'modules': {'sqlmap': sqlmap_enabled},
+        })
+        return CommandInjectionModule(engine)
+
+    @patch.object(CommandInjectionModule, '_find_sqlmap', return_value='')
+    def test_skips_when_not_installed(self, mock_find):
+        mod = self._make_module()
+        mod._test_sqlmap_os('http://t.co', 'GET', 'cmd', 'ls')
+        self.assertEqual(len(mod.engine.findings), 0)
+
+    @patch.object(CommandInjectionModule, 'sqlmap_os_cmd', return_value='uid=0(root)')
+    @patch.object(CommandInjectionModule, '_find_sqlmap', return_value='/usr/bin/sqlmap')
+    def test_creates_finding_on_success(self, mock_find, mock_cmd):
+        mod = self._make_module()
+        mod._test_sqlmap_os('http://t.co', 'GET', 'cmd', 'ls')
+        self.assertEqual(len(mod.engine.findings), 1)
+        self.assertIn('sqlmap', mod.engine.findings[0].technique)
+        self.assertEqual(mod.engine.findings[0].severity, 'CRITICAL')
+
+    @patch.object(CommandInjectionModule, 'sqlmap_os_cmd', return_value='')
+    @patch.object(CommandInjectionModule, '_find_sqlmap', return_value='/usr/bin/sqlmap')
+    def test_no_finding_when_no_output(self, mock_find, mock_cmd):
+        mod = self._make_module()
+        mod._test_sqlmap_os('http://t.co', 'GET', 'cmd', 'ls')
+        self.assertEqual(len(mod.engine.findings), 0)
+
+    def test_test_calls_sqlmap_when_enabled(self):
+        mod = self._make_module(sqlmap_enabled=True)
+        with patch.object(mod, '_test_sqlmap_os') as mock_sqlmap, \
+             patch.object(mod, '_test_basic'), \
+             patch.object(mod, '_test_blind'), \
+             patch.object(mod, '_test_separators'), \
+             patch.object(mod, '_test_oob_cmdi'), \
+             patch.object(mod, '_test_argument_injection'), \
+             patch.object(mod, '_test_env_injection'):
+            mod.test('http://t.co', 'GET', 'cmd', 'ls')
+            mock_sqlmap.assert_called_once()
+
+    def test_test_skips_sqlmap_when_disabled(self):
+        mod = self._make_module(sqlmap_enabled=False)
+        with patch.object(mod, '_test_sqlmap_os') as mock_sqlmap, \
+             patch.object(mod, '_test_basic'), \
+             patch.object(mod, '_test_blind'), \
+             patch.object(mod, '_test_separators'), \
+             patch.object(mod, '_test_oob_cmdi'), \
+             patch.object(mod, '_test_argument_injection'), \
+             patch.object(mod, '_test_env_injection'):
+            mod.test('http://t.co', 'GET', 'cmd', 'ls')
+            mock_sqlmap.assert_not_called()
+
+
+class TestCMDiSqlmapOsCmd(unittest.TestCase):
+    """Tests for sqlmap_os_cmd method."""
+
+    def _make_module(self):
+        engine = _MockEngine(config={'verbose': False, 'modules': {}})
+        return CommandInjectionModule(engine)
+
+    def test_returns_empty_when_no_binary(self):
+        mod = self._make_module()
+        result = mod.sqlmap_os_cmd('http://t.co', 'cmd', 'id', sqlmap_bin='')
+        self.assertEqual(result, '')
+
+    @patch('subprocess.run')
+    def test_extracts_command_output(self, mock_run):
+        mock_run.return_value = MagicMock(
+            stdout=(
+                "[INFO] retrieving output\n"
+                "command standard output:\n"
+                "uid=0(root) gid=0(root)\n"
+                "---\n"
+            ),
+            stderr='',
+        )
+        mod = self._make_module()
+        result = mod.sqlmap_os_cmd(
+            'http://t.co', 'cmd', 'id', sqlmap_bin='/usr/bin/sqlmap',
+        )
+        self.assertEqual(result, 'uid=0(root) gid=0(root)')
+
+    @patch('subprocess.run', side_effect=FileNotFoundError)
+    def test_handles_missing_binary(self, mock_run):
+        mod = self._make_module()
+        result = mod.sqlmap_os_cmd(
+            'http://t.co', 'cmd', 'id', sqlmap_bin='/nonexistent/sqlmap',
+        )
+        self.assertEqual(result, '')
+
+    @patch('subprocess.run', side_effect=__import__('subprocess').TimeoutExpired(cmd='sqlmap', timeout=10))
+    def test_handles_timeout(self, mock_run):
+        mod = self._make_module()
+        result = mod.sqlmap_os_cmd(
+            'http://t.co', 'cmd', 'id', sqlmap_bin='/usr/bin/sqlmap', timeout=10,
+        )
+        self.assertEqual(result, '')
+
+    @patch('subprocess.run')
+    def test_post_method(self, mock_run):
+        mock_run.return_value = MagicMock(stdout='', stderr='')
+        mod = self._make_module()
+        mod.sqlmap_os_cmd(
+            'http://t.co', 'cmd', 'id', method='POST', value='ls',
+            sqlmap_bin='/usr/bin/sqlmap',
+        )
+        call_args = mock_run.call_args[0][0]
+        self.assertIn('--data', call_args)
+
+
+class TestCMDiExploitExecuteSqlmapFallback(unittest.TestCase):
+    """Tests for exploit_execute sqlmap fallback."""
+
+    def test_exploit_falls_back_to_sqlmap(self):
+        engine = _MockEngine(config={
+            'verbose': False,
+            'modules': {'sqlmap': True},
+        })
+        mod = CommandInjectionModule(engine)
+        with patch.object(mod, 'sqlmap_os_cmd', return_value='output') as mock_cmd:
+            # No native responses (requester returns None), should fallback
+            result = mod.exploit_execute('http://t.co', 'cmd', 'id')
+            mock_cmd.assert_called_once_with('http://t.co', 'cmd', 'id', method='GET')
+            self.assertEqual(result, 'output')
+
+    def test_exploit_does_not_fallback_when_disabled(self):
+        engine = _MockEngine(config={
+            'verbose': False,
+            'modules': {'sqlmap': False},
+        })
+        mod = CommandInjectionModule(engine)
+        result = mod.exploit_execute('http://t.co', 'cmd', 'id')
+        self.assertIsNone(result)
 
 
 if __name__ == '__main__':
