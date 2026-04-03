@@ -438,8 +438,9 @@ class DiscoveryModule:
         async def _fetch(session, url):
             """Fetch a single URL and return its text content."""
             try:
-                # SSL verification disabled to handle self-signed certs
-                # common in security testing targets.
+                # SSL verification disabled for security testing targets that
+                # commonly use self-signed certificates. This is intentional for
+                # a vulnerability scanner — production clients should verify SSL.
                 async with session.get(url, timeout=aiohttp.ClientTimeout(total=10),
                                        ssl=False) as resp:
                     if resp.status == 200 and 'text' in resp.content_type:
@@ -657,8 +658,7 @@ class DiscoveryModule:
             "import sys, json\n"
             "from playwright.sync_api import sync_playwright\n"
             "with sync_playwright() as p:\n"
-            "    # --no-sandbox required for containerized / CI environments\n"
-            "    browser = p.chromium.launch(headless=True)\n"
+            "    browser = p.chromium.launch(headless=True, args=['--no-sandbox'])\n"
             "    page = browser.new_page()\n"
             "    page.goto(sys.argv[1], wait_until='networkidle', timeout=20000)\n"
             "    print(page.content())\n"
@@ -724,7 +724,9 @@ class DiscoveryModule:
             "from selenium.webdriver.chrome.options import Options\n"
             "opts = Options()\n"
             "opts.add_argument('--headless')\n"
-            "# --no-sandbox required for containerized / CI environments\n"
+            "# WARNING: --no-sandbox disables Chrome's security sandbox.\n"
+            "# Required for containerized/CI environments but reduces browser\n"
+            "# security. Only use against trusted or controlled test targets.\n"
             "opts.add_argument('--no-sandbox')\n"
             "opts.add_argument('--disable-dev-shm-usage')\n"
             "driver = webdriver.Chrome(options=opts)\n"

