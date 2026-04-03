@@ -126,6 +126,8 @@ def main():
                        help='Enable OSINT reconnaissance')
     parser.add_argument('--fuzz', action='store_true',
                        help='Enable fuzzing (parameter, header, method, vhost)')
+    parser.add_argument('--sqlmap', action='store_true',
+                       help='Enable sqlmap integration for deep SQLi/CMDi testing (requires sqlmap installed)')
     
     # Exploitation options
     parser.add_argument('--shell', action='store_true',
@@ -502,6 +504,7 @@ def main():
         'deserialization': getattr(args, 'deser', False) or args.full,
         'osint': getattr(args, 'osint', False) or args.full,
         'fuzzer': getattr(args, 'fuzz', False) or args.full,
+        'sqlmap': getattr(args, 'sqlmap', False),
         'shell': args.shell,
         'dump': args.dump,
         'os_shell': args.os_shell,
