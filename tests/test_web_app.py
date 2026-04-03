@@ -31,40 +31,40 @@ class TestDashboardRoute(unittest.TestCase):
 
 
 class TestApiKeyAuth(unittest.TestCase):
-    """Tests for the _require_api_key decorator."""
+    """Tests for the _require_api_key decorator (now a no-op pass-through)."""
 
     def setUp(self):
         app.config['TESTING'] = True
         self.client = app.test_client()
 
-    @patch.object(web_app_module, '_API_KEY', '')
-    def test_auth_disabled_when_key_empty(self):
+    def test_api_key_not_required(self):
+        """API key enforcement has been removed — all requests pass."""
         resp = self.client.get('/api/stats')
         self.assertNotEqual(resp.status_code, 401)
 
-    @patch.object(web_app_module, '_API_KEY', 'test-secret-key')
-    def test_missing_key_returns_401(self):
+    def test_api_accessible_without_header(self):
+        """Endpoints are accessible without X-API-Key header."""
         resp = self.client.get('/api/stats')
-        self.assertEqual(resp.status_code, 401)
+        self.assertNotEqual(resp.status_code, 401)
 
-    @patch.object(web_app_module, '_API_KEY', 'test-secret-key')
-    def test_valid_header_key_passes_auth(self):
+    def test_api_accessible_with_arbitrary_header(self):
+        """Sending any key header still passes (no enforcement)."""
         resp = self.client.get(
-            '/api/stats', headers={'X-API-Key': 'test-secret-key'}
+            '/api/stats', headers={'X-API-Key': 'anything'}
         )
         self.assertNotEqual(resp.status_code, 401)
 
-    @patch.object(web_app_module, '_API_KEY', 'test-secret-key')
-    def test_valid_query_param_key_passes_auth(self):
-        resp = self.client.get('/api/stats?api_key=test-secret-key')
+    def test_api_accessible_with_query_param(self):
+        """Query param api_key is ignored (no enforcement)."""
+        resp = self.client.get('/api/stats?api_key=anything')
         self.assertNotEqual(resp.status_code, 401)
 
-    @patch.object(web_app_module, '_API_KEY', 'test-secret-key')
-    def test_wrong_key_returns_401(self):
-        resp = self.client.get(
-            '/api/stats', headers={'X-API-Key': 'wrong-key'}
-        )
-        self.assertEqual(resp.status_code, 401)
+    def test_require_api_key_is_passthrough(self):
+        """_require_api_key decorator is a transparent pass-through."""
+        def sample():
+            return 'ok'
+        decorated = web_app_module._require_api_key(sample)
+        self.assertIs(decorated, sample)
 
 
 class TestRateLimit(unittest.TestCase):
@@ -78,7 +78,7 @@ class TestRateLimit(unittest.TestCase):
     def tearDown(self):
         _rate_counters.clear()
 
-    @patch.object(web_app_module, '_API_KEY', '')
+
     @patch.object(web_app_module, '_RATE_MAX_REQUESTS', 3)
     @patch.object(web_app_module, '_RATE_WINDOW', 60)
     def test_rate_limit_enforced(self):
@@ -98,12 +98,12 @@ class TestStartScan(unittest.TestCase):
         app.config['TESTING'] = True
         self.client = app.test_client()
 
-    @patch.object(web_app_module, '_API_KEY', '')
+
     def test_missing_body_returns_400(self):
         resp = self.client.post('/api/scan')
         self.assertEqual(resp.status_code, 400)
 
-    @patch.object(web_app_module, '_API_KEY', '')
+
     def test_invalid_url_returns_400(self):
         resp = self.client.post(
             '/api/scan',
@@ -111,7 +111,7 @@ class TestStartScan(unittest.TestCase):
         )
         self.assertEqual(resp.status_code, 400)
 
-    @patch.object(web_app_module, '_API_KEY', '')
+
     def test_valid_url_returns_200_with_scan_id(self):
         resp = self.client.post(
             '/api/scan',
@@ -130,12 +130,12 @@ class TestReportDownload(unittest.TestCase):
         app.config['TESTING'] = True
         self.client = app.test_client()
 
-    @patch.object(web_app_module, '_API_KEY', '')
+
     def test_invalid_format_returns_400(self):
         resp = self.client.get('/api/report/test/invalid_format')
         self.assertEqual(resp.status_code, 400)
 
-    @patch.object(web_app_module, '_API_KEY', '')
+
     def test_missing_report_returns_404(self):
         resp = self.client.get('/api/report/test/html')
         self.assertEqual(resp.status_code, 404)
@@ -152,12 +152,12 @@ class TestDecodeEndpoint(unittest.TestCase):
         app.config['TESTING'] = True
         self.client = app.test_client()
 
-    @patch.object(web_app_module, '_API_KEY', '')
+
     def test_missing_data_returns_400(self):
         resp = self.client.post('/api/tools/decode', json={})
         self.assertEqual(resp.status_code, 400)
 
-    @patch.object(web_app_module, '_API_KEY', '')
+
     def test_smart_decode_base64(self):
         resp = self.client.post('/api/tools/decode', json={'data': 'dGVzdA=='})
         self.assertEqual(resp.status_code, 200)
@@ -165,7 +165,7 @@ class TestDecodeEndpoint(unittest.TestCase):
         self.assertEqual(data['status'], 'success')
         self.assertIn('result', data['data'])
 
-    @patch.object(web_app_module, '_API_KEY', '')
+
     def test_decode_with_encoding(self):
         resp = self.client.post(
             '/api/tools/decode', json={'data': 'dGVzdA==', 'encoding': 'base64'}
@@ -181,12 +181,12 @@ class TestEncodeEndpoint(unittest.TestCase):
         app.config['TESTING'] = True
         self.client = app.test_client()
 
-    @patch.object(web_app_module, '_API_KEY', '')
+
     def test_missing_data_returns_400(self):
         resp = self.client.post('/api/tools/encode', json={})
         self.assertEqual(resp.status_code, 400)
 
-    @patch.object(web_app_module, '_API_KEY', '')
+
     def test_encode_url(self):
         resp = self.client.post(
             '/api/tools/encode', json={'data': '<script>', 'encoding': 'url'}
@@ -204,12 +204,12 @@ class TestHashEndpoint(unittest.TestCase):
         app.config['TESTING'] = True
         self.client = app.test_client()
 
-    @patch.object(web_app_module, '_API_KEY', '')
+
     def test_missing_data_returns_400(self):
         resp = self.client.post('/api/tools/hash', json={})
         self.assertEqual(resp.status_code, 400)
 
-    @patch.object(web_app_module, '_API_KEY', '')
+
     def test_hash_sha256(self):
         resp = self.client.post(
             '/api/tools/hash', json={'data': 'test', 'algorithm': 'sha256'}
@@ -227,12 +227,12 @@ class TestCompareEndpoint(unittest.TestCase):
         app.config['TESTING'] = True
         self.client = app.test_client()
 
-    @patch.object(web_app_module, '_API_KEY', '')
+
     def test_missing_texts_returns_400(self):
         resp = self.client.post('/api/tools/compare', json={})
         self.assertEqual(resp.status_code, 400)
 
-    @patch.object(web_app_module, '_API_KEY', '')
+
     def test_compare_returns_similarity(self):
         resp = self.client.post(
             '/api/tools/compare',
@@ -251,12 +251,12 @@ class TestSequencerEndpoint(unittest.TestCase):
         app.config['TESTING'] = True
         self.client = app.test_client()
 
-    @patch.object(web_app_module, '_API_KEY', '')
+
     def test_missing_tokens_returns_400(self):
         resp = self.client.post('/api/tools/sequencer', json={})
         self.assertEqual(resp.status_code, 400)
 
-    @patch.object(web_app_module, '_API_KEY', '')
+
     def test_sequencer_returns_report(self):
         tokens = ['abc123', 'def456', 'ghi789', 'jkl012']
         resp = self.client.post(
@@ -275,12 +275,12 @@ class TestRepeaterEndpoint(unittest.TestCase):
         app.config['TESTING'] = True
         self.client = app.test_client()
 
-    @patch.object(web_app_module, '_API_KEY', '')
+
     def test_missing_url_returns_400(self):
         resp = self.client.post('/api/tools/repeater', json={})
         self.assertEqual(resp.status_code, 400)
 
-    @patch.object(web_app_module, '_API_KEY', '')
+
     def test_invalid_url_returns_400(self):
         resp = self.client.post(
             '/api/tools/repeater', json={'url': 'not-a-url'}
@@ -295,7 +295,7 @@ class TestListEncodings(unittest.TestCase):
         app.config['TESTING'] = True
         self.client = app.test_client()
 
-    @patch.object(web_app_module, '_API_KEY', '')
+
     def test_list_encodings_returns_list(self):
         resp = self.client.get('/api/tools/encodings')
         self.assertEqual(resp.status_code, 200)
@@ -321,7 +321,7 @@ class TestFileScanAPI(unittest.TestCase):
         app.config['TESTING'] = True
         self.client = app.test_client()
 
-    @patch.object(web_app_module, '_API_KEY', '')
+
     def test_multiple_targets_returns_multiple_scan_ids(self):
         """Sending a targets list should start one scan per valid target."""
         resp = self.client.post('/api/scan', json={
@@ -332,7 +332,7 @@ class TestFileScanAPI(unittest.TestCase):
         self.assertEqual(data['total_targets'], 2)
         self.assertEqual(len(data['scan_ids']), 2)
 
-    @patch.object(web_app_module, '_API_KEY', '')
+
     def test_invalid_targets_skipped(self):
         """Invalid URLs in the list should be skipped, valid ones scanned."""
         resp = self.client.post('/api/scan', json={
@@ -344,7 +344,7 @@ class TestFileScanAPI(unittest.TestCase):
         self.assertIn('skipped', data)
         self.assertEqual(len(data['skipped']), 2)
 
-    @patch.object(web_app_module, '_API_KEY', '')
+
     def test_all_invalid_targets_returns_400(self):
         """If all targets are invalid, return 400."""
         resp = self.client.post('/api/scan', json={
@@ -352,13 +352,13 @@ class TestFileScanAPI(unittest.TestCase):
         })
         self.assertEqual(resp.status_code, 400)
 
-    @patch.object(web_app_module, '_API_KEY', '')
+
     def test_empty_targets_list_returns_400(self):
         """Empty targets list should return 400."""
         resp = self.client.post('/api/scan', json={'targets': []})
         self.assertEqual(resp.status_code, 400)
 
-    @patch.object(web_app_module, '_API_KEY', '')
+
     def test_single_target_still_works(self):
         """Single target field should still work for backward compatibility."""
         resp = self.client.post('/api/scan', json={
@@ -368,7 +368,7 @@ class TestFileScanAPI(unittest.TestCase):
         data = resp.get_json()['data']
         self.assertEqual(data['total_targets'], 1)
 
-    @patch.object(web_app_module, '_API_KEY', '')
+
     def test_scan_with_modules(self):
         """Scan with specific modules should start successfully."""
         resp = self.client.post('/api/scan', json={
@@ -380,7 +380,7 @@ class TestFileScanAPI(unittest.TestCase):
         })
         self.assertEqual(resp.status_code, 200)
 
-    @patch.object(web_app_module, '_API_KEY', '')
+
     def test_no_json_body_returns_400(self):
         """Missing JSON body should return 400."""
         resp = self.client.post('/api/scan', content_type='application/json')

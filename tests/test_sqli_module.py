@@ -766,5 +766,293 @@ class TestSQLiWAFBypass(unittest.TestCase):
         self.assertIn('clickhouse', mod.error_signatures)
 
 
+# ===========================================================================
+# SQLiModule – sqlmap integration
+# ===========================================================================
+
+class TestSQLiFindSqlmap(unittest.TestCase):
+    """Tests for _find_sqlmap static method."""
+
+    def test_find_sqlmap_returns_string(self):
+        from modules.sqli import SQLiModule
+        result = SQLiModule._find_sqlmap()
+        self.assertIsInstance(result, str)
+
+    @patch('shutil.which', return_value='/usr/bin/sqlmap')
+    def test_find_sqlmap_via_which(self, mock_which):
+        from modules.sqli import SQLiModule
+        result = SQLiModule._find_sqlmap()
+        self.assertEqual(result, '/usr/bin/sqlmap')
+
+    @patch('shutil.which', return_value=None)
+    @patch('os.path.isfile', return_value=False)
+    def test_find_sqlmap_not_installed(self, mock_isfile, mock_which):
+        from modules.sqli import SQLiModule
+        result = SQLiModule._find_sqlmap()
+        self.assertEqual(result, '')
+
+
+class TestSQLiSqlmapTest(unittest.TestCase):
+    """Tests for _test_sqlmap method."""
+
+    def _make_module(self, sqlmap_enabled=True, verbose=False):
+        from modules.sqli import SQLiModule
+        engine = _MockEngine(config={
+            'verbose': verbose, 'waf_bypass': False,
+            'modules': {'sqlmap': sqlmap_enabled},
+        })
+        return SQLiModule(engine)
+
+    @patch.object(
+        __import__('modules.sqli', fromlist=['SQLiModule']).SQLiModule,
+        '_find_sqlmap', return_value='',
+    )
+    def test_test_sqlmap_skips_when_not_installed(self, mock_find):
+        mod = self._make_module()
+        # Should not raise, just skip
+        mod._test_sqlmap('http://t.co', 'GET', 'id', '1')
+        self.assertEqual(len(mod.engine.findings), 0)
+
+    @patch.object(
+        __import__('modules.sqli', fromlist=['SQLiModule']).SQLiModule,
+        'sqlmap_scan', return_value=[],
+    )
+    @patch.object(
+        __import__('modules.sqli', fromlist=['SQLiModule']).SQLiModule,
+        '_find_sqlmap', return_value='/usr/bin/sqlmap',
+    )
+    def test_test_sqlmap_calls_sqlmap_scan(self, mock_find, mock_scan):
+        mod = self._make_module()
+        mod._test_sqlmap('http://t.co', 'GET', 'id', '1')
+        mock_scan.assert_called_once()
+
+    def test_test_method_calls_sqlmap_when_enabled(self):
+        """test() calls _test_sqlmap when sqlmap module is enabled."""
+        mod = self._make_module(sqlmap_enabled=True)
+        with patch.object(mod, '_test_sqlmap') as mock_sqlmap, \
+             patch.object(mod, '_test_error_based'), \
+             patch.object(mod, '_test_time_based'), \
+             patch.object(mod, '_test_union_based'), \
+             patch.object(mod, '_test_boolean_based'), \
+             patch.object(mod, '_test_second_order'), \
+             patch.object(mod, '_test_oob_sqli'), \
+             patch.object(mod, '_test_waf_bypass_payloads'):
+            mod.test('http://t.co', 'GET', 'id', '1')
+            mock_sqlmap.assert_called_once_with('http://t.co', 'GET', 'id', '1')
+
+    def test_test_method_skips_sqlmap_when_disabled(self):
+        """test() does NOT call _test_sqlmap when sqlmap module is disabled."""
+        mod = self._make_module(sqlmap_enabled=False)
+        with patch.object(mod, '_test_sqlmap') as mock_sqlmap, \
+             patch.object(mod, '_test_error_based'), \
+             patch.object(mod, '_test_time_based'), \
+             patch.object(mod, '_test_union_based'), \
+             patch.object(mod, '_test_boolean_based'), \
+             patch.object(mod, '_test_second_order'), \
+             patch.object(mod, '_test_oob_sqli'), \
+             patch.object(mod, '_test_waf_bypass_payloads'):
+            mod.test('http://t.co', 'GET', 'id', '1')
+            mock_sqlmap.assert_not_called()
+
+
+class TestSQLiSqlmapScan(unittest.TestCase):
+    """Tests for sqlmap_scan method."""
+
+    def _make_module(self):
+        from modules.sqli import SQLiModule
+        engine = _MockEngine(config={
+            'verbose': False, 'waf_bypass': False,
+            'modules': {'sqlmap': True},
+        })
+        return SQLiModule(engine)
+
+    def test_sqlmap_scan_returns_empty_when_no_binary(self):
+        mod = self._make_module()
+        result = mod.sqlmap_scan('http://t.co', 'id', sqlmap_bin='')
+        self.assertEqual(result, [])
+
+    @patch('subprocess.run')
+    def test_sqlmap_scan_parses_output(self, mock_run):
+        mock_run.return_value = MagicMock(
+            stdout=(
+                "Type: UNION query\n"
+                "Title: UNION-based SQLi\n"
+                "Payload: ' UNION SELECT NULL--\n"
+            ),
+            stderr='',
+            returncode=0,
+        )
+        mod = self._make_module()
+        results = mod.sqlmap_scan(
+            'http://t.co', 'id', sqlmap_bin='/usr/bin/sqlmap',
+        )
+        self.assertGreater(len(results), 0)
+        self.assertIn('sqlmap', results[0]['technique'])
+
+    @patch('subprocess.run')
+    def test_sqlmap_scan_parses_dbms_detection(self, mock_run):
+        mock_run.return_value = MagicMock(
+            stdout="back-end DBMS: MySQL >= 5.0\n",
+            stderr='',
+            returncode=0,
+        )
+        mod = self._make_module()
+        results = mod.sqlmap_scan(
+            'http://t.co', 'id', sqlmap_bin='/usr/bin/sqlmap',
+        )
+        self.assertGreater(len(results), 0)
+        self.assertIn('MySQL', results[0]['technique'])
+
+    @patch('subprocess.run', side_effect=FileNotFoundError)
+    def test_sqlmap_scan_handles_missing_binary(self, mock_run):
+        mod = self._make_module()
+        results = mod.sqlmap_scan(
+            'http://t.co', 'id', sqlmap_bin='/nonexistent/sqlmap',
+        )
+        self.assertEqual(results, [])
+
+    @patch('subprocess.run', side_effect=__import__('subprocess').TimeoutExpired(cmd='sqlmap', timeout=10))
+    def test_sqlmap_scan_handles_timeout(self, mock_run):
+        mod = self._make_module()
+        results = mod.sqlmap_scan(
+            'http://t.co', 'id', sqlmap_bin='/usr/bin/sqlmap', timeout=10,
+        )
+        self.assertEqual(results, [])
+
+    @patch('subprocess.run')
+    def test_sqlmap_scan_post_method(self, mock_run):
+        mock_run.return_value = MagicMock(stdout='', stderr='', returncode=0)
+        mod = self._make_module()
+        mod.sqlmap_scan(
+            'http://t.co', 'id', method='POST', value='1',
+            sqlmap_bin='/usr/bin/sqlmap',
+        )
+        call_args = mock_run.call_args[0][0]
+        self.assertIn('--data', call_args)
+        self.assertIn('--method', call_args)
+
+
+class TestSQLiBuildSqlmapExtraArgs(unittest.TestCase):
+    """Tests for _build_sqlmap_extra_args."""
+
+    def test_default_args(self):
+        from modules.sqli import SQLiModule
+        engine = _MockEngine(config={
+            'verbose': False, 'waf_bypass': False,
+            'modules': {'sqlmap': True},
+        })
+        mod = SQLiModule(engine)
+        args = mod._build_sqlmap_extra_args()
+        self.assertIn('--level', args)
+        self.assertIn('--risk', args)
+
+    def test_proxy_included(self):
+        from modules.sqli import SQLiModule
+        engine = _MockEngine(config={
+            'verbose': False, 'waf_bypass': False,
+            'proxy': 'http://127.0.0.1:8080',
+            'modules': {'sqlmap': True},
+        })
+        mod = SQLiModule(engine)
+        args = mod._build_sqlmap_extra_args()
+        self.assertIn('--proxy', args)
+        self.assertIn('http://127.0.0.1:8080', args)
+
+    def test_tor_included(self):
+        from modules.sqli import SQLiModule
+        engine = _MockEngine(config={
+            'verbose': False, 'waf_bypass': False,
+            'tor': True,
+            'modules': {'sqlmap': True},
+        })
+        mod = SQLiModule(engine)
+        args = mod._build_sqlmap_extra_args()
+        self.assertIn('--tor', args)
+
+    def test_high_evasion_includes_tamper(self):
+        from modules.sqli import SQLiModule
+        engine = _MockEngine(config={
+            'verbose': False, 'waf_bypass': False,
+            'evasion': 'high',
+            'modules': {'sqlmap': True},
+        })
+        mod = SQLiModule(engine)
+        args = mod._build_sqlmap_extra_args()
+        self.assertIn('--tamper', args)
+        self.assertIn('5', args)  # --level 5
+
+
+class TestSQLiParseOutput(unittest.TestCase):
+    """Tests for _parse_sqlmap_output."""
+
+    def _make_module(self):
+        from modules.sqli import SQLiModule
+        return SQLiModule(_MockEngine(config={
+            'verbose': False, 'waf_bypass': False,
+        }))
+
+    def test_parse_empty_output(self):
+        mod = self._make_module()
+        results = mod._parse_sqlmap_output('', 'http://t.co', 'id')
+        self.assertEqual(results, [])
+
+    def test_parse_technique_and_payload(self):
+        mod = self._make_module()
+        output = (
+            "Type: boolean-based blind\n"
+            "Title: AND boolean-based blind\n"
+            "Payload: id=1 AND 1=1\n"
+        )
+        results = mod._parse_sqlmap_output(output, 'http://t.co', 'id')
+        self.assertEqual(len(results), 1)
+        self.assertIn('boolean', results[0]['technique'].lower())
+        self.assertEqual(results[0]['param'], 'id')
+
+    def test_parse_dbms_only(self):
+        mod = self._make_module()
+        output = "back-end DBMS: PostgreSQL\n"
+        results = mod._parse_sqlmap_output(output, 'http://t.co', 'id')
+        self.assertEqual(len(results), 1)
+        self.assertIn('PostgreSQL', results[0]['technique'])
+
+
+class TestSQLiSqlmapOsShell(unittest.TestCase):
+    """Tests for sqlmap_os_shell method."""
+
+    def _make_module(self):
+        from modules.sqli import SQLiModule
+        return SQLiModule(_MockEngine(config={
+            'verbose': False, 'waf_bypass': False,
+        }))
+
+    @patch.object(
+        __import__('modules.sqli', fromlist=['SQLiModule']).SQLiModule,
+        '_find_sqlmap', return_value='',
+    )
+    def test_returns_empty_when_not_installed(self, mock_find):
+        mod = self._make_module()
+        result = mod.sqlmap_os_shell('http://t.co', 'id', 'whoami')
+        self.assertEqual(result, '')
+
+    @patch('subprocess.run')
+    @patch.object(
+        __import__('modules.sqli', fromlist=['SQLiModule']).SQLiModule,
+        '_find_sqlmap', return_value='/usr/bin/sqlmap',
+    )
+    def test_extracts_command_output(self, mock_find, mock_run):
+        mock_run.return_value = MagicMock(
+            stdout=(
+                "[INFO] some log\n"
+                "command standard output:\n"
+                "root\n"
+                "---\n"
+            ),
+            stderr='',
+        )
+        mod = self._make_module()
+        result = mod.sqlmap_os_shell('http://t.co', 'id', 'whoami')
+        self.assertEqual(result, 'root')
+
+
 if __name__ == '__main__':
     unittest.main()

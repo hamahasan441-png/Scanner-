@@ -63,27 +63,15 @@ _SAFE_SCAN_ID = re.compile(r'^[a-zA-Z0-9_-]+$')
 
 
 # ---------------------------------------------------------------------------
-# API-key authentication
+# API-key authentication — REMOVED
 # ---------------------------------------------------------------------------
-# Set ATOMIC_API_KEY env var to require an API key for all /api/* endpoints.
-# When the env var is unset, authentication is disabled (open access).
-_API_KEY = os.environ.get('ATOMIC_API_KEY', '')
-
+# The API key gate has been removed so the scanner works without any key.
+# The _require_api_key decorator is kept as a transparent pass-through for
+# backward compatibility (any code that still references it will keep working).
 
 def _require_api_key(f):
-    """Decorator that rejects requests lacking a valid API key (when set)."""
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        if not _API_KEY:
-            return f(*args, **kwargs)
-        provided = (
-            request.headers.get('X-API-Key', '')
-            or request.args.get('api_key', '')
-        )
-        if provided != _API_KEY:
-            return jsonify({'status': 'error', 'data': 'Invalid or missing API key'}), 401
-        return f(*args, **kwargs)
-    return decorated
+    """No-op decorator kept for backward compatibility (key requirement removed)."""
+    return f
 
 
 # ---------------------------------------------------------------------------

