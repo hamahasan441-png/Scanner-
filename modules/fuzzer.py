@@ -53,7 +53,6 @@ class FuzzerModule:
         
         # External tool integrations
         self._paramspider_discover(url)
-        self._ffuf_fuzz(url)
         self._ffufai_fuzz(url)
     
     def _fuzz_parameters(self, url):
