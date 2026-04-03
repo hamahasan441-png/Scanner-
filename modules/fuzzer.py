@@ -5,8 +5,12 @@ ATOMIC FRAMEWORK - Fuzzer Module
 Parameter, header, HTTP method, and virtual host fuzzing
 """
 
+import json
+import os
 import re
-from urllib.parse import urlparse, urljoin, urlencode
+import shutil
+import subprocess
+from urllib.parse import urlparse, urljoin, urlencode, parse_qs
 
 from config import Colors
 
@@ -46,6 +50,11 @@ class FuzzerModule:
         self._fuzz_headers(url)
         self._fuzz_methods(url)
         self._fuzz_vhosts(url)
+        
+        # External tool integrations
+        self._paramspider_discover(url)
+        self._ffuf_fuzz(url)
+        self._ffufai_fuzz(url)
     
     def _fuzz_parameters(self, url):
         """Fuzz for hidden parameters"""
@@ -178,3 +187,357 @@ class FuzzerModule:
                 evidence=f"Found {len(discovered)} potential virtual hosts: {', '.join(discovered[:5])}",
             )
             self.engine.add_finding(finding)
+    
+    def _load_seclists_wordlist(self, wordlist_name='common.txt'):
+        """Load a wordlist from SecLists installation or fall back to built-in list.
+        
+        Checks common SecLists installation paths and loads the requested
+        wordlist from the Discovery/Web-Content/ directory. Returns a
+        built-in default wordlist when SecLists is not available.
+        
+        Args:
+            wordlist_name: Filename of the wordlist to load from
+                Discovery/Web-Content/ (default: 'common.txt').
+        
+        Returns:
+            list[str]: Lines from the wordlist file, or a built-in
+            fallback list if SecLists is not found.
+        """
+        seclists_paths = [
+            '/usr/share/seclists',
+            os.path.expanduser('~/SecLists'),
+            os.path.join(os.getcwd(), 'SecLists'),
+        ]
+        
+        for base_path in seclists_paths:
+            wordlist_path = os.path.join(
+                base_path, 'Discovery', 'Web-Content', wordlist_name,
+            )
+            if os.path.isfile(wordlist_path):
+                try:
+                    with open(wordlist_path, 'r', errors='ignore') as fh:
+                        lines = [
+                            line.strip() for line in fh
+                            if line.strip() and not line.startswith('#')
+                        ]
+                    return lines
+                except Exception:
+                    continue
+        
+        # Built-in fallback wordlist
+        return [
+            'admin', 'login', 'dashboard', 'api', 'config', 'backup',
+            'test', 'dev', 'staging', 'debug', 'console', 'manager',
+            'portal', 'wp-admin', 'wp-login.php', 'administrator',
+            'phpmyadmin', 'server-status', 'server-info', '.env',
+            '.git', 'robots.txt', 'sitemap.xml', 'swagger', 'graphql',
+            'api/v1', 'api/v2', 'health', 'status', 'info', 'metrics',
+            'actuator', 'trace', 'env', '.well-known', 'favicon.ico',
+            'crossdomain.xml', 'security.txt', '.htaccess', 'web.config',
+        ]
+    
+    def _ffuf_fuzz(self, url, timeout=120):
+        """Run ffuf for high-speed web fuzzing of the target URL.
+        
+        Executes ffuf as a subprocess to discover hidden endpoints and
+        parameters. Parses the JSON output for any results found.
+        Falls back gracefully when ffuf is not installed.
+        
+        Args:
+            url: Target URL to fuzz.
+            timeout: Maximum seconds to allow ffuf to run (default: 120).
+        """
+        if not shutil.which('ffuf'):
+            return
+        
+        wordlist = self._load_seclists_wordlist('common.txt')
+        
+        # Write wordlist to a temporary file in the working directory
+        wordlist_file = os.path.join(os.getcwd(), '.fuzzer_ffuf_wordlist.txt')
+        output_file = os.path.join(os.getcwd(), '.fuzzer_ffuf_output.json')
+        
+        try:
+            with open(wordlist_file, 'w') as fh:
+                fh.write('\n'.join(wordlist))
+            
+            parsed = urlparse(url)
+            fuzz_url = f"{parsed.scheme}://{parsed.netloc}/FUZZ"
+            
+            cmd = [
+                'ffuf',
+                '-u', fuzz_url,
+                '-w', wordlist_file,
+                '-o', output_file,
+                '-of', 'json',
+                '-mc', '200,201,204,301,302,307,401,403',
+                '-t', '10',
+                '-s',
+            ]
+            
+            try:
+                subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=timeout,
+                )
+            except subprocess.TimeoutExpired:
+                return
+            except Exception:
+                return
+            
+            discovered = []
+            if os.path.isfile(output_file):
+                try:
+                    with open(output_file, 'r') as fh:
+                        data = json.load(fh)
+                    results = data.get('results', [])
+                    for result in results:
+                        entry_url = result.get('url', '')
+                        status = result.get('status', 0)
+                        length = result.get('length', 0)
+                        discovered.append(
+                            f"{entry_url} [{status}] [{length}B]"
+                        )
+                except (json.JSONDecodeError, KeyError):
+                    pass
+            
+            if discovered:
+                from core.engine import Finding
+                finding = Finding(
+                    technique="Fuzzer (ffuf Discovery)",
+                    url=url, severity='MEDIUM', confidence=0.7,
+                    param='N/A', payload=', '.join(discovered[:10]),
+                    evidence=f"ffuf discovered {len(discovered)} endpoints: {'; '.join(discovered[:5])}",
+                )
+                self.engine.add_finding(finding)
+        
+        except Exception:
+            return
+        
+        finally:
+            for path in (wordlist_file, output_file):
+                try:
+                    os.remove(path)
+                except OSError:
+                    pass
+    
+    def _ffufai_fuzz(self, url, timeout=180):
+        """Run ffufai for AI-powered web fuzzing of the target URL.
+        
+        Executes ffufai as a subprocess, which uses AI to generate
+        intelligent wordlists for fuzzing. Falls back to regular ffuf
+        if ffufai is not available.
+        
+        Args:
+            url: Target URL to fuzz.
+            timeout: Maximum seconds to allow ffufai to run (default: 180).
+        """
+        if not shutil.which('ffufai'):
+            self._ffuf_fuzz(url, timeout=timeout)
+            return
+        
+        parsed = urlparse(url)
+        fuzz_url = f"{parsed.scheme}://{parsed.netloc}/FUZZ"
+        output_file = os.path.join(os.getcwd(), '.fuzzer_ffufai_output.json')
+        
+        try:
+            cmd = [
+                'ffufai',
+                '-u', fuzz_url,
+                '-o', output_file,
+                '-of', 'json',
+                '-mc', '200,201,204,301,302,307,401,403',
+            ]
+            
+            try:
+                subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=timeout,
+                )
+            except subprocess.TimeoutExpired:
+                return
+            except Exception:
+                return
+            
+            discovered = []
+            if os.path.isfile(output_file):
+                try:
+                    with open(output_file, 'r') as fh:
+                        data = json.load(fh)
+                    results = data.get('results', [])
+                    for result in results:
+                        entry_url = result.get('url', '')
+                        status = result.get('status', 0)
+                        length = result.get('length', 0)
+                        discovered.append(
+                            f"{entry_url} [{status}] [{length}B]"
+                        )
+                except (json.JSONDecodeError, KeyError):
+                    pass
+            
+            if discovered:
+                from core.engine import Finding
+                finding = Finding(
+                    technique="Fuzzer (ffufai AI Discovery)",
+                    url=url, severity='MEDIUM', confidence=0.7,
+                    param='N/A', payload=', '.join(discovered[:10]),
+                    evidence=f"ffufai discovered {len(discovered)} endpoints: {'; '.join(discovered[:5])}",
+                )
+                self.engine.add_finding(finding)
+        
+        except Exception:
+            return
+        
+        finally:
+            try:
+                os.remove(output_file)
+            except OSError:
+                pass
+    
+    def _paramspider_discover(self, url):
+        """Discover parameters using ParamSpider or native web archive fallback.
+        
+        Attempts to run ParamSpider as a subprocess to discover URL
+        parameters for the target domain. If ParamSpider is not installed,
+        falls back to a native Python implementation that queries the
+        Wayback Machine (web.archive.org) for archived URLs containing
+        query parameters.
+        
+        Discovered parameters are added to ``self.common_params`` for
+        use by subsequent fuzzing methods.
+        
+        Args:
+            url: Target URL whose domain will be searched for parameters.
+        """
+        parsed = urlparse(url)
+        domain = parsed.hostname
+        if not domain:
+            return
+        
+        discovered_params = set()
+        
+        if shutil.which('paramspider'):
+            discovered_params = self._paramspider_cli(domain)
+        else:
+            discovered_params = self._paramspider_native(domain)
+        
+        if discovered_params:
+            new_params = [
+                p for p in discovered_params if p not in self.common_params
+            ]
+            self.common_params.extend(new_params)
+            
+            from core.engine import Finding
+            finding = Finding(
+                technique="Fuzzer (ParamSpider Discovery)",
+                url=url, severity='INFO', confidence=0.6,
+                param='N/A', payload=', '.join(sorted(discovered_params)[:20]),
+                evidence=f"Discovered {len(discovered_params)} parameters via archive analysis: {', '.join(sorted(discovered_params)[:10])}",
+            )
+            self.engine.add_finding(finding)
+    
+    def _paramspider_cli(self, domain):
+        """Run ParamSpider CLI to discover parameters for a domain.
+        
+        Args:
+            domain: Target domain to scan.
+        
+        Returns:
+            set[str]: Set of discovered parameter names.
+        """
+        discovered_params = set()
+        output_dir = os.path.join(os.getcwd(), '.paramspider_output')
+        
+        try:
+            cmd = [
+                'paramspider',
+                '-d', domain,
+                '--output', output_dir,
+            ]
+            
+            try:
+                subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=120,
+                )
+            except (subprocess.TimeoutExpired, Exception):
+                return discovered_params
+            
+            output_file = os.path.join(output_dir, f"{domain}.txt")
+            if os.path.isfile(output_file):
+                try:
+                    with open(output_file, 'r', errors='ignore') as fh:
+                        for line in fh:
+                            line = line.strip()
+                            if not line:
+                                continue
+                            try:
+                                qs = urlparse(line).query
+                                for param_name in parse_qs(qs).keys():
+                                    if param_name and len(param_name) < 50:
+                                        discovered_params.add(param_name)
+                            except Exception:
+                                continue
+                except Exception:
+                    pass
+        
+        except Exception:
+            pass
+        
+        finally:
+            try:
+                if os.path.isdir(output_dir):
+                    for fname in os.listdir(output_dir):
+                        os.remove(os.path.join(output_dir, fname))
+                    os.rmdir(output_dir)
+            except OSError:
+                pass
+        
+        return discovered_params
+    
+    def _paramspider_native(self, domain):
+        """Native fallback for parameter discovery via web archive APIs.
+        
+        Queries the Wayback Machine CDX API for archived URLs belonging
+        to the target domain and extracts unique query parameter names.
+        
+        Args:
+            domain: Target domain to search in web archives.
+        
+        Returns:
+            set[str]: Set of discovered parameter names.
+        """
+        discovered_params = set()
+        
+        archive_url = (
+            f"https://web.archive.org/cdx/search/cdx"
+            f"?url={domain}/*&output=text&fl=original"
+            f"&filter=urlkey:.*\\?.*&collapse=urlkey&limit=500"
+        )
+        
+        try:
+            response = self.requester.request(archive_url, 'GET')
+            if not response or response.status_code != 200:
+                return discovered_params
+            
+            for line in response.text.splitlines():
+                line = line.strip()
+                if not line or '?' not in line:
+                    continue
+                try:
+                    qs = urlparse(line).query
+                    for param_name in parse_qs(qs).keys():
+                        if param_name and len(param_name) < 50:
+                            discovered_params.add(param_name)
+                except Exception:
+                    continue
+        
+        except Exception:
+            pass
+        
+        return discovered_params
