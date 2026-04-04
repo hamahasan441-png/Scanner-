@@ -335,6 +335,8 @@ def start_scan():
         'exploit_chain': False,
         'ports': body.get('ports'),
         'auto_exploit': auto_exploit or full_scan,
+        'exploit_search': body.get('exploit_search', False) or full_scan,
+        'attack_map': body.get('attack_map', False) or full_scan,
     })
 
     # Launch one scan thread per valid target; share the same scan_id prefix
@@ -971,6 +973,263 @@ def trigger_attack_route(scan_id):
     except Exception as exc:
         logger.error('Attack router error: %s', exc)
         return jsonify({'status': 'error', 'data': 'Attack routing failed'}), 500
+
+
+# ---------------------------------------------------------------------------
+# Exploit Intelligence & Attack Map API endpoints (Phase 9B + Phase 11)
+# ---------------------------------------------------------------------------
+
+def _serialize_exploit_record(rec):
+    """Safely serialize an ExploitRecord (dataclass or dict) to JSON-safe dict."""
+    if rec is None:
+        return None
+    if isinstance(rec, dict):
+        return rec
+    result = {}
+    for field_name in (
+        'finding_id', 'cve_id', 'exploit_maturity', 'availability',
+        'actively_exploited', 'metasploit_module', 'metasploit_rank',
+        'nuclei_template', 'exploitdb_id', 'exploitdb_verified',
+        'packetstorm_url', 'cvss_score', 'cvss_vector',
+        'patch_available', 'patch_url',
+    ):
+        result[field_name] = getattr(rec, field_name, None)
+    # Lists
+    for list_field in ('cwe_ids', 'affected_versions', 'references'):
+        val = getattr(rec, list_field, None)
+        result[list_field] = list(val) if val else []
+    # GitHub PoCs
+    pocs = getattr(rec, 'github_pocs', None)
+    if pocs:
+        result['github_pocs'] = []
+        for p in pocs:
+            if isinstance(p, dict):
+                result['github_pocs'].append(p)
+            else:
+                result['github_pocs'].append({
+                    'repo_url': getattr(p, 'repo_url', ''),
+                    'stars': getattr(p, 'stars', 0),
+                    'description': getattr(p, 'description', ''),
+                    'language': getattr(p, 'language', ''),
+                    'last_commit': getattr(p, 'last_commit', ''),
+                })
+    else:
+        result['github_pocs'] = []
+    # CISA KEV
+    kev = getattr(rec, 'cisa_kev', None)
+    if kev:
+        if isinstance(kev, dict):
+            result['cisa_kev'] = kev
+        else:
+            result['cisa_kev'] = {
+                'vendor_project': getattr(kev, 'vendor_project', ''),
+                'product': getattr(kev, 'product', ''),
+                'vulnerability_name': getattr(kev, 'vulnerability_name', ''),
+                'date_added': getattr(kev, 'date_added', ''),
+                'required_action': getattr(kev, 'required_action', ''),
+                'due_date': getattr(kev, 'due_date', ''),
+            }
+    else:
+        result['cisa_kev'] = None
+    return result
+
+
+@app.route('/api/exploit-intel/<scan_id>', methods=['GET'])
+@_require_api_key
+@_rate_limit
+def get_exploit_intel(scan_id):
+    """Return exploit enrichment data for a scan's findings (Phase 9B)."""
+    if not _SAFE_SCAN_ID.match(scan_id):
+        return jsonify({'status': 'error', 'data': 'Invalid scan ID'}), 400
+
+    scan_info = _active_scans.get(scan_id)
+    if scan_info is None:
+        return jsonify({'status': 'error', 'data': 'Scan not found'}), 404
+
+    engine = scan_info.get('engine')
+    if engine is None or not engine.findings:
+        return jsonify({'status': 'success', 'data': {
+            'findings': [], 'summary': {
+                'total': 0, 'weaponized': 0, 'public_poc': 0,
+                'partial_poc': 0, 'theoretical': 0,
+                'actively_exploited': 0, 'msf_ready': 0, 'nuclei_ready': 0,
+            }
+        }})
+
+    enriched = []
+    summary = {
+        'total': 0, 'weaponized': 0, 'public_poc': 0,
+        'partial_poc': 0, 'theoretical': 0,
+        'actively_exploited': 0, 'msf_ready': 0, 'nuclei_ready': 0,
+    }
+
+    for f in engine.findings:
+        entry = {
+            'technique': getattr(f, 'technique', ''),
+            'severity': getattr(f, 'severity', 'INFO'),
+            'url': getattr(f, 'url', ''),
+            'param': getattr(f, 'param', ''),
+            'cvss': getattr(f, 'cvss', 0.0),
+        }
+
+        # Phase 9B enrichment fields
+        exploit_rec = getattr(f, 'exploit_record', None)
+        entry['exploit_record'] = _serialize_exploit_record(exploit_rec)
+        entry['exploit_availability'] = getattr(f, 'exploit_availability', 'THEORETICAL')
+        entry['actively_exploited'] = getattr(f, 'actively_exploited', False)
+        entry['adjusted_cvss'] = getattr(f, 'adjusted_cvss', getattr(f, 'cvss', 0.0))
+        entry['adjusted_severity'] = getattr(f, 'adjusted_severity', getattr(f, 'severity', 'INFO'))
+        entry['metasploit_ready'] = getattr(f, 'metasploit_ready', False)
+        entry['nuclei_ready'] = getattr(f, 'nuclei_ready', False)
+        entry['final_priority'] = getattr(f, 'final_priority', 0.0)
+
+        # Summary counters
+        summary['total'] += 1
+        avail = entry['exploit_availability']
+        if avail == 'WEAPONIZED':
+            summary['weaponized'] += 1
+        elif avail == 'PUBLIC_POC':
+            summary['public_poc'] += 1
+        elif avail == 'PARTIAL_POC':
+            summary['partial_poc'] += 1
+        else:
+            summary['theoretical'] += 1
+        if entry['actively_exploited']:
+            summary['actively_exploited'] += 1
+        if entry['metasploit_ready']:
+            summary['msf_ready'] += 1
+        if entry['nuclei_ready']:
+            summary['nuclei_ready'] += 1
+
+        enriched.append(entry)
+
+    return jsonify({'status': 'success', 'data': {
+        'findings': enriched,
+        'summary': summary,
+    }})
+
+
+@app.route('/api/attack-map/<scan_id>', methods=['GET'])
+@_require_api_key
+@_rate_limit
+def get_attack_map(scan_id):
+    """Return the exploit-aware attack map for a scan (Phase 11)."""
+    if not _SAFE_SCAN_ID.match(scan_id):
+        return jsonify({'status': 'error', 'data': 'Invalid scan ID'}), 400
+
+    scan_info = _active_scans.get(scan_id)
+    if scan_info is None:
+        return jsonify({'status': 'error', 'data': 'Scan not found'}), 404
+
+    engine = scan_info.get('engine')
+    attack_map = getattr(engine, '_attack_map', None) if engine else None
+
+    if not attack_map:
+        return jsonify({'status': 'success', 'data': {
+            'nodes': [], 'edges': [], 'paths': [],
+            'impact_zones': [], 'simulation': {},
+            'summary': {
+                'total_nodes': 0, 'entry_points': 0, 'weaponized_entries': 0,
+                'critical_paths': 0, 'zero_click_paths': 0, 'msf_ready_paths': 0,
+                'cisa_kev_in_map': False, 'impact_zones_active': [],
+                'highest_path_score': 0.0, 'exploit_coverage_pct': 0.0,
+                'fastest_compromise': {}, 'most_damaging': {},
+            },
+        }})
+
+    # Serialize nodes
+    nodes = []
+    for n in attack_map.get('nodes', []):
+        if isinstance(n, dict):
+            nodes.append(n)
+        else:
+            nodes.append({
+                'id': getattr(n, 'id', ''),
+                'finding_id': getattr(n, 'finding_id', ''),
+                'label': getattr(n, 'label', ''),
+                'type': getattr(n, 'type', ''),
+                'severity': getattr(n, 'severity', 'INFO'),
+                'cvss': getattr(n, 'cvss', 0.0),
+                'adjusted_cvss': getattr(n, 'adjusted_cvss', 0.0),
+                'vuln_class': getattr(n, 'vuln_class', ''),
+                'endpoint': getattr(n, 'endpoint', ''),
+                'exploit_availability': getattr(n, 'exploit_availability', 'THEORETICAL'),
+                'actively_exploited': getattr(n, 'actively_exploited', False),
+                'metasploit_ready': getattr(n, 'metasploit_ready', False),
+                'nuclei_ready': getattr(n, 'nuclei_ready', False),
+                'exploitdb_id': getattr(n, 'exploitdb_id', None),
+                'cisa_kev': getattr(n, 'cisa_kev', False),
+            })
+
+    # Serialize edges
+    edges = []
+    for e in attack_map.get('edges', []):
+        if isinstance(e, dict):
+            edges.append(e)
+        else:
+            edges.append({
+                'from': getattr(e, 'from_node', getattr(e, 'from_id', '')),
+                'to': getattr(e, 'to_node', getattr(e, 'to_id', '')),
+                'type': getattr(e, 'type', ''),
+                'confidence': getattr(e, 'confidence', 0.0),
+                'exploit_assisted': getattr(e, 'exploit_assisted', False),
+            })
+
+    # Serialize paths
+    paths = []
+    for p in attack_map.get('paths', []):
+        if isinstance(p, dict):
+            paths.append(p)
+        else:
+            paths.append({
+                'id': getattr(p, 'id', ''),
+                'classification': getattr(p, 'classification', []),
+                'nodes': getattr(p, 'nodes', []),
+                'path_score': getattr(p, 'path_score', 0.0),
+                'entry': getattr(p, 'entry', ''),
+                'impact': getattr(p, 'impact', getattr(p, 'final_impact', '')),
+                'narrative': getattr(p, 'narrative', ''),
+                'steps': getattr(p, 'steps', []),
+                'auth_required': getattr(p, 'auth_required', False),
+                'fully_weaponized': getattr(p, 'fully_weaponized', False),
+                'msf_end_to_end': getattr(p, 'msf_end_to_end', False),
+                'nuclei_end_to_end': getattr(p, 'nuclei_end_to_end', False),
+                'cisa_kev_in_path': getattr(p, 'cisa_kev_in_path', False),
+                'steps_required': getattr(p, 'steps_required', 0),
+            })
+
+    # Serialize impact zones
+    impact_zones = []
+    for z in attack_map.get('impact_zones', []):
+        if isinstance(z, dict):
+            impact_zones.append(z)
+        else:
+            impact_zones.append({
+                'zone': getattr(z, 'zone', ''),
+                'triggered_by': getattr(z, 'triggered_by', []),
+                'assets_at_risk': getattr(z, 'assets_at_risk', []),
+                'likelihood': getattr(z, 'likelihood', ''),
+                'weaponized_path_exists': getattr(z, 'weaponized_path_exists', False),
+            })
+
+    # Serialize simulation
+    simulation = attack_map.get('simulation', {})
+    if not isinstance(simulation, dict):
+        simulation = {}
+
+    # Summary
+    summary = attack_map.get('summary', {})
+    if not isinstance(summary, dict):
+        summary = {}
+
+    return jsonify({'status': 'success', 'data': {
+        'nodes': nodes,
+        'edges': edges,
+        'paths': paths,
+        'impact_zones': impact_zones,
+        'simulation': simulation,
+        'summary': summary,
+    }})
 
 
 # ---------------------------------------------------------------------------

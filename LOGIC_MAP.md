@@ -75,6 +75,9 @@ main.py → argparse → build config dict → AtomicEngine(config) → engine.s
 | `--full` | Enable all modules |
 | `--sqli`, `--xss`, `--cmdi`, ... | Enable specific modules |
 | `--sqlmap` | Enable sqlmap integration for deep SQLi/CMDi |
+| `--shield-detect` | CDN/WAF shield detection (Cloudflare, Akamai, Fastly, CloudFront, Sucuri) |
+| `--real-ip` | Real IP / origin server discovery behind CDN |
+| `--agent-scan` | Autonomous agent scanner (goal-driven with pivot detection) |
 | `--shell` | Upload web shell |
 | `--dump` | Dump database |
 | `--os-shell` | Get OS shell |
@@ -102,17 +105,36 @@ Flask + flask-socketio → REST API + WebSocket → spawns AtomicEngine in backg
 
 ## Core Pipeline Flow
 
-The engine follows a **9-section core flow** defined in `core/engine.py`:
+The engine follows a **multi-phase core flow** defined in `core/engine.py`:
 
 ```
-§1 Scope & Policy  →  §2 Discovery & Graph  →  §3 Extract & Classify
+§0 Init & Normalize  →  §1 Scope & Policy  →  PHASE 1: Shield Detection
         ↓                      ↓                        ↓
-§4 Context Intel   →  §5 Risk-Based Prioritize  →  §6 Baseline
+PHASE 2: Real IP    →  §2 Discovery & Graph  →  §3 Extract & Classify
         ↓                      ↓                        ↓
-§7 Adaptive Test   →  §8 Multi-Signal Analyze  →  §9 Adaptive Verify
+§4 Context Intel    →  PHASE 6: Intelligence Enrichment  →  PHASE 7: Attack Surface Prioritization
+        ↓                      ↓                                    ↓
+§6 Baseline         →  PHASE 8: Scan Worker Pool  →  §8 Multi-Signal Analyze
         ↓                      ↓                        ↓
-     Report        →       Learn               →      Adapt
+§9 Adaptive Verify  →  PHASE 9: Post-Worker Verification (Chain Detection)
+        ↓                      ↓                        ↓
+PHASE 4: Agent Scan →       Learn               →      Adapt
+        ↓
+PHASE 10: Commit & Report (OutputPhase)
 ```
+
+### New Phases (5-11)
+
+| Phase | Module | Description |
+|-------|--------|-------------|
+| **Phase 5** | `core/passive_recon.py` | Passive Recon Fan-Out: parallel recon, port scan, passive URL collection (Wayback, Common Crawl CDX), crawler, discovery → merge + dedup + scope filter |
+| **Phase 6** | `core/intelligence_enricher.py` | Intelligence Enrichment: TechFingerprinter (headers, cookies, HTML patterns), CVEMatcher (built-in CVE DB, CVSS ≥ 7.0), param context weights, endpoint type classification |
+| **Phase 7** | `core/scan_priority_queue.py` | Attack Surface Prioritization: multi-factor scoring (param context 0.35, endpoint type 0.25, CVE match 0.25, agent hypothesis 0.2, anomaly 0.1, depth penalty), structural dedup |
+| **Phase 8** | `core/scan_worker_pool.py` | Vulnerability Scan Workers: Gate 0 triage, Gate 1 DifferentialEngine baseline, Gate 2 SurfaceMapper, Workers A-E (Injection/Auth/BizLogic/Misconfig/Crypto) |
+| **Phase 9** | `core/post_worker_verifier.py` | Post-Worker Verification: consistency recheck ×3, context-aware FP filter, WAF interference check, clustering + dedup, CVSS v3.1 auto-scoring, ChainDetector (7 chain rules) |
+| **Phase 9B** | `core/exploit_searcher.py` | Exploit Reference Searcher: QueryBuilder → 7-source parallel search (ExploitDB, Metasploit, Nuclei, GitHub PoC, PacketStorm, NVD, CISA KEV) → ExploitConsolidator (maturity scoring) → CVSS re-adjustment → priority re-rank → ExploitEnrichedFindings[] |
+| **Phase 10** | `core/output_phase.py` | Commit & Report: DB save_results/save_chains, update_scan COMPLETE, ReportBuilder with sections: executive_summary, finding_table (CVSS DESC), exploit_chains, waf_bypass_disclosure, origin_exposure_note, remediation_plan, agent_reasoning_log |
+| **Phase 11** | `core/attack_map.py` | Exploit-Aware Attack Map: NodeClassifier (ENTRY/PIVOT/ESCALATION/IMPACT/SUPPORT) → EdgeBuilder (REQUIRES/ENABLES/CHAINS_TO/AMPLIFIES with confidence) → PathFinder (DFS from ENTRY→IMPACT, path scoring) → ImpactZoneMapper (6 zones) → AttackerSimulator (Opportunistic/Skilled/APT profiles) → AttackMap output |
 
 ### Pipeline Phase Tracking (3-Partition Architecture)
 
@@ -147,6 +169,34 @@ engine.scan(target)
     ├── ContextIntelligence.fingerprint_response(init_resp)
     │
     ├── Database.save_scan(...)
+    │
+    ├── PHASE 1: SHIELD DETECTION [if --shield-detect]
+    │   └── ShieldDetector.run(target, probe_result)
+    │       ├── detect_cdn(target)
+    │       │   ├── DNS CNAME chain analysis
+    │       │   ├── IP CIDR matching (Cloudflare, Akamai, Fastly, CloudFront, Sucuri)
+    │       │   └── Response header signatures (CF-Ray, X-Amz-Cf-Id, etc.)
+    │       ├── detect_waf(target)
+    │       │   ├── Adversarial probe payloads (<script>, SQLi, LFI, SELECT)
+    │       │   ├── WAF fingerprinting (Cloudflare, ModSecurity, AWS, Sucuri, Nginx)
+    │       │   └── Block threshold measurement
+    │       └── → ShieldProfile {cdn, waf, needs_origin_discovery, needs_waf_bypass}
+    │
+    ├── PHASE 2: REAL IP DISCOVERY [if --real-ip]
+    │   └── RealIPScanner.run(target, shield_profile)
+    │       ├── Track A: Passive Intel
+    │       │   ├── SPF/MX record IP extraction
+    │       │   ├── Certificate transparency (crt.sh SANs)
+    │       │   ├── Historical DNS via crt.sh
+    │       │   └── ASN/IP correlation
+    │       ├── Track B: Subdomain Intel
+    │       │   ├── Passive subdomain enum (crt.sh)
+    │       │   ├── Active brute-force (30+ common subdomains)
+    │       │   ├── Zone transfer attempt (AXFR)
+    │       │   └── Subdomain IP triage (discard CDN IPs, flag high-value)
+    │       ├── Track C: Active Probing (top candidates)
+    │       │   └── HTTP host-header verification + fingerprint matching
+    │       └── → RealIPResult {origin_ip, confidence, method, verified, candidates[]}
     │
     ├── §2. DISCOVERY & GRAPH
     │   ├── ReconModule.run(target)           [if --recon]
@@ -238,6 +288,56 @@ engine.scan(target)
     │   └── Save both to disk
     │
     └── ADAPTIVE LOOP: re-discover new endpoints (up to 3 rounds)
+```
+
+### Phase 2.5: AGENT SCANNER (`scan` — autonomous) [if --agent-scan]
+
+```
+    └── AgentScanner.run(target, real_ip_result, waf_bypass_profile)
+        │
+        ├── STEP A: TARGET DECOMPOSITION
+        │   └── decompose(target) → TargetMap {primary, target_type, hostname, subdomains, params}
+        │       ├── URL → focused scan (path + params)
+        │       ├── domain → full recon + subdomain expansion
+        │       ├── IP/CIDR → port-first → service scan
+        │       └── wildcard → enumerate → per-sub plan
+        │
+        ├── STEP B: HYPOTHESIS GENERATION
+        │   └── GoalPlanner.generate_hypotheses(target_map, intel_bundle)
+        │       ├── WordPress → CVE-2022-21661 SQLi
+        │       ├── PHP → type juggling auth bypass
+        │       ├── JWT → alg:none / algorithm confusion
+        │       ├── Upload → webshell, traversal, XXE
+        │       ├── GraphQL → introspection, injection
+        │       ├── S3 → bucket takeover
+        │       ├── Login → brute, enum, session fixation
+        │       ├── API key → key abuse, privilege escalation
+        │       ├── CORS → credential leak chain
+        │       └── Redirect → phishing + token theft
+        │
+        ├── STEP C: GOAL PLANNING
+        │   └── GoalPlanner.plan(hypotheses)
+        │       → 11 base goals (GOAL_0..GOAL_10) + hypothesis-derived goals
+        │       → Sorted by priority (confidence × severity × cheapness)
+        │
+        ├── STEP D: EXECUTION LOOP (OODA)
+        │   └── while GoalPlanner.should_continue():
+        │       ├── OBSERVE: scope check, budget check, memory read
+        │       ├── THINK: select tool, build params, retry guard
+        │       ├── ACT: execute goal via engine module
+        │       ├── REFLECT: process result, update memory, mark findings
+        │       └── ADAPT: PivotDetector.handle(result) → push new goals
+        │
+        └── STEP E: PIVOT DETECTION
+            └── PivotDetector.handle(finding)
+                ├── SSRF → probe cloud metadata (AWS/GCP/Azure IMDS)
+                ├── LFI → read /etc/passwd, log poisoning → RCE
+                ├── SQLi → schema dump, FILE READ/OUTFILE
+                ├── Admin panel → auth scanner + IDOR
+                ├── Open redirect → OAuth token theft chain
+                ├── API key → test against provider endpoints
+                ├── Subdomain → full scan (scope-checked)
+                └── Internal IP → CIDR expansion
 ```
 
 ### Phase 3: EXPLOIT (`exploit`)
@@ -356,6 +456,19 @@ engine.scan(target)
 | **PersistenceEngine** | `core/persistence.py` | Retry logic, evasion escalation, resume capability |
 | **RulesEngine** | `core/rules_engine.py` | YAML-based scanner rules configuration |
 | **Normalizer** | `core/normalizer.py` | Response normalization for consistent comparison |
+| **ShieldDetector** | `core/shield_detector.py` | CDN + WAF detection (Cloudflare, Akamai, Fastly, CloudFront, Sucuri) |
+| **RealIPScanner** | `core/real_ip_scanner.py` | Origin IP discovery behind CDN (passive + subdomain + active probing) |
+| **GoalPlanner** | `core/goal_planner.py` | Hypothesis-driven goal stack management and budget tracking |
+| **PivotDetector** | `core/pivot_detector.py` | Pivot detection — expand attack surface from confirmed findings |
+| **AgentScanner** | `core/agent_scanner.py` | Autonomous OODA-loop scanner (observe-think-act-reflect-adapt) |
+| **PassiveReconFanout** | `core/passive_recon.py` | Phase 5: Parallel fan-out recon (CDX APIs, crawler, discovery) → merge + dedup |
+| **IntelligenceEnricher** | `core/intelligence_enricher.py` | Phase 6: TechFingerprinter + CVEMatcher + param context weights |
+| **ScanPriorityQueue** | `core/scan_priority_queue.py` | Phase 7: Multi-factor scoring and structural deduplication |
+| **ScanWorkerPool** | `core/scan_worker_pool.py` | Phase 8: Gate pipeline + Workers A-E + DifferentialEngine |
+| **PostWorkerVerifier** | `core/post_worker_verifier.py` | Phase 9: Consistency recheck + FP filter + CVSS scoring + ChainDetector |
+| **ExploitSearcher** | `core/exploit_searcher.py` | Phase 9B: 7-source exploit search + maturity scoring + CVSS adjustment + priority re-rank |
+| **OutputPhase** | `core/output_phase.py` | Phase 10: Commit & Report — DB persist + enriched report generation |
+| **AttackMapBuilder** | `core/attack_map.py` | Phase 11: Exploit-aware attack map — nodes, edges, paths, impact zones, attacker simulation |
 
 ### Exploitation Layer
 
@@ -369,9 +482,10 @@ engine.scan(target)
 
 ### Reporting Layer
 
-| Component | File | Formats |
-|-----------|------|---------|
-| **ReportGenerator** | `core/reporter.py` | HTML, JSON, CSV, TXT, PDF, XML, SARIF |
+| Component | File | Formats / Sections |
+|-----------|------|--------------------|
+| **ReportGenerator** | `core/reporter.py` | HTML, JSON, CSV, TXT, PDF, XML, SARIF — with executive_summary, exploit_chains, waf_bypass_disclosure, origin_exposure_note, remediation_plan, agent_reasoning_log |
+| **OutputPhase** | `core/output_phase.py` | Phase 10 orchestrator: DB commit + report generation |
 
 ### Burp-Style Tools
 
@@ -572,7 +686,10 @@ Scanner-/
 │   ├── post_exploit.py        # PostExploitEngine — AI post-exploitation
 │   ├── exploit_chain.py       # ExploitChainEngine — multi-step chains
 │   ├── os_shell.py            # OSShellHandler — interactive shell
-│   ├── reporter.py            # ReportGenerator — 7 output formats
+│   ├── reporter.py            # ReportGenerator — 7 output formats + Phase 10 enrichment
+│   ├── output_phase.py        # OutputPhase — Phase 10 commit & report orchestrator
+│   ├── exploit_searcher.py    # ExploitSearcher — Phase 9B exploit reference search (7 sources)
+│   ├── attack_map.py          # AttackMapBuilder — Phase 11 exploit-aware attack map
 │   ├── banner.py              # ASCII art banner
 │   ├── proxy.py               # Intercepting proxy
 │   ├── repeater.py            # HTTP request repeater
@@ -638,5 +755,9 @@ Scanner-/
 
 | Date | Change | Files |
 |------|--------|-------|
+| 2026-04-04 | Added Phase 9B: Exploit Reference Searcher (7-source search: ExploitDB, Metasploit, Nuclei, GitHub PoC, PacketStorm, NVD, CISA KEV; ExploitConsolidator maturity scoring; CVSSAdjuster; PriorityReranker). Added Phase 11: Attack Map (NodeClassifier, EdgeBuilder, PathFinder, ImpactZoneMapper, AttackerSimulator with 3 profiles). CLI flags: --exploit-search, --attack-map. | `core/exploit_searcher.py`, `core/attack_map.py`, `core/engine.py`, `main.py`, `LOGIC_MAP.md` |
+| 2026-04-04 | Added Phase 10: Commit & Report (OutputPhase orchestrator, DB save_results/save_chains/ExploitChainModel, ReportGenerator enrichment: executive_summary, exploit_chains, waf_bypass_disclosure, origin_exposure_note, remediation_plan, agent_reasoning_log). ReportGenerator.generate() now returns filepath. | `core/output_phase.py`, `core/reporter.py`, `utils/database.py`, `core/engine.py`, `LOGIC_MAP.md` |
+| 2026-04-04 | Added Phases 5-9: Passive Recon Fan-Out, Intelligence Enrichment (TechFingerprinter, CVEMatcher), Attack Surface Prioritization, Scan Worker Pool (DifferentialEngine, SurfaceMapper, Workers A-E), Post-Worker Verification (ChainDetector, CVSS v3.1 auto-scoring) | `core/passive_recon.py`, `core/intelligence_enricher.py`, `core/scan_priority_queue.py`, `core/scan_worker_pool.py`, `core/post_worker_verifier.py`, `core/engine.py`, `main.py` |
+| 2026-04-04 | Added Phase 1 Shield Detection (CDN+WAF), Phase 2 Real IP Discovery, Phase 4 Agent Scanner (Goal Planner + Pivot Detector + OODA loop) | `core/shield_detector.py`, `core/real_ip_scanner.py`, `core/goal_planner.py`, `core/pivot_detector.py`, `core/agent_scanner.py`, `core/engine.py`, `main.py` |
 | 2026-04-03 | Added sqlmap CLI integration to SQLi and CMDi modules | `modules/sqli.py`, `modules/cmdi.py`, `main.py` |
 | 2026-04-03 | Created LOGIC_MAP.md | `LOGIC_MAP.md` |
