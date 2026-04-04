@@ -190,6 +190,10 @@ def main():
                        help='Enable Phase 6-7 intelligence enrichment and attack surface prioritization')
     parser.add_argument('--chain-detect', action='store_true',
                        help='Enable Phase 9 exploit chain detection and CVSS auto-scoring')
+    parser.add_argument('--exploit-search', action='store_true',
+                       help='Enable Phase 9B exploit reference searcher (ExploitDB, Metasploit, Nuclei, CISA KEV)')
+    parser.add_argument('--attack-map', action='store_true',
+                       help='Enable Phase 11 exploit-aware attack map generation')
     
     # Report options
     parser.add_argument('--report', 
@@ -539,6 +543,8 @@ def main():
         'passive_recon': getattr(args, 'passive_recon', False) or args.full,
         'enrich': getattr(args, 'enrich', False) or args.full,
         'chain_detect': getattr(args, 'chain_detect', False) or args.full,
+        'exploit_search': getattr(args, 'exploit_search', False) or args.full,
+        'attack_map': getattr(args, 'attack_map', False) or args.full,
     }
     
     # If no specific modules selected, enable basic ones
