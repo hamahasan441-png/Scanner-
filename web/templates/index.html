@@ -216,6 +216,26 @@
         margin-bottom: 0.3rem; display: block;
     }
 
+    /* Exploit intel & Attack map node cards */
+    #panel-exploit-intel .finding-item,
+    #panel-attackmap .finding-item {
+        transition: transform 0.15s, box-shadow 0.15s;
+    }
+    #panel-exploit-intel .finding-item:hover,
+    #panel-attackmap .finding-item:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 16px rgba(233, 69, 96, 0.1);
+    }
+
+    /* Attack map path flow arrows */
+    #am-paths-container > div {
+        transition: transform 0.15s, box-shadow 0.15s;
+    }
+    #am-paths-container > div:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 20px rgba(233, 69, 96, 0.12);
+    }
+
     /* Advanced scan config */
     .advanced-toggle {
         color: var(--accent); cursor: pointer; font-size: 0.85rem;
@@ -268,6 +288,8 @@
         <button class="nav-tab" onclick="switchPanel('scanner')">🚀 Scanner</button>
         <button class="nav-tab" onclick="switchPanel('pipeline')">⚡ Pipeline</button>
         <button class="nav-tab" onclick="switchPanel('exploits')">💥 Exploits</button>
+        <button class="nav-tab" onclick="switchPanel('exploit-intel')">🔎 Exploit Intel</button>
+        <button class="nav-tab" onclick="switchPanel('attackmap')">🗺️ Attack Map</button>
         <button class="nav-tab" onclick="switchPanel('shells')">🐚 Shells</button>
         <button class="nav-tab" onclick="switchPanel('scans')">⏳ Active Scans</button>
         <button class="nav-tab" onclick="switchPanel('history')">📋 History</button>
@@ -444,6 +466,14 @@
                             <input type="checkbox" id="opt-brute">
                             <label for="opt-brute" style="cursor:pointer;font-size:0.85rem;">🔑 Brute Force</label>
                         </div>
+                        <div class="toggle-row">
+                            <input type="checkbox" id="opt-exploit-search" checked>
+                            <label for="opt-exploit-search" style="cursor:pointer;font-size:0.85rem;">🔎 Exploit Intel</label>
+                        </div>
+                        <div class="toggle-row">
+                            <input type="checkbox" id="opt-attack-map" checked>
+                            <label for="opt-attack-map" style="cursor:pointer;font-size:0.85rem;">🗺️ Attack Map</label>
+                        </div>
                     </div>
                 </div>
 
@@ -615,6 +645,157 @@
             <h3>📊 Collected Data</h3>
             <div id="collected-data-list">
                 <p class="empty-msg">No data collected yet.</p>
+            </div>
+        </div>
+    </section>
+    </div>
+
+    <!-- Exploit Intelligence Panel (Phase 9B) -->
+    <div id="panel-exploit-intel" class="nav-panel">
+    <section>
+        <h2>🔎 Exploit Intelligence</h2>
+        <p style="color:var(--text-muted);font-size:0.85rem;margin-bottom:1rem;">
+            Phase 9B enrichment: exploit maturity scoring, availability classification, and multi-source intelligence from ExploitDB, Metasploit, Nuclei, GitHub PoC, PacketStorm, NVD, and CISA KEV.
+        </p>
+
+        <!-- Exploit Intel summary cards -->
+        <div class="grid grid-4" id="ei-stats">
+            <div class="glass-card stat-card" style="border-top:3px solid var(--severity-critical);">
+                <h3>🔴 Weaponized</h3>
+                <div class="value" style="color:var(--severity-critical);" id="ei-weaponized">0</div>
+            </div>
+            <div class="glass-card stat-card" style="border-top:3px solid var(--severity-high);">
+                <h3>🟠 Public PoC</h3>
+                <div class="value" style="color:var(--severity-high);" id="ei-public-poc">0</div>
+            </div>
+            <div class="glass-card stat-card" style="border-top:3px solid var(--severity-medium);">
+                <h3>🟡 Partial PoC</h3>
+                <div class="value" style="color:var(--severity-medium);" id="ei-partial-poc">0</div>
+            </div>
+            <div class="glass-card stat-card" style="border-top:3px solid var(--severity-info);">
+                <h3>⚪ Theoretical</h3>
+                <div class="value" style="color:var(--severity-info);" id="ei-theoretical">0</div>
+            </div>
+        </div>
+
+        <!-- Exploit tool readiness -->
+        <div class="grid grid-4" style="margin-top:1rem;">
+            <div class="glass-card stat-card">
+                <h3>🎯 Total Findings</h3>
+                <div class="value" id="ei-total">0</div>
+            </div>
+            <div class="glass-card stat-card" style="border-top:3px solid #e94560;">
+                <h3>⚠️ Actively Exploited</h3>
+                <div class="value" style="color:#e94560;" id="ei-active-exploited">0</div>
+            </div>
+            <div class="glass-card stat-card" style="border-top:3px solid #9b59b6;">
+                <h3>🔧 MSF Ready</h3>
+                <div class="value" style="color:#9b59b6;" id="ei-msf-ready">0</div>
+            </div>
+            <div class="glass-card stat-card" style="border-top:3px solid #1abc9c;">
+                <h3>🔬 Nuclei Ready</h3>
+                <div class="value" style="color:#1abc9c;" id="ei-nuclei-ready">0</div>
+            </div>
+        </div>
+
+        <!-- Scan selector -->
+        <div style="margin-top:1rem;margin-bottom:0.8rem;">
+            <label style="font-size:0.85rem;color:var(--text-muted);">Select scan:</label>
+            <select id="ei-scan-select" onchange="window._loadExploitIntel(this.value)" style="background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);padding:0.3rem 0.6rem;font-size:0.85rem;">
+                <option value="">— select scan —</option>
+            </select>
+        </div>
+
+        <!-- Exploit-enriched findings list -->
+        <div class="glass-card" style="margin-top:1rem;">
+            <h3>📋 Exploit-Enriched Findings</h3>
+            <div id="ei-findings-list">
+                <p class="empty-msg">Select a scan to view exploit intelligence data.</p>
+            </div>
+        </div>
+    </section>
+    </div>
+
+    <!-- Attack Map Panel (Phase 11) -->
+    <div id="panel-attackmap" class="nav-panel">
+    <section>
+        <h2>🗺️ Attack Map</h2>
+        <p style="color:var(--text-muted);font-size:0.85rem;margin-bottom:1rem;">
+            Phase 11 exploit-aware attack graph: node classification, vulnerability chaining, path enumeration, impact zone mapping, and attacker profile simulation.
+        </p>
+
+        <!-- Attack Map summary stats -->
+        <div class="grid grid-5" id="am-stats">
+            <div class="glass-card stat-card"><h3>📍 Total Nodes</h3><div class="value" id="am-total-nodes">0</div></div>
+            <div class="glass-card stat-card" style="border-top:3px solid var(--severity-critical);"><h3>🚪 Entry Points</h3><div class="value" style="color:var(--severity-critical);" id="am-entry-points">0</div></div>
+            <div class="glass-card stat-card" style="border-top:3px solid var(--severity-high);"><h3>⚔️ Weaponized</h3><div class="value" style="color:var(--severity-high);" id="am-weaponized">0</div></div>
+            <div class="glass-card stat-card" style="border-top:3px solid #e94560;"><h3>🔥 Critical Paths</h3><div class="value" style="color:#e94560;" id="am-critical-paths">0</div></div>
+            <div class="glass-card stat-card" style="border-top:3px solid #9b59b6;"><h3>🖱️ Zero-Click</h3><div class="value" style="color:#9b59b6;" id="am-zero-click">0</div></div>
+        </div>
+
+        <!-- Additional stats row -->
+        <div class="grid grid-4" style="margin-top:1rem;">
+            <div class="glass-card stat-card">
+                <h3>🔧 MSF Paths</h3>
+                <div class="value" id="am-msf-paths">0</div>
+            </div>
+            <div class="glass-card stat-card">
+                <h3>📊 Coverage</h3>
+                <div class="value" id="am-coverage">0%</div>
+            </div>
+            <div class="glass-card stat-card">
+                <h3>🏆 Top Score</h3>
+                <div class="value" style="color:var(--accent);" id="am-top-score">0.0</div>
+            </div>
+            <div class="glass-card stat-card">
+                <h3>⚡ Fastest</h3>
+                <div class="value" id="am-fastest">—</div>
+            </div>
+        </div>
+
+        <!-- Scan selector -->
+        <div style="margin-top:1rem;margin-bottom:0.8rem;">
+            <label style="font-size:0.85rem;color:var(--text-muted);">Select scan:</label>
+            <select id="am-scan-select" onchange="window._loadAttackMap(this.value)" style="background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);padding:0.3rem 0.6rem;font-size:0.85rem;">
+                <option value="">— select scan —</option>
+            </select>
+        </div>
+
+        <!-- Node Classification -->
+        <div class="glass-card" style="margin-top:1rem;">
+            <h3>📍 Attack Nodes</h3>
+            <p style="font-size:0.82rem;color:var(--text-muted);margin-bottom:0.6rem;">
+                Nodes classified as ENTRY, PIVOT, ESCALATION, IMPACT, or SUPPORT with exploit flags.
+            </p>
+            <div id="am-nodes-container">
+                <p class="empty-msg">Select a scan to view attack map nodes.</p>
+            </div>
+        </div>
+
+        <!-- Attack Paths -->
+        <div class="glass-card" style="margin-top:1rem;">
+            <h3>🔗 Attack Paths</h3>
+            <p style="font-size:0.82rem;color:var(--text-muted);margin-bottom:0.6rem;">
+                Enumerated attack chains from entry to impact with exploit-aware scoring.
+            </p>
+            <div id="am-paths-container">
+                <p class="empty-msg">No attack paths enumerated yet.</p>
+            </div>
+        </div>
+
+        <!-- Impact Zones -->
+        <div class="glass-card" style="margin-top:1rem;">
+            <h3>💥 Impact Zones</h3>
+            <div id="am-zones-container">
+                <p class="empty-msg">No impact zones mapped yet.</p>
+            </div>
+        </div>
+
+        <!-- Attacker Simulation -->
+        <div class="glass-card" style="margin-top:1rem;">
+            <h3>🎭 Attacker Profile Simulation</h3>
+            <div id="am-simulation-container">
+                <p class="empty-msg">No simulation results yet.</p>
             </div>
         </div>
     </section>
@@ -797,7 +978,7 @@
         if (panel) panel.classList.add('active');
         // Highlight correct tab
         var tabs = document.querySelectorAll('.nav-tab');
-        var tabMap = {dashboard:0, scanner:1, pipeline:2, exploits:3, shells:4, scans:5, history:6, findings:7, rules:8, livefeed:9};
+        var tabMap = {dashboard:0, scanner:1, pipeline:2, exploits:3, 'exploit-intel':4, attackmap:5, shells:6, scans:7, history:8, findings:9, rules:10, livefeed:11};
         if (tabMap[name] !== undefined && tabs[tabMap[name]]) tabs[tabMap[name]].classList.add('active');
         // Load data for active panel
         if (name === 'history') loadHistory();
@@ -808,6 +989,8 @@
         if (name === 'shells') loadShells();
         if (name === 'rules') loadRules();
         if (name === 'livefeed') startLiveFeed();
+        if (name === 'exploit-intel') window._loadExploitIntel();
+        if (name === 'attackmap') window._loadAttackMap();
     };
 
     /* ---- Scan mode switcher ---- */
@@ -1006,13 +1189,15 @@
         const autoExploit = document.getElementById('opt-exploit') ? document.getElementById('opt-exploit').checked : false;
         const recon = document.getElementById('opt-recon') ? document.getElementById('opt-recon').checked : false;
         const brute = document.getElementById('opt-brute') ? document.getElementById('opt-brute').checked : false;
+        const exploitSearch = document.getElementById('opt-exploit-search') ? document.getElementById('opt-exploit-search').checked : false;
+        const attackMap = document.getElementById('opt-attack-map') ? document.getElementById('opt-attack-map').checked : false;
 
         const btn = document.getElementById('scan-btn');
         btn.disabled = true;
         btn.innerHTML = '<span class="spinner"></span> Starting…';
 
         try {
-            var payload = { modules: modules, evasion: evasion, depth: depth, threads: threads, full_scan: fullScan, auto_exploit: autoExploit, recon: recon, brute: brute };
+            var payload = { modules: modules, evasion: evasion, depth: depth, threads: threads, full_scan: fullScan, auto_exploit: autoExploit, recon: recon, brute: brute, exploit_search: exploitSearch, attack_map: attackMap };
             if (targets.length === 1) {
                 payload.target = targets[0];
             } else {
@@ -1099,7 +1284,7 @@
 
     function _updateScanSelects() {
         var ids = Object.keys(window._knownActive || {});
-        ['pipeline-scan-select', 'livefeed-scan-select'].forEach(function(selId) {
+        ['pipeline-scan-select', 'livefeed-scan-select', 'ei-scan-select', 'am-scan-select'].forEach(function(selId) {
             var sel = document.getElementById(selId);
             if (!sel) return;
             var current = sel.value;
@@ -1416,6 +1601,344 @@
                 liveContainer.scrollTop = liveContainer.scrollHeight;
             }
         } catch (_) {}
+    }
+
+    /* ---- Exploit Intelligence (Phase 9B) ---- */
+    window._loadExploitIntel = async function(scanId) {
+        if (!scanId) {
+            var ids = Object.keys(window._knownActive || {});
+            if (ids.length > 0) {
+                scanId = ids[0];
+                var sel = document.getElementById('ei-scan-select');
+                if (sel) sel.value = scanId;
+            } else return;
+        }
+
+        try {
+            var r = await fetch(API + '/api/exploit-intel/' + scanId);
+            var j = await r.json();
+            if (j.status !== 'success') return;
+            var d = j.data;
+            var s = d.summary || {};
+
+            // Update summary cards
+            document.getElementById('ei-total').textContent = s.total || 0;
+            document.getElementById('ei-weaponized').textContent = s.weaponized || 0;
+            document.getElementById('ei-public-poc').textContent = s.public_poc || 0;
+            document.getElementById('ei-partial-poc').textContent = s.partial_poc || 0;
+            document.getElementById('ei-theoretical').textContent = s.theoretical || 0;
+            document.getElementById('ei-active-exploited').textContent = s.actively_exploited || 0;
+            document.getElementById('ei-msf-ready').textContent = s.msf_ready || 0;
+            document.getElementById('ei-nuclei-ready').textContent = s.nuclei_ready || 0;
+
+            // Render findings
+            var listEl = document.getElementById('ei-findings-list');
+            var findings = d.findings || [];
+            if (findings.length === 0) {
+                listEl.innerHTML = '<p class="empty-msg">No exploit-enriched findings. Run a scan with Exploit Intel enabled.</p>';
+                return;
+            }
+
+            listEl.innerHTML = findings.map(function(f) {
+                var sev = (f.adjusted_severity || f.severity || 'info').toLowerCase();
+                var avail = f.exploit_availability || 'THEORETICAL';
+                var availColor = avail === 'WEAPONIZED' ? 'var(--severity-critical)' :
+                                 avail === 'PUBLIC_POC' ? 'var(--severity-high)' :
+                                 avail === 'PARTIAL_POC' ? 'var(--severity-medium)' : 'var(--severity-info)';
+                var rec = f.exploit_record || {};
+                var maturity = rec.exploit_maturity || 0;
+                var maturityPct = Math.min(maturity, 100);
+                var maturityColor = maturity >= 80 ? 'var(--severity-critical)' :
+                                    maturity >= 50 ? 'var(--severity-high)' :
+                                    maturity >= 20 ? 'var(--severity-medium)' : 'var(--severity-info)';
+
+                var sourceBadges = '';
+                if (rec.metasploit_module) sourceBadges += '<span class="badge" style="background:#9b59b622;color:#9b59b6;border:1px solid #9b59b633;margin-right:0.3rem;">🔧 MSF: ' + esc(rec.metasploit_module) + '</span>';
+                if (rec.nuclei_template) sourceBadges += '<span class="badge" style="background:#1abc9c22;color:#1abc9c;border:1px solid #1abc9c33;margin-right:0.3rem;">🔬 Nuclei: ' + esc(rec.nuclei_template) + '</span>';
+                if (rec.exploitdb_id) sourceBadges += '<span class="badge" style="background:#e7453022;color:#e74530;border:1px solid #e7453033;margin-right:0.3rem;">💾 EDB-' + esc(rec.exploitdb_id) + (rec.exploitdb_verified ? ' ✓' : '') + '</span>';
+                if (rec.cve_id) sourceBadges += '<span class="badge" style="background:#3498db22;color:#3498db;border:1px solid #3498db33;margin-right:0.3rem;">🆔 ' + esc(rec.cve_id) + '</span>';
+                if (rec.packetstorm_url) sourceBadges += '<span class="badge" style="background:#f39c1222;color:#f39c12;border:1px solid #f39c1233;margin-right:0.3rem;">📦 PacketStorm</span>';
+                if (f.actively_exploited) sourceBadges += '<span class="badge" style="background:#e9456022;color:#e94560;border:1px solid #e9456033;margin-right:0.3rem;">⚠️ CISA KEV</span>';
+
+                var pocList = '';
+                if (rec.github_pocs && rec.github_pocs.length) {
+                    pocList = '<div style="margin-top:0.4rem;font-size:0.78rem;"><strong>GitHub PoCs:</strong> ' +
+                        rec.github_pocs.map(function(p) {
+                            return '<span style="color:var(--accent);">⭐' + (p.stars || 0) + '</span> ' + esc(p.repo_url || p.description || '');
+                        }).join(' · ') + '</div>';
+                }
+
+                return '<div class="finding-item ' + esc(sev) + '" style="margin-bottom:0.8rem;">' +
+                    '<div class="fi-header">' +
+                        '<strong>' + esc(f.technique) + '</strong>' +
+                        '<div style="display:flex;gap:0.4rem;align-items:center;">' +
+                            '<span class="badge" style="background:' + availColor + ';color:#fff;">' + esc(avail) + '</span>' +
+                            '<span class="badge severity-' + esc(sev) + '">' + esc(f.adjusted_severity || f.severity) + '</span>' +
+                        '</div>' +
+                    '</div>' +
+                    '<div class="finding-meta">' +
+                        '<span>URL: ' + esc(f.url) + '</span>' +
+                        (f.param ? '<span>Param: ' + esc(f.param) + '</span>' : '') +
+                        '<span>CVSS: ' + esc(String(f.adjusted_cvss || f.cvss || 0)) + '</span>' +
+                        '<span>Priority: ' + esc(String((f.final_priority || 0).toFixed(1))) + '</span>' +
+                    '</div>' +
+                    '<div style="margin-top:0.5rem;">' +
+                        '<div style="font-size:0.78rem;color:var(--text-muted);margin-bottom:0.2rem;">Exploit Maturity: ' + maturity + '/100</div>' +
+                        '<div style="height:8px;background:var(--bg-input);border-radius:4px;overflow:hidden;">' +
+                            '<div style="height:100%;width:' + maturityPct + '%;background:' + maturityColor + ';border-radius:4px;transition:width 0.4s;"></div>' +
+                        '</div>' +
+                    '</div>' +
+                    (sourceBadges ? '<div style="margin-top:0.5rem;display:flex;flex-wrap:wrap;gap:0.3rem;">' + sourceBadges + '</div>' : '') +
+                    pocList +
+                    (f.metasploit_ready ? '<div style="margin-top:0.3rem;font-size:0.78rem;color:#9b59b6;">🔧 Metasploit module available — auto-exploitable</div>' : '') +
+                    (f.nuclei_ready ? '<div style="margin-top:0.2rem;font-size:0.78rem;color:#1abc9c;">🔬 Nuclei template available — automated scanning</div>' : '') +
+                '</div>';
+            }).join('');
+        } catch (e) {
+            console.error('[ATOMIC] Failed to load exploit intel:', e);
+        }
+    };
+
+    /* ---- Attack Map (Phase 11) ---- */
+    window._loadAttackMap = async function(scanId) {
+        if (!scanId) {
+            var ids = Object.keys(window._knownActive || {});
+            if (ids.length > 0) {
+                scanId = ids[0];
+                var sel = document.getElementById('am-scan-select');
+                if (sel) sel.value = scanId;
+            } else return;
+        }
+
+        try {
+            var r = await fetch(API + '/api/attack-map/' + scanId);
+            var j = await r.json();
+            if (j.status !== 'success') return;
+            var d = j.data;
+            var s = d.summary || {};
+
+            // Update summary cards
+            document.getElementById('am-total-nodes').textContent = s.total_nodes || 0;
+            document.getElementById('am-entry-points').textContent = s.entry_points || 0;
+            document.getElementById('am-weaponized').textContent = s.weaponized_entries || 0;
+            document.getElementById('am-critical-paths').textContent = s.critical_paths || 0;
+            document.getElementById('am-zero-click').textContent = s.zero_click_paths || 0;
+            document.getElementById('am-msf-paths').textContent = s.msf_ready_paths || 0;
+            document.getElementById('am-coverage').textContent = ((s.exploit_coverage_pct || 0) * 100).toFixed(0) + '%';
+            document.getElementById('am-top-score').textContent = (s.highest_path_score || 0).toFixed(1);
+
+            var fastest = s.fastest_compromise || {};
+            document.getElementById('am-fastest').textContent = fastest.steps ? fastest.steps + ' steps' : '—';
+
+            // Render nodes
+            _renderAttackNodes(d.nodes || []);
+
+            // Render paths
+            _renderAttackPaths(d.paths || [], d.nodes || []);
+
+            // Render impact zones
+            _renderImpactZones(d.impact_zones || []);
+
+            // Render simulation
+            _renderSimulation(d.simulation || {});
+        } catch (e) {
+            console.error('[ATOMIC] Failed to load attack map:', e);
+        }
+    };
+
+    function _renderAttackNodes(nodes) {
+        var container = document.getElementById('am-nodes-container');
+        if (!nodes.length) {
+            container.innerHTML = '<p class="empty-msg">No attack nodes. Run a scan with Attack Map enabled.</p>';
+            return;
+        }
+
+        var typeColors = {
+            ENTRY: 'var(--severity-critical)', PIVOT: 'var(--severity-medium)',
+            ESCALATION: 'var(--severity-high)', IMPACT: '#e94560', SUPPORT: 'var(--severity-info)'
+        };
+        var typeIcons = { ENTRY: '🚪', PIVOT: '🔄', ESCALATION: '⬆️', IMPACT: '💥', SUPPORT: '🛡️' };
+
+        // Group by type
+        var groups = {};
+        nodes.forEach(function(n) {
+            var t = n.type || 'SUPPORT';
+            if (!groups[t]) groups[t] = [];
+            groups[t].push(n);
+        });
+
+        var html = '';
+        ['ENTRY', 'PIVOT', 'ESCALATION', 'IMPACT', 'SUPPORT'].forEach(function(t) {
+            var grp = groups[t] || [];
+            if (grp.length === 0) return;
+            var color = typeColors[t] || 'var(--text-muted)';
+            var icon = typeIcons[t] || '📍';
+            html += '<div style="margin-bottom:1rem;">' +
+                '<h4 style="font-size:0.88rem;color:' + color + ';margin-bottom:0.5rem;">' + icon + ' ' + t + ' (' + grp.length + ')</h4>' +
+                '<div style="display:flex;flex-wrap:wrap;gap:0.5rem;">';
+            grp.forEach(function(n) {
+                var avail = n.exploit_availability || 'THEORETICAL';
+                var availColor = avail === 'WEAPONIZED' ? '#dc354522' : avail === 'PUBLIC_POC' ? '#e74c3c22' : avail === 'PARTIAL_POC' ? '#f39c1222' : '#6c757d22';
+                var flags = '';
+                if (n.metasploit_ready) flags += '🔧';
+                if (n.nuclei_ready) flags += '🔬';
+                if (n.cisa_kev) flags += '⚠️';
+                if (n.actively_exploited) flags += '🔴';
+
+                html += '<div style="background:' + availColor + ';border:1px solid ' + color + '33;border-radius:8px;padding:0.6rem 0.8rem;min-width:200px;flex:1;max-width:320px;">' +
+                    '<div style="display:flex;justify-content:space-between;align-items:center;">' +
+                        '<strong style="font-size:0.85rem;color:var(--text-primary);">' + esc(n.label || n.vuln_class || n.id) + '</strong>' +
+                        '<span style="font-size:0.78rem;">' + flags + '</span>' +
+                    '</div>' +
+                    '<div style="font-size:0.78rem;color:var(--text-muted);margin-top:0.2rem;">' + esc(n.endpoint || '') + '</div>' +
+                    '<div style="display:flex;gap:0.4rem;margin-top:0.3rem;">' +
+                        '<span class="badge" style="font-size:0.7rem;background:' + color + '22;color:' + color + ';">' + esc(avail) + '</span>' +
+                        '<span class="badge" style="font-size:0.7rem;">CVSS ' + esc(String(n.adjusted_cvss || n.cvss || 0)) + '</span>' +
+                    '</div>' +
+                '</div>';
+            });
+            html += '</div></div>';
+        });
+
+        container.innerHTML = html;
+    }
+
+    function _renderAttackPaths(paths, nodes) {
+        var container = document.getElementById('am-paths-container');
+        if (!paths.length) {
+            container.innerHTML = '<p class="empty-msg">No attack paths enumerated yet.</p>';
+            return;
+        }
+
+        // Build node lookup
+        var nodeMap = {};
+        nodes.forEach(function(n) { nodeMap[n.id] = n; });
+
+        container.innerHTML = paths.sort(function(a, b) { return (b.path_score || 0) - (a.path_score || 0); }).map(function(p, idx) {
+            var classes = (p.classification || []).join(' / ');
+            var scoreColor = p.path_score >= 9.0 ? 'var(--severity-critical)' :
+                             p.path_score >= 7.0 ? 'var(--severity-high)' :
+                             p.path_score >= 4.0 ? 'var(--severity-medium)' : 'var(--severity-low)';
+
+            var flagBadges = '';
+            if (p.fully_weaponized) flagBadges += '<span class="badge" style="background:var(--severity-critical);color:#fff;margin-right:0.3rem;">WEAPONIZED</span>';
+            if (p.msf_end_to_end) flagBadges += '<span class="badge" style="background:#9b59b6;color:#fff;margin-right:0.3rem;">MSF</span>';
+            if (p.nuclei_end_to_end) flagBadges += '<span class="badge" style="background:#1abc9c;color:#fff;margin-right:0.3rem;">NUCLEI</span>';
+            if (p.cisa_kev_in_path) flagBadges += '<span class="badge" style="background:#e94560;color:#fff;margin-right:0.3rem;">CISA KEV</span>';
+            if (!p.auth_required) flagBadges += '<span class="badge" style="background:#2ecc71;color:#fff;margin-right:0.3rem;">NO AUTH</span>';
+
+            // Path flow visualization
+            var pathNodes = p.nodes || [];
+            var flowHtml = pathNodes.map(function(nid) {
+                var n = nodeMap[nid] || {};
+                var typeIcon = n.type === 'ENTRY' ? '🚪' : n.type === 'PIVOT' ? '🔄' : n.type === 'ESCALATION' ? '⬆️' : n.type === 'IMPACT' ? '💥' : '🛡️';
+                return '<span style="display:inline-flex;align-items:center;gap:0.2rem;background:var(--bg-input);padding:0.2rem 0.5rem;border-radius:4px;font-size:0.78rem;">' +
+                    typeIcon + ' ' + esc(n.label || n.vuln_class || nid) + '</span>';
+            }).join(' <span style="color:var(--accent);">→</span> ');
+
+            var stepsHtml = '';
+            if (p.steps && p.steps.length) {
+                stepsHtml = '<div style="margin-top:0.5rem;padding-left:0.5rem;border-left:2px solid var(--border);">' +
+                    p.steps.map(function(s, i) {
+                        return '<div style="font-size:0.82rem;color:var(--text-primary);padding:0.2rem 0;">' +
+                            '<span style="color:var(--accent);font-weight:600;">Step ' + (i + 1) + ':</span> ' + esc(s) + '</div>';
+                    }).join('') + '</div>';
+            }
+
+            return '<div style="border:1px solid var(--border);border-radius:8px;padding:1rem;margin-bottom:0.8rem;border-left:4px solid ' + scoreColor + ';">' +
+                '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:0.5rem;">' +
+                    '<div><strong style="font-size:0.95rem;">PATH-' + String(idx + 1).padStart(3, '0') + '</strong>' +
+                        '<span style="font-size:0.82rem;color:var(--text-muted);margin-left:0.5rem;">' + esc(classes) + '</span></div>' +
+                    '<div style="font-size:1.1rem;font-weight:700;color:' + scoreColor + ';">' + (p.path_score || 0).toFixed(1) + '</div>' +
+                '</div>' +
+                '<div style="margin-bottom:0.5rem;">' + flagBadges + '</div>' +
+                '<div style="display:flex;gap:1rem;font-size:0.82rem;color:var(--text-muted);margin-bottom:0.5rem;">' +
+                    '<span>Steps: ' + (p.steps_required || pathNodes.length) + '</span>' +
+                    '<span>Auth: ' + (p.auth_required ? '🔒 YES' : '✅ NO') + '</span>' +
+                '</div>' +
+                '<div style="margin-bottom:0.5rem;display:flex;flex-wrap:wrap;gap:0.3rem;align-items:center;">' + flowHtml + '</div>' +
+                (p.narrative ? '<div style="font-size:0.82rem;color:var(--text-muted);margin-top:0.4rem;font-style:italic;">' + esc(p.narrative) + '</div>' : '') +
+                stepsHtml +
+            '</div>';
+        }).join('');
+    }
+
+    function _renderImpactZones(zones) {
+        var container = document.getElementById('am-zones-container');
+        if (!zones.length) {
+            container.innerHTML = '<p class="empty-msg">No impact zones mapped.</p>';
+            return;
+        }
+
+        var zoneIcons = {
+            DATA_BREACH: '🗃️', ACCOUNT_TAKEOVER: '👤', SERVER_COMPROMISE: '🖥️',
+            INTERNAL_PIVOT: '🔗', CLOUD_CRED_THEFT: '☁️', PERSISTENCE: '🔒'
+        };
+        var zoneColors = {
+            DATA_BREACH: 'var(--severity-critical)', ACCOUNT_TAKEOVER: 'var(--severity-high)',
+            SERVER_COMPROMISE: '#e94560', INTERNAL_PIVOT: '#3498db',
+            CLOUD_CRED_THEFT: '#9b59b6', PERSISTENCE: '#e67e22'
+        };
+
+        container.innerHTML = '<div class="grid grid-3">' + zones.map(function(z) {
+            var icon = zoneIcons[z.zone] || '💥';
+            var color = zoneColors[z.zone] || 'var(--accent)';
+            var triggers = (z.triggered_by || []).length;
+            var assets = z.assets_at_risk || [];
+
+            return '<div class="glass-card" style="border-top:3px solid ' + color + ';">' +
+                '<div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.5rem;">' +
+                    '<span style="font-size:1.4rem;">' + icon + '</span>' +
+                    '<div>' +
+                        '<strong style="font-size:0.9rem;color:' + color + ';">' + esc(z.zone.replace(/_/g, ' ')) + '</strong>' +
+                        (z.weaponized_path_exists ? '<span class="badge" style="background:var(--severity-critical);color:#fff;margin-left:0.4rem;font-size:0.7rem;">WEAPONIZED</span>' : '') +
+                    '</div>' +
+                '</div>' +
+                '<div style="font-size:0.82rem;color:var(--text-muted);">Triggered by ' + triggers + ' path(s)</div>' +
+                '<div style="font-size:0.78rem;color:var(--text-muted);margin-top:0.3rem;">Likelihood: <strong>' + esc(z.likelihood || 'Unknown') + '</strong></div>' +
+                (assets.length ? '<div style="margin-top:0.4rem;display:flex;flex-wrap:wrap;gap:0.2rem;">' +
+                    assets.map(function(a) {
+                        return '<span class="badge" style="background:var(--bg-input);color:var(--text-primary);border:1px solid var(--border);font-size:0.72rem;">' + esc(a) + '</span>';
+                    }).join('') + '</div>' : '') +
+            '</div>';
+        }).join('') + '</div>';
+    }
+
+    function _renderSimulation(sim) {
+        var container = document.getElementById('am-simulation-container');
+        if (!sim || Object.keys(sim).length === 0) {
+            container.innerHTML = '<p class="empty-msg">No simulation results available.</p>';
+            return;
+        }
+
+        var profiles = [
+            { key: 'opportunistic', label: 'Opportunistic', icon: '🎮', desc: 'Script-kiddie level — uses MSF/zero-click only', color: '#2ecc71' },
+            { key: 'skilled', label: 'Skilled Attacker', icon: '🎯', desc: 'Moderate effort — public PoC + manual chaining', color: 'var(--severity-medium)' },
+            { key: 'apt', label: 'APT', icon: '🕵️', desc: 'Full effort — all paths + custom exploit dev', color: 'var(--severity-critical)' },
+        ];
+
+        container.innerHTML = '<div class="grid grid-3">' + profiles.map(function(p) {
+            var data = sim[p.key] || {};
+            var paths = data.paths_available || 0;
+            var fastest = data.fastest_path_id || '—';
+            var minSteps = data.min_steps_to_impact || '—';
+            var timeEst = data.time_estimate || '—';
+            var custom = data.requires_custom_exploit ? '⚠️ Yes' : '✅ No';
+
+            return '<div class="glass-card" style="border-top:3px solid ' + p.color + ';">' +
+                '<div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.5rem;">' +
+                    '<span style="font-size:1.3rem;">' + p.icon + '</span>' +
+                    '<strong style="color:' + p.color + ';">' + p.label + '</strong>' +
+                '</div>' +
+                '<div style="font-size:0.78rem;color:var(--text-muted);margin-bottom:0.5rem;">' + p.desc + '</div>' +
+                '<div style="font-size:0.85rem;line-height:1.8;">' +
+                    '<div>Paths: <strong>' + paths + '</strong></div>' +
+                    '<div>Min Steps: <strong>' + minSteps + '</strong></div>' +
+                    '<div>Time Est: <strong>' + esc(String(timeEst)) + '</strong></div>' +
+                    '<div>Custom Dev: <strong>' + custom + '</strong></div>' +
+                '</div>' +
+            '</div>';
+        }).join('') + '</div>';
     }
 
     /* ---- Scanner Rules ---- */
