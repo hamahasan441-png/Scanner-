@@ -773,7 +773,7 @@ jobs:
       - name: Verify file references
         run: |
           # Extract all file paths mentioned in LOGIC_MAP.md
-          grep -oP '`[a-z_/]+\.py`' LOGIC_MAP.md | tr -d '`' | sort -u > /tmp/doc_files.txt
+          grep -oP '`[a-zA-Z0-9_/-]+\.py`' LOGIC_MAP.md | tr -d '`' | sort -u > /tmp/doc_files.txt
           # List actual files
           find core/ modules/ utils/ web/ -name '*.py' | sort -u > /tmp/real_files.txt
           # Check for references to non-existent files
@@ -794,7 +794,7 @@ jobs:
       - name: Validate phase numbering
         run: |
           # Ensure no § notation remains
-          if grep -rn '§[0-9]' core/ LOGIC_MAP.md; then
+          if grep -rn '§[0-9]\+' core/ LOGIC_MAP.md; then
             echo "❌ Found legacy § notation"
             exit 1
           fi
@@ -861,7 +861,7 @@ jobs:
       - name: Check auth is not no-op
         run: |
           # Ensure _require_api_key is not a passthrough
-          if grep -A5 '_require_api_key' web/app.py | grep -q 'return f(\*args'; then
+          if grep -A5 '_require_api_key' web/app.py | grep -qP 'return f\('; then
             echo "❌ _require_api_key appears to be a no-op"
             exit 1
           fi
