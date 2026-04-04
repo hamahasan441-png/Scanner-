@@ -37,7 +37,7 @@
 │  │ web/     │─────────┘                     │                  │
 │  │ app.py   │                               ▼                  │
 │  │ (Flask)  │                  ┌──────────────────────┐        │
-│  └──────────┘                  │   22+ Attack Modules  │        │
+│  └──────────┘                  │   30+ Attack Modules  │        │
 │                                │   (modules/*.py)      │        │
 │                                └──────────────────────┘        │
 │                                          │                      │
@@ -697,7 +697,14 @@ Scanner-/
 │   ├── banner.py              # ASCII art banner
 │   ├── proxy.py               # Intercepting proxy
 │   ├── repeater.py            # HTTP request repeater
-│   └── intruder.py            # Intruder attack mode
+│   ├── intruder.py            # Intruder attack mode
+│   ├── auth.py                # JWT authentication + RBAC
+│   ├── scheduler.py           # Scheduled/recurring scans (interval + cron)
+│   ├── compliance.py          # Compliance mapping (OWASP/PCI-DSS/NIST/CIS/SANS)
+│   ├── audit_logger.py        # Tamper-proof audit trail
+│   ├── tool_integrator.py     # External tool integration (Nmap/Nuclei/Nikto/WhatWeb/Subfinder)
+│   ├── plugin_system.py       # Plugin architecture (drop-in + hooks)
+│   └── notification.py        # Multi-channel alerting (webhook/Slack/Discord/Teams)
 │
 ├── modules/
 │   ├── base.py                # BaseModule — abstract interface
@@ -748,10 +755,84 @@ Scanner-/
 │   ├── templates/index.html   # Dashboard UI
 │   └── static/style.css       # Styles
 │
-└── tests/                     # 2200+ unit tests
+└── tests/                     # 2900+ unit tests
     ├── conftest.py            # Test fixtures
     └── test_*.py              # Per-module test files
 ```
+
+---
+
+## Production Components (v8.1)
+
+### Authentication & RBAC (`core/auth.py`)
+- JWT-based authentication with PBKDF2-SHA256 password hashing
+- Three roles: **admin** (full access), **analyst** (scan + exploit), **viewer** (read-only)
+- Permission matrix with 30+ granular permissions
+- API key authentication (prefix: `atk_`)
+- Token refresh mechanism
+- Environment: `ATOMIC_AUTH_SECRET`, `ATOMIC_ADMIN_PASSWORD`
+
+### Scheduled Scanning (`core/scheduler.py`)
+- Interval-based scheduling (every N seconds)
+- Cron expression support (5-field: min hour dom mon dow)
+- One-time future execution
+- Max runs limiter
+- Background scheduler thread with 30s tick interval
+- CLI: `--schedule <minutes>`, `--schedule-cron "<expr>"`, `--schedule-name`
+
+### Compliance Mapping (`core/compliance.py`)
+- **OWASP Top 10 (2021)** — 10 categories with CWE + keyword matching
+- **PCI DSS v4.0** — 11 requirements
+- **NIST SP 800-53 Rev 5** — 8 control families
+- **CIS Controls v8** — 9 control groups
+- **SANS Top 25** — CWE-based matching
+- Framework scoring (% controls passing)
+- Gap analysis sorted by severity
+- CLI: `--compliance`, `--compliance-frameworks owasp,pci_dss`
+
+### Audit Logger (`core/audit_logger.py`)
+- Tamper-proof audit trail with HMAC-SHA256 checksums
+- Categories: auth, scan, exploit, report, user, config, system, schedule
+- Severity levels: info, warning, critical
+- Query API with filters (category, actor, severity, since)
+- Statistics and security event reporting
+- JSON export for compliance audits
+- Environment: `ATOMIC_AUDIT_SECRET`
+
+### External Tool Integration (`core/tool_integrator.py`)
+- **Nmap** — Network scanning with XML output parsing (quick/service/vuln/full modes)
+- **Nuclei** — Template-based scanning with JSONL output parsing
+- **Nikto** — Web server assessment with JSON/text parsing
+- **WhatWeb** — Technology fingerprinting with JSON parsing
+- **Subfinder** — Subdomain enumeration
+- Unified `ToolIntegrator` facade with `run_tool()`, `run_recon_suite()`, `run_vuln_scan()`
+- CLI: `--nmap`, `--nuclei`, `--nikto`, `--whatweb`, `--subfinder`, `--tools-check`
+
+### Plugin System (`core/plugin_system.py`)
+- Drop-in plugin discovery from `plugins/` directory
+- Programmatic registration via `register()`
+- Plugin lifecycle: setup → run → teardown
+- Hook system: pre_scan, post_scan, on_finding, pre_report
+- Category-based filtering (scanner, recon, exploit, report, utility)
+- Enable/disable toggle per plugin
+
+### Notification System (`core/notification.py`)
+- Console channel (stdout with severity colors)
+- Webhook channel (generic HTTP POST)
+- Pre-formatted payloads for Slack, Discord, and Microsoft Teams
+- Auto-notifications: scan started/completed/failed, critical findings
+- Notification history with 500-entry cap
+- CLI: `--notify-webhook <url>`, `--notify-format slack|discord|teams`
+- Environment: `ATOMIC_WEBHOOK_URL`, `ATOMIC_WEBHOOK_FORMAT`
+
+### Web API Endpoints (28 new)
+- **Auth** (8): login, refresh, me, CRUD users, API key generation
+- **Scheduler** (8): CRUD schedules, toggle, history, start/stop
+- **Compliance** (2): analyze scan, list frameworks
+- **Audit** (2): query entries, statistics
+- **Tools** (2): list available, run tool
+- **Plugins** (3): list, discover, toggle
+- **Notifications** (3): list channels, test, history
 
 ---
 
@@ -759,6 +840,7 @@ Scanner-/
 
 | Date | Change | Files |
 |------|--------|-------|
+| 2026-04-04 | **v8.1 Production Upgrade**: Added 7 production components — Authentication & RBAC (JWT + PBKDF2), Scheduled Scanning (interval + cron), Compliance Mapping (OWASP/PCI-DSS/NIST/CIS/SANS), Audit Logger (tamper-proof), External Tool Integration (Nmap/Nuclei/Nikto/WhatWeb/Subfinder), Plugin System (drop-in + hooks), Notification System (webhook/Slack/Discord/Teams). 28 new web API endpoints. 15+ new CLI flags. 200 new tests. | `core/auth.py`, `core/scheduler.py`, `core/compliance.py`, `core/audit_logger.py`, `core/tool_integrator.py`, `core/plugin_system.py`, `core/notification.py`, `core/engine.py`, `main.py`, `web/app.py`, `LOGIC_MAP.md` |
 | 2026-04-04 | Added Phase 9B: Exploit Reference Searcher (7-source search: ExploitDB, Metasploit, Nuclei, GitHub PoC, PacketStorm, NVD, CISA KEV; ExploitConsolidator maturity scoring; CVSSAdjuster; PriorityReranker). Added Phase 11: Attack Map (NodeClassifier, EdgeBuilder, PathFinder, ImpactZoneMapper, AttackerSimulator with 3 profiles). CLI flags: --exploit-search, --attack-map. | `core/exploit_searcher.py`, `core/attack_map.py`, `core/engine.py`, `main.py`, `LOGIC_MAP.md` |
 | 2026-04-04 | Added Phase 10: Commit & Report (OutputPhase orchestrator, DB save_results/save_chains/ExploitChainModel, ReportGenerator enrichment: executive_summary, exploit_chains, waf_bypass_disclosure, origin_exposure_note, remediation_plan, agent_reasoning_log). ReportGenerator.generate() now returns filepath. | `core/output_phase.py`, `core/reporter.py`, `utils/database.py`, `core/engine.py`, `LOGIC_MAP.md` |
 | 2026-04-04 | Added Phases 5-9: Passive Recon Fan-Out, Intelligence Enrichment (TechFingerprinter, CVEMatcher), Attack Surface Prioritization, Scan Worker Pool (DifferentialEngine, SurfaceMapper, Workers A-E), Post-Worker Verification (ChainDetector, CVSS v3.1 auto-scoring) | `core/passive_recon.py`, `core/intelligence_enricher.py`, `core/scan_priority_queue.py`, `core/scan_worker_pool.py`, `core/post_worker_verifier.py`, `core/engine.py`, `main.py` |
