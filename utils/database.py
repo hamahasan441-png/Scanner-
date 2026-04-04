@@ -63,6 +63,21 @@ class FindingModel(Base if SQLALCHEMY_AVAILABLE else object):
         extracted_data = Column(Text)
 
 
+class ExploitChainModel(Base if SQLALCHEMY_AVAILABLE else object):
+    """Exploit chain model — stores detected multi-step chains."""
+    if SQLALCHEMY_AVAILABLE:
+        __tablename__ = 'exploit_chains'
+
+        id = Column(Integer, primary_key=True)
+        scan_id = Column(String(50), ForeignKey('scans.scan_id'))
+        chain_id = Column(String(50))
+        name = Column(String(200))
+        steps = Column(Text)  # JSON list of step labels
+        combined_cvss = Column(Float, default=0.0)
+        combined_severity = Column(String(20))
+        finding_count = Column(Integer, default=0)
+
+
 class ShellModel(Base if SQLALCHEMY_AVAILABLE else object):
     """Active shell model"""
     if SQLALCHEMY_AVAILABLE:
@@ -133,6 +148,58 @@ class Database:
             session.close()
         except Exception as e:
             print(f"[!] Error saving finding: {e}")
+
+    def save_results(self, scan_id, findings):
+        """Bulk-save all verified findings for a scan."""
+        if not self.Session:
+            return
+
+        try:
+            session = self.Session()
+            for finding in findings:
+                f = FindingModel(
+                    scan_id=scan_id,
+                    technique=getattr(finding, 'technique', ''),
+                    mitre_id=getattr(finding, 'mitre_id', ''),
+                    cwe_id=getattr(finding, 'cwe_id', ''),
+                    cvss=getattr(finding, 'cvss', 0.0),
+                    severity=getattr(finding, 'severity', 'INFO'),
+                    confidence=getattr(finding, 'confidence', 0.0),
+                    url=getattr(finding, 'url', ''),
+                    param=getattr(finding, 'param', ''),
+                    payload=getattr(finding, 'payload', ''),
+                    evidence=getattr(finding, 'evidence', ''),
+                    extracted_data=getattr(finding, 'extracted_data', ''),
+                )
+                session.add(f)
+            session.commit()
+            session.close()
+        except Exception as e:
+            print(f"[!] Error bulk-saving findings: {e}")
+
+    def save_chains(self, scan_id, chains):
+        """Save exploit chains for a scan."""
+        if not self.Session:
+            return
+
+        try:
+            import json as _json
+            session = self.Session()
+            for chain in chains:
+                c = ExploitChainModel(
+                    scan_id=scan_id,
+                    chain_id=getattr(chain, 'id', ''),
+                    name=getattr(chain, 'name', ''),
+                    steps=_json.dumps(getattr(chain, 'steps', [])),
+                    combined_cvss=getattr(chain, 'combined_cvss', 0.0),
+                    combined_severity=getattr(chain, 'combined_severity', 'HIGH'),
+                    finding_count=len(getattr(chain, 'findings', [])),
+                )
+                session.add(c)
+            session.commit()
+            session.close()
+        except Exception as e:
+            print(f"[!] Error saving exploit chains: {e}")
 
     def update_scan(self, scan_id, **kwargs):
         """Update scan metadata (e.g. end_time, findings_count, total_requests)"""

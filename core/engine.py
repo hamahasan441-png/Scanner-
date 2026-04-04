@@ -14,7 +14,8 @@ CORE FLOW:
   PHASE 8: Vulnerability Scan Workers →
   PHASE 9: Post-Worker Verification →
   PHASE 4: Agent Scan →
-  Report → Learn → Adapt
+  PHASE 10: Commit & Report (OutputPhase) →
+  Learn → Adapt
 """
 
 import time
@@ -682,6 +683,7 @@ class AtomicEngine:
                     print(f"{Colors.error(f'Phase 8 worker pool error: {e}')}")
 
         # ── PHASE 9: POST-WORKER VERIFICATION ────────────────────────
+        verification_result = None
         if modules_config.get('chain_detect', False) and self.findings:
             try:
                 from core.post_worker_verifier import PostWorkerVerifier
@@ -838,18 +840,44 @@ class AtomicEngine:
         # ── Clear persistence progress on complete scan ───────────────
         self.persistence.clear_progress()
 
-        # ── Update database record with final metrics ────────────────
-        if self.db:
-            try:
-                self.db.update_scan(
-                    self.scan_id,
-                    end_time=self.end_time,
-                    findings_count=len(self.findings),
-                    total_requests=self.requester.total_requests,
-                )
-            except Exception as e:
-                if self.config.get('verbose'):
-                    print(f"{Colors.warning(f'Could not update scan record: {e}')}")
+        # ── PHASE 10: COMMIT & REPORT ─────────────────────────────────
+        # Collect chain/shield/agent data produced during previous phases
+        # and pass them to the unified OutputPhase for DB commit + reports.
+        exploit_chains = []
+        if verification_result and hasattr(verification_result, 'exploit_chains'):
+            exploit_chains = verification_result.exploit_chains
+
+        # Store enrichment data for generate_reports() backward compatibility
+        self._exploit_chains = exploit_chains
+        self._origin_result = real_ip_result
+        self._agent_result = agent_result
+
+        try:
+            from core.output_phase import OutputPhase
+            output_phase = OutputPhase(self)
+            output_phase.run(
+                verified_findings=self.findings,
+                exploit_chains=exploit_chains,
+                shield_profile=shield_profile,
+                origin_result=real_ip_result,
+                agent_result=agent_result,
+                report_format=self.config.get('format', 'html'),
+            )
+        except Exception as exc:
+            if self.config.get('verbose'):
+                print(f"{Colors.error(f'Phase 10 output error: {exc}')}")
+            # Fallback: legacy DB update
+            if self.db:
+                try:
+                    self.db.update_scan(
+                        self.scan_id,
+                        end_time=self.end_time,
+                        findings_count=len(self.findings),
+                        total_requests=self.requester.total_requests,
+                    )
+                except Exception as e:
+                    if self.config.get('verbose'):
+                        print(f"{Colors.warning(f'Could not update scan record: {e}')}")
 
         # ── PIPELINE: All phases complete ─────────────────────────
         self.pipeline['collect']['status'] = 'completed'
@@ -996,7 +1024,12 @@ class AtomicEngine:
         print(f"{Colors.BOLD}{'='*60}{Colors.RESET}")
 
     def generate_reports(self):
-        """Generate reports for the current scan"""
+        """Generate reports for the current scan.
+
+        When Phase 10 (OutputPhase) ran inside scan(), reports are already
+        generated.  This method remains for backward-compatible CLI usage
+        and passes any enrichment data the engine collected.
+        """
         try:
             from core.reporter import ReportGenerator
             output_dir = self.config.get('output_dir', Config.REPORTS_DIR)
@@ -1005,6 +1038,10 @@ class AtomicEngine:
                 self.start_time, self.end_time,
                 self.requester.total_requests,
                 output_dir=output_dir,
+                exploit_chains=getattr(self, '_exploit_chains', []),
+                shield_profile=getattr(self, '_shield_profile', None),
+                origin_result=getattr(self, '_origin_result', None),
+                agent_result=getattr(self, '_agent_result', None),
             )
             generator.generate('html')
             generator.generate('json')

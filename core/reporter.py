@@ -20,7 +20,8 @@ class ReportGenerator:
     # Only allow safe characters in scan IDs used for filenames
     _SAFE_ID = re.compile(r'^[a-zA-Z0-9_-]+$')
 
-    def __init__(self, scan_id, findings=None, target=None, start_time=None, end_time=None, total_requests=0, output_dir=None):
+    def __init__(self, scan_id, findings=None, target=None, start_time=None, end_time=None, total_requests=0, output_dir=None,
+                 exploit_chains=None, shield_profile=None, origin_result=None, agent_result=None):
         # Sanitize scan_id to prevent path traversal in report filenames
         if not self._SAFE_ID.match(scan_id or ''):
             scan_id = re.sub(r'[^a-zA-Z0-9_-]', '_', scan_id or 'unknown')
@@ -32,6 +33,12 @@ class ReportGenerator:
         self.total_requests = total_requests
         self.output_dir = output_dir or Config.REPORTS_DIR
         os.makedirs(self.output_dir, exist_ok=True)
+
+        # Phase 10 enrichment data
+        self.exploit_chains = exploit_chains or []
+        self.shield_profile = shield_profile or {}
+        self.origin_result = origin_result or {}
+        self.agent_result = agent_result or {}
 
         # If no findings provided, try to load from database
         if not self.findings:
@@ -77,7 +84,7 @@ class ReportGenerator:
             print(f"{Colors.error(f'Could not load scan data: {e}')}")
 
     def generate(self, fmt='html'):
-        """Generate report in specified format"""
+        """Generate report in specified format. Returns the filepath or None."""
         generators = {
             'html': self._generate_html,
             'json': self._generate_json,
@@ -93,8 +100,10 @@ class ReportGenerator:
             filepath = generator()
             if filepath:
                 print(f"{Colors.success(f'Report generated: {filepath}')}")
+            return filepath
         else:
             print(f"{Colors.error(f'Unsupported format: {fmt}')}")
+            return None
 
     def generate_all(self):
         """Generate reports in all formats"""
@@ -132,8 +141,120 @@ class ReportGenerator:
             return ''
         return '; '.join(f'{k}={v}' for k, v in signals.items())
 
+    @staticmethod
+    def _pdf_safe(text):
+        """Replace Unicode characters that Helvetica can't render."""
+        return str(text).replace('\u2192', '->').replace('\u2190', '<-').replace('\u2194', '<->')
+
+    # ------------------------------------------------------------------
+    # Phase 10 enrichment helpers
+    # ------------------------------------------------------------------
+
+    def _severity_counts(self):
+        """Return {severity: count} from findings."""
+        counts = {}
+        for f in self._get_findings_data():
+            sev = f.get('severity', 'INFO')
+            counts[sev] = counts.get(sev, 0) + 1
+        return counts
+
+    def _top_critical_risks(self, n=3):
+        """Return top-N findings sorted by CVSS DESC."""
+        data = self._get_findings_data()
+        data.sort(key=lambda f: f.get('cvss', 0), reverse=True)
+        return data[:n]
+
+    def _get_chains_data(self):
+        """Get exploit chains as list of dicts."""
+        result = []
+        for chain in self.exploit_chains:
+            if isinstance(chain, dict):
+                result.append(chain)
+            else:
+                result.append({
+                    'id': getattr(chain, 'id', ''),
+                    'name': getattr(chain, 'name', ''),
+                    'steps': getattr(chain, 'steps', []),
+                    'combined_cvss': getattr(chain, 'combined_cvss', 0.0),
+                    'combined_severity': getattr(chain, 'combined_severity', ''),
+                    'finding_count': len(getattr(chain, 'findings', [])),
+                })
+        return result
+
+    def _waf_bypass_info(self):
+        """Extract WAF bypass disclosure from shield profile and findings."""
+        info = {}
+        waf = self.shield_profile.get('waf', {})
+        if waf.get('detected'):
+            info['waf_detected'] = True
+            info['waf_provider'] = waf.get('provider', 'Unknown')
+        bypasses = []
+        for f in self._get_findings_data():
+            signals = f.get('signals', {})
+            waf_flag = signals.get('waf_flag', '')
+            if waf_flag == 'WAF_BYPASSED_CONFIRMED':
+                bypasses.append({
+                    'technique': f.get('technique', ''),
+                    'url': f.get('url', ''),
+                    'payload': f.get('payload', '')[:120],
+                })
+        info['bypasses'] = bypasses
+        return info
+
+    def _origin_exposure_info(self):
+        """Extract origin exposure from origin result."""
+        info = {}
+        if self.origin_result:
+            info['origin_ip'] = self.origin_result.get('origin_ip')
+            info['confidence'] = self.origin_result.get('confidence', 0)
+            info['method'] = self.origin_result.get('method', '')
+        cdn = self.shield_profile.get('cdn', {})
+        if cdn.get('detected'):
+            info['cdn_provider'] = cdn.get('provider', 'Unknown')
+            info['cdn_misconfigured'] = self.shield_profile.get('needs_origin_discovery', False)
+        return info
+
+    def _agent_reasoning_log(self):
+        """Extract agent reasoning log from agent result."""
+        if not self.agent_result:
+            return []
+        log = []
+        for goal in self.agent_result.get('goals_completed', []):
+            log.append({
+                'type': 'goal_completed',
+                'description': goal if isinstance(goal, str) else str(goal),
+            })
+        for pivot in self.agent_result.get('pivots_found', []):
+            log.append({
+                'type': 'pivot',
+                'description': pivot if isinstance(pivot, str) else str(pivot),
+            })
+        return log
+
+    def _remediation_plan(self):
+        """Build prioritized remediation plan from findings."""
+        data = self._get_findings_data()
+        data.sort(key=lambda f: f.get('cvss', 0), reverse=True)
+        plan = []
+        seen = set()
+        for f in data:
+            rem = f.get('remediation', '')
+            if not rem:
+                continue
+            key = f"{f.get('technique', '')}:{rem[:40]}"
+            if key in seen:
+                continue
+            seen.add(key)
+            plan.append({
+                'technique': f.get('technique', ''),
+                'severity': f.get('severity', 'INFO'),
+                'cvss': f.get('cvss', 0),
+                'remediation': rem,
+            })
+        return plan
+
     def _generate_json(self):
-        """Generate JSON report"""
+        """Generate JSON report with Phase 10 enrichment."""
         filepath = os.path.join(self.output_dir, f'report_{self.scan_id}.json')
 
         report = {
@@ -143,7 +264,20 @@ class ReportGenerator:
             'end_time': str(self.end_time) if self.end_time else None,
             'total_requests': self.total_requests,
             'total_findings': len(self.findings),
+            'executive_summary': {
+                'severity_counts': self._severity_counts(),
+                'top_critical_risks': [
+                    {'technique': r.get('technique', ''), 'cvss': r.get('cvss', 0), 'url': r.get('url', '')}
+                    for r in self._top_critical_risks()
+                ],
+                'origin_exposure': self._origin_exposure_info(),
+            },
             'findings': self._get_findings_data(),
+            'exploit_chains': self._get_chains_data(),
+            'waf_bypass_disclosure': self._waf_bypass_info(),
+            'origin_exposure_note': self._origin_exposure_info(),
+            'remediation_plan': self._remediation_plan(),
+            'agent_reasoning_log': self._agent_reasoning_log(),
         }
 
         try:
@@ -156,7 +290,7 @@ class ReportGenerator:
         return filepath
 
     def _generate_html(self):
-        """Generate HTML report"""
+        """Generate HTML report with Phase 10 enrichment sections."""
         filepath = os.path.join(self.output_dir, f'report_{self.scan_id}.html')
         findings_data = self._get_findings_data()
 
@@ -168,6 +302,31 @@ class ReportGenerator:
             'INFO': '#6c757d',
         }
 
+        # ── Executive summary cards ──
+        sev_counts = self._severity_counts()
+        sev_cards = ''
+        for sev in ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO']:
+            cnt = sev_counts.get(sev, 0)
+            if cnt:
+                color = severity_colors.get(sev, '#6c757d')
+                sev_cards += f'<div class="summary-card"><h3 style="color:{color}">{cnt}</h3><p>{sev}</p></div>'
+
+        top_risks_html = ''
+        for r in self._top_critical_risks():
+            top_risks_html += f"<li><strong>{r.get('technique','')}</strong> (CVSS {r.get('cvss',0)}) — {r.get('url','')[:80]}</li>"
+
+        origin_info = self._origin_exposure_info()
+        origin_html = ''
+        if origin_info.get('origin_ip'):
+            origin_html = f"""<p><span style="color:#e94560">⚠ Origin IP exposed:</span> {origin_info['origin_ip']}
+            (confidence: {origin_info.get('confidence', 0):.0%}, method: {origin_info.get('method', '')})</p>"""
+        if origin_info.get('cdn_provider'):
+            origin_html += f"<p>CDN provider: {origin_info['cdn_provider']}"
+            if origin_info.get('cdn_misconfigured'):
+                origin_html += ' <span style="color:#f39c12">(misconfigured)</span>'
+            origin_html += '</p>'
+
+        # ── Findings table rows ──
         findings_html = ''
         for f in findings_data:
             color = severity_colors.get(f.get('severity', 'INFO'), '#6c757d')
@@ -194,6 +353,54 @@ class ReportGenerator:
                 <td style="font-size:11px">{remediation[:120]}</td>
             </tr>"""
 
+        # ── Exploit chains section ──
+        chains_html = ''
+        chains_data = self._get_chains_data()
+        if chains_data:
+            chains_html = '<h2>Exploit Chains</h2>'
+            for ch in chains_data:
+                ch_color = severity_colors.get(ch.get('combined_severity', 'HIGH'), '#e74c3c')
+                steps = ' → '.join(ch.get('steps', []))
+                chains_html += f"""
+                <div style="background:#16213e;padding:12px;border-radius:6px;margin:8px 0;border-left:4px solid {ch_color}">
+                    <strong style="color:{ch_color}">[{ch.get('id','')}] {ch.get('name','')}</strong>
+                    <span style="color:#aaa;margin-left:10px">CVSS {ch.get('combined_cvss',0)}</span>
+                    <p style="margin:4px 0 0;color:#ccc">Steps: {steps}</p>
+                </div>"""
+
+        # ── WAF bypass disclosure ──
+        waf_html = ''
+        waf_info = self._waf_bypass_info()
+        if waf_info.get('waf_detected'):
+            waf_html = f'<h2>WAF Bypass Disclosure</h2><p>WAF detected: <strong>{waf_info.get("waf_provider", "Unknown")}</strong></p>'
+            if waf_info.get('bypasses'):
+                waf_html += '<ul>'
+                for bp in waf_info['bypasses']:
+                    waf_html += f"<li>{bp.get('technique','')} — <code>{bp.get('payload','')[:80]}</code></li>"
+                waf_html += '</ul>'
+            else:
+                waf_html += '<p style="color:#aaa">No confirmed WAF bypasses.</p>'
+
+        # ── Remediation plan ──
+        rem_html = ''
+        rem_plan = self._remediation_plan()
+        if rem_plan:
+            rem_html = '<h2>Remediation Plan</h2><ol>'
+            for item in rem_plan:
+                color = severity_colors.get(item.get('severity', 'INFO'), '#6c757d')
+                rem_html += f'<li><span style="color:{color}">[{item["severity"]}]</span> <strong>{item["technique"]}</strong> — {item["remediation"]}</li>'
+            rem_html += '</ol>'
+
+        # ── Agent reasoning log ──
+        agent_html = ''
+        agent_log = self._agent_reasoning_log()
+        if agent_log:
+            agent_html = '<h2>Agent Reasoning Log</h2><ul>'
+            for entry in agent_log:
+                icon = '✓' if entry['type'] == 'goal_completed' else '↗'
+                agent_html += f'<li>{icon} [{entry["type"]}] {entry["description"]}</li>'
+            agent_html += '</ul>'
+
         duration = ''
         if self.start_time and self.end_time:
             duration = f"{(self.end_time - self.start_time).total_seconds():.1f}s"
@@ -211,29 +418,34 @@ class ReportGenerator:
         th {{ background: #16213e; color: #eee; padding: 10px; text-align: left; }}
         td {{ padding: 8px; border-bottom: 1px solid #333; }}
         tr:hover {{ background: #16213e; }}
-        .summary {{ display: flex; gap: 20px; margin: 20px 0; }}
-        .summary-card {{ background: #16213e; padding: 15px; border-radius: 8px; flex: 1; text-align: center; }}
+        .summary {{ display: flex; gap: 20px; margin: 20px 0; flex-wrap: wrap; }}
+        .summary-card {{ background: #16213e; padding: 15px; border-radius: 8px; flex: 1; text-align: center; min-width: 100px; }}
         .summary-card h3 {{ margin: 0; color: #e94560; font-size: 24px; }}
         .summary-card p {{ margin: 5px 0 0; color: #aaa; }}
         code {{ background: #333; padding: 2px 6px; border-radius: 3px; font-size: 12px; }}
+        ol, ul {{ color: #ccc; }}
     </style>
 </head>
 <body>
     <h1>ATOMIC Framework v{Config.VERSION} - Scan Report</h1>
 
-    <h2>Scan Information</h2>
+    <h2>Executive Summary</h2>
     <div class="summary">
         <div class="summary-card"><h3>{self.scan_id}</h3><p>Scan ID</p></div>
         <div class="summary-card"><h3>{len(self.findings)}</h3><p>Findings</p></div>
         <div class="summary-card"><h3>{self.total_requests}</h3><p>Requests</p></div>
         <div class="summary-card"><h3>{duration}</h3><p>Duration</p></div>
+        {sev_cards}
     </div>
 
     <p><strong>Target:</strong> {self.target}</p>
     <p><strong>Start:</strong> {self.start_time}</p>
     <p><strong>End:</strong> {self.end_time}</p>
 
-    <h2>Findings ({len(self.findings)})</h2>
+    {f'<h3>Top Critical Risks</h3><ol>{top_risks_html}</ol>' if top_risks_html else ''}
+    {origin_html}
+
+    <h2>Finding Table ({len(self.findings)})</h2>
     <table>
         <tr>
             <th>Severity</th>
@@ -248,6 +460,11 @@ class ReportGenerator:
         </tr>
         {findings_html}
     </table>
+
+    {chains_html}
+    {waf_html}
+    {rem_html}
+    {agent_html}
 
     <p style="color:#666;margin-top:30px;text-align:center">
         Generated by ATOMIC Framework v{Config.VERSION} | {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}
@@ -304,7 +521,7 @@ class ReportGenerator:
         return filepath
 
     def _generate_txt(self):
-        """Generate text report"""
+        """Generate text report with Phase 10 enrichment."""
         filepath = os.path.join(self.output_dir, f'report_{self.scan_id}.txt')
         findings_data = self._get_findings_data()
 
@@ -323,9 +540,29 @@ class ReportGenerator:
             f"Requests:   {self.total_requests}",
             f"Findings:   {len(self.findings)}",
             "",
-            "FINDINGS",
+            "EXECUTIVE SUMMARY",
             "=" * 60,
         ]
+
+        sev_counts = self._severity_counts()
+        for sev in ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO']:
+            cnt = sev_counts.get(sev, 0)
+            if cnt:
+                lines.append(f"  {sev}: {cnt}")
+
+        top_risks = self._top_critical_risks()
+        if top_risks:
+            lines.append("")
+            lines.append("Top Critical Risks:")
+            for i, r in enumerate(top_risks, 1):
+                lines.append(f"  {i}. {r.get('technique','')} (CVSS {r.get('cvss',0)}) — {r.get('url','')[:60]}")
+
+        origin = self._origin_exposure_info()
+        if origin.get('origin_ip'):
+            lines.append("")
+            lines.append(f"Origin Exposure: IP {origin['origin_ip']} (confidence: {origin.get('confidence',0):.0%})")
+
+        lines.extend(["", "FINDINGS", "=" * 60])
 
         for i, f in enumerate(findings_data, 1):
             lines.append(f"\n[{i}] {f.get('severity', 'INFO')} - {f.get('technique', '')}")
@@ -348,6 +585,37 @@ class ReportGenerator:
             if f.get('remediation'):
                 lines.append(f"    Fix:      {f.get('remediation', '')}")
 
+        # Exploit chains
+        chains_data = self._get_chains_data()
+        if chains_data:
+            lines.extend(["", "EXPLOIT CHAINS", "=" * 60])
+            for ch in chains_data:
+                steps = ' -> '.join(ch.get('steps', []))
+                lines.append(f"  [{ch.get('id','')}] {ch.get('name','')} (CVSS {ch.get('combined_cvss',0)})")
+                lines.append(f"    Steps: {steps}")
+
+        # WAF bypass
+        waf_info = self._waf_bypass_info()
+        if waf_info.get('waf_detected'):
+            lines.extend(["", "WAF BYPASS DISCLOSURE", "=" * 60])
+            lines.append(f"  WAF: {waf_info.get('waf_provider', 'Unknown')}")
+            for bp in waf_info.get('bypasses', []):
+                lines.append(f"  Bypass: {bp.get('technique','')} — {bp.get('payload','')[:60]}")
+
+        # Remediation plan
+        rem_plan = self._remediation_plan()
+        if rem_plan:
+            lines.extend(["", "REMEDIATION PLAN", "=" * 60])
+            for i, item in enumerate(rem_plan, 1):
+                lines.append(f"  {i}. [{item['severity']}] {item['technique']}: {item['remediation']}")
+
+        # Agent reasoning
+        agent_log = self._agent_reasoning_log()
+        if agent_log:
+            lines.extend(["", "AGENT REASONING LOG", "=" * 60])
+            for entry in agent_log:
+                lines.append(f"  [{entry['type']}] {entry['description']}")
+
         try:
             with open(filepath, 'w') as f:
                 f.write('\n'.join(lines))
@@ -358,7 +626,7 @@ class ReportGenerator:
         return filepath
 
     def _generate_pdf(self):
-        """Generate PDF report using fpdf2."""
+        """Generate PDF report with Phase 10 sections using fpdf2."""
         try:
             from fpdf import FPDF
         except ImportError:
@@ -383,19 +651,27 @@ class ReportGenerator:
         pdf.cell(0, 10, f'ATOMIC Framework v{Config.VERSION} - Scan Report', **NL)
         pdf.ln(5)
 
-        # Summary
+        # Executive Summary
+        pdf.set_font('Helvetica', 'B', 13)
+        pdf.cell(0, 10, 'Executive Summary', **NL)
         pdf.set_font('Helvetica', '', 11)
         pdf.cell(0, 7, f'Scan ID: {self.scan_id}', **NL)
         pdf.cell(0, 7, f'Target: {self.target}', **NL)
-        pdf.cell(0, 7, f'Start: {self.start_time}', **NL)
-        pdf.cell(0, 7, f'End: {self.end_time}', **NL)
-        pdf.cell(0, 7, f'Duration: {duration}', **NL)
-        pdf.cell(0, 7, f'Findings: {len(findings_data)}', **NL)
+        pdf.cell(0, 7, f'Duration: {duration} | Requests: {self.total_requests}', **NL)
+
+        sev_counts = self._severity_counts()
+        sev_line = ', '.join(f'{s}: {c}' for s, c in sev_counts.items() if c)
+        if sev_line:
+            pdf.cell(0, 7, f'Findings by severity: {sev_line}', **NL)
+
+        origin = self._origin_exposure_info()
+        if origin.get('origin_ip'):
+            pdf.cell(0, 7, f'Origin IP: {origin["origin_ip"]} (confidence: {origin.get("confidence",0):.0%})', **NL)
         pdf.ln(5)
 
         # Findings
         pdf.set_font('Helvetica', 'B', 13)
-        pdf.cell(0, 10, 'Findings', **NL)
+        pdf.cell(0, 10, f'Findings ({len(findings_data)})', **NL)
         pdf.set_font('Helvetica', '', 10)
 
         for i, f in enumerate(findings_data, 1):
@@ -412,6 +688,27 @@ class ReportGenerator:
             if f.get('remediation'):
                 pdf.cell(0, 6, f"  Fix: {f.get('remediation', '')[:120]}", **NL)
             pdf.ln(2)
+
+        # Exploit chains
+        chains_data = self._get_chains_data()
+        if chains_data:
+            pdf.set_font('Helvetica', 'B', 13)
+            pdf.cell(0, 10, 'Exploit Chains', **NL)
+            pdf.set_font('Helvetica', '', 10)
+            for ch in chains_data:
+                steps = ' -> '.join(ch.get('steps', []))
+                pdf.cell(0, 7, self._pdf_safe(f"[{ch.get('id','')}] {ch.get('name','')} (CVSS {ch.get('combined_cvss',0)})"), **NL)
+                pdf.cell(0, 6, f"  Steps: {steps}", **NL)
+                pdf.ln(2)
+
+        # Remediation plan
+        rem_plan = self._remediation_plan()
+        if rem_plan:
+            pdf.set_font('Helvetica', 'B', 13)
+            pdf.cell(0, 10, 'Remediation Plan', **NL)
+            pdf.set_font('Helvetica', '', 9)
+            for i, item in enumerate(rem_plan, 1):
+                pdf.cell(0, 6, f"{i}. [{item['severity']}] {item['technique']}: {item['remediation'][:100]}", **NL)
 
         try:
             pdf.output(filepath)
@@ -464,6 +761,22 @@ class ReportGenerator:
             lines.append('    </finding>')
 
         lines.append('  </findings>')
+
+        # Exploit chains
+        chains_data = self._get_chains_data()
+        if chains_data:
+            lines.append('  <exploit-chains>')
+            for ch in chains_data:
+                lines.append('    <chain>')
+                lines.append(f'      <chain-id>{xml_escape(str(ch.get("id", "")))}</chain-id>')
+                lines.append(f'      <name>{xml_escape(str(ch.get("name", "")))}</name>')
+                steps_str = ', '.join(ch.get('steps', []))
+                lines.append(f'      <steps>{xml_escape(steps_str)}</steps>')
+                lines.append(f'      <combined-cvss>{ch.get("combined_cvss", 0)}</combined-cvss>')
+                lines.append(f'      <combined-severity>{xml_escape(str(ch.get("combined_severity", "")))}</combined-severity>')
+                lines.append('    </chain>')
+            lines.append('  </exploit-chains>')
+
         lines.append('</atomic-report>')
 
         try:

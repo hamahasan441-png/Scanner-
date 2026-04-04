@@ -120,10 +120,10 @@ PHASE 2: Real IP    →  §2 Discovery & Graph  →  §3 Extract & Classify
         ↓                      ↓                        ↓
 PHASE 4: Agent Scan →       Learn               →      Adapt
         ↓
-     Report
+PHASE 10: Commit & Report (OutputPhase)
 ```
 
-### New Phases (5-9)
+### New Phases (5-10)
 
 | Phase | Module | Description |
 |-------|--------|-------------|
@@ -132,6 +132,7 @@ PHASE 4: Agent Scan →       Learn               →      Adapt
 | **Phase 7** | `core/scan_priority_queue.py` | Attack Surface Prioritization: multi-factor scoring (param context 0.35, endpoint type 0.25, CVE match 0.25, agent hypothesis 0.2, anomaly 0.1, depth penalty), structural dedup |
 | **Phase 8** | `core/scan_worker_pool.py` | Vulnerability Scan Workers: Gate 0 triage, Gate 1 DifferentialEngine baseline, Gate 2 SurfaceMapper, Workers A-E (Injection/Auth/BizLogic/Misconfig/Crypto) |
 | **Phase 9** | `core/post_worker_verifier.py` | Post-Worker Verification: consistency recheck ×3, context-aware FP filter, WAF interference check, clustering + dedup, CVSS v3.1 auto-scoring, ChainDetector (7 chain rules) |
+| **Phase 10** | `core/output_phase.py` | Commit & Report: DB save_results/save_chains, update_scan COMPLETE, ReportBuilder with sections: executive_summary, finding_table (CVSS DESC), exploit_chains, waf_bypass_disclosure, origin_exposure_note, remediation_plan, agent_reasoning_log |
 
 ### Pipeline Phase Tracking (3-Partition Architecture)
 
@@ -463,6 +464,7 @@ engine.scan(target)
 | **ScanPriorityQueue** | `core/scan_priority_queue.py` | Phase 7: Multi-factor scoring and structural deduplication |
 | **ScanWorkerPool** | `core/scan_worker_pool.py` | Phase 8: Gate pipeline + Workers A-E + DifferentialEngine |
 | **PostWorkerVerifier** | `core/post_worker_verifier.py` | Phase 9: Consistency recheck + FP filter + CVSS scoring + ChainDetector |
+| **OutputPhase** | `core/output_phase.py` | Phase 10: Commit & Report — DB persist + enriched report generation |
 
 ### Exploitation Layer
 
@@ -476,9 +478,10 @@ engine.scan(target)
 
 ### Reporting Layer
 
-| Component | File | Formats |
-|-----------|------|---------|
-| **ReportGenerator** | `core/reporter.py` | HTML, JSON, CSV, TXT, PDF, XML, SARIF |
+| Component | File | Formats / Sections |
+|-----------|------|--------------------|
+| **ReportGenerator** | `core/reporter.py` | HTML, JSON, CSV, TXT, PDF, XML, SARIF — with executive_summary, exploit_chains, waf_bypass_disclosure, origin_exposure_note, remediation_plan, agent_reasoning_log |
+| **OutputPhase** | `core/output_phase.py` | Phase 10 orchestrator: DB commit + report generation |
 
 ### Burp-Style Tools
 
@@ -679,7 +682,8 @@ Scanner-/
 │   ├── post_exploit.py        # PostExploitEngine — AI post-exploitation
 │   ├── exploit_chain.py       # ExploitChainEngine — multi-step chains
 │   ├── os_shell.py            # OSShellHandler — interactive shell
-│   ├── reporter.py            # ReportGenerator — 7 output formats
+│   ├── reporter.py            # ReportGenerator — 7 output formats + Phase 10 enrichment
+│   ├── output_phase.py        # OutputPhase — Phase 10 commit & report orchestrator
 │   ├── banner.py              # ASCII art banner
 │   ├── proxy.py               # Intercepting proxy
 │   ├── repeater.py            # HTTP request repeater
@@ -745,6 +749,7 @@ Scanner-/
 
 | Date | Change | Files |
 |------|--------|-------|
+| 2026-04-04 | Added Phase 10: Commit & Report (OutputPhase orchestrator, DB save_results/save_chains/ExploitChainModel, ReportGenerator enrichment: executive_summary, exploit_chains, waf_bypass_disclosure, origin_exposure_note, remediation_plan, agent_reasoning_log). ReportGenerator.generate() now returns filepath. | `core/output_phase.py`, `core/reporter.py`, `utils/database.py`, `core/engine.py`, `LOGIC_MAP.md` |
 | 2026-04-04 | Added Phases 5-9: Passive Recon Fan-Out, Intelligence Enrichment (TechFingerprinter, CVEMatcher), Attack Surface Prioritization, Scan Worker Pool (DifferentialEngine, SurfaceMapper, Workers A-E), Post-Worker Verification (ChainDetector, CVSS v3.1 auto-scoring) | `core/passive_recon.py`, `core/intelligence_enricher.py`, `core/scan_priority_queue.py`, `core/scan_worker_pool.py`, `core/post_worker_verifier.py`, `core/engine.py`, `main.py` |
 | 2026-04-04 | Added Phase 1 Shield Detection (CDN+WAF), Phase 2 Real IP Discovery, Phase 4 Agent Scanner (Goal Planner + Pivot Detector + OODA loop) | `core/shield_detector.py`, `core/real_ip_scanner.py`, `core/goal_planner.py`, `core/pivot_detector.py`, `core/agent_scanner.py`, `core/engine.py`, `main.py` |
 | 2026-04-03 | Added sqlmap CLI integration to SQLi and CMDi modules | `modules/sqli.py`, `modules/cmdi.py`, `main.py` |
