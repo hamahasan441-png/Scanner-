@@ -6,9 +6,10 @@ Advanced HTTP request handler with evasion
 """
 
 import random
+import re
 import time
 import warnings
-from urllib.parse import urlencode, quote, unquote, urlparse
+from urllib.parse import urlencode, quote, unquote, urlparse, parse_qs, urlunparse
 
 
 try:
@@ -27,6 +28,8 @@ warnings.filterwarnings('ignore')
 
 class Requester:
     """Advanced HTTP Request Handler"""
+
+    _PATH_PARAM_RE = re.compile(r'^path\[(\d+)\]$')
     
     def __init__(self, config: dict):
         self.config = config
@@ -161,6 +164,60 @@ class Requester:
         except Exception:
             return False
 
+    @staticmethod
+    def _strip_params_from_url(url: str, data: dict) -> str:
+        """Remove query-string parameters from *url* whose names appear in *data*.
+
+        This prevents duplicate parameters when the requests library appends
+        *data* via ``params=``.  Other query parameters are preserved.
+
+        Example:
+            url  = "http://site.com/page.php?id=1&cat=2"
+            data = {"id": "payload"}
+            → "http://site.com/page.php?cat=2"
+        """
+        parsed = urlparse(url)
+        if not parsed.query:
+            return url
+        existing = parse_qs(parsed.query, keep_blank_values=True)
+        keys_to_test = set(data.keys())
+        remaining = {k: v for k, v in existing.items() if k not in keys_to_test}
+        if remaining:
+            new_query = urlencode(remaining, doseq=True)
+        else:
+            new_query = ''
+        return urlunparse((
+            parsed.scheme, parsed.netloc, parsed.path,
+            parsed.params, new_query, parsed.fragment,
+        ))
+
+    @staticmethod
+    def _inject_path_params(url: str, path_params: dict) -> str:
+        """Replace URL path segments specified by ``path[N]`` keys with their values.
+
+        Example:
+            url         = "http://site.com/users/42/profile"
+            path_params = {"path[1]": "PAYLOAD"}
+            → "http://site.com/users/PAYLOAD/profile"
+        """
+        parsed = urlparse(url)
+        segments = parsed.path.split('/')
+        for key, value in path_params.items():
+            m = Requester._PATH_PARAM_RE.match(key)
+            if m:
+                idx = int(m.group(1))
+                # segments[0] is '' (before leading '/'), so actual segments
+                # start at index 1.  The crawler indexes from 0 among non-empty
+                # segments, so path[0] corresponds to segments[1].
+                seg_idx = idx + 1
+                if seg_idx < len(segments):
+                    segments[seg_idx] = str(value)
+        new_path = '/'.join(segments)
+        return urlunparse((
+            parsed.scheme, parsed.netloc, new_path,
+            parsed.params, parsed.query, parsed.fragment,
+        ))
+
     def request(self, url: str, method: str = 'GET', 
                 data: dict = None, headers: dict = None,
                 files: dict = None, timeout: int = None,
@@ -193,13 +250,27 @@ class Requester:
             for k, v in data.items():
                 evaded_data[k] = self.evade_payload(v) if isinstance(v, str) else v
             data = evaded_data
+
+        # Handle path parameters: inject payload into URL path segments
+        # instead of adding as query parameters.
+        # Keys like 'path[0]' mean "replace path segment 0 with the value".
+        if data and isinstance(data, dict):
+            path_params = {k: v for k, v in data.items() if self._PATH_PARAM_RE.match(k)}
+            if path_params:
+                url = self._inject_path_params(url, path_params)
+                data = {k: v for k, v in data.items() if k not in path_params}
+                if not data:
+                    data = None
         
         try:
             verify_ssl = self.config.get('verify_ssl', False)
 
             if method.upper() == 'GET':
+                # Strip tested parameters from URL query string to avoid
+                # duplicates (e.g. ?id=1&id=PAYLOAD).  Keep other params.
+                clean_url = self._strip_params_from_url(url, data) if data and isinstance(data, dict) else url
                 response = self.session.get(
-                    url,
+                    clean_url,
                     params=data if isinstance(data, dict) else None,
                     headers=req_headers,
                     timeout=timeout or self.timeout,

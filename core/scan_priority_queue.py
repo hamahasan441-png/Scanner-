@@ -16,7 +16,7 @@ Usage:
 
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Set, Tuple
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qs
 
 from config import Colors
 
@@ -209,6 +209,48 @@ class ScanPriorityQueue:
                 scan_target=scan_target,
             )
             items.append(item)
+
+        # ── Fill gap: create ScanItems for discovered URLs whose query
+        # parameters were NOT already covered by enriched_params. ────────
+        covered_url_params: Set[Tuple[str, str]] = set()
+        for ep in enriched_params:
+            covered_url_params.add((ep.get('url', ''), ep.get('param', '')))
+
+        for discovered_url in urls:
+            parsed = urlparse(discovered_url)
+            if not parsed.query:
+                continue
+            qs = parse_qs(parsed.query, keep_blank_values=True)
+            for p_name, p_vals in qs.items():
+                if (discovered_url, p_name) in covered_url_params:
+                    continue
+                p_val = p_vals[0] if p_vals else ''
+                ep_type = endpoint_types.get(discovered_url, self._classify_endpoint(discovered_url))
+                if ep_type == 'STATIC':
+                    continue
+                ep_type_score = ENDPOINT_TYPE_SCORES.get(ep_type, 0.5)
+                # Assign a moderate default priority for URL-discovered params
+                priority = 0.5 * WEIGHT_PARAM_CONTEXT + ep_type_score * WEIGHT_ENDPOINT_TYPE
+                priority = max(0.0, min(1.0, priority))
+                if priority < MIN_PRIORITY_THRESHOLD:
+                    continue
+                scan_target = discovered_url
+                if origin_ip:
+                    scan_target = f"{parsed.scheme}://{origin_ip}{parsed.path}"
+                    if parsed.query:
+                        scan_target += f"?{parsed.query}"
+                items.append(ScanItem(
+                    url=discovered_url,
+                    method='GET',
+                    param=p_name,
+                    value=p_val,
+                    source='url_query_fallback',
+                    priority=priority,
+                    endpoint_type=ep_type,
+                    param_context_weight=0.5,
+                    bypass_profile=bypass_profile,
+                    scan_target=scan_target,
+                ))
 
         # Structural deduplication
         items = StructuralDeduplicator.deduplicate(items)
