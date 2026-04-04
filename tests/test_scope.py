@@ -14,8 +14,13 @@ from core.scope import ScopePolicy
 class _MockEngine:
     """Minimal mock that satisfies ScopePolicy(engine)."""
 
-    def __init__(self, verbose=False, rate_limit=0):
-        self.config = {'verbose': verbose, 'rate_limit': rate_limit}
+    def __init__(self, verbose=False, rate_limit=0, strict_scope=False, scope=None):
+        self.config = {
+            'verbose': verbose,
+            'rate_limit': rate_limit,
+            'strict_scope': strict_scope,
+            'scope': scope or {},
+        }
 
 
 # ---------------------------------------------------------------------------
@@ -41,6 +46,26 @@ class TestScopePolicy(unittest.TestCase):
         self.policy.set_target_scope('https://example.com:8443/app')
         self.assertIn('example.com', self.policy.allowed_domains)
         self.assertNotIn('example.com:8443', self.policy.allowed_domains)
+
+    def test_strict_scope_does_not_auto_expand_target_domain(self):
+        policy = ScopePolicy(_MockEngine(
+            strict_scope=True,
+            scope={'allowed_domains': ['corp.example']},
+        ))
+        policy.set_target_scope('https://target.example/')
+        self.assertIn('corp.example', policy.allowed_domains)
+        self.assertNotIn('target.example', policy.allowed_domains)
+        self.assertTrue(policy.is_in_scope('https://corp.example/app'))
+        self.assertFalse(policy.is_in_scope('https://target.example/app'))
+
+    def test_scope_config_preloads_allowed_and_excluded_paths(self):
+        policy = ScopePolicy(_MockEngine(scope={
+            'allowed_paths': ['/api'],
+            'excluded_paths': ['/api/private'],
+        }))
+        policy.set_target_scope('https://example.com/')
+        self.assertTrue(policy.is_in_scope('https://example.com/api/users'))
+        self.assertFalse(policy.is_in_scope('https://example.com/api/private/keys'))
 
     # -- is_in_scope --------------------------------------------------------
 

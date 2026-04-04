@@ -163,6 +163,8 @@ python main.py --web --web-host 127.0.0.1     # Localhost only
 ### CLI Scanning
 ```bash
 python main.py -t https://target.com                          # Basic scan
+python main.py -t https://target.com --regulated-mission --authorized   # Regulated mission workflow
+python main.py -t https://target.com --regulated-mission --authorized --allow-domain example.com --allow-path /api --exclude-path /admin
 python main.py -t https://target.com --full                   # All modules
 python main.py -t https://target.com -d 5 -T 100             # Deep scan
 python main.py -t https://target.com --sqli --xss --lfi      # Specific modules
@@ -224,6 +226,12 @@ python main.py --clear-db                                     # Clear scan datab
 | **Target** | `-t, --target` | Target URL |
 | | `-f, --file` | File with list of targets |
 | | `--urls` | Comma-separated URLs |
+| | `--authorized` | Confirm authorization for regulated mission scans |
+| | `--strict-scope` | Do not auto-expand scope from target host |
+| | `--allow-domain` | Comma-separated allowed domains |
+| | `--allow-path` | Comma-separated allowed path prefixes |
+| | `--exclude-path` | Comma-separated excluded path prefixes |
+| | `--regulated-mission` | Enforce regulated mission order defaults |
 | **Scan** | `-d, --depth` | Crawl depth (1-10, default: 3) |
 | | `-T, --threads` | Number of threads (default: 50) |
 | | `--timeout` | Request timeout in seconds (default: 15) |

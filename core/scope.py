@@ -32,12 +32,23 @@ class ScopePolicy:
     def __init__(self, engine):
         self.engine = engine
         self.verbose = engine.config.get('verbose', False)
+        self.strict_scope = bool(engine.config.get('strict_scope', False))
+        scope_cfg = engine.config.get('scope', {})
 
         # Scope boundaries
         self.allowed_domains = set()
         self.allowed_subdomains = set()
-        self.allowed_paths = []
-        self.excluded_paths = []
+        self.allowed_paths = list(scope_cfg.get('allowed_paths', []))
+        self.excluded_paths = list(scope_cfg.get('excluded_paths', []))
+
+        for domain in scope_cfg.get('allowed_domains', []):
+            cleaned = str(domain).strip().lower()
+            if not cleaned:
+                continue
+            self.allowed_domains.add(cleaned)
+            parts = cleaned.split('.')
+            if len(parts) >= 2:
+                self.allowed_subdomains.add('.'.join(parts[-2:]))
 
         # robots.txt compliance
         self.robots_parser = None
@@ -59,7 +70,15 @@ class ScopePolicy:
     def set_target_scope(self, target_url):
         """Derive scope boundaries from the primary target URL."""
         parsed = urlparse(target_url)
-        domain = parsed.netloc.split(':')[0]  # strip port
+        domain = parsed.netloc.split(':')[0].lower()  # strip port
+
+        # In strict scope mode with explicit domains configured, do not
+        # auto-expand scope from target to avoid widening boundaries.
+        if self.strict_scope and self.allowed_domains:
+            if self.verbose:
+                print(f"{Colors.info(f'Scope (strict): allowed={sorted(self.allowed_domains)}')}")
+            return
+
         self.allowed_domains.add(domain)
 
         # Allow subdomains of the primary domain

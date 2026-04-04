@@ -25,6 +25,13 @@ from core.banner import print_banner
 from utils.helpers import check_dependencies, install_deps
 
 
+def _parse_csv(value):
+    """Parse comma-separated CLI values into a trimmed list."""
+    if not value:
+        return []
+    return [x.strip() for x in value.split(',') if x.strip()]
+
+
 def main():
     """Main entry point"""
     parser = argparse.ArgumentParser(
@@ -68,6 +75,18 @@ def main():
                        help='File containing list of targets')
     parser.add_argument('--urls', 
                        help='Comma-separated list of URLs')
+    parser.add_argument('--authorized', action='store_true',
+                       help='Confirm you are authorized to test the specified targets')
+    parser.add_argument('--strict-scope', action='store_true',
+                       help='Enforce strict target scope (do not auto-expand from target host)')
+    parser.add_argument('--allow-domain',
+                       help='Comma-separated allowed domains for strict scope enforcement')
+    parser.add_argument('--allow-path',
+                       help='Comma-separated allowed path prefixes (e.g., /api,/v1)')
+    parser.add_argument('--exclude-path',
+                       help='Comma-separated excluded path prefixes (e.g., /admin,/internal)')
+    parser.add_argument('--regulated-mission', action='store_true',
+                       help='Enable regulated mission order (safe baseline -> prioritized scan -> verification/report)')
     
     # Scan options
     parser.add_argument('-d', '--depth', type=int, default=3,
@@ -496,8 +515,9 @@ def main():
         'quiet': args.quiet,
         'output_dir': args.output or Config.REPORTS_DIR,
         'rules_path': getattr(args, 'rules', None),
+        'strict_scope': getattr(args, 'strict_scope', False),
     }
-    
+
     # Build module configuration
     modules = {
         'sqli': args.sqli or args.full,
@@ -547,6 +567,19 @@ def main():
         'attack_map': getattr(args, 'attack_map', False) or args.full,
     }
 
+    if args.regulated_mission:
+        # Regulated mission execution order:
+        # 1) boundary + shield/origin profiling
+        # 2) passive recon + enrich/prioritize
+        # 3) controlled workers + verification + exploit intel + attack map/report
+        modules['shield_detect'] = True
+        modules['real_ip'] = True
+        modules['passive_recon'] = True
+        modules['enrich'] = True
+        modules['chain_detect'] = True
+        modules['exploit_search'] = True
+        modules['attack_map'] = True
+
     # Phase 11 (attack_map) requires Phase 9B (exploit_search) for
     # accurate exploit-aware analysis; auto-enable if missing.
     if modules.get('attack_map') and not modules.get('exploit_search'):
@@ -560,6 +593,21 @@ def main():
         modules['cmdi'] = True
         modules['idor'] = True
         modules['cors'] = True
+
+    # Mission boundaries / governance scope settings
+    config['scope'] = {
+        'allowed_domains': _parse_csv(args.allow_domain),
+        'allowed_paths': _parse_csv(args.allow_path),
+        'excluded_paths': _parse_csv(args.exclude_path),
+    }
+    if config['scope']['allowed_domains']:
+        config['strict_scope'] = True
+
+    # Governance guard: potentially intrusive scan modes require explicit
+    # authorization confirmation.
+    if args.regulated_mission and not args.authorized:
+        print(f"{Colors.error('Authorization confirmation required: add --authorized for --regulated-mission')}")
+        sys.exit(1)
     
     config['modules'] = modules
     
