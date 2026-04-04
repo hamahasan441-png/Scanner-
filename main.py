@@ -289,11 +289,163 @@ def main():
     parser.add_argument('--compare', nargs=2, metavar='FILE',
                        help='Compare two response files')
 
+    # External tool integration
+    parser.add_argument('--nmap', action='store_true',
+                       help='Run Nmap network scan on target (requires nmap installed)')
+    parser.add_argument('--nmap-ports', default='1-1000',
+                       help='Port specification for Nmap (default: 1-1000)')
+    parser.add_argument('--nmap-type',
+                       choices=['quick', 'service', 'vuln', 'full'],
+                       default='service',
+                       help='Nmap scan type (default: service)')
+    parser.add_argument('--nuclei', action='store_true',
+                       help='Run Nuclei template scan on target (requires nuclei installed)')
+    parser.add_argument('--nuclei-severity',
+                       help='Nuclei severity filter (critical,high,medium,low,info)')
+    parser.add_argument('--nuclei-tags',
+                       help='Nuclei template tags filter (e.g., cve,owasp)')
+    parser.add_argument('--nikto', action='store_true',
+                       help='Run Nikto web server scan (requires nikto installed)')
+    parser.add_argument('--whatweb', action='store_true',
+                       help='Run WhatWeb fingerprinting (requires whatweb installed)')
+    parser.add_argument('--subfinder', action='store_true',
+                       help='Run Subfinder subdomain enumeration (requires subfinder installed)')
+    parser.add_argument('--tools-check', action='store_true',
+                       help='Check availability of all external security tools')
+
+    # Compliance & reporting
+    parser.add_argument('--compliance', action='store_true',
+                       help='Run compliance analysis after scan (OWASP, PCI-DSS, NIST, CIS)')
+    parser.add_argument('--compliance-frameworks',
+                       help='Comma-separated compliance frameworks (owasp,pci_dss,nist,cis,sans)')
+
+    # Scheduling
+    parser.add_argument('--schedule',
+                       help='Schedule recurring scan (interval in minutes, e.g., "60" for hourly)')
+    parser.add_argument('--schedule-cron',
+                       help='Schedule scan with cron expression (e.g., "0 */6 * * *" for every 6h)')
+    parser.add_argument('--schedule-name',
+                       help='Name for the scheduled scan')
+
+    # Notifications
+    parser.add_argument('--notify-webhook',
+                       help='Webhook URL for scan notifications')
+    parser.add_argument('--notify-format',
+                       choices=['generic', 'slack', 'discord', 'teams'],
+                       default='generic',
+                       help='Webhook notification format (default: generic)')
+
     args = parser.parse_args()
     
     # Print banner
     if not args.quiet:
         print_banner()
+
+    # Check external tools availability
+    if args.tools_check:
+        from core.tool_integrator import ToolIntegrator
+        integrator = ToolIntegrator()
+        tools = integrator.get_available_tools()
+        print(f"\n{Colors.BOLD}External Security Tools:{Colors.RESET}")
+        for tool, available in tools.items():
+            status = f"{Colors.GREEN}✓ installed{Colors.RESET}" if available else f"{Colors.RED}✗ not found{Colors.RESET}"
+            print(f"  {tool:<12} {status}")
+        print(f"\n{Colors.info('Install missing tools for enhanced scanning capabilities')}")
+        return
+
+    # External tool standalone runs
+    if args.nmap and args.target:
+        from core.tool_integrator import NmapAdapter
+        from urllib.parse import urlparse
+        nmap = NmapAdapter()
+        if not nmap.is_available():
+            print(f"{Colors.error('Nmap not installed. Install with: apt install nmap')}")
+            sys.exit(1)
+        hostname = urlparse(args.target).hostname or args.target
+        print(f"{Colors.info(f'Running Nmap {args.nmap_type} scan on {hostname}...')}")
+        result = nmap.run(hostname, ports=args.nmap_ports, scan_type=args.nmap_type)
+        if result.success:
+            print(f"{Colors.success(f'Nmap complete: {len(result.findings)} findings in {result.duration_seconds}s')}")
+            for f in result.findings:
+                if f.get('type') == 'open_port':
+                    print(f"  {Colors.CYAN}{f['port']}/{f['protocol']}{Colors.RESET} - {f['service']} {f.get('product','')} {f.get('version','')}")
+                elif f.get('type') == 'vulnerability':
+                    print(f"  {Colors.RED}[VULN]{Colors.RESET} Port {f['port']}: {f['script']} - {f.get('details','')[:100]}")
+        else:
+            print(f"{Colors.error(f'Nmap failed: {result.error}')}")
+        if not args.nuclei and not args.nikto:
+            return
+
+    if args.nuclei and args.target:
+        from core.tool_integrator import NucleiAdapter
+        nuclei = NucleiAdapter()
+        if not nuclei.is_available():
+            print(f"{Colors.error('Nuclei not installed. Install from: https://github.com/projectdiscovery/nuclei')}")
+            sys.exit(1)
+        print(f"{Colors.info(f'Running Nuclei scan on {args.target}...')}")
+        result = nuclei.run(args.target, severity=args.nuclei_severity or '',
+                           tags=args.nuclei_tags or '')
+        if result.success:
+            print(f"{Colors.success(f'Nuclei complete: {len(result.findings)} findings in {result.duration_seconds}s')}")
+            for f in result.findings:
+                sev_color = Colors.RED if f.get('severity') in ('critical', 'high') else Colors.YELLOW
+                print(f"  {sev_color}[{f.get('severity','?').upper()}]{Colors.RESET} {f.get('name','')} - {f.get('matched_at','')}")
+        else:
+            print(f"{Colors.error(f'Nuclei failed: {result.error}')}")
+        if not args.nikto:
+            return
+
+    if args.nikto and args.target:
+        from core.tool_integrator import NiktoAdapter
+        nikto = NiktoAdapter()
+        if not nikto.is_available():
+            print(f"{Colors.error('Nikto not installed. Install with: apt install nikto')}")
+            sys.exit(1)
+        print(f"{Colors.info(f'Running Nikto scan on {args.target}...')}")
+        result = nikto.run(args.target)
+        if result.success:
+            print(f"{Colors.success(f'Nikto complete: {len(result.findings)} findings in {result.duration_seconds}s')}")
+            for f in result.findings:
+                print(f"  {f.get('msg', f.get('url', ''))}")
+        else:
+            print(f"{Colors.error(f'Nikto failed: {result.error}')}")
+        return
+
+    if args.whatweb and args.target:
+        from core.tool_integrator import WhatWebAdapter
+        whatweb = WhatWebAdapter()
+        if not whatweb.is_available():
+            print(f"{Colors.error('WhatWeb not installed. Install with: gem install whatweb')}")
+            sys.exit(1)
+        print(f"{Colors.info(f'Running WhatWeb on {args.target}...')}")
+        result = whatweb.run(args.target)
+        if result.success:
+            print(f"{Colors.success(f'WhatWeb complete: {len(result.findings)} technologies detected')}")
+            for f in result.findings:
+                ver = f' v{f["version"]}' if f.get('version') else ''
+                print(f"  {Colors.CYAN}{f['technology']}{Colors.RESET}{ver}")
+        else:
+            print(f"{Colors.error(f'WhatWeb failed: {result.error}')}")
+        return
+
+    if args.subfinder and args.target:
+        from core.tool_integrator import SubfinderAdapter
+        from urllib.parse import urlparse
+        subfinder = SubfinderAdapter()
+        if not subfinder.is_available():
+            print(f"{Colors.error('Subfinder not installed. Install from: https://github.com/projectdiscovery/subfinder')}")
+            sys.exit(1)
+        domain = urlparse(args.target).hostname or args.target
+        print(f"{Colors.info(f'Running Subfinder on {domain}...')}")
+        result = subfinder.run(domain)
+        if result.success:
+            subs = result.parsed_data.get('subdomains', [])
+            print(f"{Colors.success(f'Subfinder complete: {len(subs)} subdomains found')}")
+            for s in subs:
+                print(f"  {s}")
+        else:
+            print(f"{Colors.error(f'Subfinder failed: {result.error}')}")
+        return
     
     # Launch web dashboard
     if args.web:
@@ -610,6 +762,11 @@ def main():
         sys.exit(1)
     
     config['modules'] = modules
+
+    # Notification configuration
+    if getattr(args, 'notify_webhook', None):
+        config['notify_webhook'] = args.notify_webhook
+        config['notify_format'] = getattr(args, 'notify_format', 'generic')
     
     # Get targets
     targets = []
@@ -655,9 +812,28 @@ def main():
     try:
         all_findings = []
 
+        # Setup notifications if webhook configured
+        notification_mgr = None
+        if config.get('notify_webhook'):
+            try:
+                from core.notification import NotificationManager, WebhookChannel
+                notification_mgr = NotificationManager()
+                notification_mgr.register_channel(
+                    'webhook',
+                    WebhookChannel(url=config['notify_webhook'],
+                                   format_type=config.get('notify_format', 'generic'))
+                )
+            except Exception:
+                pass
+
         for target in targets:
             print(f"\n{Colors.info(f'Target: {target}')}")
             engine = AtomicEngine(config)
+
+            # Wire external notification manager if configured
+            if notification_mgr:
+                engine.notifications = notification_mgr
+
             engine.scan(target)
 
             # Generate reports only after ALL modules finished for this target
@@ -665,7 +841,69 @@ def main():
                 print(f"\n{Colors.info('Generating reports...')}")
             engine.generate_reports()
 
+            # Compliance analysis
+            if getattr(args, 'compliance', False) and engine.findings:
+                try:
+                    from core.compliance import ComplianceEngine
+                    compliance = ComplianceEngine()
+                    frameworks = None
+                    if getattr(args, 'compliance_frameworks', None):
+                        frameworks = [f.strip() for f in args.compliance_frameworks.split(',')]
+                    report = compliance.analyze(
+                        engine.findings, scan_id=engine.scan_id, target=target,
+                        frameworks=frameworks)
+
+                    print(f"\n{Colors.BOLD}{'='*60}{Colors.RESET}")
+                    print(f"{Colors.CYAN}  Compliance Analysis{Colors.RESET}")
+                    print(f"{Colors.BOLD}{'='*60}{Colors.RESET}")
+                    for fw, score in report.framework_scores.items():
+                        pct = score['score_pct']
+                        color = Colors.GREEN if pct >= 80 else (Colors.YELLOW if pct >= 50 else Colors.RED)
+                        print(f"  {fw.upper():<10} {color}{pct:.1f}%{Colors.RESET} ({score['passing']}/{score['total_controls']} controls passing)")
+                    if report.gaps:
+                        print(f"\n  {Colors.RED}Top Compliance Gaps:{Colors.RESET}")
+                        for gap in report.gaps[:5]:
+                            print(f"    [{gap['worst_severity']}] {gap['framework'].upper()} {gap['control_id']}: "
+                                  f"{gap['control_name']} ({gap['finding_count']} findings)")
+                    print(f"{Colors.BOLD}{'='*60}{Colors.RESET}")
+                except Exception as exc:
+                    if args.verbose:
+                        print(f"{Colors.warning(f'Compliance analysis error: {exc}')}")
+
             all_findings.extend(engine.findings)
+
+        # Scheduling: if --schedule or --schedule-cron, set up recurring scan
+        if getattr(args, 'schedule', None) or getattr(args, 'schedule_cron', None):
+            try:
+                from core.scheduler import ScanScheduler
+                scheduler = ScanScheduler()
+                sched_name = getattr(args, 'schedule_name', None) or f'scan-{targets[0]}'
+                if getattr(args, 'schedule_cron', None):
+                    entry = scheduler.add_schedule(
+                        name=sched_name, target=targets[0],
+                        schedule_type='cron',
+                        cron_expression=args.schedule_cron,
+                        config=config)
+                    print(f"{Colors.success(f'Scheduled: {sched_name} (cron: {args.schedule_cron})')}")
+                else:
+                    interval = int(args.schedule) * 60
+                    entry = scheduler.add_schedule(
+                        name=sched_name, target=targets[0],
+                        schedule_type='interval',
+                        interval_seconds=interval,
+                        config=config)
+                    print(f"{Colors.success(f'Scheduled: {sched_name} (every {args.schedule} minutes)')}")
+                print(f"  Next run: {entry.to_dict()['next_run']}")
+                print(f"{Colors.info('Starting scheduler... (Ctrl+C to stop)')}")
+                scheduler.start()
+                while scheduler.is_running:
+                    time.sleep(1)
+            except KeyboardInterrupt:
+                print(f"\n{Colors.info('Scheduler stopped')}")
+                return
+            except Exception as exc:
+                print(f"{Colors.error(f'Scheduler error: {exc}')}")
+                return
 
         # Overall summary when multiple targets were scanned
         if len(targets) > 1:

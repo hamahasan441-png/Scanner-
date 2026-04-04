@@ -146,6 +146,63 @@ def _emit_ws(event, data):
             pass
 
 
+# ---------------------------------------------------------------------------
+# Module-level component instances (lazy-safe — import errors are caught)
+# ---------------------------------------------------------------------------
+try:
+    from core.auth import UserStore, PERMISSIONS, ROLES
+    _user_store = UserStore()
+except Exception:
+    logger.debug('core.auth unavailable — auth endpoints disabled')
+    _user_store = None
+    PERMISSIONS = {}
+    ROLES = ()
+
+try:
+    from core.scheduler import ScanScheduler
+    _scheduler = ScanScheduler()
+except Exception:
+    logger.debug('core.scheduler unavailable — scheduler endpoints disabled')
+    _scheduler = None
+
+try:
+    from core.audit_logger import AuditLogger
+    _audit_logger = AuditLogger()
+except Exception:
+    logger.debug('core.audit_logger unavailable — audit endpoints disabled')
+    _audit_logger = None
+
+try:
+    from core.plugin_system import PluginManager
+    _plugin_manager = PluginManager()
+except Exception:
+    logger.debug('core.plugin_system unavailable — plugin endpoints disabled')
+    _plugin_manager = None
+
+try:
+    from core.notification import NotificationManager
+    _notification_manager = NotificationManager()
+except Exception:
+    logger.debug('core.notification unavailable — notification endpoints disabled')
+    _notification_manager = None
+
+
+def _get_current_user():
+    """Extract the authenticated user from Bearer token or API key header."""
+    auth = request.headers.get('Authorization', '')
+    if auth.startswith('Bearer ') and _user_store is not None:
+        token = auth[7:]
+        payload = _user_store.validate_request_token(token)
+        if payload:
+            return payload
+    api_key = request.headers.get('X-API-Key', '')
+    if api_key and _user_store is not None:
+        user = _user_store.authenticate_api_key(api_key)
+        if user:
+            return {'sub': user.username, 'role': user.role}
+    return None
+
+
 def _run_scan(scan_id, target, config):
     """Background scan runner."""
     with _scans_lock:
@@ -1386,6 +1443,536 @@ def reload_scanner_rules():
 
 
 # ---------------------------------------------------------------------------
+# Authentication & User Management API
+# ---------------------------------------------------------------------------
+
+@app.route('/api/auth/login', methods=['POST'])
+@_rate_limit
+def auth_login():
+    """Authenticate user and return JWT tokens."""
+    if _user_store is None:
+        return jsonify({'status': 'error', 'data': 'Auth module unavailable'}), 503
+    body = request.get_json(silent=True)
+    if not body or not body.get('username') or not body.get('password'):
+        return jsonify({'status': 'error', 'data': 'Missing username or password'}), 400
+    try:
+        result = _user_store.authenticate(body['username'], body['password'])
+        if not result:
+            return jsonify({'status': 'error', 'data': 'Invalid credentials'}), 401
+        return jsonify({'status': 'success', 'data': result})
+    except Exception as exc:
+        return jsonify({'status': 'error', 'data': 'Authentication error'}), 500
+
+
+@app.route('/api/auth/refresh', methods=['POST'])
+@_rate_limit
+def auth_refresh():
+    """Refresh an access token using a refresh token."""
+    if _user_store is None:
+        return jsonify({'status': 'error', 'data': 'Auth module unavailable'}), 503
+    body = request.get_json(silent=True)
+    if not body or not body.get('refresh_token'):
+        return jsonify({'status': 'error', 'data': 'Missing refresh_token'}), 400
+    try:
+        result = _user_store.refresh_access_token(body['refresh_token'])
+        if not result:
+            return jsonify({'status': 'error', 'data': 'Invalid or expired refresh token'}), 401
+        return jsonify({'status': 'success', 'data': result})
+    except Exception as exc:
+        return jsonify({'status': 'error', 'data': 'Authentication error'}), 500
+
+
+@app.route('/api/auth/me', methods=['GET'])
+@_require_api_key
+@_rate_limit
+def auth_me():
+    """Get current user info from the Bearer token."""
+    user = _get_current_user()
+    if not user:
+        return jsonify({'status': 'error', 'data': 'Authentication required'}), 401
+    try:
+        info = _user_store.get_user(user['sub'])
+        if not info:
+            return jsonify({'status': 'error', 'data': 'User not found'}), 404
+        return jsonify({'status': 'success', 'data': {
+            'username': info.username,
+            'role': info.role,
+            'is_active': info.is_active,
+            'created_at': info.created_at,
+            'last_login': info.last_login,
+        }})
+    except Exception as exc:
+        return jsonify({'status': 'error', 'data': 'Authentication error'}), 500
+
+
+@app.route('/api/auth/users', methods=['POST'])
+@_require_api_key
+@_rate_limit
+def auth_create_user():
+    """Create a new user (admin only)."""
+    caller = _get_current_user()
+    if not caller or caller.get('role') != 'admin':
+        return jsonify({'status': 'error', 'data': 'Admin access required'}), 403
+    body = request.get_json(silent=True)
+    if not body or not body.get('username') or not body.get('password'):
+        return jsonify({'status': 'error', 'data': 'Missing username or password'}), 400
+    role = body.get('role', 'viewer')
+    if role not in ROLES:
+        return jsonify({'status': 'error', 'data': f'Invalid role. Must be one of: {ROLES}'}), 400
+    try:
+        user = _user_store.create_user(body['username'], body['password'], role)
+        if not user:
+            return jsonify({'status': 'error', 'data': 'User creation failed (duplicate or invalid)'}), 409
+        return jsonify({'status': 'success', 'data': {
+            'username': user.username, 'role': user.role,
+        }}), 201
+    except Exception as exc:
+        return jsonify({'status': 'error', 'data': 'Authentication error'}), 500
+
+
+@app.route('/api/auth/users', methods=['GET'])
+@_require_api_key
+@_rate_limit
+def auth_list_users():
+    """List all users (admin only)."""
+    caller = _get_current_user()
+    if not caller or caller.get('role') != 'admin':
+        return jsonify({'status': 'error', 'data': 'Admin access required'}), 403
+    try:
+        return jsonify({'status': 'success', 'data': _user_store.list_users()})
+    except Exception as exc:
+        return jsonify({'status': 'error', 'data': 'Authentication error'}), 500
+
+
+@app.route('/api/auth/users/<username>/role', methods=['PUT'])
+@_require_api_key
+@_rate_limit
+def auth_update_role(username):
+    """Update a user's role (admin only)."""
+    caller = _get_current_user()
+    if not caller or caller.get('role') != 'admin':
+        return jsonify({'status': 'error', 'data': 'Admin access required'}), 403
+    body = request.get_json(silent=True)
+    if not body or not body.get('role'):
+        return jsonify({'status': 'error', 'data': 'Missing role'}), 400
+    try:
+        if _user_store.update_user_role(username, body['role']):
+            return jsonify({'status': 'success', 'data': 'Role updated'})
+        return jsonify({'status': 'error', 'data': 'User not found or invalid role'}), 404
+    except Exception as exc:
+        return jsonify({'status': 'error', 'data': 'Authentication error'}), 500
+
+
+@app.route('/api/auth/users/<username>', methods=['DELETE'])
+@_require_api_key
+@_rate_limit
+def auth_delete_user(username):
+    """Delete a user (admin only)."""
+    caller = _get_current_user()
+    if not caller or caller.get('role') != 'admin':
+        return jsonify({'status': 'error', 'data': 'Admin access required'}), 403
+    try:
+        if _user_store.delete_user(username):
+            return jsonify({'status': 'success', 'data': 'User deleted'})
+        return jsonify({'status': 'error', 'data': 'User not found'}), 404
+    except Exception as exc:
+        return jsonify({'status': 'error', 'data': 'Authentication error'}), 500
+
+
+@app.route('/api/auth/api-key', methods=['POST'])
+@_require_api_key
+@_rate_limit
+def auth_generate_api_key():
+    """Generate a new API key for the authenticated user (analyst+)."""
+    caller = _get_current_user()
+    if not caller or caller.get('role') not in ('admin', 'analyst'):
+        return jsonify({'status': 'error', 'data': 'Analyst or admin access required'}), 403
+    try:
+        key = _user_store.generate_user_api_key(caller['sub'])
+        if not key:
+            return jsonify({'status': 'error', 'data': 'Key generation failed'}), 500
+        return jsonify({'status': 'success', 'data': {'api_key': key}})
+    except Exception as exc:
+        return jsonify({'status': 'error', 'data': 'Authentication error'}), 500
+
+
+# ---------------------------------------------------------------------------
+# Scheduled Scanning API
+# ---------------------------------------------------------------------------
+
+@app.route('/api/schedules', methods=['GET'])
+@_require_api_key
+@_rate_limit
+def list_schedules():
+    """List all scheduled scans."""
+    if _scheduler is None:
+        return jsonify({'status': 'error', 'data': 'Scheduler unavailable'}), 503
+    try:
+        return jsonify({'status': 'success', 'data': _scheduler.list_schedules()})
+    except Exception as exc:
+        return jsonify({'status': 'error', 'data': 'Scheduler operation failed'}), 500
+
+
+@app.route('/api/schedules', methods=['POST'])
+@_require_api_key
+@_rate_limit
+def create_schedule():
+    """Create a new scheduled scan."""
+    if _scheduler is None:
+        return jsonify({'status': 'error', 'data': 'Scheduler unavailable'}), 503
+    body = request.get_json(silent=True)
+    if not body or not body.get('name') or not body.get('target'):
+        return jsonify({'status': 'error', 'data': 'Missing name or target'}), 400
+    try:
+        entry = _scheduler.add_schedule(
+            name=body['name'],
+            target=body['target'],
+            schedule_type=body.get('schedule_type', 'interval'),
+            interval_seconds=body.get('interval_seconds', 3600),
+            cron_expression=body.get('cron_expression', ''),
+            max_runs=body.get('max_runs', 0),
+            config=body.get('config'),
+            created_by=body.get('created_by', ''),
+        )
+        return jsonify({'status': 'success', 'data': entry.to_dict()}), 201
+    except (ValueError, TypeError) as exc:
+        return jsonify({'status': 'error', 'data': 'Scheduler operation failed'}), 400
+    except Exception as exc:
+        return jsonify({'status': 'error', 'data': 'Scheduler operation failed'}), 500
+
+
+@app.route('/api/schedules/<schedule_id>', methods=['GET'])
+@_require_api_key
+@_rate_limit
+def get_schedule(schedule_id):
+    """Get details of a specific schedule."""
+    if _scheduler is None:
+        return jsonify({'status': 'error', 'data': 'Scheduler unavailable'}), 503
+    if not _SAFE_SCAN_ID.match(schedule_id):
+        return jsonify({'status': 'error', 'data': 'Invalid schedule ID'}), 400
+    try:
+        entry = _scheduler.get_schedule(schedule_id)
+        if not entry:
+            return jsonify({'status': 'error', 'data': 'Schedule not found'}), 404
+        return jsonify({'status': 'success', 'data': entry.to_dict()})
+    except Exception as exc:
+        return jsonify({'status': 'error', 'data': 'Scheduler operation failed'}), 500
+
+
+@app.route('/api/schedules/<schedule_id>', methods=['DELETE'])
+@_require_api_key
+@_rate_limit
+def delete_schedule(schedule_id):
+    """Remove a scheduled scan."""
+    if _scheduler is None:
+        return jsonify({'status': 'error', 'data': 'Scheduler unavailable'}), 503
+    if not _SAFE_SCAN_ID.match(schedule_id):
+        return jsonify({'status': 'error', 'data': 'Invalid schedule ID'}), 400
+    try:
+        if _scheduler.remove_schedule(schedule_id):
+            return jsonify({'status': 'success', 'data': 'Schedule removed'})
+        return jsonify({'status': 'error', 'data': 'Schedule not found'}), 404
+    except Exception as exc:
+        return jsonify({'status': 'error', 'data': 'Scheduler operation failed'}), 500
+
+
+@app.route('/api/schedules/<schedule_id>/toggle', methods=['PUT'])
+@_require_api_key
+@_rate_limit
+def toggle_schedule(schedule_id):
+    """Enable or disable a scheduled scan."""
+    if _scheduler is None:
+        return jsonify({'status': 'error', 'data': 'Scheduler unavailable'}), 503
+    if not _SAFE_SCAN_ID.match(schedule_id):
+        return jsonify({'status': 'error', 'data': 'Invalid schedule ID'}), 400
+    body = request.get_json(silent=True)
+    enabled = body.get('enabled', True) if body else True
+    try:
+        if _scheduler.toggle_schedule(schedule_id, enabled):
+            return jsonify({'status': 'success', 'data': f'Schedule {"enabled" if enabled else "disabled"}'})
+        return jsonify({'status': 'error', 'data': 'Schedule not found'}), 404
+    except Exception as exc:
+        return jsonify({'status': 'error', 'data': 'Scheduler operation failed'}), 500
+
+
+@app.route('/api/schedules/history', methods=['GET'])
+@_require_api_key
+@_rate_limit
+def get_schedule_history():
+    """Get execution history for scheduled scans."""
+    if _scheduler is None:
+        return jsonify({'status': 'error', 'data': 'Scheduler unavailable'}), 503
+    try:
+        limit = request.args.get('limit', 50, type=int)
+        return jsonify({'status': 'success', 'data': _scheduler.get_history(limit=limit)})
+    except Exception as exc:
+        return jsonify({'status': 'error', 'data': 'Scheduler operation failed'}), 500
+
+
+@app.route('/api/scheduler/start', methods=['POST'])
+@_require_api_key
+@_rate_limit
+def start_scheduler():
+    """Start the background scheduler."""
+    if _scheduler is None:
+        return jsonify({'status': 'error', 'data': 'Scheduler unavailable'}), 503
+    try:
+        _scheduler.start()
+        return jsonify({'status': 'success', 'data': 'Scheduler started'})
+    except Exception as exc:
+        return jsonify({'status': 'error', 'data': 'Scheduler operation failed'}), 500
+
+
+@app.route('/api/scheduler/stop', methods=['POST'])
+@_require_api_key
+@_rate_limit
+def stop_scheduler():
+    """Stop the background scheduler."""
+    if _scheduler is None:
+        return jsonify({'status': 'error', 'data': 'Scheduler unavailable'}), 503
+    try:
+        _scheduler.stop()
+        return jsonify({'status': 'success', 'data': 'Scheduler stopped'})
+    except Exception as exc:
+        return jsonify({'status': 'error', 'data': 'Scheduler operation failed'}), 500
+
+
+# ---------------------------------------------------------------------------
+# Compliance Mapping API
+# ---------------------------------------------------------------------------
+
+@app.route('/api/compliance/<scan_id>', methods=['POST'])
+@_require_api_key
+@_rate_limit
+def run_compliance_analysis(scan_id):
+    """Run compliance analysis on a scan's findings."""
+    if not _SAFE_SCAN_ID.match(scan_id):
+        return jsonify({'status': 'error', 'data': 'Invalid scan ID'}), 400
+    body = request.get_json(silent=True)
+    frameworks = body.get('frameworks') if body else None
+    try:
+        from core.compliance import ComplianceEngine
+        engine = ComplianceEngine()
+        # Gather findings from in-memory active scans or database
+        findings = []
+        with _scans_lock:
+            scan_info = _active_scans.get(scan_id)
+            if scan_info and scan_info.get('engine'):
+                findings = scan_info['engine'].findings
+        if not findings:
+            db = _get_db()
+            if db is not None:
+                session = db.Session()
+                try:
+                    rows = session.query(FindingModel).filter_by(scan_id=scan_id).all()
+                    findings = [
+                        Finding(
+                            technique=r.technique, severity=r.severity,
+                            url=r.url, details=r.details,
+                        ) for r in rows
+                    ]
+                finally:
+                    session.close()
+        report = engine.analyze(findings, scan_id=scan_id, frameworks=frameworks)
+        return jsonify({'status': 'success', 'data': report.to_dict()})
+    except Exception as exc:
+        return jsonify({'status': 'error', 'data': 'Internal server error'}), 500
+
+
+@app.route('/api/compliance/frameworks', methods=['GET'])
+@_require_api_key
+@_rate_limit
+def list_compliance_frameworks():
+    """List available compliance frameworks."""
+    try:
+        from core.compliance import ComplianceEngine
+        engine = ComplianceEngine()
+        frameworks = [
+            {'id': fw_id, 'controls': len(controls)}
+            for fw_id, controls in engine.FRAMEWORKS.items()
+        ]
+        return jsonify({'status': 'success', 'data': frameworks})
+    except Exception as exc:
+        return jsonify({'status': 'error', 'data': 'Compliance analysis failed'}), 500
+
+
+# ---------------------------------------------------------------------------
+# Audit Log API
+# ---------------------------------------------------------------------------
+
+@app.route('/api/audit', methods=['GET'])
+@_require_api_key
+@_rate_limit
+def get_audit_entries():
+    """Get audit log entries with optional filters."""
+    if _audit_logger is None:
+        return jsonify({'status': 'error', 'data': 'Audit logger unavailable'}), 503
+    try:
+        entries = _audit_logger.get_entries(
+            category=request.args.get('category'),
+            actor=request.args.get('actor'),
+            severity=request.args.get('severity'),
+            limit=request.args.get('limit', 100, type=int),
+        )
+        return jsonify({'status': 'success', 'data': entries})
+    except Exception as exc:
+        return jsonify({'status': 'error', 'data': 'Audit query failed'}), 500
+
+
+@app.route('/api/audit/stats', methods=['GET'])
+@_require_api_key
+@_rate_limit
+def get_audit_stats():
+    """Get audit log statistics."""
+    if _audit_logger is None:
+        return jsonify({'status': 'error', 'data': 'Audit logger unavailable'}), 503
+    try:
+        return jsonify({'status': 'success', 'data': _audit_logger.get_stats()})
+    except Exception as exc:
+        return jsonify({'status': 'error', 'data': 'Audit query failed'}), 500
+
+
+# ---------------------------------------------------------------------------
+# External Tool Integration API
+# ---------------------------------------------------------------------------
+
+@app.route('/api/tools/external', methods=['GET'])
+@_require_api_key
+@_rate_limit
+def list_external_tools():
+    """List available external security tools and their status."""
+    try:
+        from core.tool_integrator import ToolIntegrator
+        integrator = ToolIntegrator()
+        return jsonify({'status': 'success', 'data': integrator.get_available_tools()})
+    except Exception as exc:
+        return jsonify({'status': 'error', 'data': 'Tool execution failed'}), 500
+
+
+@app.route('/api/tools/external/<tool_name>/run', methods=['POST'])
+@_require_api_key
+@_rate_limit
+def run_external_tool(tool_name):
+    """Run a specific external security tool against a target."""
+    body = request.get_json(silent=True)
+    if not body or not body.get('target'):
+        return jsonify({'status': 'error', 'data': 'Missing target'}), 400
+    try:
+        from core.tool_integrator import ToolIntegrator
+        integrator = ToolIntegrator()
+        available = integrator.get_available_tools()
+        if tool_name not in available:
+            return jsonify({'status': 'error', 'data': f'Unknown tool: {tool_name}'}), 404
+        if not available[tool_name]:
+            return jsonify({'status': 'error', 'data': f'Tool {tool_name} is not installed'}), 503
+        params = {k: v for k, v in body.items() if k != 'target'}
+        result = integrator.run_tool(tool_name, body['target'], **params)
+        return jsonify({'status': 'success', 'data': result.to_dict()})
+    except Exception as exc:
+        return jsonify({'status': 'error', 'data': 'Tool execution failed'}), 500
+
+
+# ---------------------------------------------------------------------------
+# Plugin Management API
+# ---------------------------------------------------------------------------
+
+@app.route('/api/plugins', methods=['GET'])
+@_require_api_key
+@_rate_limit
+def list_plugins():
+    """List all registered plugins."""
+    if _plugin_manager is None:
+        return jsonify({'status': 'error', 'data': 'Plugin system unavailable'}), 503
+    try:
+        return jsonify({'status': 'success', 'data': _plugin_manager.list_plugins()})
+    except Exception as exc:
+        return jsonify({'status': 'error', 'data': 'Plugin operation failed'}), 500
+
+
+@app.route('/api/plugins/discover', methods=['POST'])
+@_require_api_key
+@_rate_limit
+def discover_plugins():
+    """Discover and load available plugins."""
+    if _plugin_manager is None:
+        return jsonify({'status': 'error', 'data': 'Plugin system unavailable'}), 503
+    try:
+        found = _plugin_manager.discover_plugins()
+        return jsonify({'status': 'success', 'data': {'discovered': found}})
+    except Exception as exc:
+        return jsonify({'status': 'error', 'data': 'Plugin operation failed'}), 500
+
+
+@app.route('/api/plugins/<name>/toggle', methods=['POST'])
+@_require_api_key
+@_rate_limit
+def toggle_plugin(name):
+    """Enable or disable a plugin."""
+    if _plugin_manager is None:
+        return jsonify({'status': 'error', 'data': 'Plugin system unavailable'}), 503
+    body = request.get_json(silent=True)
+    enabled = body.get('enabled', True) if body else True
+    try:
+        if _plugin_manager.toggle_plugin(name, enabled):
+            return jsonify({'status': 'success', 'data': f'Plugin {"enabled" if enabled else "disabled"}'})
+        return jsonify({'status': 'error', 'data': 'Plugin not found'}), 404
+    except Exception as exc:
+        return jsonify({'status': 'error', 'data': 'Plugin operation failed'}), 500
+
+
+# ---------------------------------------------------------------------------
+# Notification API
+# ---------------------------------------------------------------------------
+
+@app.route('/api/notifications/channels', methods=['GET'])
+@_require_api_key
+@_rate_limit
+def list_notification_channels():
+    """List registered notification channels."""
+    if _notification_manager is None:
+        return jsonify({'status': 'error', 'data': 'Notification system unavailable'}), 503
+    try:
+        return jsonify({'status': 'success', 'data': _notification_manager.list_channels()})
+    except Exception as exc:
+        return jsonify({'status': 'error', 'data': 'Notification operation failed'}), 500
+
+
+@app.route('/api/notifications/test', methods=['POST'])
+@_require_api_key
+@_rate_limit
+def send_test_notification():
+    """Send a test notification to verify channel configuration."""
+    if _notification_manager is None:
+        return jsonify({'status': 'error', 'data': 'Notification system unavailable'}), 503
+    body = request.get_json(silent=True)
+    channels = body.get('channels') if body else None
+    try:
+        results = _notification_manager.notify(
+            title='ATOMIC Test Notification',
+            message='This is a test notification from ATOMIC Framework.',
+            severity='info',
+            channels=channels,
+        )
+        return jsonify({'status': 'success', 'data': {'sent': results}})
+    except Exception as exc:
+        return jsonify({'status': 'error', 'data': 'Notification operation failed'}), 500
+
+
+@app.route('/api/notifications/history', methods=['GET'])
+@_require_api_key
+@_rate_limit
+def get_notification_history():
+    """Get notification history."""
+    if _notification_manager is None:
+        return jsonify({'status': 'error', 'data': 'Notification system unavailable'}), 503
+    try:
+        limit = request.args.get('limit', 50, type=int)
+        return jsonify({'status': 'success', 'data': _notification_manager.get_history(limit=limit)})
+    except Exception as exc:
+        return jsonify({'status': 'error', 'data': 'Notification operation failed'}), 500
+
+
+# ---------------------------------------------------------------------------
 # SocketIO event handlers (real-time WebSocket updates)
 # ---------------------------------------------------------------------------
 
@@ -1456,6 +2043,18 @@ def create_app(host='0.0.0.0', port=5000, debug=False):
     app.config['DEBUG'] = debug
 
     os.makedirs(Config.REPORTS_DIR, exist_ok=True)
+
+    # Wire the scheduler to trigger scans via _run_scan
+    if _scheduler is not None:
+        def _scheduler_callback(entry):
+            scan_id = str(uuid.uuid4())[:8]
+            config_overrides = entry.config if entry.config else {}
+            cfg = {**Config.__dict__, **config_overrides}
+            threading.Thread(
+                target=_run_scan, args=(scan_id, entry.target, cfg),
+                daemon=True, name=f'sched-scan-{scan_id}',
+            ).start()
+        _scheduler.set_scan_callback(_scheduler_callback)
 
     def run_app():
         logger.info("Starting ATOMIC Dashboard on http://%s:%s", host, port)

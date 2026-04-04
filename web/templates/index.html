@@ -271,6 +271,20 @@
     .tab-btn.active {
         color: var(--accent); border-bottom-color: var(--accent); font-weight: 600;
     }
+
+    /* System status bar animation */
+    #ws-dot { transition: background 0.3s; }
+    #system-status-bar { transition: border-color 0.3s; }
+
+    /* Panel transitions */
+    .nav-panel { animation: fadeIn 0.2s ease; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+
+    /* Scrollbar styling */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: var(--bg-primary); }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--accent); }
 </style>
 </head>
 <body>
@@ -281,6 +295,23 @@
         <h1>☢ <span>ATOMIC</span> FRAMEWORK</h1>
         <p class="subtitle">v{{ version }} &mdash; Advanced Security Scanner Dashboard</p>
     </header>
+
+    <div id="system-status-bar" style="display:flex;align-items:center;justify-content:space-between;padding:0.5rem 1rem;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;margin-bottom:1rem;font-size:0.82rem;">
+        <div style="display:flex;align-items:center;gap:1rem;">
+            <span id="ws-indicator" style="display:flex;align-items:center;gap:0.3rem;">
+                <span id="ws-dot" style="width:8px;height:8px;border-radius:50%;background:#666;display:inline-block;"></span>
+                <span id="ws-label" style="color:var(--text-muted);">Connecting...</span>
+            </span>
+            <span style="color:var(--border);">|</span>
+            <span style="color:var(--text-muted);">Scans: <b id="sb-scans" style="color:var(--text-primary);">0</b></span>
+            <span style="color:var(--text-muted);">Findings: <b id="sb-findings" style="color:var(--text-primary);">0</b></span>
+            <span style="color:var(--text-muted);">Critical: <b id="sb-critical" style="color:var(--severity-critical);">0</b></span>
+        </div>
+        <div style="display:flex;align-items:center;gap:0.8rem;">
+            <span id="sb-user" style="color:var(--text-muted);">👤 Guest</span>
+            <span id="sb-time" style="color:var(--text-muted);font-family:monospace;"></span>
+        </div>
+    </div>
 
     <!-- Navigation Tabs -->
     <nav class="nav-tabs">
@@ -296,6 +327,13 @@
         <button class="nav-tab" onclick="switchPanel('findings')">🔍 Findings</button>
         <button class="nav-tab" onclick="switchPanel('rules')">⚙️ Rules</button>
         <button class="nav-tab" onclick="switchPanel('livefeed')">📡 Live Feed</button>
+        <button class="nav-tab" onclick="switchPanel('auth')">🔐 Auth</button>
+        <button class="nav-tab" onclick="switchPanel('scheduler')">⏰ Scheduler</button>
+        <button class="nav-tab" onclick="switchPanel('compliance')">📜 Compliance</button>
+        <button class="nav-tab" onclick="switchPanel('audit')">📝 Audit</button>
+        <button class="nav-tab" onclick="switchPanel('tools')">🛠️ Tools</button>
+        <button class="nav-tab" onclick="switchPanel('plugins')">🔌 Plugins</button>
+        <button class="nav-tab" onclick="switchPanel('notifications')">🔔 Notifications</button>
     </nav>
 
     <!-- Dashboard Panel -->
@@ -945,9 +983,336 @@
         </div>
     </section>
     </div>
+
+<div id="panel-auth" class="nav-panel">
+<section>
+    <h2>🔐 Authentication &amp; Users</h2>
+    <p style="color:var(--text-muted);font-size:0.85rem;margin-bottom:1rem;">JWT authentication with role-based access control (RBAC). Manage users, roles, and API keys.</p>
+
+    <!-- Login Card -->
+    <div class="grid grid-2" style="margin-bottom:1rem;">
+        <div class="glass-card">
+            <h3>🔑 Login</h3>
+            <div class="form-group">
+                <label for="auth-username">Username</label>
+                <input type="text" id="auth-username" placeholder="admin">
+            </div>
+            <div class="form-group">
+                <label for="auth-password">Password</label>
+                <input type="password" id="auth-password" placeholder="password">
+            </div>
+            <button class="btn btn-primary btn-sm" onclick="window._authLogin()">Login</button>
+            <div id="auth-status" style="margin-top:0.5rem;font-size:0.85rem;"></div>
+        </div>
+        <div class="glass-card">
+            <h3>👤 Current Session</h3>
+            <div id="auth-session-info">
+                <p class="empty-msg">Not logged in</p>
+            </div>
+            <div style="margin-top:0.8rem;display:flex;gap:0.5rem;">
+                <button class="btn btn-sm" style="background:var(--bg-input);color:var(--text-primary);border:1px solid var(--border);" onclick="window._authGenerateKey()">🔑 Generate API Key</button>
+                <button class="btn btn-danger btn-sm" onclick="window._authLogout()">Logout</button>
+            </div>
+            <div id="auth-apikey-output" style="margin-top:0.5rem;font-size:0.82rem;"></div>
+        </div>
+    </div>
+
+    <!-- Role info -->
+    <div class="glass-card" style="margin-bottom:1rem;">
+        <h3>🛡️ RBAC Roles</h3>
+        <div class="grid grid-3" style="margin-top:0.5rem;">
+            <div style="border:1px solid #2ecc7133;border-radius:8px;padding:0.8rem;background:#2ecc7108;">
+                <strong style="color:#2ecc71;">👑 Admin</strong>
+                <p style="font-size:0.78rem;color:var(--text-muted);margin-top:0.3rem;">Full access: user management, scans, exploits, configuration, scheduling</p>
+            </div>
+            <div style="border:1px solid var(--severity-medium);border-radius:8px;padding:0.8rem;background:rgba(243,156,18,0.03);">
+                <strong style="color:var(--severity-medium);">🔬 Analyst</strong>
+                <p style="font-size:0.78rem;color:var(--text-muted);margin-top:0.3rem;">Create/manage scans, run exploits, view reports, generate API keys</p>
+            </div>
+            <div style="border:1px solid var(--severity-low);border-radius:8px;padding:0.8rem;background:rgba(52,152,219,0.03);">
+                <strong style="color:var(--severity-low);">👁️ Viewer</strong>
+                <p style="font-size:0.78rem;color:var(--text-muted);margin-top:0.3rem;">Read-only: view scans, findings, reports, and dashboard</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Users Management -->
+    <div class="glass-card" style="margin-bottom:1rem;">
+        <h3>👥 User Management</h3>
+        <div style="display:flex;gap:0.5rem;margin-bottom:0.8rem;">
+            <button class="btn btn-primary btn-sm" onclick="window._authLoadUsers()">🔄 Refresh</button>
+            <button class="btn btn-sm" style="background:var(--bg-input);color:var(--text-primary);border:1px solid var(--border);" onclick="document.getElementById('auth-create-form').style.display=document.getElementById('auth-create-form').style.display==='none'?'block':'none'">➕ New User</button>
+        </div>
+        <div id="auth-create-form" style="display:none;margin-bottom:1rem;padding:0.8rem;background:var(--bg-input);border-radius:8px;">
+            <div class="grid grid-3">
+                <div class="form-group"><label>Username</label><input type="text" id="auth-new-user"></div>
+                <div class="form-group"><label>Password</label><input type="password" id="auth-new-pass"></div>
+                <div class="form-group"><label>Role</label><select id="auth-new-role"><option value="viewer">Viewer</option><option value="analyst">Analyst</option><option value="admin">Admin</option></select></div>
+            </div>
+            <button class="btn btn-primary btn-sm" onclick="window._authCreateUser()">Create User</button>
+        </div>
+        <table>
+            <thead><tr><th>Username</th><th>Role</th><th>Active</th><th>Created</th><th>Actions</th></tr></thead>
+            <tbody id="auth-users-body">
+                <tr><td colspan="5" class="empty-msg">Login with admin credentials to manage users</td></tr>
+            </tbody>
+        </table>
+    </div>
+</section>
 </div>
 
-<footer>
+<div id="panel-scheduler" class="nav-panel">
+<section>
+    <h2>⏰ Scan Scheduler</h2>
+    <p style="color:var(--text-muted);font-size:0.85rem;margin-bottom:1rem;">Schedule recurring or one-time scans with interval or cron expressions.</p>
+
+    <!-- Scheduler controls -->
+    <div style="display:flex;gap:0.5rem;margin-bottom:1rem;">
+        <button class="btn btn-primary btn-sm" onclick="window._schedRefresh()">🔄 Refresh</button>
+        <button class="btn btn-sm" id="sched-start-btn" style="background:#2ecc71;color:#fff;" onclick="window._schedStart()">▶ Start Scheduler</button>
+        <button class="btn btn-sm" style="background:var(--severity-critical);color:#fff;" onclick="window._schedStop()">⏹ Stop</button>
+    </div>
+
+    <!-- New Schedule Form -->
+    <div class="glass-card" style="margin-bottom:1rem;">
+        <h3>➕ New Schedule</h3>
+        <div class="grid grid-3" style="margin-top:0.5rem;">
+            <div class="form-group"><label>Name</label><input type="text" id="sched-name" placeholder="daily-scan"></div>
+            <div class="form-group"><label>Target URL</label><input type="text" id="sched-target" placeholder="https://example.com"></div>
+            <div class="form-group">
+                <label>Type</label>
+                <select id="sched-type" onchange="document.getElementById('sched-cron-group').style.display=this.value==='cron'?'block':'none';document.getElementById('sched-interval-group').style.display=this.value!=='cron'?'block':'none';">
+                    <option value="interval">Interval</option>
+                    <option value="cron">Cron</option>
+                    <option value="once">Once</option>
+                </select>
+            </div>
+        </div>
+        <div class="grid grid-2" style="margin-top:0.5rem;">
+            <div class="form-group" id="sched-interval-group"><label>Interval (seconds)</label><input type="number" id="sched-interval" value="3600" min="60"></div>
+            <div class="form-group" id="sched-cron-group" style="display:none;"><label>Cron Expression</label><input type="text" id="sched-cron" placeholder="0 */6 * * *"></div>
+        </div>
+        <button class="btn btn-primary btn-sm" onclick="window._schedCreate()">Create Schedule</button>
+    </div>
+
+    <!-- Schedules Table -->
+    <div class="glass-card" style="margin-bottom:1rem;">
+        <h3>📋 Active Schedules</h3>
+        <table>
+            <thead><tr><th>ID</th><th>Name</th><th>Target</th><th>Type</th><th>Next Run</th><th>Runs</th><th>Enabled</th><th>Actions</th></tr></thead>
+            <tbody id="sched-body">
+                <tr><td colspan="8" class="empty-msg">No schedules configured</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Execution History -->
+    <div class="glass-card">
+        <h3>📊 Execution History</h3>
+        <div id="sched-history-list">
+            <p class="empty-msg">No execution history yet</p>
+        </div>
+    </div>
+</section>
+</div>
+
+<div id="panel-compliance" class="nav-panel">
+<section>
+    <h2>📜 Compliance Analysis</h2>
+    <p style="color:var(--text-muted);font-size:0.85rem;margin-bottom:1rem;">Map findings to compliance frameworks: OWASP Top 10, PCI DSS v4.0, NIST SP 800-53, CIS Controls v8, SANS Top 25.</p>
+
+    <!-- Run Compliance -->
+    <div class="glass-card" style="margin-bottom:1rem;">
+        <h3>🔍 Run Analysis</h3>
+        <div class="grid grid-2" style="margin-top:0.5rem;">
+            <div class="form-group">
+                <label>Select Scan</label>
+                <select id="compliance-scan-select" style="background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);padding:0.4rem 0.6rem;font-size:0.85rem;width:100%;">
+                    <option value="">— select scan —</option>
+                </select>
+            </div>
+            <div style="display:flex;align-items:flex-end;gap:0.5rem;padding-bottom:0.8rem;">
+                <button class="btn btn-primary btn-sm" onclick="window._complianceRun()">📜 Run Compliance Check</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Available Frameworks -->
+    <div class="glass-card" style="margin-bottom:1rem;">
+        <h3>📚 Frameworks</h3>
+        <div id="compliance-frameworks" class="grid grid-5" style="margin-top:0.5rem;">
+            <div class="stat-card glass-card" style="border-top:3px solid var(--severity-critical);"><h3>OWASP</h3><div style="font-size:0.78rem;color:var(--text-muted);">Top 10 (2021)</div></div>
+            <div class="stat-card glass-card" style="border-top:3px solid var(--severity-high);"><h3>PCI DSS</h3><div style="font-size:0.78rem;color:var(--text-muted);">v4.0</div></div>
+            <div class="stat-card glass-card" style="border-top:3px solid var(--severity-medium);"><h3>NIST</h3><div style="font-size:0.78rem;color:var(--text-muted);">SP 800-53</div></div>
+            <div class="stat-card glass-card" style="border-top:3px solid var(--severity-low);"><h3>CIS</h3><div style="font-size:0.78rem;color:var(--text-muted);">Controls v8</div></div>
+            <div class="stat-card glass-card" style="border-top:3px solid #9b59b6;"><h3>SANS</h3><div style="font-size:0.78rem;color:var(--text-muted);">Top 25 CWE</div></div>
+        </div>
+    </div>
+
+    <!-- Framework Scores -->
+    <div class="glass-card" style="margin-bottom:1rem;">
+        <h3>📊 Framework Scores</h3>
+        <div id="compliance-scores">
+            <p class="empty-msg">Run a compliance check to see framework scores</p>
+        </div>
+    </div>
+
+    <!-- Gap Analysis -->
+    <div class="glass-card" style="margin-bottom:1rem;">
+        <h3>⚠️ Compliance Gaps</h3>
+        <div id="compliance-gaps">
+            <p class="empty-msg">Run a compliance check to see gap analysis</p>
+        </div>
+    </div>
+
+    <!-- Mappings -->
+    <div class="glass-card">
+        <h3>🗺️ Control Mappings</h3>
+        <div id="compliance-mappings">
+            <p class="empty-msg">Run a compliance check to see finding-to-control mappings</p>
+        </div>
+    </div>
+</section>
+</div>
+
+<div id="panel-audit" class="nav-panel">
+<section>
+    <h2>📝 Audit Log</h2>
+    <p style="color:var(--text-muted);font-size:0.85rem;margin-bottom:1rem;">Tamper-proof audit trail with HMAC-SHA256 checksums. Track all authentication, scanning, and configuration events.</p>
+
+    <!-- Audit Stats -->
+    <div class="grid grid-4" id="audit-stats" style="margin-bottom:1rem;">
+        <div class="glass-card stat-card"><h3>Total Entries</h3><div class="value" id="audit-total">0</div></div>
+        <div class="glass-card stat-card" style="border-top:3px solid var(--severity-medium);"><h3>Warnings</h3><div class="value" style="color:var(--severity-medium);" id="audit-warnings">0</div></div>
+        <div class="glass-card stat-card" style="border-top:3px solid var(--severity-critical);"><h3>Critical</h3><div class="value" style="color:var(--severity-critical);" id="audit-critical">0</div></div>
+        <div class="glass-card stat-card" style="border-top:3px solid #2ecc71;"><h3>Categories</h3><div class="value" style="color:#2ecc71;" id="audit-categories">0</div></div>
+    </div>
+
+    <!-- Filters -->
+    <div class="glass-card" style="margin-bottom:1rem;">
+        <h3>🔍 Filter</h3>
+        <div class="grid grid-4" style="margin-top:0.5rem;">
+            <div class="form-group"><label>Category</label><select id="audit-filter-cat" style="width:100%;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);padding:0.4rem;font-size:0.85rem;"><option value="">All</option><option value="auth">Auth</option><option value="scan">Scan</option><option value="exploit">Exploit</option><option value="config">Config</option><option value="user">User</option><option value="system">System</option></select></div>
+            <div class="form-group"><label>Severity</label><select id="audit-filter-sev" style="width:100%;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);padding:0.4rem;font-size:0.85rem;"><option value="">All</option><option value="info">Info</option><option value="warning">Warning</option><option value="critical">Critical</option></select></div>
+            <div class="form-group"><label>Actor</label><input type="text" id="audit-filter-actor" placeholder="username"></div>
+            <div style="display:flex;align-items:flex-end;padding-bottom:0.8rem;"><button class="btn btn-primary btn-sm" onclick="window._auditLoad()">🔍 Search</button></div>
+        </div>
+    </div>
+
+    <!-- Audit Entries -->
+    <div class="glass-card">
+        <h3>📋 Entries</h3>
+        <div id="audit-entries" style="max-height:500px;overflow-y:auto;">
+            <p class="empty-msg">Click Search to load audit entries</p>
+        </div>
+    </div>
+</section>
+</div>
+
+<div id="panel-tools" class="nav-panel">
+<section>
+    <h2>🛠️ External Tools</h2>
+    <p style="color:var(--text-muted);font-size:0.85rem;margin-bottom:1rem;">Integration with external security tools: Nmap, Nuclei, Nikto, WhatWeb, Subfinder.</p>
+
+    <!-- Tool Availability -->
+    <div class="glass-card" style="margin-bottom:1rem;">
+        <h3>📦 Tool Availability</h3>
+        <button class="btn btn-primary btn-sm" onclick="window._toolsCheck()" style="margin-bottom:0.8rem;">🔍 Check Tools</button>
+        <div id="tools-status" class="grid grid-5">
+            <p class="empty-msg" style="grid-column:1/-1;">Click "Check Tools" to see available external tools</p>
+        </div>
+    </div>
+
+    <!-- Run Tool -->
+    <div class="glass-card" style="margin-bottom:1rem;">
+        <h3>🚀 Run Tool</h3>
+        <div class="grid grid-3" style="margin-top:0.5rem;">
+            <div class="form-group">
+                <label>Tool</label>
+                <select id="tools-select" style="width:100%;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);padding:0.4rem;font-size:0.85rem;">
+                    <option value="nmap">Nmap</option>
+                    <option value="nuclei">Nuclei</option>
+                    <option value="nikto">Nikto</option>
+                    <option value="whatweb">WhatWeb</option>
+                    <option value="subfinder">Subfinder</option>
+                </select>
+            </div>
+            <div class="form-group"><label>Target</label><input type="text" id="tools-target" placeholder="example.com"></div>
+            <div style="display:flex;align-items:flex-end;padding-bottom:0.8rem;">
+                <button class="btn btn-primary btn-sm" id="tools-run-btn" onclick="window._toolsRun()">▶ Run</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Tool Output -->
+    <div class="glass-card">
+        <h3>📋 Results</h3>
+        <div id="tools-output">
+            <p class="empty-msg">Select a tool and target to run</p>
+        </div>
+    </div>
+</section>
+</div>
+
+<div id="panel-plugins" class="nav-panel">
+<section>
+    <h2>🔌 Plugin Management</h2>
+    <p style="color:var(--text-muted);font-size:0.85rem;margin-bottom:1rem;">Drop-in plugin architecture with lifecycle hooks. Discover, load, and manage scanning plugins.</p>
+
+    <!-- Plugin Actions -->
+    <div style="display:flex;gap:0.5rem;margin-bottom:1rem;">
+        <button class="btn btn-primary btn-sm" onclick="window._pluginsLoad()">🔄 Refresh</button>
+        <button class="btn btn-sm" style="background:var(--bg-input);color:var(--text-primary);border:1px solid var(--border);" onclick="window._pluginsDiscover()">🔍 Discover Plugins</button>
+    </div>
+
+    <!-- Plugin List -->
+    <div class="glass-card">
+        <h3>📦 Installed Plugins</h3>
+        <div id="plugins-list">
+            <p class="empty-msg">Click Refresh to load plugins</p>
+        </div>
+    </div>
+</section>
+</div>
+
+<div id="panel-notifications" class="nav-panel">
+<section>
+    <h2>🔔 Notifications</h2>
+    <p style="color:var(--text-muted);font-size:0.85rem;margin-bottom:1rem;">Multi-channel alerting: Console, Webhook, Slack, Discord, Microsoft Teams.</p>
+
+    <!-- Channels -->
+    <div class="glass-card" style="margin-bottom:1rem;">
+        <h3>📡 Notification Channels</h3>
+        <button class="btn btn-primary btn-sm" onclick="window._notifLoadChannels()" style="margin-bottom:0.8rem;">🔄 Refresh</button>
+        <div id="notif-channels">
+            <p class="empty-msg">Click Refresh to load notification channels</p>
+        </div>
+    </div>
+
+    <!-- Test Notification -->
+    <div class="glass-card" style="margin-bottom:1rem;">
+        <h3>🧪 Send Test</h3>
+        <div class="grid grid-2" style="margin-top:0.5rem;">
+            <div class="form-group"><label>Message</label><input type="text" id="notif-test-msg" value="Test notification from ATOMIC Framework"></div>
+            <div style="display:flex;align-items:flex-end;padding-bottom:0.8rem;">
+                <button class="btn btn-primary btn-sm" onclick="window._notifTest()">📤 Send Test</button>
+            </div>
+        </div>
+        <div id="notif-test-result" style="font-size:0.85rem;margin-top:0.5rem;"></div>
+    </div>
+
+    <!-- Notification History -->
+    <div class="glass-card">
+        <h3>📋 History</h3>
+        <button class="btn btn-primary btn-sm" onclick="window._notifLoadHistory()" style="margin-bottom:0.8rem;">🔄 Refresh</button>
+        <div id="notif-history" style="max-height:400px;overflow-y:auto;">
+            <p class="empty-msg">Click Refresh to load notification history</p>
+        </div>
+    </div>
+</section>
+</div>
+
+</div>
     <p class="disclaimer">⚠️ FOR AUTHORIZED TESTING ONLY ⚠️</p>
     <p style="margin-top:0.3rem;">ATOMIC Framework v{{ version }} &copy; Atomic Security. Unauthorized use is prohibited.</p>
 </footer>
@@ -978,7 +1343,7 @@
         if (panel) panel.classList.add('active');
         // Highlight correct tab
         var tabs = document.querySelectorAll('.nav-tab');
-        var tabMap = {dashboard:0, scanner:1, pipeline:2, exploits:3, 'exploit-intel':4, attackmap:5, shells:6, scans:7, history:8, findings:9, rules:10, livefeed:11};
+        var tabMap = {dashboard:0, scanner:1, pipeline:2, exploits:3, 'exploit-intel':4, attackmap:5, shells:6, scans:7, history:8, findings:9, rules:10, livefeed:11, auth:12, scheduler:13, compliance:14, audit:15, tools:16, plugins:17, notifications:18};
         if (tabMap[name] !== undefined && tabs[tabMap[name]]) tabs[tabMap[name]].classList.add('active');
         // Load data for active panel
         if (name === 'history') loadHistory();
@@ -989,6 +1354,11 @@
         if (name === 'shells') loadShells();
         if (name === 'rules') loadRules();
         if (name === 'livefeed') startLiveFeed();
+        if (name === 'scheduler') window._schedRefresh();
+        if (name === 'audit') window._auditLoad();
+        if (name === 'tools') window._toolsCheck();
+        if (name === 'plugins') window._pluginsLoad();
+        if (name === 'notifications') { window._notifLoadChannels(); window._notifLoadHistory(); }
         if (name === 'exploit-intel') window._loadExploitIntel();
         if (name === 'attackmap') window._loadAttackMap();
     };
@@ -1046,6 +1416,9 @@
             document.getElementById('lbl-medium').textContent = d.medium||0;
             document.getElementById('lbl-low').textContent = d.low||0;
             document.getElementById('lbl-info').textContent = d.info||0;
+            document.getElementById('sb-scans').textContent = d.total_scans || 0;
+            document.getElementById('sb-findings').textContent = d.total_findings || 0;
+            document.getElementById('sb-critical').textContent = d.critical || 0;
         } catch (_) {}
     }
 
@@ -1284,7 +1657,7 @@
 
     function _updateScanSelects() {
         var ids = Object.keys(window._knownActive || {});
-        ['pipeline-scan-select', 'livefeed-scan-select', 'ei-scan-select', 'am-scan-select'].forEach(function(selId) {
+        ['pipeline-scan-select', 'livefeed-scan-select', 'ei-scan-select', 'am-scan-select', 'compliance-scan-select'].forEach(function(selId) {
             var sel = document.getElementById(selId);
             if (!sel) return;
             var current = sel.value;
@@ -2177,6 +2550,406 @@
         }
     };
 
+    /* ---- Auth Panel ---- */
+    var _authToken = '';
+    var _authRefreshToken = '';
+
+    window._authLogin = async function() {
+        var user = document.getElementById('auth-username').value.trim();
+        var pass = document.getElementById('auth-password').value.trim();
+        if (!user || !pass) { alert('Enter username and password'); return; }
+        try {
+            var r = await fetch(API + '/api/auth/login', {
+                method: 'POST', headers: {'Content-Type':'application/json'},
+                body: JSON.stringify({username:user, password:pass})
+            });
+            var j = await r.json();
+            if (j.status === 'success') {
+                _authToken = j.data.access_token;
+                _authRefreshToken = j.data.refresh_token;
+                document.getElementById('auth-status').innerHTML = '<span style="color:#2ecc71;">✅ Logged in as <b>' + esc(j.data.username || user) + '</b> (' + esc(j.data.role) + ')</span>';
+                document.getElementById('auth-session-info').innerHTML =
+                    '<div style="font-size:0.88rem;line-height:1.8;">' +
+                    '<div>👤 <b>' + esc(j.data.username || user) + '</b></div>' +
+                    '<div>🛡️ Role: <span class="badge" style="background:var(--accent);color:#fff;">' + esc(j.data.role) + '</span></div>' +
+                    '</div>';
+                document.getElementById('sb-user').innerHTML = '👤 ' + esc(j.data.username || user);
+                window._authLoadUsers();
+            } else {
+                document.getElementById('auth-status').innerHTML = '<span style="color:var(--severity-critical);">❌ ' + esc(j.data || 'Login failed') + '</span>';
+            }
+        } catch(e) { document.getElementById('auth-status').innerHTML = '<span style="color:var(--severity-critical);">Connection error</span>'; }
+    };
+
+    window._authLogout = function() {
+        _authToken = '';
+        _authRefreshToken = '';
+        document.getElementById('auth-session-info').innerHTML = '<p class="empty-msg">Not logged in</p>';
+        document.getElementById('auth-status').innerHTML = '';
+        document.getElementById('sb-user').innerHTML = '👤 Guest';
+    };
+
+    window._authGenerateKey = async function() {
+        if (!_authToken) { alert('Login first'); return; }
+        try {
+            var r = await fetch(API + '/api/auth/api-key', {
+                method: 'POST', headers: {'Authorization':'Bearer '+_authToken,'Content-Type':'application/json'}, body: '{}'
+            });
+            var j = await r.json();
+            if (j.status === 'success') {
+                document.getElementById('auth-apikey-output').innerHTML = '<div style="background:var(--bg-input);padding:0.5rem;border-radius:6px;font-family:monospace;word-break:break-all;border:1px solid var(--accent);">🔑 ' + esc(j.data.api_key) + '<br><span style="color:var(--severity-medium);font-size:0.78rem;">⚠️ Copy now — shown only once</span></div>';
+            } else {
+                document.getElementById('auth-apikey-output').innerHTML = '<span style="color:var(--severity-critical);">Error generating key</span>';
+            }
+        } catch(e) {}
+    };
+
+    window._authLoadUsers = async function() {
+        if (!_authToken) return;
+        try {
+            var r = await fetch(API + '/api/auth/users', {headers:{'Authorization':'Bearer '+_authToken}});
+            var j = await r.json();
+            if (j.status !== 'success') return;
+            var tbody = document.getElementById('auth-users-body');
+            if (!j.data || !j.data.length) { tbody.innerHTML = '<tr><td colspan="5" class="empty-msg">No users</td></tr>'; return; }
+            tbody.innerHTML = j.data.map(function(u) {
+                var roleColor = u.role === 'admin' ? '#2ecc71' : u.role === 'analyst' ? 'var(--severity-medium)' : 'var(--severity-low)';
+                return '<tr><td>' + esc(u.username) + '</td>' +
+                    '<td><span class="badge" style="background:' + roleColor + '22;color:' + roleColor + ';border:1px solid ' + roleColor + '33;">' + esc(u.role) + '</span></td>' +
+                    '<td>' + (u.active !== false ? '✅' : '❌') + '</td>' +
+                    '<td>' + fmtDate(u.created_at) + '</td>' +
+                    '<td><button class="btn btn-danger btn-sm" onclick="window._authDeleteUser(\'' + esc(u.username) + '\')">✕</button></td></tr>';
+            }).join('');
+        } catch(e) {}
+    };
+
+    window._authCreateUser = async function() {
+        if (!_authToken) { alert('Login first'); return; }
+        var user = document.getElementById('auth-new-user').value.trim();
+        var pass = document.getElementById('auth-new-pass').value.trim();
+        var role = document.getElementById('auth-new-role').value;
+        if (!user || !pass) { alert('Enter username and password'); return; }
+        try {
+            var r = await fetch(API + '/api/auth/users', {
+                method: 'POST', headers: {'Authorization':'Bearer '+_authToken,'Content-Type':'application/json'},
+                body: JSON.stringify({username:user, password:pass, role:role})
+            });
+            var j = await r.json();
+            alert(j.status === 'success' ? 'User created' : (j.data || 'Error'));
+            if (j.status === 'success') { window._authLoadUsers(); document.getElementById('auth-create-form').style.display='none'; }
+        } catch(e) { alert('Error creating user'); }
+    };
+
+    window._authDeleteUser = async function(username) {
+        if (!confirm('Delete user ' + username + '?')) return;
+        try {
+            await fetch(API + '/api/auth/users/' + username, {method:'DELETE', headers:{'Authorization':'Bearer '+_authToken}});
+            window._authLoadUsers();
+        } catch(e) {}
+    };
+
+    /* ---- Scheduler Panel ---- */
+    window._schedRefresh = async function() {
+        try {
+            var r = await fetch(API + '/api/schedules');
+            var j = await r.json();
+            if (j.status !== 'success') return;
+            var tbody = document.getElementById('sched-body');
+            if (!j.data || !j.data.length) { tbody.innerHTML = '<tr><td colspan="8" class="empty-msg">No schedules</td></tr>'; return; }
+            tbody.innerHTML = j.data.map(function(s) {
+                return '<tr><td style="font-family:monospace;font-size:0.82rem;">' + esc(s.schedule_id) + '</td>' +
+                    '<td>' + esc(s.name) + '</td><td>' + esc(s.target) + '</td>' +
+                    '<td><span class="badge" style="background:var(--bg-input);color:var(--text-primary);border:1px solid var(--border);">' + esc(s.schedule_type) + '</span></td>' +
+                    '<td>' + (s.next_run ? fmtDate(s.next_run) : '—') + '</td>' +
+                    '<td>' + (s.run_count || 0) + '</td>' +
+                    '<td>' + (s.enabled ? '<span style="color:#2ecc71;">●</span> Yes' : '<span style="color:var(--severity-critical);">●</span> No') + '</td>' +
+                    '<td><button class="btn btn-sm" style="background:var(--bg-input);border:1px solid var(--border);color:var(--text-primary);" onclick="window._schedToggle(\'' + esc(s.schedule_id) + '\',' + !s.enabled + ')">' + (s.enabled ? '⏸' : '▶') + '</button> ' +
+                    '<button class="btn btn-danger btn-sm" onclick="window._schedDelete(\'' + esc(s.schedule_id) + '\')">✕</button></td></tr>';
+            }).join('');
+
+            // Load history
+            var hr = await fetch(API + '/api/schedules/history');
+            var hj = await hr.json();
+            if (hj.status === 'success' && hj.data && hj.data.length) {
+                document.getElementById('sched-history-list').innerHTML = hj.data.slice(0,20).map(function(h) {
+                    var color = h.status === 'triggered' ? '#2ecc71' : h.status === 'error' ? 'var(--severity-critical)' : 'var(--text-muted)';
+                    return '<div style="padding:0.3rem 0;border-bottom:1px solid var(--border);font-size:0.82rem;display:flex;justify-content:space-between;">' +
+                        '<span><span style="color:' + color + ';font-weight:600;">' + esc(h.status) + '</span> — ' + esc(h.schedule_id) + '</span>' +
+                        '<span style="color:var(--text-muted);">' + fmtDate(h.timestamp) + '</span></div>';
+                }).join('');
+            }
+        } catch(e) {}
+    };
+
+    window._schedCreate = async function() {
+        var name = document.getElementById('sched-name').value.trim();
+        var target = document.getElementById('sched-target').value.trim();
+        var type = document.getElementById('sched-type').value;
+        if (!name || !target) { alert('Enter name and target'); return; }
+        var body = {name:name, target:target, schedule_type:type};
+        if (type === 'cron') body.cron_expression = document.getElementById('sched-cron').value.trim();
+        else body.interval_seconds = parseInt(document.getElementById('sched-interval').value, 10);
+        try {
+            var r = await fetch(API + '/api/schedules', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+            var j = await r.json();
+            alert(j.status === 'success' ? 'Schedule created' : (j.data || 'Error'));
+            window._schedRefresh();
+        } catch(e) { alert('Error'); }
+    };
+
+    window._schedToggle = async function(id, enabled) {
+        try { await fetch(API + '/api/schedules/' + id + '/toggle', {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({enabled:enabled})}); window._schedRefresh(); } catch(e) {}
+    };
+
+    window._schedDelete = async function(id) {
+        if (!confirm('Delete schedule?')) return;
+        try { await fetch(API + '/api/schedules/' + id, {method:'DELETE'}); window._schedRefresh(); } catch(e) {}
+    };
+
+    window._schedStart = async function() { try { await fetch(API + '/api/scheduler/start', {method:'POST'}); alert('Scheduler started'); } catch(e) {} };
+    window._schedStop = async function() { try { await fetch(API + '/api/scheduler/stop', {method:'POST'}); alert('Scheduler stopped'); } catch(e) {} };
+
+    /* ---- Compliance Panel ---- */
+    window._complianceRun = async function() {
+        var scanId = document.getElementById('compliance-scan-select').value;
+        if (!scanId) { alert('Select a scan first'); return; }
+        var scoresEl = document.getElementById('compliance-scores');
+        scoresEl.innerHTML = '<p class="empty-msg"><span class="spinner"></span> Running compliance analysis...</p>';
+        try {
+            var r = await fetch(API + '/api/compliance/' + scanId, {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'});
+            var j = await r.json();
+            if (j.status !== 'success') { scoresEl.innerHTML = '<p class="empty-msg">Error: ' + esc(j.data || 'Unknown') + '</p>'; return; }
+            var d = j.data;
+
+            // Render scores
+            var scores = d.framework_scores || {};
+            var fwColors = {owasp:'var(--severity-critical)', pci_dss:'var(--severity-high)', nist:'var(--severity-medium)', cis:'var(--severity-low)', sans:'#9b59b6'};
+            scoresEl.innerHTML = '<div class="grid grid-5">' + Object.keys(scores).map(function(fw) {
+                var s = scores[fw];
+                var pct = s.score_pct || 0;
+                var color = fwColors[fw] || 'var(--accent)';
+                var barColor = pct >= 80 ? '#2ecc71' : pct >= 50 ? 'var(--severity-medium)' : 'var(--severity-critical)';
+                return '<div class="glass-card" style="text-align:center;border-top:3px solid ' + color + ';">' +
+                    '<div style="font-weight:700;font-size:0.95rem;color:' + color + ';">' + esc(fw.toUpperCase()) + '</div>' +
+                    '<div style="font-size:2rem;font-weight:700;color:' + barColor + ';margin:0.3rem 0;">' + pct.toFixed(0) + '%</div>' +
+                    '<div style="height:6px;background:var(--bg-input);border-radius:3px;overflow:hidden;"><div style="height:100%;width:' + pct + '%;background:' + barColor + ';border-radius:3px;"></div></div>' +
+                    '<div style="font-size:0.78rem;color:var(--text-muted);margin-top:0.3rem;">' + (s.passing||0) + '/' + (s.total_controls||0) + ' controls</div></div>';
+            }).join('') + '</div>';
+
+            // Render gaps
+            var gapsEl = document.getElementById('compliance-gaps');
+            var gaps = d.gaps || [];
+            if (gaps.length === 0) { gapsEl.innerHTML = '<p class="empty-msg" style="color:#2ecc71;">✅ No compliance gaps found!</p>'; }
+            else {
+                gapsEl.innerHTML = gaps.slice(0,15).map(function(g) {
+                    var sevColor = g.worst_severity === 'CRITICAL' ? 'var(--severity-critical)' : g.worst_severity === 'HIGH' ? 'var(--severity-high)' : 'var(--severity-medium)';
+                    return '<div style="padding:0.5rem 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;">' +
+                        '<div><span class="badge" style="background:' + sevColor + ';color:#fff;margin-right:0.5rem;">' + esc(g.worst_severity) + '</span>' +
+                        '<span style="color:var(--accent);font-weight:600;">' + esc(g.framework.toUpperCase()) + ' ' + esc(g.control_id) + '</span> ' +
+                        '<span style="color:var(--text-primary);">' + esc(g.control_name) + '</span></div>' +
+                        '<span style="font-size:0.82rem;color:var(--text-muted);">' + (g.finding_count||0) + ' findings</span></div>';
+                }).join('');
+            }
+
+            // Render mappings
+            var mapEl = document.getElementById('compliance-mappings');
+            var mappings = d.mappings || [];
+            if (mappings.length === 0) { mapEl.innerHTML = '<p class="empty-msg">No mappings</p>'; }
+            else {
+                mapEl.innerHTML = '<div style="max-height:300px;overflow-y:auto;">' + mappings.slice(0,30).map(function(m) {
+                    return '<div style="padding:0.3rem 0;border-bottom:1px solid var(--border);font-size:0.82rem;display:flex;gap:0.8rem;">' +
+                        '<span class="badge" style="background:var(--bg-input);color:var(--accent);border:1px solid var(--border);min-width:70px;text-align:center;">' + esc(m.framework.toUpperCase()) + '</span>' +
+                        '<span style="min-width:80px;color:var(--text-muted);">' + esc(m.control_id) + '</span>' +
+                        '<span style="color:var(--text-primary);">' + esc(m.finding_technique) + ' → ' + esc(m.control_name) + '</span></div>';
+                }).join('') + '</div>';
+            }
+        } catch(e) { scoresEl.innerHTML = '<p class="empty-msg">Error running compliance check</p>'; }
+    };
+
+    /* ---- Audit Panel ---- */
+    window._auditLoad = async function() {
+        try {
+            var cat = document.getElementById('audit-filter-cat').value;
+            var sev = document.getElementById('audit-filter-sev').value;
+            var actor = document.getElementById('audit-filter-actor').value.trim();
+            var params = [];
+            if (cat) params.push('category=' + cat);
+            if (sev) params.push('severity=' + sev);
+            if (actor) params.push('actor=' + actor);
+            var qs = params.length ? '?' + params.join('&') : '';
+
+            var r = await fetch(API + '/api/audit' + qs);
+            var j = await r.json();
+            if (j.status !== 'success') return;
+            var entries = j.data || [];
+
+            var container = document.getElementById('audit-entries');
+            if (!entries.length) { container.innerHTML = '<p class="empty-msg">No audit entries found</p>'; return; }
+            container.innerHTML = entries.map(function(e) {
+                var sevColor = e.severity === 'critical' ? 'var(--severity-critical)' : e.severity === 'warning' ? 'var(--severity-medium)' : 'var(--text-muted)';
+                var catIcon = {auth:'🔐',scan:'🔍',exploit:'💥',config:'⚙️',user:'👤',system:'🖥️',schedule:'⏰',report:'📊'}[e.category] || '📝';
+                return '<div style="padding:0.4rem 0;border-bottom:1px solid var(--border);font-size:0.82rem;display:flex;gap:0.8rem;align-items:center;">' +
+                    '<span style="color:var(--text-muted);min-width:140px;font-family:monospace;font-size:0.78rem;">' + fmtDate(e.timestamp) + '</span>' +
+                    '<span style="min-width:20px;">' + catIcon + '</span>' +
+                    '<span class="badge" style="background:' + sevColor + '22;color:' + sevColor + ';border:1px solid ' + sevColor + '33;min-width:60px;text-align:center;">' + esc(e.severity || 'info') + '</span>' +
+                    '<span style="color:var(--accent);min-width:60px;">' + esc(e.actor || '—') + '</span>' +
+                    '<span style="color:var(--text-primary);">' + esc(e.action) + '</span>' +
+                    '<span style="color:var(--text-muted);margin-left:auto;">' + esc(e.result || '') + '</span></div>';
+            }).join('');
+
+            // Load stats
+            var sr = await fetch(API + '/api/audit/stats');
+            var sj = await sr.json();
+            if (sj.status === 'success') {
+                var s = sj.data;
+                document.getElementById('audit-total').textContent = s.total_entries || 0;
+                document.getElementById('audit-warnings').textContent = (s.severities || {}).warning || 0;
+                document.getElementById('audit-critical').textContent = (s.severities || {}).critical || 0;
+                document.getElementById('audit-categories').textContent = Object.keys(s.categories || {}).length;
+            }
+        } catch(e) {}
+    };
+
+    /* ---- Tools Panel ---- */
+    window._toolsCheck = async function() {
+        try {
+            var r = await fetch(API + '/api/tools/external');
+            var j = await r.json();
+            if (j.status !== 'success') return;
+            var tools = j.data || {};
+            var container = document.getElementById('tools-status');
+            container.innerHTML = Object.keys(tools).map(function(t) {
+                var available = tools[t];
+                var icon = {nmap:'🔍',nuclei:'⚛️',nikto:'🕷️',whatweb:'🌐',subfinder:'🔎'}[t] || '🛠️';
+                return '<div class="glass-card" style="text-align:center;border-top:3px solid ' + (available ? '#2ecc71' : 'var(--severity-critical)') + ';">' +
+                    '<div style="font-size:1.5rem;">' + icon + '</div>' +
+                    '<div style="font-weight:700;margin:0.3rem 0;">' + esc(t) + '</div>' +
+                    '<span class="badge" style="background:' + (available ? '#2ecc7122' : 'var(--severity-critical)22') + ';color:' + (available ? '#2ecc71' : 'var(--severity-critical)') + ';">' + (available ? '✓ Installed' : '✗ Missing') + '</span></div>';
+            }).join('');
+        } catch(e) {}
+    };
+
+    window._toolsRun = async function() {
+        var tool = document.getElementById('tools-select').value;
+        var target = document.getElementById('tools-target').value.trim();
+        if (!target) { alert('Enter a target'); return; }
+        var btn = document.getElementById('tools-run-btn');
+        var output = document.getElementById('tools-output');
+        btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Running...';
+        output.innerHTML = '<p class="empty-msg"><span class="spinner"></span> Running ' + esc(tool) + ' on ' + esc(target) + '...</p>';
+        try {
+            var r = await fetch(API + '/api/tools/external/' + tool + '/run', {
+                method: 'POST', headers:{'Content-Type':'application/json'},
+                body: JSON.stringify({target:target})
+            });
+            var j = await r.json();
+            if (j.status === 'success') {
+                var d = j.data || {};
+                var findings = d.findings || [];
+                output.innerHTML = '<div style="margin-bottom:0.8rem;">' +
+                    '<span class="badge" style="background:#2ecc7122;color:#2ecc71;">✅ ' + esc(tool) + ' completed</span>' +
+                    '<span style="margin-left:0.5rem;font-size:0.82rem;color:var(--text-muted);">' + findings.length + ' findings · ' + (d.duration_seconds||0).toFixed(1) + 's</span></div>' +
+                    (findings.length ? findings.map(function(f) {
+                        return '<div class="finding-item" style="margin-bottom:0.5rem;">' +
+                            '<div class="fi-header"><strong>' + esc(f.type || f.name || f.technology || 'Finding') + '</strong></div>' +
+                            '<pre style="max-height:100px;overflow:auto;">' + esc(JSON.stringify(f, null, 2)) + '</pre></div>';
+                    }).join('') : '<p class="empty-msg">No findings</p>');
+            } else {
+                output.innerHTML = '<div style="color:var(--severity-critical);">❌ ' + esc(j.data || 'Tool execution failed') + '</div>';
+            }
+        } catch(e) { output.innerHTML = '<div style="color:var(--severity-critical);">Connection error</div>'; }
+        btn.disabled = false; btn.innerHTML = '▶ Run';
+    };
+
+    /* ---- Plugins Panel ---- */
+    window._pluginsLoad = async function() {
+        try {
+            var r = await fetch(API + '/api/plugins');
+            var j = await r.json();
+            if (j.status !== 'success') return;
+            var plugins = j.data || [];
+            var container = document.getElementById('plugins-list');
+            if (!plugins.length) { container.innerHTML = '<p class="empty-msg">No plugins installed. Place plugins in the plugins/ directory.</p>'; return; }
+            container.innerHTML = '<div class="grid grid-2">' + plugins.map(function(p) {
+                var color = p.enabled ? '#2ecc71' : 'var(--severity-critical)';
+                return '<div class="glass-card" style="border-left:4px solid ' + color + ';">' +
+                    '<div style="display:flex;justify-content:space-between;align-items:center;">' +
+                        '<strong>' + esc(p.name) + '</strong>' +
+                        '<button class="btn btn-sm" style="background:' + (p.enabled ? 'var(--severity-critical)' : '#2ecc71') + ';color:#fff;" onclick="window._pluginToggle(\'' + esc(p.name) + '\',' + !p.enabled + ')">' + (p.enabled ? 'Disable' : 'Enable') + '</button>' +
+                    '</div>' +
+                    '<div style="font-size:0.82rem;color:var(--text-muted);margin-top:0.3rem;">' + esc(p.description || 'No description') + '</div>' +
+                    '<div style="display:flex;gap:0.5rem;margin-top:0.3rem;font-size:0.78rem;">' +
+                        '<span>v' + esc(p.version || '?') + '</span>' +
+                        '<span>by ' + esc(p.author || 'unknown') + '</span>' +
+                        '<span class="badge" style="background:var(--bg-input);color:var(--text-muted);border:1px solid var(--border);">' + esc(p.category || 'general') + '</span>' +
+                    '</div></div>';
+            }).join('') + '</div>';
+        } catch(e) {}
+    };
+
+    window._pluginsDiscover = async function() {
+        try {
+            var r = await fetch(API + '/api/plugins/discover', {method:'POST'});
+            var j = await r.json();
+            alert(j.status === 'success' ? 'Discovered: ' + (j.data || []).join(', ') || 'No new plugins' : 'Error');
+            window._pluginsLoad();
+        } catch(e) {}
+    };
+
+    window._pluginToggle = async function(name, enabled) {
+        try { await fetch(API + '/api/plugins/' + name + '/toggle', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({enabled:enabled})}); window._pluginsLoad(); } catch(e) {}
+    };
+
+    /* ---- Notifications Panel ---- */
+    window._notifLoadChannels = async function() {
+        try {
+            var r = await fetch(API + '/api/notifications/channels');
+            var j = await r.json();
+            if (j.status !== 'success') return;
+            var channels = j.data || [];
+            var container = document.getElementById('notif-channels');
+            if (!channels.length) { container.innerHTML = '<p class="empty-msg">No notification channels configured</p>'; return; }
+            container.innerHTML = '<div class="grid grid-3">' + channels.map(function(ch) {
+                var icon = {console:'🖥️',webhook:'🌐',slack:'💬',discord:'🎮',teams:'👥'}[ch.type || ch.name] || '📡';
+                return '<div class="glass-card" style="border-top:3px solid #2ecc71;">' +
+                    '<div style="font-size:1.2rem;">' + icon + '</div>' +
+                    '<strong>' + esc(ch.name || ch.type) + '</strong>' +
+                    '<div style="font-size:0.78rem;color:var(--text-muted);margin-top:0.2rem;">' + esc(ch.type || 'channel') + '</div></div>';
+            }).join('') + '</div>';
+        } catch(e) {}
+    };
+
+    window._notifTest = async function() {
+        var msg = document.getElementById('notif-test-msg').value.trim();
+        if (!msg) { alert('Enter a message'); return; }
+        try {
+            var r = await fetch(API + '/api/notifications/test', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({message:msg})});
+            var j = await r.json();
+            document.getElementById('notif-test-result').innerHTML = j.status === 'success' ?
+                '<span style="color:#2ecc71;">✅ Test notification sent</span>' :
+                '<span style="color:var(--severity-critical);">❌ ' + esc(j.data || 'Failed') + '</span>';
+        } catch(e) { document.getElementById('notif-test-result').innerHTML = '<span style="color:var(--severity-critical);">Connection error</span>'; }
+    };
+
+    window._notifLoadHistory = async function() {
+        try {
+            var r = await fetch(API + '/api/notifications/history');
+            var j = await r.json();
+            if (j.status !== 'success') return;
+            var items = j.data || [];
+            var container = document.getElementById('notif-history');
+            if (!items.length) { container.innerHTML = '<p class="empty-msg">No notification history</p>'; return; }
+            container.innerHTML = items.map(function(n) {
+                var sevColor = n.severity === 'critical' ? 'var(--severity-critical)' : n.severity === 'warning' ? 'var(--severity-medium)' : n.severity === 'success' ? '#2ecc71' : 'var(--text-muted)';
+                return '<div style="padding:0.4rem 0;border-bottom:1px solid var(--border);font-size:0.82rem;">' +
+                    '<div style="display:flex;justify-content:space-between;align-items:center;">' +
+                        '<div><span style="color:' + sevColor + ';font-weight:600;margin-right:0.5rem;">' + esc(n.severity || 'info') + '</span>' + esc(n.title) + '</div>' +
+                        '<span style="color:var(--text-muted);font-size:0.78rem;">' + fmtDate(n.timestamp) + '</span></div>' +
+                    '<div style="color:var(--text-muted);font-size:0.78rem;margin-top:0.2rem;">' + esc(n.message || '') + '</div></div>';
+            }).join('');
+        } catch(e) {}
+    };
+
     /* ---- WebSocket (SocketIO) integration ---- */
     window._wsSocket = null;
     (function initWebSocket() {
@@ -2190,6 +2963,9 @@
 
                 socket.on('connect', function() {
                     console.log('[ATOMIC] WebSocket connected');
+                    document.getElementById('ws-dot').style.background = '#2ecc71';
+                    document.getElementById('ws-label').textContent = 'Connected';
+                    document.getElementById('ws-label').style.color = '#2ecc71';
                 });
 
                 socket.on('active_scans', function(data) {
@@ -2274,6 +3050,9 @@
 
                 socket.on('disconnect', function() {
                     console.log('[ATOMIC] WebSocket disconnected');
+                    document.getElementById('ws-dot').style.background = '#e74c3c';
+                    document.getElementById('ws-label').textContent = 'Disconnected';
+                    document.getElementById('ws-label').style.color = '#e74c3c';
                 });
             } catch (e) {
                 console.log('[ATOMIC] WebSocket init failed, using polling fallback');
@@ -2293,6 +3072,7 @@
     setInterval(function() { loadActiveScans(); _updateScanSelects(); }, 3000);
     setInterval(function() { updateTrendChart(); }, 15000);
     setInterval(function() { if (_pipelineScanId) loadPipeline(); }, 2500);
+    setInterval(function() { document.getElementById('sb-time').textContent = new Date().toLocaleTimeString(); }, 1000);
 })();
 </script>
 </body>
