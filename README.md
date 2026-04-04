@@ -1,4 +1,4 @@
-# ATOMIC FRAMEWORK v8.0 — ULTIMATE EDITION
+# ATOMIC FRAMEWORK v8.2 — ULTIMATE EDITION
 
 ⚠️ **FOR AUTHORIZED TESTING ONLY** ⚠️
 
@@ -122,16 +122,25 @@ python main.py -t https://target.com --full --evasion insane --waf-bypass
 
 ## Installation
 
+### Prerequisites
+- **Python 3.9** or higher
+- **pip** (Python package manager)
+- **Git** (for cloning)
+
 ### Quick (Python only)
 ```bash
+git clone https://github.com/hamahasan441-png/Scanner-.git
+cd Scanner-
 pip install -r requirements.txt
 python main.py --web
 ```
 
-### Termux
+### Termux (Android)
 ```bash
 pkg update && pkg upgrade -y
 pkg install python clang libffi openssl git -y
+git clone https://github.com/hamahasan441-png/Scanner-.git
+cd Scanner-
 pip install -r requirements.txt
 ```
 
@@ -140,14 +149,19 @@ pip install -r requirements.txt
 > pip install lxml cryptography paramiko
 > ```
 
-### Linux
+### Linux (Debian/Ubuntu)
 ```bash
-sudo apt-get install python3 python3-pip -y
+sudo apt-get update
+sudo apt-get install python3 python3-pip python3-venv git -y
+git clone https://github.com/hamahasan441-png/Scanner-.git
+cd Scanner-
 pip3 install -r requirements.txt
 ```
 
 ### Full Setup Script
 ```bash
+git clone https://github.com/hamahasan441-png/Scanner-.git
+cd Scanner-
 bash setup.sh
 ```
 
@@ -475,4 +489,4 @@ This project is for educational purposes only.
 
 ## Credits
 
-ATOMIC Framework v8.0 — ULTIMATE EDITION | Codename: PHOENIX
+ATOMIC Framework v8.2 — ULTIMATE EDITION | Codename: PHOENIX
