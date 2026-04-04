@@ -75,6 +75,9 @@ main.py → argparse → build config dict → AtomicEngine(config) → engine.s
 | `--full` | Enable all modules |
 | `--sqli`, `--xss`, `--cmdi`, ... | Enable specific modules |
 | `--sqlmap` | Enable sqlmap integration for deep SQLi/CMDi |
+| `--shield-detect` | CDN/WAF shield detection (Cloudflare, Akamai, Fastly, CloudFront, Sucuri) |
+| `--real-ip` | Real IP / origin server discovery behind CDN |
+| `--agent-scan` | Autonomous agent scanner (goal-driven with pivot detection) |
 | `--shell` | Upload web shell |
 | `--dump` | Dump database |
 | `--os-shell` | Get OS shell |
@@ -102,16 +105,20 @@ Flask + flask-socketio → REST API + WebSocket → spawns AtomicEngine in backg
 
 ## Core Pipeline Flow
 
-The engine follows a **9-section core flow** defined in `core/engine.py`:
+The engine follows a **multi-phase core flow** defined in `core/engine.py`:
 
 ```
-§1 Scope & Policy  →  §2 Discovery & Graph  →  §3 Extract & Classify
+§0 Init & Normalize  →  §1 Scope & Policy  →  PHASE 1: Shield Detection
         ↓                      ↓                        ↓
-§4 Context Intel   →  §5 Risk-Based Prioritize  →  §6 Baseline
+PHASE 2: Real IP    →  §2 Discovery & Graph  →  §3 Extract & Classify
         ↓                      ↓                        ↓
-§7 Adaptive Test   →  §8 Multi-Signal Analyze  →  §9 Adaptive Verify
+§4 Context Intel    →  §5 Risk-Based Prioritize  →  §6 Baseline
         ↓                      ↓                        ↓
-     Report        →       Learn               →      Adapt
+§7 Adaptive Test    →  §8 Multi-Signal Analyze  →  §9 Adaptive Verify
+        ↓                      ↓                        ↓
+PHASE 4: Agent Scan →       Learn               →      Adapt
+        ↓
+     Report
 ```
 
 ### Pipeline Phase Tracking (3-Partition Architecture)
@@ -147,6 +154,34 @@ engine.scan(target)
     ├── ContextIntelligence.fingerprint_response(init_resp)
     │
     ├── Database.save_scan(...)
+    │
+    ├── PHASE 1: SHIELD DETECTION [if --shield-detect]
+    │   └── ShieldDetector.run(target, probe_result)
+    │       ├── detect_cdn(target)
+    │       │   ├── DNS CNAME chain analysis
+    │       │   ├── IP CIDR matching (Cloudflare, Akamai, Fastly, CloudFront, Sucuri)
+    │       │   └── Response header signatures (CF-Ray, X-Amz-Cf-Id, etc.)
+    │       ├── detect_waf(target)
+    │       │   ├── Adversarial probe payloads (<script>, SQLi, LFI, SELECT)
+    │       │   ├── WAF fingerprinting (Cloudflare, ModSecurity, AWS, Sucuri, Nginx)
+    │       │   └── Block threshold measurement
+    │       └── → ShieldProfile {cdn, waf, needs_origin_discovery, needs_waf_bypass}
+    │
+    ├── PHASE 2: REAL IP DISCOVERY [if --real-ip]
+    │   └── RealIPScanner.run(target, shield_profile)
+    │       ├── Track A: Passive Intel
+    │       │   ├── SPF/MX record IP extraction
+    │       │   ├── Certificate transparency (crt.sh SANs)
+    │       │   ├── Historical DNS via crt.sh
+    │       │   └── ASN/IP correlation
+    │       ├── Track B: Subdomain Intel
+    │       │   ├── Passive subdomain enum (crt.sh)
+    │       │   ├── Active brute-force (30+ common subdomains)
+    │       │   ├── Zone transfer attempt (AXFR)
+    │       │   └── Subdomain IP triage (discard CDN IPs, flag high-value)
+    │       ├── Track C: Active Probing (top candidates)
+    │       │   └── HTTP host-header verification + fingerprint matching
+    │       └── → RealIPResult {origin_ip, confidence, method, verified, candidates[]}
     │
     ├── §2. DISCOVERY & GRAPH
     │   ├── ReconModule.run(target)           [if --recon]
@@ -238,6 +273,56 @@ engine.scan(target)
     │   └── Save both to disk
     │
     └── ADAPTIVE LOOP: re-discover new endpoints (up to 3 rounds)
+```
+
+### Phase 2.5: AGENT SCANNER (`scan` — autonomous) [if --agent-scan]
+
+```
+    └── AgentScanner.run(target, real_ip_result, waf_bypass_profile)
+        │
+        ├── STEP A: TARGET DECOMPOSITION
+        │   └── decompose(target) → TargetMap {primary, target_type, hostname, subdomains, params}
+        │       ├── URL → focused scan (path + params)
+        │       ├── domain → full recon + subdomain expansion
+        │       ├── IP/CIDR → port-first → service scan
+        │       └── wildcard → enumerate → per-sub plan
+        │
+        ├── STEP B: HYPOTHESIS GENERATION
+        │   └── GoalPlanner.generate_hypotheses(target_map, intel_bundle)
+        │       ├── WordPress → CVE-2022-21661 SQLi
+        │       ├── PHP → type juggling auth bypass
+        │       ├── JWT → alg:none / algorithm confusion
+        │       ├── Upload → webshell, traversal, XXE
+        │       ├── GraphQL → introspection, injection
+        │       ├── S3 → bucket takeover
+        │       ├── Login → brute, enum, session fixation
+        │       ├── API key → key abuse, privilege escalation
+        │       ├── CORS → credential leak chain
+        │       └── Redirect → phishing + token theft
+        │
+        ├── STEP C: GOAL PLANNING
+        │   └── GoalPlanner.plan(hypotheses)
+        │       → 11 base goals (GOAL_0..GOAL_10) + hypothesis-derived goals
+        │       → Sorted by priority (confidence × severity × cheapness)
+        │
+        ├── STEP D: EXECUTION LOOP (OODA)
+        │   └── while GoalPlanner.should_continue():
+        │       ├── OBSERVE: scope check, budget check, memory read
+        │       ├── THINK: select tool, build params, retry guard
+        │       ├── ACT: execute goal via engine module
+        │       ├── REFLECT: process result, update memory, mark findings
+        │       └── ADAPT: PivotDetector.handle(result) → push new goals
+        │
+        └── STEP E: PIVOT DETECTION
+            └── PivotDetector.handle(finding)
+                ├── SSRF → probe cloud metadata (AWS/GCP/Azure IMDS)
+                ├── LFI → read /etc/passwd, log poisoning → RCE
+                ├── SQLi → schema dump, FILE READ/OUTFILE
+                ├── Admin panel → auth scanner + IDOR
+                ├── Open redirect → OAuth token theft chain
+                ├── API key → test against provider endpoints
+                ├── Subdomain → full scan (scope-checked)
+                └── Internal IP → CIDR expansion
 ```
 
 ### Phase 3: EXPLOIT (`exploit`)
@@ -356,6 +441,11 @@ engine.scan(target)
 | **PersistenceEngine** | `core/persistence.py` | Retry logic, evasion escalation, resume capability |
 | **RulesEngine** | `core/rules_engine.py` | YAML-based scanner rules configuration |
 | **Normalizer** | `core/normalizer.py` | Response normalization for consistent comparison |
+| **ShieldDetector** | `core/shield_detector.py` | CDN + WAF detection (Cloudflare, Akamai, Fastly, CloudFront, Sucuri) |
+| **RealIPScanner** | `core/real_ip_scanner.py` | Origin IP discovery behind CDN (passive + subdomain + active probing) |
+| **GoalPlanner** | `core/goal_planner.py` | Hypothesis-driven goal stack management and budget tracking |
+| **PivotDetector** | `core/pivot_detector.py` | Pivot detection — expand attack surface from confirmed findings |
+| **AgentScanner** | `core/agent_scanner.py` | Autonomous OODA-loop scanner (observe-think-act-reflect-adapt) |
 
 ### Exploitation Layer
 
@@ -638,5 +728,6 @@ Scanner-/
 
 | Date | Change | Files |
 |------|--------|-------|
+| 2026-04-04 | Added Phase 1 Shield Detection (CDN+WAF), Phase 2 Real IP Discovery, Phase 4 Agent Scanner (Goal Planner + Pivot Detector + OODA loop) | `core/shield_detector.py`, `core/real_ip_scanner.py`, `core/goal_planner.py`, `core/pivot_detector.py`, `core/agent_scanner.py`, `core/engine.py`, `main.py` |
 | 2026-04-03 | Added sqlmap CLI integration to SQLi and CMDi modules | `modules/sqli.py`, `modules/cmdi.py`, `main.py` |
 | 2026-04-03 | Created LOGIC_MAP.md | `LOGIC_MAP.md` |

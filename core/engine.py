@@ -5,10 +5,14 @@ ATOMIC FRAMEWORK v8.0 - ULTIMATE EDITION
 Core Engine - Scan orchestration and module management
 
 CORE FLOW:
-  §1 Scope & Policy → §2 Discover & Graph → §3 Extract & Classify →
+  §0 Init & Normalize →
+  §1 Scope & Policy → PHASE 1: Shield Detection (CDN + WAF) →
+  PHASE 2: Real IP Discovery →
+  §2 Discover & Graph → §3 Extract & Classify →
   §4 Context Intelligence → §5 Risk-Based Prioritize →
   §6 Baseline → §7 Adaptive Test → §8 Multi-Signal Analyze →
-  §9 Adaptive Verify → Report → Learn → Adapt
+  §9 Adaptive Verify → PHASE 4: Agent Scan →
+  Report → Learn → Adapt
 """
 
 import time
@@ -283,6 +287,7 @@ class AtomicEngine:
             return
 
         # Tech fingerprinting on initial response
+        init_resp = None
         try:
             init_resp = self.requester.request(target, 'GET')
             if init_resp:
@@ -300,6 +305,49 @@ class AtomicEngine:
             )
 
         modules_config = self.config.get('modules', {})
+
+        # ── PHASE 1: SHIELD DETECTION (CDN + WAF) ────────────────────
+        shield_profile = None
+        if modules_config.get('shield_detect', False):
+            try:
+                from core.shield_detector import ShieldDetector
+                shield = ShieldDetector(self)
+                probe_result = {
+                    'response': init_resp,
+                    'reachable': True,
+                    'latency': 0,
+                }
+                shield_profile = shield.run(target, probe_result)
+                self.emit_pipeline_event('shield_detection', {
+                    'cdn_detected': shield_profile.get('cdn', {}).get('detected', False),
+                    'waf_detected': shield_profile.get('waf', {}).get('detected', False),
+                    'cdn_provider': shield_profile.get('cdn', {}).get('provider'),
+                    'waf_provider': shield_profile.get('waf', {}).get('provider'),
+                })
+            except Exception as e:
+                if self.config.get('verbose'):
+                    print(f"{Colors.error(f'Shield detection error: {e}')}")
+
+        # ── PHASE 2: REAL IP DISCOVERY ────────────────────────────────
+        real_ip_result = None
+        if modules_config.get('real_ip', False):
+            needs_discovery = True
+            if shield_profile:
+                needs_discovery = shield_profile.get('needs_origin_discovery', False)
+            if needs_discovery:
+                try:
+                    from core.real_ip_scanner import RealIPScanner
+                    real_ip = RealIPScanner(self)
+                    real_ip_result = real_ip.run(target, shield_profile)
+                    self.emit_pipeline_event('real_ip_discovery', {
+                        'origin_ip': real_ip_result.get('origin_ip'),
+                        'confidence': real_ip_result.get('confidence'),
+                        'method': real_ip_result.get('method'),
+                        'candidates': len(real_ip_result.get('all_candidates', [])),
+                    })
+                except Exception as e:
+                    if self.config.get('verbose'):
+                        print(f"{Colors.error(f'Real IP discovery error: {e}')}")
 
         # ── §2. DISCOVERY & GRAPH ENGINE ─────────────────────────────
         # Reconnaissance (optional)
@@ -553,6 +601,30 @@ class AtomicEngine:
                 if self.config.get('verbose'):
                     print(f"{Colors.error(f'Adaptive re-scan error: {e}')}")
                 break
+
+        # ── PHASE 4: AGENT SCANNER (autonomous goal-driven scan) ─────
+        agent_result = None
+        if modules_config.get('agent_scan', False):
+            try:
+                from core.agent_scanner import AgentScanner
+                agent = AgentScanner(self)
+                waf_bypass_profile = None
+                if shield_profile and shield_profile.get('needs_waf_bypass'):
+                    waf_bypass_profile = shield_profile.get('waf', {})
+                agent_result = agent.run(
+                    target,
+                    real_ip_result=real_ip_result,
+                    waf_bypass_profile=waf_bypass_profile,
+                )
+                self.emit_pipeline_event('agent_scan_complete', {
+                    'goals_completed': len(agent_result.get('goals_completed', [])),
+                    'goals_skipped': len(agent_result.get('goals_skipped', [])),
+                    'pivots_found': len(agent_result.get('pivots_found', [])),
+                    'coverage': agent_result.get('scan_coverage_pct', 0),
+                })
+            except Exception as e:
+                if self.config.get('verbose'):
+                    print(f"{Colors.error(f'Agent scanner error: {e}')}")
 
         # ── Post-exploitation ────────────────────────────────────────
         # ── PIPELINE: Scan complete → Exploit phase (Partition 2) ──

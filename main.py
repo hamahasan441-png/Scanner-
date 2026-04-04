@@ -176,6 +176,14 @@ def main():
                        help='Enable network exploit scanning (maps open ports/services to known CVEs)')
     parser.add_argument('--tech-exploit', action='store_true',
                        help='Enable technology exploit scanning (maps detected technologies to known CVEs)')
+
+    # Shield & Origin detection
+    parser.add_argument('--shield-detect', action='store_true',
+                       help='Enable CDN/WAF shield detection (Cloudflare, Akamai, Fastly, CloudFront, Sucuri)')
+    parser.add_argument('--real-ip', action='store_true',
+                       help='Enable real IP / origin server discovery (behind CDN)')
+    parser.add_argument('--agent-scan', action='store_true',
+                       help='Enable autonomous agent scanner (goal-driven with pivot detection)')
     
     # Report options
     parser.add_argument('--report', 
@@ -519,6 +527,9 @@ def main():
         'discovery': args.discovery or args.full,
         'net_exploit': getattr(args, 'net_exploit', False) or args.full,
         'tech_exploit': getattr(args, 'tech_exploit', False) or args.full,
+        'shield_detect': getattr(args, 'shield_detect', False) or args.full,
+        'real_ip': getattr(args, 'real_ip', False) or args.full,
+        'agent_scan': getattr(args, 'agent_scan', False),
     }
     
     # If no specific modules selected, enable basic ones
