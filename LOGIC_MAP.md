@@ -703,6 +703,7 @@ Scanner-/
 │   ├── compliance.py          # Compliance mapping (OWASP/PCI-DSS/NIST/CIS/SANS)
 │   ├── audit_logger.py        # Tamper-proof audit trail
 │   ├── tool_integrator.py     # External tool integration (Nmap/Nuclei/Nikto/WhatWeb/Subfinder)
+│   ├── recon_arsenal.py       # Recon Arsenal — 15 best-in-class recon tools (Amass/httpx/Katana/dnsx/ffuf/gau/waybackurls/Gobuster/Feroxbuster/Masscan/RustScan/Hakrawler/Arjun/ParamSpider/Dirsearch)
 │   ├── plugin_system.py       # Plugin architecture (drop-in + hooks)
 │   └── notification.py        # Multi-channel alerting (webhook/Slack/Discord/Teams)
 │
@@ -808,6 +809,24 @@ Scanner-/
 - Unified `ToolIntegrator` facade with `run_tool()`, `run_recon_suite()`, `run_vuln_scan()`
 - CLI: `--nmap`, `--nuclei`, `--nikto`, `--whatweb`, `--subfinder`, `--tools-check`
 
+### Recon Arsenal (`core/recon_arsenal.py`)
+15 best-in-class GitHub security tools for comprehensive reconnaissance & discovery:
+
+| Category | Tools | Description |
+|----------|-------|-------------|
+| **Subdomain & DNS** | Amass, dnsx | OWASP subdomain enumeration, fast DNS toolkit |
+| **HTTP Probing** | httpx | Fast HTTP probing with tech detection |
+| **Web Crawling** | Katana, Hakrawler | Next-gen crawlers with JS rendering |
+| **URL Harvesting** | gau, waybackurls, ParamSpider | Historical URL collection from web archives |
+| **Parameter Discovery** | Arjun | Hidden HTTP parameter discovery |
+| **Content Discovery** | ffuf, Gobuster, Feroxbuster, Dirsearch | Directory/vhost/path brute-forcing |
+| **Port Scanning** | Masscan, RustScan | Ultra-fast port scanning (10M+ pps) |
+
+- `ReconArsenal` facade: `run_tool()`, `run_subdomain_enum()`, `run_url_harvest()`, `run_content_discovery()`, `run_http_probe()`, `run_port_scan()`, `run_full_recon()`
+- CLI flags: `--amass`, `--httpx`, `--katana`, `--dnsx`, `--ffuf`, `--gau`, `--waybackurls`, `--gobuster`, `--feroxbuster`, `--masscan`, `--rustscan`, `--hakrawler`, `--arjun`, `--paramspider`, `--dirsearch`, `--recon-arsenal`
+- Web API: `GET /api/recon/arsenal`, `POST /api/recon/arsenal/<tool>/run`, `POST /api/recon/arsenal/full`
+- Dashboard: "🎯 Recon Arsenal" tab with tool status, single-tool runner, full recon, and results display
+
 ### Plugin System (`core/plugin_system.py`)
 - Drop-in plugin discovery from `plugins/` directory
 - Programmatic registration via `register()`
@@ -825,12 +844,13 @@ Scanner-/
 - CLI: `--notify-webhook <url>`, `--notify-format slack|discord|teams`
 - Environment: `ATOMIC_WEBHOOK_URL`, `ATOMIC_WEBHOOK_FORMAT`
 
-### Web API Endpoints (28 new)
+### Web API Endpoints (31 total)
 - **Auth** (8): login, refresh, me, CRUD users, API key generation
 - **Scheduler** (8): CRUD schedules, toggle, history, start/stop
 - **Compliance** (2): analyze scan, list frameworks
 - **Audit** (2): query entries, statistics
 - **Tools** (2): list available, run tool
+- **Recon Arsenal** (3): list arsenal tools, run single tool, full recon
 - **Plugins** (3): list, discover, toggle
 - **Notifications** (3): list channels, test, history
 
@@ -840,6 +860,7 @@ Scanner-/
 
 | Date | Change | Files |
 |------|--------|-------|
+| 2026-04-04 | **Recon Arsenal Upgrade**: Added `core/recon_arsenal.py` with 15 best-in-class GitHub security tools — Amass (OWASP subdomain enum), httpx (HTTP probing), Katana (web crawler), dnsx (DNS toolkit), ffuf (web fuzzer), gau (URL harvesting), waybackurls (Wayback Machine), Gobuster (dir brute-force), Feroxbuster (recursive discovery), Masscan (fast port scan), RustScan (ultra-fast ports), Hakrawler (JS crawler), Arjun (param discovery), ParamSpider (param mining), Dirsearch (path scan). 20+ new CLI flags, 3 new API endpoints, web dashboard Recon Arsenal tab, 85 new tests. | `core/recon_arsenal.py`, `core/engine.py`, `main.py`, `web/app.py`, `web/templates/index.html`, `tests/test_recon_arsenal.py`, `LOGIC_MAP.md` |
 | 2026-04-04 | **v8.1 Production Upgrade**: Added 7 production components — Authentication & RBAC (JWT + PBKDF2), Scheduled Scanning (interval + cron), Compliance Mapping (OWASP/PCI-DSS/NIST/CIS/SANS), Audit Logger (tamper-proof), External Tool Integration (Nmap/Nuclei/Nikto/WhatWeb/Subfinder), Plugin System (drop-in + hooks), Notification System (webhook/Slack/Discord/Teams). 28 new web API endpoints. 15+ new CLI flags. 200 new tests. | `core/auth.py`, `core/scheduler.py`, `core/compliance.py`, `core/audit_logger.py`, `core/tool_integrator.py`, `core/plugin_system.py`, `core/notification.py`, `core/engine.py`, `main.py`, `web/app.py`, `LOGIC_MAP.md` |
 | 2026-04-04 | Added Phase 9B: Exploit Reference Searcher (7-source search: ExploitDB, Metasploit, Nuclei, GitHub PoC, PacketStorm, NVD, CISA KEV; ExploitConsolidator maturity scoring; CVSSAdjuster; PriorityReranker). Added Phase 11: Attack Map (NodeClassifier, EdgeBuilder, PathFinder, ImpactZoneMapper, AttackerSimulator with 3 profiles). CLI flags: --exploit-search, --attack-map. | `core/exploit_searcher.py`, `core/attack_map.py`, `core/engine.py`, `main.py`, `LOGIC_MAP.md` |
 | 2026-04-04 | Added Phase 10: Commit & Report (OutputPhase orchestrator, DB save_results/save_chains/ExploitChainModel, ReportGenerator enrichment: executive_summary, exploit_chains, waf_bypass_disclosure, origin_exposure_note, remediation_plan, agent_reasoning_log). ReportGenerator.generate() now returns filepath. | `core/output_phase.py`, `core/reporter.py`, `utils/database.py`, `core/engine.py`, `LOGIC_MAP.md` |
