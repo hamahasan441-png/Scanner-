@@ -312,6 +312,10 @@ def main():
                        help='Run Subfinder subdomain enumeration (requires subfinder installed)')
     parser.add_argument('--tools-check', action='store_true',
                        help='Check availability of all external security tools')
+    parser.add_argument('--tools-install', action='store_true',
+                       help='Download and install missing external security tools')
+    parser.add_argument('--tool', type=str, default='',
+                       help='Specific tool name for --tools-install (e.g. nmap, nuclei, httpx)')
 
     # Recon Arsenal — Advanced Discovery & Gathering Tools
     parser.add_argument('--amass', action='store_true',
@@ -389,24 +393,22 @@ def main():
 
     # Check external tools availability
     if args.tools_check:
-        from core.tool_integrator import ToolIntegrator
-        integrator = ToolIntegrator()
-        tools = integrator.get_available_tools()
-        print(f"\n{Colors.BOLD}External Security Tools:{Colors.RESET}")
-        for tool, available in tools.items():
-            status = f"{Colors.GREEN}✓ installed{Colors.RESET}" if available else f"{Colors.RED}✗ not found{Colors.RESET}"
-            print(f"  {tool:<12} {status}")
+        from utils.tool_downloader import print_tools_status
+        print_tools_status()
+        return
 
-        from core.recon_arsenal import ReconArsenal
-        arsenal = ReconArsenal()
-        categories = arsenal.get_tools_by_category()
-        print(f"\n{Colors.BOLD}Recon Arsenal Tools:{Colors.RESET}")
-        for category, cat_tools in categories.items():
-            print(f"  {Colors.CYAN}{category.replace('_', ' ').title()}:{Colors.RESET}")
-            for tool, available in cat_tools.items():
-                status = f"{Colors.GREEN}✓ installed{Colors.RESET}" if available else f"{Colors.RED}✗ not found{Colors.RESET}"
-                print(f"    {tool:<14} {status}")
-        print(f"\n{Colors.info('Install missing tools for enhanced reconnaissance capabilities')}")
+    # Install external security tools
+    if args.tools_install:
+        from utils.tool_downloader import install_tool, install_all_tools, TOOL_REGISTRY
+        if args.tool:
+            tool_name = args.tool.lower().strip()
+            if tool_name not in TOOL_REGISTRY:
+                print(f"{Colors.error(f'Unknown tool: {tool_name}')}")
+                print(f"{Colors.info('Available tools: ' + ', '.join(sorted(TOOL_REGISTRY.keys())))}")
+                sys.exit(1)
+            install_tool(tool_name)
+        else:
+            install_all_tools()
         return
 
     # External tool standalone runs
