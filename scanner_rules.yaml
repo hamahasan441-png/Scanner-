@@ -282,6 +282,8 @@ vuln_map:
       - external_redirect_acceptance
     secondary_proof:
       - policy_violating_external_redirect_proof
+    reject_if:
+      - same_domain_redirect_only
 
   cors:
     paths: ["*"]
@@ -290,6 +292,8 @@ vuln_map:
       - origin_reflection_with_risky_policy
     secondary_proof:
       - exploitable_credentialed_cross_origin_condition
+    reject_if:
+      - non_credentialed_wildcard_only
 
   graphql_authz:
     paths: ["/graphql"]
@@ -298,3 +302,5 @@ vuln_map:
       - unauthorized_field_or_object_access
     secondary_proof:
       - repeatable_authz_boundary_bypass
+    reject_if:
+      - introspection_only_exposure
