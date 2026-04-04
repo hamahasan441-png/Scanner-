@@ -999,7 +999,7 @@
             </div>
             <div class="form-group">
                 <label for="auth-password">Password</label>
-                <input type="text" id="auth-password" placeholder="password" style="-webkit-text-security:disc;">
+                <input type="password" id="auth-password" placeholder="password">
             </div>
             <button class="btn btn-primary btn-sm" onclick="window._authLogin()">Login</button>
             <div id="auth-status" style="margin-top:0.5rem;font-size:0.85rem;"></div>
@@ -1046,7 +1046,7 @@
         <div id="auth-create-form" style="display:none;margin-bottom:1rem;padding:0.8rem;background:var(--bg-input);border-radius:8px;">
             <div class="grid grid-3">
                 <div class="form-group"><label>Username</label><input type="text" id="auth-new-user"></div>
-                <div class="form-group"><label>Password</label><input type="text" id="auth-new-pass" style="-webkit-text-security:disc;"></div>
+                <div class="form-group"><label>Password</label><input type="password" id="auth-new-pass"></div>
                 <div class="form-group"><label>Role</label><select id="auth-new-role"><option value="viewer">Viewer</option><option value="analyst">Analyst</option><option value="admin">Admin</option></select></div>
             </div>
             <button class="btn btn-primary btn-sm" onclick="window._authCreateUser()">Create User</button>
