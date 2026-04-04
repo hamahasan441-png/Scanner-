@@ -410,8 +410,10 @@ class NodeClassifier:
         """Determine node type from vulnerability characteristics."""
         tech_lower = technique.lower().strip()
 
-        # Impact: high-severity RCE-capable vulnerabilities
-        if tech_lower in _IMPACT_TECHNIQUES and cvss >= 8.0:
+        # IMPACT: techniques that represent final objectives
+        # when they have very high CVSS (≥ 9.0) — these are the
+        # end goals of an attack path
+        if tech_lower in _IMPACT_TECHNIQUES and cvss >= 9.0:
             return IMPACT
 
         # Entry: remotely exploitable without prior access
