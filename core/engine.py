@@ -184,6 +184,38 @@ class AtomicEngine:
         self.ai = AIEngine(self)
         self.persistence = PersistenceEngine(self)
 
+        # --- Production components (audit, compliance, notifications, tools, plugins) ---
+        try:
+            from core.audit_logger import AuditLogger
+            self.audit = AuditLogger()
+        except Exception:
+            self.audit = None
+
+        try:
+            from core.compliance import ComplianceEngine
+            self.compliance = ComplianceEngine()
+        except Exception:
+            self.compliance = None
+
+        try:
+            from core.notification import NotificationManager
+            self.notifications = NotificationManager()
+        except Exception:
+            self.notifications = None
+
+        try:
+            from core.tool_integrator import ToolIntegrator
+            self.tools = ToolIntegrator()
+        except Exception:
+            self.tools = None
+
+        try:
+            from core.plugin_system import PluginManager
+            self.plugins = PluginManager()
+            self.plugins.load_all()
+        except Exception:
+            self.plugins = None
+
         # Initialize modules
         self._modules = {}
         self._load_modules()
@@ -285,6 +317,13 @@ class AtomicEngine:
         """
         self.target = target
         self.start_time = datetime.now(timezone.utc)
+
+        # ── Audit & Notifications: scan started ──────────────────────
+        if self.audit:
+            self.audit.log_scan('scan.started', target=target,
+                                details={'scan_id': self.scan_id})
+        if self.notifications:
+            self.notifications.notify_scan_started(self.scan_id, target)
 
         print(f"\n{Colors.BOLD}{'='*60}{Colors.RESET}")
         print(f"{Colors.CYAN}  Scanning: {target}{Colors.RESET}")
@@ -950,6 +989,37 @@ class AtomicEngine:
 
         # ── Print summary ────────────────────────────────────────────
         self._print_summary()
+
+        # ── Audit & Notifications: scan completed ────────────────────
+        if self.audit:
+            self.audit.log_scan('scan.completed', target=target,
+                                details={'scan_id': self.scan_id,
+                                         'findings': len(self.findings),
+                                         'duration': str(self.end_time - self.start_time) if self.start_time else ''})
+        if self.notifications:
+            self.notifications.notify_scan_completed(
+                self.scan_id, target, len(self.findings))
+            # Notify for each critical finding
+            for f in self.findings:
+                if getattr(f, 'severity', '') == 'CRITICAL':
+                    self.notifications.notify_critical_finding(
+                        f.technique, target, scan_id=self.scan_id)
+
+        # ── Compliance mapping (auto-run if findings exist) ──────────
+        self._compliance_report = None
+        if self.compliance and self.findings:
+            try:
+                self._compliance_report = self.compliance.analyze(
+                    self.findings, scan_id=self.scan_id, target=target)
+            except Exception:
+                pass
+
+        # ── Plugin hooks: post_scan ──────────────────────────────────
+        if self.plugins:
+            try:
+                self.plugins.fire_hook('post_scan', engine=self, findings=self.findings)
+            except Exception:
+                pass
 
     def _enrich_finding_signals(self):
         """Run multi-signal analysis on existing findings to refine confidence."""
