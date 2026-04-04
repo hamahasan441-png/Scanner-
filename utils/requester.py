@@ -6,6 +6,7 @@ Advanced HTTP request handler with evasion
 """
 
 import random
+import re
 import time
 import warnings
 from urllib.parse import urlencode, quote, unquote, urlparse, parse_qs, urlunparse
@@ -24,12 +25,11 @@ from config import Config, Payloads, Colors
 
 warnings.filterwarnings('ignore')
 
-import re as _re
-_PATH_PARAM_RE = _re.compile(r'^path\[(\d+)\]$')
-
 
 class Requester:
     """Advanced HTTP Request Handler"""
+
+    _PATH_PARAM_RE = re.compile(r'^path\[(\d+)\]$')
     
     def __init__(self, config: dict):
         self.config = config
@@ -203,7 +203,7 @@ class Requester:
         parsed = urlparse(url)
         segments = parsed.path.split('/')
         for key, value in path_params.items():
-            m = _PATH_PARAM_RE.match(key)
+            m = Requester._PATH_PARAM_RE.match(key)
             if m:
                 idx = int(m.group(1))
                 # segments[0] is '' (before leading '/'), so actual segments
@@ -255,7 +255,7 @@ class Requester:
         # instead of adding as query parameters.
         # Keys like 'path[0]' mean "replace path segment 0 with the value".
         if data and isinstance(data, dict):
-            path_params = {k: v for k, v in data.items() if _PATH_PARAM_RE.match(k)}
+            path_params = {k: v for k, v in data.items() if self._PATH_PARAM_RE.match(k)}
             if path_params:
                 url = self._inject_path_params(url, path_params)
                 data = {k: v for k, v in data.items() if k not in path_params}
