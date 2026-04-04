@@ -29,6 +29,7 @@ CONTEXT_RULES = {
             r'(?i)(id|user_?id|item_?id|product_?id|cat_?id|order_?id|page|num|count)',
             r'(?i)(sort|order|group|column|table|field|key)',
             r'(?i)(search|query|q|keyword|filter|where)',
+            r'path\[\d+\]',  # Numeric path segments (REST IDs)
         ],
         'value_patterns': [r'^\d+$', r'^\w+$'],
         'endpoint_patterns': [
@@ -98,6 +99,7 @@ CONTEXT_RULES = {
         'param_patterns': [
             r'(?i)(id|user_?id|account_?id|profile_?id|order_?id|doc_?id)',
             r'(?i)(uid|pid|oid|ref|number|no|num)',
+            r'path\[\d+\]',  # Numeric path segments (REST IDs)
         ],
         'value_patterns': [r'^\d+$', r'^[0-9a-f\-]+$'],
         'endpoint_patterns': [
@@ -209,7 +211,7 @@ class ContextIntelligence:
             return True
 
         # No parameter name AND no value → nothing to test
-        if not param_name and not value and source not in ('form', 'api'):
+        if not param_name and not value and source not in ('form', 'api', 'api_extracted', 'path_param'):
             return True
 
         return False

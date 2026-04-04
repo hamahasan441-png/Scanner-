@@ -19,7 +19,7 @@ import re
 import time
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Set
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 
 from config import Colors
 
@@ -278,10 +278,27 @@ class ScanWorkerPool:
         self._check_crypto_transport(item, baseline)
 
     def _run_module(self, module, item, baseline: Dict):
-        """Run a parameter-testing module against a scan item."""
+        """Run a parameter-testing module against a scan item.
+
+        If the scan item has an explicit ``param``, test that parameter.
+        Otherwise, fall back to extracting query-string parameters from
+        the URL itself so that endpoints like ``/page.php?id=1`` are
+        still tested even when no enriched param entry was created.
+        """
+        if not hasattr(module, 'test'):
+            return
+
         try:
-            if hasattr(module, 'test') and item.param:
+            if item.param:
                 module.test(item.url, item.method, item.param, item.value)
+            else:
+                # Fallback: extract parameters from the URL query string
+                parsed = urlparse(item.url)
+                if parsed.query:
+                    qs = parse_qs(parsed.query, keep_blank_values=True)
+                    for p_name, p_vals in qs.items():
+                        p_val = p_vals[0] if p_vals else ''
+                        module.test(item.url, item.method, p_name, p_val)
         except Exception as e:
             if self.verbose:
                 name = getattr(module, 'name', 'unknown')

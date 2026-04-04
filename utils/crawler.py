@@ -6,7 +6,7 @@ Advanced Web Crawler Module
 """
 
 import re
-from urllib.parse import urljoin, urlparse, parse_qs
+from urllib.parse import urljoin, urlparse, parse_qs, urlencode, urlunparse
 
 
 from config import Colors
@@ -131,13 +131,37 @@ class Crawler:
                 self.parameters.append((form_url, method, inp['name'], inp.get('value', ''), 'form'))
     
     def _extract_parameters(self, url: str):
-        """Extract URL parameters"""
+        """Extract URL parameters.
+
+        Stores the full URL (including query string) for each parameter.
+        The requester handles stripping the tested parameter before sending
+        to avoid duplicate query-string keys.
+        """
         parsed = urlparse(url)
         if parsed.query:
-            params = parse_qs(parsed.query)
+            params = parse_qs(parsed.query, keep_blank_values=True)
             for name, values in params.items():
                 for value in values:
                     self.parameters.append((url, 'get', name, value, 'url_param'))
+
+        # Extract path parameters (numeric/UUID segments that are likely IDs)
+        self._extract_path_params(url)
+
+    # Patterns that identify path segments likely to be injectable IDs
+    _PATH_ID_RE = re.compile(r'^\d+$')
+    _PATH_UUID_RE = re.compile(r'^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$', re.I)
+
+    def _extract_path_params(self, url: str):
+        """Extract numeric/UUID path segments as testable parameters.
+
+        Example: /users/42/profile → param 'path[1]' with value '42'
+        These represent REST-style path parameters that may be injectable.
+        """
+        parsed = urlparse(url)
+        segments = [s for s in parsed.path.split('/') if s]
+        for idx, seg in enumerate(segments):
+            if self._PATH_ID_RE.match(seg) or self._PATH_UUID_RE.match(seg):
+                self.parameters.append((url, 'get', f'path[{idx}]', seg, 'path_param'))
     
     def _extract_resources(self, soup, url: str):
         """Extract referenced resources: scripts, stylesheets, images, iframes, media"""
@@ -187,7 +211,16 @@ class Crawler:
                     for match in matches:
                         endpoint = match[-1] if isinstance(match, tuple) else match
                         api_url = urljoin(url, endpoint)
-                        self.parameters.append((api_url, 'get', '', '', 'api'))
+                        # Extract query params from API URLs so they are
+                        # individually testable (e.g., /api/items?id=1).
+                        api_parsed = urlparse(api_url)
+                        if api_parsed.query:
+                            api_params = parse_qs(api_parsed.query, keep_blank_values=True)
+                            for p_name, p_vals in api_params.items():
+                                for p_val in p_vals:
+                                    self.parameters.append((api_url, 'get', p_name, p_val, 'api_extracted'))
+                        else:
+                            self.parameters.append((api_url, 'get', '', '', 'api'))
                 
                 # Extract JSON keys as potential hidden parameters
                 json_patterns = [
