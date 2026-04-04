@@ -561,7 +561,8 @@ class TestAttackMapBuilder(unittest.TestCase):
         engine = _make_engine()
         builder = AttackMapBuilder(engine)
         findings = [
-            _make_enriched_finding(technique='SQL Injection', url='http://a.com/1'),
+            _make_enriched_finding(technique='SQL Injection', url='http://a.com/1',
+                                   cvss=7.5, adjusted_cvss=7.5),
             _make_enriched_finding(
                 technique='RCE', url='http://a.com/2',
                 cvss=9.8, adjusted_cvss=9.8, severity='CRITICAL',

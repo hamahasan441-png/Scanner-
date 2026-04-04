@@ -110,17 +110,21 @@ The engine follows a **multi-phase core flow** defined in `core/engine.py`:
 ```
 §0 Init & Normalize  →  §1 Scope & Policy  →  PHASE 1: Shield Detection
         ↓                      ↓                        ↓
-PHASE 2: Real IP    →  §2 Discovery & Graph  →  §3 Extract & Classify
-        ↓                      ↓                        ↓
-§4 Context Intel    →  PHASE 6: Intelligence Enrichment  →  PHASE 7: Attack Surface Prioritization
-        ↓                      ↓                                    ↓
+PHASE 2: Real IP    →  PHASE 5: Passive Recon & Discovery (fan-out)
+        ↓                      ↓
+§3 Extract & Classify  →  §4 Context Intelligence
+        ↓                      ↓
+PHASE 6: Intelligence Enrichment  →  PHASE 7: Attack Surface Prioritization
+        ↓                                    ↓
 §6 Baseline         →  PHASE 8: Scan Worker Pool  →  §8 Multi-Signal Analyze
         ↓                      ↓                        ↓
 §9 Adaptive Verify  →  PHASE 9: Post-Worker Verification (Chain Detection)
-        ↓                      ↓                        ↓
-PHASE 4: Agent Scan →       Learn               →      Adapt
+        ↓                      ↓
+PHASE 9B: Exploit Reference Searcher  →  PHASE 4: Agent Scan
+        ↓                                       ↓
+PHASE 10: Commit & Report (OutputPhase)  →  Learn  →  Adapt
         ↓
-PHASE 10: Commit & Report (OutputPhase)
+PHASE 11: Exploit-Aware Attack Map
 ```
 
 ### New Phases (5-11)

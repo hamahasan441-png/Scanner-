@@ -72,6 +72,15 @@ class Finding:
     signals: dict = field(default_factory=dict)
     priority: float = 0.0
     remediation: str = ''
+    # Phase 9B exploit enrichment attributes (populated by ExploitSearcher)
+    adjusted_cvss: float = 0.0
+    adjusted_severity: str = ''
+    exploit_availability: str = 'THEORETICAL'
+    actively_exploited: bool = False
+    metasploit_ready: bool = False
+    nuclei_ready: bool = False
+    exploit_record: object = None
+    _exploit_finding_id: str = ''
 
     def __post_init__(self):
         # Auto-populate MITRE/CWE from technique name
@@ -89,6 +98,11 @@ class Finding:
                 if key in technique_lower:
                     self.remediation = suggestion
                     break
+        # Initialize exploit enrichment defaults from base values
+        if not self.adjusted_cvss:
+            self.adjusted_cvss = self.cvss
+        if not self.adjusted_severity:
+            self.adjusted_severity = self.severity
 
 
 class AtomicEngine:
@@ -892,6 +906,16 @@ class AtomicEngine:
         # ── PHASE 11: ATTACK MAP (exploit-aware) ─────────────────────
         attack_map_result = None
         if modules_config.get('attack_map', False) and self.findings:
+            # Phase 11 benefits from Phase 9B exploit enrichment;
+            # auto-enable Phase 9B at runtime if it was skipped.
+            if not modules_config.get('exploit_search', False):
+                try:
+                    from core.exploit_searcher import ExploitSearcher
+                    exploit_searcher = ExploitSearcher(self)
+                    self.findings = exploit_searcher.run(self.findings)
+                except Exception as e:
+                    if self.config.get('verbose'):
+                        print(f"{Colors.warning(f'Phase 9B auto-enable for attack map failed: {e}')}")
             try:
                 from core.attack_map import AttackMapBuilder
                 map_builder = AttackMapBuilder(self)

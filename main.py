@@ -546,6 +546,11 @@ def main():
         'exploit_search': getattr(args, 'exploit_search', False) or args.full,
         'attack_map': getattr(args, 'attack_map', False) or args.full,
     }
+
+    # Phase 11 (attack_map) requires Phase 9B (exploit_search) for
+    # accurate exploit-aware analysis; auto-enable if missing.
+    if modules.get('attack_map') and not modules.get('exploit_search'):
+        modules['exploit_search'] = True
     
     # If no specific modules selected, enable basic ones
     if not any(modules.values()):
