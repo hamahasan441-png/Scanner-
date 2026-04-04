@@ -69,6 +69,8 @@ _SAFE_SCAN_ID = re.compile(r'^[a-zA-Z0-9_-]+$')
 # The _require_api_key decorator is kept as a transparent pass-through for
 # backward compatibility (any code that still references it will keep working).
 
+_API_KEY = os.environ.get('ATOMIC_API_KEY', '')
+
 def _require_api_key(f):
     """No-op decorator kept for backward compatibility (key requirement removed)."""
     return f
