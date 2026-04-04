@@ -99,7 +99,8 @@ class Finding:
                     self.remediation = suggestion
                     break
         # Initialize exploit enrichment defaults from base values
-        if not self.adjusted_cvss:
+        # (only when not already set by Phase 9B enrichment)
+        if self.adjusted_cvss == 0.0 and self.cvss != 0.0:
             self.adjusted_cvss = self.cvss
         if not self.adjusted_severity:
             self.adjusted_severity = self.severity
@@ -906,8 +907,8 @@ class AtomicEngine:
         # ── PHASE 11: ATTACK MAP (exploit-aware) ─────────────────────
         attack_map_result = None
         if modules_config.get('attack_map', False) and self.findings:
-            # Phase 11 benefits from Phase 9B exploit enrichment;
-            # auto-enable Phase 9B at runtime if it was skipped.
+            # Defense-in-depth: main.py enforces this dependency for CLI,
+            # but engine can also be invoked programmatically (web API).
             if not modules_config.get('exploit_search', False):
                 try:
                     from core.exploit_searcher import ExploitSearcher

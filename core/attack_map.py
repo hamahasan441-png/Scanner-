@@ -492,17 +492,8 @@ class EdgeBuilder:
         """Check if a direct chain rule exists."""
         rules = CHAIN_RULES.get(src_class, {})
         for target, etype in rules.items():
-            # Exact match or whole-word containment (avoid partial matches
-            # like "rce" matching "source")
-            if target == dst_class or dst_class == target:
-                return etype
-            # Allow matching when the target is a multi-word phrase that
-            # contains the dst_class as a distinct word, or vice versa
-            dst_words = set(dst_class.split())
-            target_words = set(target.split())
-            if target_words and target_words.issubset(dst_words):
-                return etype
-            if dst_words and dst_words.issubset(target_words):
+            # Exact match (handles single and multi-word technique names)
+            if target == dst_class:
                 return etype
         return None
 
