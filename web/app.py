@@ -1873,6 +1873,76 @@ def run_external_tool(tool_name):
 
 
 # ---------------------------------------------------------------------------
+# Recon Arsenal API — Advanced Discovery & Gathering Tools
+# ---------------------------------------------------------------------------
+
+@app.route('/api/recon/arsenal', methods=['GET'])
+@_require_api_key
+@_rate_limit
+def list_recon_arsenal():
+    """List all recon arsenal tools, their categories, and availability."""
+    try:
+        from core.recon_arsenal import ReconArsenal
+        arsenal = ReconArsenal()
+        return jsonify({
+            'status': 'success',
+            'data': {
+                'tools': arsenal.get_all_tool_info(),
+                'categories': arsenal.get_tools_by_category(),
+                'available': arsenal.get_available_tools(),
+            },
+        })
+    except Exception:
+        return jsonify({'status': 'error', 'data': 'Recon arsenal unavailable'}), 500
+
+
+@app.route('/api/recon/arsenal/<tool_name>/run', methods=['POST'])
+@_require_api_key
+@_rate_limit
+def run_recon_tool(tool_name):
+    """Run a specific recon arsenal tool against a target."""
+    body = request.get_json(silent=True)
+    if not body or not body.get('target'):
+        return jsonify({'status': 'error', 'data': 'Missing target'}), 400
+    try:
+        from core.recon_arsenal import ReconArsenal
+        arsenal = ReconArsenal()
+        available = arsenal.get_available_tools()
+        if tool_name not in available:
+            return jsonify({'status': 'error', 'data': f'Unknown recon tool: {tool_name}'}), 404
+        if not available[tool_name]:
+            return jsonify({'status': 'error', 'data': f'Tool {tool_name} is not installed'}), 503
+        params = {k: v for k, v in body.items() if k != 'target'}
+        result = arsenal.run_tool(tool_name, body['target'], **params)
+        return jsonify({'status': 'success', 'data': result.to_dict()})
+    except Exception:
+        return jsonify({'status': 'error', 'data': 'Recon tool execution failed'}), 500
+
+
+@app.route('/api/recon/arsenal/full', methods=['POST'])
+@_require_api_key
+@_rate_limit
+def run_full_recon():
+    """Run full recon arsenal with all available tools."""
+    body = request.get_json(silent=True)
+    if not body or not body.get('target'):
+        return jsonify({'status': 'error', 'data': 'Missing target'}), 400
+    try:
+        from core.recon_arsenal import ReconArsenal
+        arsenal = ReconArsenal()
+        domain = body.get('domain', '')
+        results = arsenal.run_full_recon(body['target'], domain=domain)
+        return jsonify({
+            'status': 'success',
+            'data': {
+                name: res.to_dict() for name, res in results.items()
+            },
+        })
+    except Exception:
+        return jsonify({'status': 'error', 'data': 'Full recon failed'}), 500
+
+
+# ---------------------------------------------------------------------------
 # Plugin Management API
 # ---------------------------------------------------------------------------
 

@@ -210,6 +210,12 @@ class AtomicEngine:
             self.tools = None
 
         try:
+            from core.recon_arsenal import ReconArsenal
+            self.recon_arsenal = ReconArsenal()
+        except Exception:
+            self.recon_arsenal = None
+
+        try:
             from core.plugin_system import PluginManager
             self.plugins = PluginManager()
             self.plugins.load_all()
