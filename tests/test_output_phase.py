@@ -236,6 +236,39 @@ class TestOutputPhaseRun(unittest.TestCase):
             result = op.run(verified_findings=[])
             self.assertEqual(result['findings_committed'], 0)
 
+    def test_run_db_save_results_error(self):
+        """OutputPhase should not crash when DB save_results raises."""
+        from core.output_phase import OutputPhase
+        with tempfile.TemporaryDirectory() as td:
+            engine = _mock_engine(tmpdir=td)
+            engine.config['verbose'] = True
+            engine.db.save_results.side_effect = Exception('DB write error')
+            op = OutputPhase(engine)
+            # Should not raise
+            result = op.run(verified_findings=_sample_findings())
+            self.assertIn('findings_committed', result)
+
+    def test_run_db_save_chains_error(self):
+        """OutputPhase should not crash when DB save_chains raises."""
+        from core.output_phase import OutputPhase
+        with tempfile.TemporaryDirectory() as td:
+            engine = _mock_engine(tmpdir=td)
+            engine.config['verbose'] = True
+            engine.db.save_chains.side_effect = Exception('DB chain error')
+            op = OutputPhase(engine)
+            result = op.run(verified_findings=[], exploit_chains=_sample_chains())
+            self.assertIn('chains_committed', result)
+
+    def test_run_db_update_scan_error(self):
+        """OutputPhase should not crash when DB update_scan raises."""
+        from core.output_phase import OutputPhase
+        with tempfile.TemporaryDirectory() as td:
+            engine = _mock_engine(tmpdir=td)
+            engine.db.update_scan.side_effect = Exception('DB update error')
+            op = OutputPhase(engine)
+            result = op.run(verified_findings=[])
+            self.assertIn('findings_committed', result)
+
     def test_run_generates_reports(self):
         from core.output_phase import OutputPhase
         with tempfile.TemporaryDirectory() as td:

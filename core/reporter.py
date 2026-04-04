@@ -695,9 +695,9 @@ class ReportGenerator:
             pdf.set_font('Helvetica', 'B', 13)
             pdf.cell(0, 10, 'Exploit Chains', **NL)
             pdf.set_font('Helvetica', '', 10)
-            for ch in chains_data:
-                steps = ' -> '.join(ch.get('steps', []))
-                pdf.cell(0, 7, self._pdf_safe(f"[{ch.get('id','')}] {ch.get('name','')} (CVSS {ch.get('combined_cvss',0)})"), **NL)
+            for chain in chains_data:
+                steps = ' -> '.join(chain.get('steps', []))
+                pdf.cell(0, 7, self._pdf_safe(f"[{chain.get('id','')}] {chain.get('name','')} (CVSS {chain.get('combined_cvss',0)})"), **NL)
                 pdf.cell(0, 6, f"  Steps: {steps}", **NL)
                 pdf.ln(2)
 
