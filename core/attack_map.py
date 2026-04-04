@@ -411,9 +411,9 @@ class NodeClassifier:
         tech_lower = technique.lower().strip()
 
         # IMPACT: techniques that represent final objectives
-        # when they have very high CVSS (≥ 9.0) — these are the
+        # when they have high CVSS (≥ 8.0) — these are the
         # end goals of an attack path
-        if tech_lower in _IMPACT_TECHNIQUES and cvss >= 9.0:
+        if tech_lower in _IMPACT_TECHNIQUES and cvss >= 8.0:
             return IMPACT
 
         # Entry: remotely exploitable without prior access
@@ -492,7 +492,8 @@ class EdgeBuilder:
         """Check if a direct chain rule exists."""
         rules = CHAIN_RULES.get(src_class, {})
         for target, etype in rules.items():
-            if target in dst_class or dst_class in target:
+            # Exact match (handles single and multi-word technique names)
+            if target == dst_class:
                 return etype
         return None
 
@@ -567,18 +568,25 @@ class PathFinder:
             self._dfs(entry.id, [], visited, impact_ids, paths, max_depth, path_counter)
             path_counter = len(paths)
 
+        # Track existing node sequences to avoid duplicates
+        seen_sequences = {tuple(p.nodes) for p in paths}
+
         # Also find short 2-step paths (ENTRY → any high-value)
         for entry in entry_nodes:
             for target_id, edge in self.adjacency.get(entry.id, []):
                 target = self.nodes.get(target_id)
                 if target and target.type in (IMPACT, ESCALATION) and target_id not in impact_ids:
+                    seq = (entry.id, target_id)
+                    if seq in seen_sequences:
+                        continue
                     path_counter += 1
                     path = self._build_path(
                         f"PATH-{path_counter:03d}",
                         [entry.id, target_id],
                     )
-                    if path and path.id not in {p.id for p in paths}:
+                    if path:
                         paths.append(path)
+                        seen_sequences.add(seq)
 
         # Sort by path_score DESC
         paths.sort(key=lambda p: p.path_score, reverse=True)
@@ -627,7 +635,7 @@ class PathFinder:
                     confidences.append(edge.confidence)
                     break
 
-        chain_conf = min(confidences) if confidences else 0.5
+        chain_conf = min(confidences) if confidences else 0.0
         length_factor = 1.0 / len(node_ids)
 
         # Exploit maturity bonus
