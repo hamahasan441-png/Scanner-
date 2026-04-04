@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ATOMIC FRAMEWORK v8.0 - ULTIMATE EDITION
+ATOMIC FRAMEWORK v8.2 - ULTIMATE EDITION
 Configuration Module - Termux Optimized
 """
 
@@ -12,7 +12,7 @@ class Config:
     """Main Configuration"""
     
     # Version Info
-    VERSION = "8.0-ULTIMATE"
+    VERSION = "8.2-ULTIMATE"
     CODENAME = "PHOENIX"
     AUTHOR = "Atomic Security"
     

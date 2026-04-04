@@ -334,6 +334,7 @@
         <button class="nav-tab" onclick="switchPanel('tools')">🛠️ Tools</button>
         <button class="nav-tab" onclick="switchPanel('plugins')">🔌 Plugins</button>
         <button class="nav-tab" onclick="switchPanel('notifications')">🔔 Notifications</button>
+        <button class="nav-tab" onclick="switchPanel('recon-arsenal')">🎯 Recon Arsenal</button>
     </nav>
 
     <!-- Dashboard Panel -->
@@ -1312,6 +1313,79 @@
 </section>
 </div>
 
+<div id="panel-recon-arsenal" class="nav-panel">
+<section>
+    <h2>🎯 Recon Arsenal — Advanced Discovery & Gathering</h2>
+    <p style="color:var(--text-muted);font-size:0.85rem;margin-bottom:1rem;">
+        15 best-in-class GitHub security tools for comprehensive reconnaissance: subdomain enum, HTTP probing, crawling, URL harvesting, content discovery, parameter mining, port scanning.
+    </p>
+
+    <!-- Tool Status -->
+    <div class="glass-card" style="margin-bottom:1rem;">
+        <h3>🔧 Tool Availability</h3>
+        <button class="btn btn-primary btn-sm" onclick="window._arsenalLoadTools()" style="margin-bottom:0.8rem;">🔄 Check Tools</button>
+        <div id="arsenal-tools-grid" class="grid grid-3" style="gap:0.5rem;">
+            <p class="empty-msg">Click Check Tools to scan installed recon tools</p>
+        </div>
+    </div>
+
+    <!-- Quick Recon -->
+    <div class="glass-card" style="margin-bottom:1rem;">
+        <h3>🚀 Run Recon Tool</h3>
+        <div class="grid grid-3" style="margin-top:0.5rem;">
+            <div class="form-group"><label>Target</label><input type="text" id="arsenal-target" placeholder="https://example.com or example.com"></div>
+            <div class="form-group"><label>Tool</label>
+                <select id="arsenal-tool-select">
+                    <option value="">-- Select Tool --</option>
+                    <optgroup label="Subdomain & DNS">
+                        <option value="amass">Amass (Subdomain Enum)</option>
+                        <option value="dnsx">dnsx (DNS Toolkit)</option>
+                    </optgroup>
+                    <optgroup label="HTTP Probing">
+                        <option value="httpx">httpx (HTTP Probe)</option>
+                    </optgroup>
+                    <optgroup label="Web Crawling">
+                        <option value="katana">Katana (Crawler)</option>
+                        <option value="hakrawler">Hakrawler (Crawler)</option>
+                    </optgroup>
+                    <optgroup label="URL Harvesting">
+                        <option value="gau">gau (All URLs)</option>
+                        <option value="waybackurls">waybackurls (Wayback)</option>
+                        <option value="paramspider">ParamSpider (Params)</option>
+                    </optgroup>
+                    <optgroup label="Parameter Discovery">
+                        <option value="arjun">Arjun (Param Finder)</option>
+                    </optgroup>
+                    <optgroup label="Directory/Content Discovery">
+                        <option value="ffuf">ffuf (Fuzzer)</option>
+                        <option value="gobuster">Gobuster (Brute-force)</option>
+                        <option value="feroxbuster">Feroxbuster (Recursive)</option>
+                        <option value="dirsearch">Dirsearch (Path Scan)</option>
+                    </optgroup>
+                    <optgroup label="Port Scanning">
+                        <option value="masscan">Masscan (Fast Ports)</option>
+                        <option value="rustscan">RustScan (Ultra-fast)</option>
+                    </optgroup>
+                </select>
+            </div>
+            <div style="display:flex;align-items:flex-end;gap:0.5rem;padding-bottom:0.8rem;">
+                <button class="btn btn-primary btn-sm" onclick="window._arsenalRunTool()">▶ Run</button>
+                <button class="btn btn-sm" style="background:var(--accent-secondary);" onclick="window._arsenalRunFull()">🎯 Full Recon</button>
+            </div>
+        </div>
+        <div id="arsenal-run-status" style="font-size:0.85rem;margin-top:0.5rem;"></div>
+    </div>
+
+    <!-- Results -->
+    <div class="glass-card">
+        <h3>📊 Results</h3>
+        <div id="arsenal-results" style="max-height:500px;overflow-y:auto;">
+            <p class="empty-msg">Run a tool to see results here</p>
+        </div>
+    </div>
+</section>
+</div>
+
 </div>
     <p class="disclaimer">⚠️ FOR AUTHORIZED TESTING ONLY ⚠️</p>
     <p style="margin-top:0.3rem;">ATOMIC Framework v{{ version }} &copy; Atomic Security. Unauthorized use is prohibited.</p>
@@ -1361,6 +1435,7 @@
         if (name === 'notifications') { window._notifLoadChannels(); window._notifLoadHistory(); }
         if (name === 'exploit-intel') window._loadExploitIntel();
         if (name === 'attackmap') window._loadAttackMap();
+        if (name === 'recon-arsenal') window._arsenalLoadTools();
     };
 
     /* ---- Scan mode switcher ---- */
@@ -3063,6 +3138,99 @@
         };
         document.head.appendChild(script);
     })();
+
+    /* ---- Recon Arsenal Panel ---- */
+    window._arsenalLoadTools = async function() {
+        const grid = document.getElementById('arsenal-tools-grid');
+        grid.innerHTML = '<p>Loading...</p>';
+        try {
+            const r = await fetch(API + '/api/recon/arsenal');
+            const j = await r.json();
+            if (j.status === 'success') {
+                const tools = j.data.tools || [];
+                grid.innerHTML = tools.map(function(t) {
+                    const st = t.available
+                        ? '<span style="color:var(--accent-primary);">✓ installed</span>'
+                        : '<span style="color:var(--text-muted);">✗ not found</span>';
+                    return '<div class="glass-card" style="padding:0.6rem;font-size:0.82rem;">'
+                        + '<strong>' + esc(t.name) + '</strong> ' + st
+                        + '<br><span style="color:var(--text-muted);">' + esc(t.description) + '</span>'
+                        + '<br><span style="color:var(--accent-secondary);font-size:0.75rem;">' + esc(t.category) + '</span>'
+                        + '</div>';
+                }).join('');
+            } else {
+                grid.innerHTML = '<p class="empty-msg">Failed to load tools</p>';
+            }
+        } catch(e) {
+            grid.innerHTML = '<p class="empty-msg">Error: ' + esc(e.message) + '</p>';
+        }
+    };
+
+    window._arsenalRunTool = async function() {
+        const target = document.getElementById('arsenal-target').value.trim();
+        const tool = document.getElementById('arsenal-tool-select').value;
+        const status = document.getElementById('arsenal-run-status');
+        const results = document.getElementById('arsenal-results');
+        if (!target || !tool) { status.innerHTML = '<span style="color:var(--danger);">Select a target and tool</span>'; return; }
+        status.innerHTML = '<span style="color:var(--accent-primary);">⏳ Running ' + esc(tool) + '...</span>';
+        results.innerHTML = '<p>Running...</p>';
+        try {
+            const r = await fetch(API + '/api/recon/arsenal/' + tool + '/run', {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({target: target})
+            });
+            const j = await r.json();
+            if (j.status === 'success') {
+                const d = j.data;
+                status.innerHTML = '<span style="color:var(--accent-primary);">✓ ' + esc(tool) + ' complete: '
+                    + d.findings_count + ' findings in ' + d.duration_seconds + 's</span>';
+                results.innerHTML = '<pre style="font-size:0.8rem;max-height:400px;overflow:auto;background:rgba(0,0,0,0.3);padding:0.8rem;border-radius:6px;">'
+                    + esc(JSON.stringify(d, null, 2)) + '</pre>';
+            } else {
+                status.innerHTML = '<span style="color:var(--danger);">Error: ' + esc(j.data) + '</span>';
+            }
+        } catch(e) {
+            status.innerHTML = '<span style="color:var(--danger);">Error: ' + esc(e.message) + '</span>';
+        }
+    };
+
+    window._arsenalRunFull = async function() {
+        const target = document.getElementById('arsenal-target').value.trim();
+        const status = document.getElementById('arsenal-run-status');
+        const results = document.getElementById('arsenal-results');
+        if (!target) { status.innerHTML = '<span style="color:var(--danger);">Enter a target</span>'; return; }
+        status.innerHTML = '<span style="color:var(--accent-primary);">⏳ Running Full Recon Arsenal...</span>';
+        results.innerHTML = '<p>Running all available tools...</p>';
+        try {
+            var domain = target;
+            try { domain = new URL(target).hostname; } catch(e) {}
+            const r = await fetch(API + '/api/recon/arsenal/full', {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({target: target, domain: domain})
+            });
+            const j = await r.json();
+            if (j.status === 'success') {
+                const tools = Object.keys(j.data);
+                var total = 0;
+                var html = '';
+                tools.forEach(function(name) {
+                    var d = j.data[name];
+                    total += d.findings_count || 0;
+                    html += '<div class="glass-card" style="margin-bottom:0.5rem;padding:0.6rem;">'
+                        + '<h4 style="margin:0;">' + esc(name.toUpperCase()) + ' — ' + (d.findings_count||0) + ' findings</h4>'
+                        + '<pre style="font-size:0.75rem;max-height:200px;overflow:auto;margin-top:0.3rem;">'
+                        + esc(JSON.stringify(d.findings, null, 2)) + '</pre></div>';
+                });
+                status.innerHTML = '<span style="color:var(--accent-primary);">✓ Full Recon complete: '
+                    + total + ' total findings from ' + tools.length + ' tools</span>';
+                results.innerHTML = html || '<p class="empty-msg">No results</p>';
+            } else {
+                status.innerHTML = '<span style="color:var(--danger);">Error: ' + esc(j.data) + '</span>';
+            }
+        } catch(e) {
+            status.innerHTML = '<span style="color:var(--danger);">Error: ' + esc(e.message) + '</span>';
+        }
+    };
 
     /* ---- Init ---- */
     window._knownActive = {};

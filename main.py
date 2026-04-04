@@ -313,6 +313,52 @@ def main():
     parser.add_argument('--tools-check', action='store_true',
                        help='Check availability of all external security tools')
 
+    # Recon Arsenal — Advanced Discovery & Gathering Tools
+    parser.add_argument('--amass', action='store_true',
+                       help='Run OWASP Amass subdomain enumeration (requires amass)')
+    parser.add_argument('--amass-mode', choices=['passive', 'active'], default='passive',
+                       help='Amass enumeration mode (default: passive)')
+    parser.add_argument('--httpx', action='store_true',
+                       help='Run httpx HTTP probing & tech detection (requires httpx)')
+    parser.add_argument('--katana', action='store_true',
+                       help='Run Katana web crawler (requires katana)')
+    parser.add_argument('--katana-depth', type=int, default=3,
+                       help='Katana crawl depth (default: 3)')
+    parser.add_argument('--dnsx', action='store_true',
+                       help='Run dnsx DNS toolkit (requires dnsx)')
+    parser.add_argument('--ffuf', action='store_true',
+                       help='Run ffuf web fuzzer (requires ffuf)')
+    parser.add_argument('--ffuf-wordlist',
+                       help='Wordlist for ffuf fuzzing')
+    parser.add_argument('--gau', action='store_true',
+                       help='Run gau URL harvesting from web archives (requires gau)')
+    parser.add_argument('--waybackurls', action='store_true',
+                       help='Run waybackurls Wayback Machine URL fetcher (requires waybackurls)')
+    parser.add_argument('--gobuster', action='store_true',
+                       help='Run Gobuster directory/DNS brute-force (requires gobuster)')
+    parser.add_argument('--gobuster-wordlist',
+                       help='Wordlist for Gobuster')
+    parser.add_argument('--feroxbuster', action='store_true',
+                       help='Run Feroxbuster recursive content discovery (requires feroxbuster)')
+    parser.add_argument('--masscan', action='store_true',
+                       help='Run Masscan ultra-fast port scanner (requires masscan)')
+    parser.add_argument('--masscan-ports', default='1-65535',
+                       help='Port specification for Masscan (default: 1-65535)')
+    parser.add_argument('--masscan-rate', type=int, default=1000,
+                       help='Masscan packets per second (default: 1000)')
+    parser.add_argument('--rustscan', action='store_true',
+                       help='Run RustScan fast port scanner (requires rustscan)')
+    parser.add_argument('--hakrawler', action='store_true',
+                       help='Run Hakrawler web crawler (requires hakrawler)')
+    parser.add_argument('--arjun', action='store_true',
+                       help='Run Arjun HTTP parameter discovery (requires arjun)')
+    parser.add_argument('--paramspider', action='store_true',
+                       help='Run ParamSpider parameter mining (requires paramspider)')
+    parser.add_argument('--dirsearch', action='store_true',
+                       help='Run Dirsearch web path scanner (requires dirsearch)')
+    parser.add_argument('--recon-arsenal', action='store_true',
+                       help='Run full recon arsenal (all available gathering/discovery tools)')
+
     # Compliance & reporting
     parser.add_argument('--compliance', action='store_true',
                        help='Run compliance analysis after scan (OWASP, PCI-DSS, NIST, CIS)')
@@ -350,7 +396,17 @@ def main():
         for tool, available in tools.items():
             status = f"{Colors.GREEN}✓ installed{Colors.RESET}" if available else f"{Colors.RED}✗ not found{Colors.RESET}"
             print(f"  {tool:<12} {status}")
-        print(f"\n{Colors.info('Install missing tools for enhanced scanning capabilities')}")
+
+        from core.recon_arsenal import ReconArsenal
+        arsenal = ReconArsenal()
+        categories = arsenal.get_tools_by_category()
+        print(f"\n{Colors.BOLD}Recon Arsenal Tools:{Colors.RESET}")
+        for category, cat_tools in categories.items():
+            print(f"  {Colors.CYAN}{category.replace('_', ' ').title()}:{Colors.RESET}")
+            for tool, available in cat_tools.items():
+                status = f"{Colors.GREEN}✓ installed{Colors.RESET}" if available else f"{Colors.RED}✗ not found{Colors.RESET}"
+                print(f"    {tool:<14} {status}")
+        print(f"\n{Colors.info('Install missing tools for enhanced reconnaissance capabilities')}")
         return
 
     # External tool standalone runs
@@ -446,7 +502,103 @@ def main():
         else:
             print(f"{Colors.error(f'Subfinder failed: {result.error}')}")
         return
-    
+
+    # ---- Recon Arsenal standalone handlers ----
+    _recon_arsenal_flags = [
+        'amass', 'httpx', 'katana', 'dnsx', 'ffuf', 'gau', 'waybackurls',
+        'gobuster', 'feroxbuster', 'masscan', 'rustscan', 'hakrawler',
+        'arjun', 'paramspider', 'dirsearch', 'recon_arsenal',
+    ]
+    _any_recon = any(getattr(args, flag, False) for flag in _recon_arsenal_flags)
+
+    if _any_recon and args.target:
+        from core.recon_arsenal import ReconArsenal
+        from urllib.parse import urlparse
+        arsenal = ReconArsenal()
+        domain = urlparse(args.target).hostname or args.target
+
+        def _print_recon_result(name, result):
+            if result.success:
+                print(f"{Colors.success(f'{name} complete: {len(result.findings)} findings in {result.duration_seconds}s')}")
+                for f in result.findings[:20]:
+                    detail = f.get('url', '') or f.get('subdomain', '') or f.get('host', '') or f.get('ip', '') or str(f)
+                    print(f"  {detail[:120]}")
+                if len(result.findings) > 20:
+                    print(f"  ... and {len(result.findings) - 20} more")
+            else:
+                print(f"{Colors.error(f'{name} failed: {result.error}')}")
+
+        if args.recon_arsenal:
+            print(f"{Colors.info(f'Running full Recon Arsenal on {args.target}...')}")
+            results = arsenal.run_full_recon(args.target, domain=domain)
+            for name, res in results.items():
+                _print_recon_result(name.upper(), res)
+            total = sum(len(r.findings) for r in results.values())
+            print(f"\n{Colors.success(f'Recon Arsenal complete: {total} total findings from {len(results)} tools')}")
+            return
+
+        if args.amass:
+            print(f"{Colors.info(f'Running Amass ({args.amass_mode}) on {domain}...')}")
+            _print_recon_result('Amass', arsenal.amass.run(domain, mode=args.amass_mode))
+
+        if args.httpx:
+            print(f"{Colors.info(f'Running httpx on {args.target}...')}")
+            _print_recon_result('httpx', arsenal.httpx.run(args.target))
+
+        if args.katana:
+            print(f"{Colors.info(f'Running Katana on {args.target}...')}")
+            _print_recon_result('Katana', arsenal.katana.run(args.target, depth=args.katana_depth))
+
+        if args.dnsx:
+            print(f"{Colors.info(f'Running dnsx on {domain}...')}")
+            _print_recon_result('dnsx', arsenal.dnsx.run(domain))
+
+        if args.ffuf:
+            print(f"{Colors.info(f'Running ffuf on {args.target}...')}")
+            _print_recon_result('ffuf', arsenal.ffuf.run(args.target, wordlist=args.ffuf_wordlist or ''))
+
+        if args.gau:
+            print(f"{Colors.info(f'Running gau on {domain}...')}")
+            _print_recon_result('gau', arsenal.gau.run(domain))
+
+        if args.waybackurls:
+            print(f"{Colors.info(f'Running waybackurls on {domain}...')}")
+            _print_recon_result('waybackurls', arsenal.waybackurls.run(domain))
+
+        if args.gobuster:
+            print(f"{Colors.info(f'Running Gobuster on {args.target}...')}")
+            _print_recon_result('Gobuster', arsenal.gobuster.run(args.target, wordlist=args.gobuster_wordlist or ''))
+
+        if args.feroxbuster:
+            print(f"{Colors.info(f'Running Feroxbuster on {args.target}...')}")
+            _print_recon_result('Feroxbuster', arsenal.feroxbuster.run(args.target))
+
+        if args.masscan:
+            print(f"{Colors.info(f'Running Masscan on {domain}...')}")
+            _print_recon_result('Masscan', arsenal.masscan.run(domain, ports=args.masscan_ports, rate=args.masscan_rate))
+
+        if args.rustscan:
+            print(f"{Colors.info(f'Running RustScan on {domain}...')}")
+            _print_recon_result('RustScan', arsenal.rustscan.run(domain))
+
+        if args.hakrawler:
+            print(f"{Colors.info(f'Running Hakrawler on {args.target}...')}")
+            _print_recon_result('Hakrawler', arsenal.hakrawler.run(args.target))
+
+        if args.arjun:
+            print(f"{Colors.info(f'Running Arjun on {args.target}...')}")
+            _print_recon_result('Arjun', arsenal.arjun.run(args.target))
+
+        if args.paramspider:
+            print(f"{Colors.info(f'Running ParamSpider on {domain}...')}")
+            _print_recon_result('ParamSpider', arsenal.paramspider.run(domain))
+
+        if args.dirsearch:
+            print(f"{Colors.info(f'Running Dirsearch on {args.target}...')}")
+            _print_recon_result('Dirsearch', arsenal.dirsearch.run(args.target))
+
+        return
+
     # Launch web dashboard
     if args.web:
         try:
