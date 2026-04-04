@@ -339,10 +339,6 @@ def get_install_command(tool_name: str) -> Optional[str]:
     if 'pip' in methods and _has_pip():
         return methods['pip']
 
-    # Fall back to any available method
-    if pkg_mgr and pkg_mgr in methods:
-        return methods[pkg_mgr]
-
     return None
 
 
