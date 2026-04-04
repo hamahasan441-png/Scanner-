@@ -362,7 +362,7 @@ class ScanWorkerPool:
         dangerous_headers = ['x-powered-by', 'server']
         for dh in dangerous_headers:
             val = headers_lower.get(dh, '')
-            if val and re.search(r'\d+\.', val):  # Version string detected
+            if val and re.search(r'\d+\.\d+', val):  # Version string detected (major.minor)
                 self.engine.add_finding(Finding(
                     technique='Server Version Disclosure',
                     url=item.url,

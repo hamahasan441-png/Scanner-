@@ -119,9 +119,7 @@ class PivotDetector:
                    required_tools, priority=0.8, confidence=0.7):
         if not self._check_scope(target_endpoint):
             if self.verbose:
-                # Redact potentially sensitive path components from log output
-                safe_label = claim[:60] if claim else 'unknown'
-                print(f"  {Colors.warning(f'Pivot target out of scope: {safe_label}')}")
+                print(f"  {Colors.warning('Pivot target out of scope (redacted)')}")
             return
         goal = Goal(
             id=_next_pivot_id(),

@@ -267,6 +267,12 @@ class PostWorkerVerifier:
         self.verbose = engine.config.get('verbose', False)
         self.chain_detector = ChainDetector(engine)
 
+    @staticmethod
+    def _ensure_signals_dict(finding):
+        """Ensure finding.signals is a mutable dict."""
+        finding.signals = dict(finding.signals) if finding.signals else {}
+        return finding.signals
+
     def run(self, raw_findings: List) -> VerificationResult:
         """Run all verification steps on raw findings."""
         self.engine.emit_pipeline_event('phase9_start', {'raw_count': len(raw_findings)})
@@ -323,13 +329,11 @@ class PostWorkerVerifier:
 
             if confirmations >= 3:
                 stats['stable'] += 1
-                finding.signals = dict(finding.signals) if finding.signals else {}
-                finding.signals['stability'] = 'STABLE'
+                self._ensure_signals_dict(finding)['stability'] = 'STABLE'
                 verified.append(finding)
             elif confirmations >= 2:
                 stats['unstable'] += 1
-                finding.signals = dict(finding.signals) if finding.signals else {}
-                finding.signals['stability'] = 'UNSTABLE'
+                self._ensure_signals_dict(finding)['stability'] = 'UNSTABLE'
                 verified.append(finding)
             else:
                 stats['noise'] += 1
@@ -430,20 +434,20 @@ class PostWorkerVerifier:
         shield_profile = getattr(self.engine, '_shield_profile', None)
 
         for finding in findings:
-            finding.signals = dict(finding.signals) if finding.signals else {}
+            signals = self._ensure_signals_dict(finding)
 
             if shield_profile:
                 waf = shield_profile.get('waf', {})
                 if waf.get('detected'):
                     if shield_profile.get('needs_waf_bypass'):
-                        finding.signals['waf_flag'] = 'BYPASS_REQUIRED'
+                        signals['waf_flag'] = 'BYPASS_REQUIRED'
                     else:
-                        finding.signals['waf_flag'] = 'UNVERIFIED_THROUGH_CDN'
+                        signals['waf_flag'] = 'UNVERIFIED_THROUGH_CDN'
 
             # Check stability flag
-            stability = finding.signals.get('stability', 'STABLE')
+            stability = signals.get('stability', 'STABLE')
             if stability == 'UNSTABLE':
-                finding.signals['waf_flag'] = finding.signals.get('waf_flag', '') or 'UNSTABLE'
+                signals['waf_flag'] = signals.get('waf_flag', '') or 'UNSTABLE'
 
         return findings
 
@@ -470,10 +474,10 @@ class PostWorkerVerifier:
             representative = cluster[0]
 
             # Attach cluster metadata
-            representative.signals = dict(representative.signals) if representative.signals else {}
-            representative.signals['affected_count'] = len(cluster)
+            signals = self._ensure_signals_dict(representative)
+            signals['affected_count'] = len(cluster)
             if len(cluster) > 1:
-                representative.signals['all_urls'] = [f.url for f in cluster[:10]]
+                signals['all_urls'] = [f.url for f in cluster[:10]]
             deduped.append(representative)
 
         stats['deduplicated'] = len(findings) - len(deduped)
