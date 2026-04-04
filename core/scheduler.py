@@ -18,6 +18,9 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Callable, Dict, List, Optional
 
+# Named constants
+FALLBACK_DELAY_SECONDS = 86400  # 24 hours
+
 
 @dataclass
 class ScheduleEntry:
@@ -137,7 +140,7 @@ def next_cron_time(expression: str, after: Optional[datetime] = None) -> float:
         candidate = datetime.fromtimestamp(epoch, tz=timezone.utc)
 
     # Fallback: 24 hours from now
-    return time.time() + 86400
+    return time.time() + FALLBACK_DELAY_SECONDS
 
 
 class ScanScheduler:
@@ -155,6 +158,10 @@ class ScanScheduler:
         self._thread: Optional[threading.Thread] = None
         self._scan_callback = scan_callback
         self._history: List[dict] = []
+
+    def set_scan_callback(self, callback: Callable) -> None:
+        """Set or replace the scan callback after construction."""
+        self._scan_callback = callback
 
     # --- CRUD operations ---
 

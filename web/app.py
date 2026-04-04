@@ -1461,7 +1461,7 @@ def auth_login():
             return jsonify({'status': 'error', 'data': 'Invalid credentials'}), 401
         return jsonify({'status': 'success', 'data': result})
     except Exception as exc:
-        return jsonify({'status': 'error', 'data': str(exc)}), 500
+        return jsonify({'status': 'error', 'data': 'Authentication error'}), 500
 
 
 @app.route('/api/auth/refresh', methods=['POST'])
@@ -1479,7 +1479,7 @@ def auth_refresh():
             return jsonify({'status': 'error', 'data': 'Invalid or expired refresh token'}), 401
         return jsonify({'status': 'success', 'data': result})
     except Exception as exc:
-        return jsonify({'status': 'error', 'data': str(exc)}), 500
+        return jsonify({'status': 'error', 'data': 'Authentication error'}), 500
 
 
 @app.route('/api/auth/me', methods=['GET'])
@@ -1502,7 +1502,7 @@ def auth_me():
             'last_login': info.last_login,
         }})
     except Exception as exc:
-        return jsonify({'status': 'error', 'data': str(exc)}), 500
+        return jsonify({'status': 'error', 'data': 'Authentication error'}), 500
 
 
 @app.route('/api/auth/users', methods=['POST'])
@@ -1527,7 +1527,7 @@ def auth_create_user():
             'username': user.username, 'role': user.role,
         }}), 201
     except Exception as exc:
-        return jsonify({'status': 'error', 'data': str(exc)}), 500
+        return jsonify({'status': 'error', 'data': 'Authentication error'}), 500
 
 
 @app.route('/api/auth/users', methods=['GET'])
@@ -1541,7 +1541,7 @@ def auth_list_users():
     try:
         return jsonify({'status': 'success', 'data': _user_store.list_users()})
     except Exception as exc:
-        return jsonify({'status': 'error', 'data': str(exc)}), 500
+        return jsonify({'status': 'error', 'data': 'Authentication error'}), 500
 
 
 @app.route('/api/auth/users/<username>/role', methods=['PUT'])
@@ -1560,7 +1560,7 @@ def auth_update_role(username):
             return jsonify({'status': 'success', 'data': 'Role updated'})
         return jsonify({'status': 'error', 'data': 'User not found or invalid role'}), 404
     except Exception as exc:
-        return jsonify({'status': 'error', 'data': str(exc)}), 500
+        return jsonify({'status': 'error', 'data': 'Authentication error'}), 500
 
 
 @app.route('/api/auth/users/<username>', methods=['DELETE'])
@@ -1576,7 +1576,7 @@ def auth_delete_user(username):
             return jsonify({'status': 'success', 'data': 'User deleted'})
         return jsonify({'status': 'error', 'data': 'User not found'}), 404
     except Exception as exc:
-        return jsonify({'status': 'error', 'data': str(exc)}), 500
+        return jsonify({'status': 'error', 'data': 'Authentication error'}), 500
 
 
 @app.route('/api/auth/api-key', methods=['POST'])
@@ -1593,7 +1593,7 @@ def auth_generate_api_key():
             return jsonify({'status': 'error', 'data': 'Key generation failed'}), 500
         return jsonify({'status': 'success', 'data': {'api_key': key}})
     except Exception as exc:
-        return jsonify({'status': 'error', 'data': str(exc)}), 500
+        return jsonify({'status': 'error', 'data': 'Authentication error'}), 500
 
 
 # ---------------------------------------------------------------------------
@@ -1610,7 +1610,7 @@ def list_schedules():
     try:
         return jsonify({'status': 'success', 'data': _scheduler.list_schedules()})
     except Exception as exc:
-        return jsonify({'status': 'error', 'data': str(exc)}), 500
+        return jsonify({'status': 'error', 'data': 'Scheduler operation failed'}), 500
 
 
 @app.route('/api/schedules', methods=['POST'])
@@ -1636,9 +1636,9 @@ def create_schedule():
         )
         return jsonify({'status': 'success', 'data': entry.to_dict()}), 201
     except (ValueError, TypeError) as exc:
-        return jsonify({'status': 'error', 'data': str(exc)}), 400
+        return jsonify({'status': 'error', 'data': 'Scheduler operation failed'}), 400
     except Exception as exc:
-        return jsonify({'status': 'error', 'data': str(exc)}), 500
+        return jsonify({'status': 'error', 'data': 'Scheduler operation failed'}), 500
 
 
 @app.route('/api/schedules/<schedule_id>', methods=['GET'])
@@ -1656,7 +1656,7 @@ def get_schedule(schedule_id):
             return jsonify({'status': 'error', 'data': 'Schedule not found'}), 404
         return jsonify({'status': 'success', 'data': entry.to_dict()})
     except Exception as exc:
-        return jsonify({'status': 'error', 'data': str(exc)}), 500
+        return jsonify({'status': 'error', 'data': 'Scheduler operation failed'}), 500
 
 
 @app.route('/api/schedules/<schedule_id>', methods=['DELETE'])
@@ -1673,7 +1673,7 @@ def delete_schedule(schedule_id):
             return jsonify({'status': 'success', 'data': 'Schedule removed'})
         return jsonify({'status': 'error', 'data': 'Schedule not found'}), 404
     except Exception as exc:
-        return jsonify({'status': 'error', 'data': str(exc)}), 500
+        return jsonify({'status': 'error', 'data': 'Scheduler operation failed'}), 500
 
 
 @app.route('/api/schedules/<schedule_id>/toggle', methods=['PUT'])
@@ -1692,7 +1692,7 @@ def toggle_schedule(schedule_id):
             return jsonify({'status': 'success', 'data': f'Schedule {"enabled" if enabled else "disabled"}'})
         return jsonify({'status': 'error', 'data': 'Schedule not found'}), 404
     except Exception as exc:
-        return jsonify({'status': 'error', 'data': str(exc)}), 500
+        return jsonify({'status': 'error', 'data': 'Scheduler operation failed'}), 500
 
 
 @app.route('/api/schedules/history', methods=['GET'])
@@ -1706,7 +1706,7 @@ def get_schedule_history():
         limit = request.args.get('limit', 50, type=int)
         return jsonify({'status': 'success', 'data': _scheduler.get_history(limit=limit)})
     except Exception as exc:
-        return jsonify({'status': 'error', 'data': str(exc)}), 500
+        return jsonify({'status': 'error', 'data': 'Scheduler operation failed'}), 500
 
 
 @app.route('/api/scheduler/start', methods=['POST'])
@@ -1720,7 +1720,7 @@ def start_scheduler():
         _scheduler.start()
         return jsonify({'status': 'success', 'data': 'Scheduler started'})
     except Exception as exc:
-        return jsonify({'status': 'error', 'data': str(exc)}), 500
+        return jsonify({'status': 'error', 'data': 'Scheduler operation failed'}), 500
 
 
 @app.route('/api/scheduler/stop', methods=['POST'])
@@ -1734,7 +1734,7 @@ def stop_scheduler():
         _scheduler.stop()
         return jsonify({'status': 'success', 'data': 'Scheduler stopped'})
     except Exception as exc:
-        return jsonify({'status': 'error', 'data': str(exc)}), 500
+        return jsonify({'status': 'error', 'data': 'Scheduler operation failed'}), 500
 
 
 # ---------------------------------------------------------------------------
@@ -1776,7 +1776,7 @@ def run_compliance_analysis(scan_id):
         report = engine.analyze(findings, scan_id=scan_id, frameworks=frameworks)
         return jsonify({'status': 'success', 'data': report.to_dict()})
     except Exception as exc:
-        return jsonify({'status': 'error', 'data': str(exc)}), 500
+        return jsonify({'status': 'error', 'data': 'Internal server error'}), 500
 
 
 @app.route('/api/compliance/frameworks', methods=['GET'])
@@ -1793,7 +1793,7 @@ def list_compliance_frameworks():
         ]
         return jsonify({'status': 'success', 'data': frameworks})
     except Exception as exc:
-        return jsonify({'status': 'error', 'data': str(exc)}), 500
+        return jsonify({'status': 'error', 'data': 'Compliance analysis failed'}), 500
 
 
 # ---------------------------------------------------------------------------
@@ -1816,7 +1816,7 @@ def get_audit_entries():
         )
         return jsonify({'status': 'success', 'data': entries})
     except Exception as exc:
-        return jsonify({'status': 'error', 'data': str(exc)}), 500
+        return jsonify({'status': 'error', 'data': 'Audit query failed'}), 500
 
 
 @app.route('/api/audit/stats', methods=['GET'])
@@ -1829,7 +1829,7 @@ def get_audit_stats():
     try:
         return jsonify({'status': 'success', 'data': _audit_logger.get_stats()})
     except Exception as exc:
-        return jsonify({'status': 'error', 'data': str(exc)}), 500
+        return jsonify({'status': 'error', 'data': 'Audit query failed'}), 500
 
 
 # ---------------------------------------------------------------------------
@@ -1846,7 +1846,7 @@ def list_external_tools():
         integrator = ToolIntegrator()
         return jsonify({'status': 'success', 'data': integrator.get_available_tools()})
     except Exception as exc:
-        return jsonify({'status': 'error', 'data': str(exc)}), 500
+        return jsonify({'status': 'error', 'data': 'Tool execution failed'}), 500
 
 
 @app.route('/api/tools/external/<tool_name>/run', methods=['POST'])
@@ -1869,7 +1869,7 @@ def run_external_tool(tool_name):
         result = integrator.run_tool(tool_name, body['target'], **params)
         return jsonify({'status': 'success', 'data': result.to_dict()})
     except Exception as exc:
-        return jsonify({'status': 'error', 'data': str(exc)}), 500
+        return jsonify({'status': 'error', 'data': 'Tool execution failed'}), 500
 
 
 # ---------------------------------------------------------------------------
@@ -1886,7 +1886,7 @@ def list_plugins():
     try:
         return jsonify({'status': 'success', 'data': _plugin_manager.list_plugins()})
     except Exception as exc:
-        return jsonify({'status': 'error', 'data': str(exc)}), 500
+        return jsonify({'status': 'error', 'data': 'Plugin operation failed'}), 500
 
 
 @app.route('/api/plugins/discover', methods=['POST'])
@@ -1900,7 +1900,7 @@ def discover_plugins():
         found = _plugin_manager.discover_plugins()
         return jsonify({'status': 'success', 'data': {'discovered': found}})
     except Exception as exc:
-        return jsonify({'status': 'error', 'data': str(exc)}), 500
+        return jsonify({'status': 'error', 'data': 'Plugin operation failed'}), 500
 
 
 @app.route('/api/plugins/<name>/toggle', methods=['POST'])
@@ -1917,7 +1917,7 @@ def toggle_plugin(name):
             return jsonify({'status': 'success', 'data': f'Plugin {"enabled" if enabled else "disabled"}'})
         return jsonify({'status': 'error', 'data': 'Plugin not found'}), 404
     except Exception as exc:
-        return jsonify({'status': 'error', 'data': str(exc)}), 500
+        return jsonify({'status': 'error', 'data': 'Plugin operation failed'}), 500
 
 
 # ---------------------------------------------------------------------------
@@ -1934,7 +1934,7 @@ def list_notification_channels():
     try:
         return jsonify({'status': 'success', 'data': _notification_manager.list_channels()})
     except Exception as exc:
-        return jsonify({'status': 'error', 'data': str(exc)}), 500
+        return jsonify({'status': 'error', 'data': 'Notification operation failed'}), 500
 
 
 @app.route('/api/notifications/test', methods=['POST'])
@@ -1955,7 +1955,7 @@ def send_test_notification():
         )
         return jsonify({'status': 'success', 'data': {'sent': results}})
     except Exception as exc:
-        return jsonify({'status': 'error', 'data': str(exc)}), 500
+        return jsonify({'status': 'error', 'data': 'Notification operation failed'}), 500
 
 
 @app.route('/api/notifications/history', methods=['GET'])
@@ -1969,7 +1969,7 @@ def get_notification_history():
         limit = request.args.get('limit', 50, type=int)
         return jsonify({'status': 'success', 'data': _notification_manager.get_history(limit=limit)})
     except Exception as exc:
-        return jsonify({'status': 'error', 'data': str(exc)}), 500
+        return jsonify({'status': 'error', 'data': 'Notification operation failed'}), 500
 
 
 # ---------------------------------------------------------------------------
@@ -2054,7 +2054,7 @@ def create_app(host='0.0.0.0', port=5000, debug=False):
                 target=_run_scan, args=(scan_id, entry.target, cfg),
                 daemon=True, name=f'sched-scan-{scan_id}',
             ).start()
-        _scheduler._scan_callback = _scheduler_callback
+        _scheduler.set_scan_callback(_scheduler_callback)
 
     def run_app():
         logger.info("Starting ATOMIC Dashboard on http://%s:%s", host, port)

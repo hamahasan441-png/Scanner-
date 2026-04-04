@@ -128,7 +128,12 @@ def generate_api_key() -> str:
 
 
 def hash_api_key(key: str) -> str:
-    """Return a SHA-256 digest of an API key for safe storage."""
+    """Return a SHA-256 digest of an API key for safe storage.
+
+    Note: SHA-256 is appropriate here because API keys are high-entropy
+    random tokens (48 hex chars = 192 bits), not user-chosen passwords.
+    PBKDF2 is used for password hashing (see hash_password).
+    """
     return hashlib.sha256(key.encode()).hexdigest()
 
 
