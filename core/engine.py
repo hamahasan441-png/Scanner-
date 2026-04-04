@@ -8,10 +8,12 @@ CORE FLOW:
   §0 Init & Normalize →
   §1 Scope & Policy → PHASE 1: Shield Detection (CDN + WAF) →
   PHASE 2: Real IP Discovery →
-  §2 Discover & Graph → §3 Extract & Classify →
-  §4 Context Intelligence → §5 Risk-Based Prioritize →
-  §6 Baseline → §7 Adaptive Test → §8 Multi-Signal Analyze →
-  §9 Adaptive Verify → PHASE 4: Agent Scan →
+  PHASE 5: Passive Recon & Discovery (fan-out) →
+  PHASE 6: Intelligence Enrichment →
+  PHASE 7: Attack Surface Prioritization →
+  PHASE 8: Vulnerability Scan Workers →
+  PHASE 9: Post-Worker Verification →
+  PHASE 4: Agent Scan →
   Report → Learn → Adapt
 """
 
@@ -349,95 +351,158 @@ class AtomicEngine:
                     if self.config.get('verbose'):
                         print(f"{Colors.error(f'Real IP discovery error: {e}')}")
 
-        # ── §2. DISCOVERY & GRAPH ENGINE ─────────────────────────────
-        # Reconnaissance (optional)
-        if modules_config.get('recon', False):
+        # ── PHASE 5: PASSIVE RECON & DISCOVERY (fan-out) ───────────────
+        # This replaces the individual recon/port/crawl/discovery calls
+        # with a unified fan-out that merges all URL sources.
+        fanout_result = None
+        if modules_config.get('passive_recon', False):
             try:
-                from modules.reconnaissance import ReconModule
-                recon = ReconModule(self)
-                recon.run(target)
+                from core.passive_recon import PassiveReconFanout
+                fanout = PassiveReconFanout(self)
+                fanout_result = fanout.run(target)
+                urls = fanout_result.urls
+                forms = fanout_result.forms
+                parameters = fanout_result.params
+                self.emit_pipeline_event('phase5_result', fanout_result.to_dict())
             except Exception as e:
                 if self.config.get('verbose'):
-                    print(f"{Colors.error(f'Recon error: {e}')}")
+                    print(f"{Colors.error(f'Phase 5 fan-out error: {e}')}")
+                fanout_result = None
 
-        # Port scanning (optional) + network exploit scanning
-        port_spec = modules_config.get('ports')
-        port_results = []
-        if port_spec:
-            try:
-                from modules.port_scanner import PortScanner
-                scanner = PortScanner(self)
-                hostname = urlparse(target).hostname
-                port_results = scanner.run(hostname, port_spec)
-            except Exception as e:
-                if self.config.get('verbose'):
-                    print(f"{Colors.error(f'Port scan error: {e}')}")
+        # Fallback: if Phase 5 fan-out didn't run, use legacy discovery path
+        if fanout_result is None:
+            # ── §2. DISCOVERY & GRAPH ENGINE (legacy path) ───────────
+            # Reconnaissance (optional)
+            if modules_config.get('recon', False):
+                try:
+                    from modules.reconnaissance import ReconModule
+                    recon = ReconModule(self)
+                    recon.run(target)
+                except Exception as e:
+                    if self.config.get('verbose'):
+                        print(f"{Colors.error(f'Recon error: {e}')}")
 
-        # Network exploit scanning (runs after port scan)
-        if port_results and modules_config.get('net_exploit', False):
-            try:
-                from modules.network_exploits import NetworkExploitScanner
-                net_exploit = NetworkExploitScanner(self)
-                hostname = urlparse(target).hostname
-                net_exploit.run(hostname, port_results)
-            except Exception as e:
-                if self.config.get('verbose'):
-                    print(f"{Colors.error(f'Network exploit scan error: {e}')}")
+            # Port scanning (optional) + network exploit scanning
+            port_spec = modules_config.get('ports')
+            port_results = []
+            if port_spec:
+                try:
+                    from modules.port_scanner import PortScanner
+                    scanner = PortScanner(self)
+                    hostname = urlparse(target).hostname
+                    port_results = scanner.run(hostname, port_spec)
+                except Exception as e:
+                    if self.config.get('verbose'):
+                        print(f"{Colors.error(f'Port scan error: {e}')}")
 
-        # Technology exploit scanning
-        if modules_config.get('tech_exploit', False):
-            try:
-                from modules.tech_exploits import TechExploitScanner
-                tech_exploit = TechExploitScanner(self)
-                tech_exploit.run(target)
-            except Exception as e:
-                if self.config.get('verbose'):
-                    print(f"{Colors.error(f'Technology exploit scan error: {e}')}")
+            # Network exploit scanning (runs after port scan)
+            if port_results and modules_config.get('net_exploit', False):
+                try:
+                    from modules.network_exploits import NetworkExploitScanner
+                    net_exploit = NetworkExploitScanner(self)
+                    hostname = urlparse(target).hostname
+                    net_exploit.run(hostname, port_results)
+                except Exception as e:
+                    if self.config.get('verbose'):
+                        print(f"{Colors.error(f'Network exploit scan error: {e}')}")
 
-        # Crawl target
-        from utils.crawler import Crawler
-        crawler = Crawler(self)
-        depth = min(
-            self.config.get('depth', 3) + self.adaptive.get_depth_boost(),
-            Config.MAX_DEPTH,
-        )
+            # Technology exploit scanning
+            if modules_config.get('tech_exploit', False):
+                try:
+                    from modules.tech_exploits import TechExploitScanner
+                    tech_exploit = TechExploitScanner(self)
+                    tech_exploit.run(target)
+                except Exception as e:
+                    if self.config.get('verbose'):
+                        print(f"{Colors.error(f'Technology exploit scan error: {e}')}")
 
-        print(f"{Colors.info(f'Crawling with depth {depth}...')}")
-        urls, forms, parameters = crawler.crawl(target, depth)
-        print(f"{Colors.info(f'Found {len(urls)} URLs, {len(forms)} forms, {len(parameters)} parameters')}")
+            # Crawl target
+            from utils.crawler import Crawler
+            crawler = Crawler(self)
+            depth = min(
+                self.config.get('depth', 3) + self.adaptive.get_depth_boost(),
+                Config.MAX_DEPTH,
+            )
 
-        # Print graph summary if verbose
-        if self.config.get('verbose') and crawler.endpoint_graph:
-            print(f"{Colors.info('Endpoint graph:')}")
-            print(crawler.get_graph_summary())
+            print(f"{Colors.info(f'Crawling with depth {depth}...')}")
+            urls, forms, parameters = crawler.crawl(target, depth)
+            print(f"{Colors.info(f'Found {len(urls)} URLs, {len(forms)} forms, {len(parameters)} parameters')}")
 
-        # Scope filter: remove out-of-scope URLs
-        urls = self.scope.filter_urls(urls)
-        parameters = self.scope.filter_parameters(parameters)
+            # Print graph summary if verbose
+            if self.config.get('verbose') and crawler.endpoint_graph:
+                print(f"{Colors.info('Endpoint graph:')}")
+                print(crawler.get_graph_summary())
 
-        # Target discovery & enumeration
-        if modules_config.get('discovery', False):
-            try:
-                from modules.discovery import DiscoveryModule
-                discovery = DiscoveryModule(self)
-                discovery.run(target, crawler=crawler)
+            # Scope filter: remove out-of-scope URLs
+            urls = self.scope.filter_urls(urls)
+            parameters = self.scope.filter_parameters(parameters)
 
-                for ep in discovery.endpoints:
-                    if ep not in urls and self.scope.is_in_scope(ep):
-                        urls.add(ep)
-                        self.adaptive.add_new_endpoint(ep)
-                        ep_parsed = urlparse(ep)
-                        if ep_parsed.query:
-                            for name, values in parse_qs(ep_parsed.query).items():
-                                for val in values:
-                                    parameters.append((ep, 'get', name, val, 'discovery'))
-            except Exception as e:
-                if self.config.get('verbose'):
-                    print(f"{Colors.error(f'Discovery error: {e}')}")
+            # Target discovery & enumeration
+            if modules_config.get('discovery', False):
+                try:
+                    from modules.discovery import DiscoveryModule
+                    discovery = DiscoveryModule(self)
+                    discovery.run(target, crawler=crawler)
+
+                    for ep in discovery.endpoints:
+                        if ep not in urls and self.scope.is_in_scope(ep):
+                            urls.add(ep)
+                            self.adaptive.add_new_endpoint(ep)
+                            ep_parsed = urlparse(ep)
+                            if ep_parsed.query:
+                                for name, values in parse_qs(ep_parsed.query).items():
+                                    for val in values:
+                                        parameters.append((ep, 'get', name, val, 'discovery'))
+                except Exception as e:
+                    if self.config.get('verbose'):
+                        print(f"{Colors.error(f'Discovery error: {e}')}")
 
         # ── §3. INPUT EXTRACTION & CLASSIFICATION ────────────────────
         # ── §4. CONTEXT INTELLIGENCE ─────────────────────────────────
         enriched_params = self.context.analyze_parameters(parameters)
+
+        # ── PHASE 6: INTELLIGENCE ENRICHMENT ──────────────────────────
+        intel_bundle = None
+        if modules_config.get('enrich', False):
+            try:
+                from core.intelligence_enricher import IntelligenceEnricher
+                enricher = IntelligenceEnricher(self)
+                responses = [init_resp] if init_resp else []
+                intel_bundle = enricher.run(
+                    responses=responses,
+                    params=parameters,
+                    urls=urls,
+                )
+                self.emit_pipeline_event('phase6_result', intel_bundle.to_dict())
+            except Exception as e:
+                if self.config.get('verbose'):
+                    print(f"{Colors.error(f'Phase 6 enrichment error: {e}')}")
+
+        # ── PHASE 7: ATTACK SURFACE PRIORITIZATION ───────────────────
+        scan_queue = None
+        if modules_config.get('enrich', False) and intel_bundle:
+            try:
+                from core.scan_priority_queue import ScanPriorityQueue
+                pq = ScanPriorityQueue(self)
+                origin_ip = real_ip_result.get('origin_ip') if real_ip_result else None
+                bypass_profile = shield_profile.get('waf', {}) if shield_profile else None
+                asset_graph = fanout_result and hasattr(fanout_result, '_asset_graph') and getattr(fanout_result, '_asset_graph', None)
+                scan_queue = pq.build(
+                    enriched_params=enriched_params,
+                    urls=urls,
+                    intel_bundle=intel_bundle,
+                    agent_result=None,
+                    asset_graph=asset_graph,
+                    bypass_profile=bypass_profile,
+                    origin_ip=origin_ip,
+                )
+                self.emit_pipeline_event('phase7_result', {
+                    'queue_size': len(scan_queue),
+                })
+            except Exception as e:
+                if self.config.get('verbose'):
+                    print(f"{Colors.error(f'Phase 7 prioritization error: {e}')}")
+                scan_queue = None
 
         # ── PIPELINE: Recon complete, transition to Scan phase ────────
         self.pipeline['recon']['status'] = 'completed'
@@ -601,6 +666,44 @@ class AtomicEngine:
                 if self.config.get('verbose'):
                     print(f"{Colors.error(f'Adaptive re-scan error: {e}')}")
                 break
+
+        # ── PHASE 8: VULNERABILITY SCAN WORKERS ─────────────────────
+        # If Phase 7 produced a scan queue, run it through the worker pool
+        if scan_queue:
+            try:
+                from core.scan_worker_pool import ScanWorkerPool
+                worker_pool = ScanWorkerPool(self)
+                worker_pool.run(scan_queue)
+                self.emit_pipeline_event('phase8_result', {
+                    'additional_findings': len(self.findings),
+                })
+            except Exception as e:
+                if self.config.get('verbose'):
+                    print(f"{Colors.error(f'Phase 8 worker pool error: {e}')}")
+
+        # ── PHASE 9: POST-WORKER VERIFICATION ────────────────────────
+        if modules_config.get('chain_detect', False) and self.findings:
+            try:
+                from core.post_worker_verifier import PostWorkerVerifier
+                pwv = PostWorkerVerifier(self)
+                self._shield_profile = shield_profile  # expose for WAF check
+                verification_result = pwv.run(self.findings)
+                self.findings = verification_result.verified_findings
+
+                # Emit chain detection results
+                if verification_result.exploit_chains:
+                    self.emit_pipeline_event('exploit_chains_detected', {
+                        'chain_count': len(verification_result.exploit_chains),
+                        'chains': [c.to_dict() for c in verification_result.exploit_chains],
+                    })
+                    # Print chains
+                    for chain in verification_result.exploit_chains:
+                        print(f"\n  {Colors.RED}{Colors.BOLD}[CHAIN] {chain.name}{Colors.RESET}")
+                        print(f"    CVSS: {chain.combined_cvss}  Severity: {chain.combined_severity}")
+                        print(f"    Steps: {' → '.join(chain.steps)}")
+            except Exception as e:
+                if self.config.get('verbose'):
+                    print(f"{Colors.error(f'Phase 9 verification error: {e}')}")
 
         # ── PHASE 4: AGENT SCANNER (autonomous goal-driven scan) ─────
         agent_result = None

@@ -112,14 +112,26 @@ The engine follows a **multi-phase core flow** defined in `core/engine.py`:
         ↓                      ↓                        ↓
 PHASE 2: Real IP    →  §2 Discovery & Graph  →  §3 Extract & Classify
         ↓                      ↓                        ↓
-§4 Context Intel    →  §5 Risk-Based Prioritize  →  §6 Baseline
+§4 Context Intel    →  PHASE 6: Intelligence Enrichment  →  PHASE 7: Attack Surface Prioritization
+        ↓                      ↓                                    ↓
+§6 Baseline         →  PHASE 8: Scan Worker Pool  →  §8 Multi-Signal Analyze
         ↓                      ↓                        ↓
-§7 Adaptive Test    →  §8 Multi-Signal Analyze  →  §9 Adaptive Verify
+§9 Adaptive Verify  →  PHASE 9: Post-Worker Verification (Chain Detection)
         ↓                      ↓                        ↓
 PHASE 4: Agent Scan →       Learn               →      Adapt
         ↓
      Report
 ```
+
+### New Phases (5-9)
+
+| Phase | Module | Description |
+|-------|--------|-------------|
+| **Phase 5** | `core/passive_recon.py` | Passive Recon Fan-Out: parallel recon, port scan, passive URL collection (Wayback, Common Crawl CDX), crawler, discovery → merge + dedup + scope filter |
+| **Phase 6** | `core/intelligence_enricher.py` | Intelligence Enrichment: TechFingerprinter (headers, cookies, HTML patterns), CVEMatcher (built-in CVE DB, CVSS ≥ 7.0), param context weights, endpoint type classification |
+| **Phase 7** | `core/scan_priority_queue.py` | Attack Surface Prioritization: multi-factor scoring (param context 0.35, endpoint type 0.25, CVE match 0.25, agent hypothesis 0.2, anomaly 0.1, depth penalty), structural dedup |
+| **Phase 8** | `core/scan_worker_pool.py` | Vulnerability Scan Workers: Gate 0 triage, Gate 1 DifferentialEngine baseline, Gate 2 SurfaceMapper, Workers A-E (Injection/Auth/BizLogic/Misconfig/Crypto) |
+| **Phase 9** | `core/post_worker_verifier.py` | Post-Worker Verification: consistency recheck ×3, context-aware FP filter, WAF interference check, clustering + dedup, CVSS v3.1 auto-scoring, ChainDetector (7 chain rules) |
 
 ### Pipeline Phase Tracking (3-Partition Architecture)
 
@@ -446,6 +458,11 @@ engine.scan(target)
 | **GoalPlanner** | `core/goal_planner.py` | Hypothesis-driven goal stack management and budget tracking |
 | **PivotDetector** | `core/pivot_detector.py` | Pivot detection — expand attack surface from confirmed findings |
 | **AgentScanner** | `core/agent_scanner.py` | Autonomous OODA-loop scanner (observe-think-act-reflect-adapt) |
+| **PassiveReconFanout** | `core/passive_recon.py` | Phase 5: Parallel fan-out recon (CDX APIs, crawler, discovery) → merge + dedup |
+| **IntelligenceEnricher** | `core/intelligence_enricher.py` | Phase 6: TechFingerprinter + CVEMatcher + param context weights |
+| **ScanPriorityQueue** | `core/scan_priority_queue.py` | Phase 7: Multi-factor scoring and structural deduplication |
+| **ScanWorkerPool** | `core/scan_worker_pool.py` | Phase 8: Gate pipeline + Workers A-E + DifferentialEngine |
+| **PostWorkerVerifier** | `core/post_worker_verifier.py` | Phase 9: Consistency recheck + FP filter + CVSS scoring + ChainDetector |
 
 ### Exploitation Layer
 
@@ -728,6 +745,7 @@ Scanner-/
 
 | Date | Change | Files |
 |------|--------|-------|
+| 2026-04-04 | Added Phases 5-9: Passive Recon Fan-Out, Intelligence Enrichment (TechFingerprinter, CVEMatcher), Attack Surface Prioritization, Scan Worker Pool (DifferentialEngine, SurfaceMapper, Workers A-E), Post-Worker Verification (ChainDetector, CVSS v3.1 auto-scoring) | `core/passive_recon.py`, `core/intelligence_enricher.py`, `core/scan_priority_queue.py`, `core/scan_worker_pool.py`, `core/post_worker_verifier.py`, `core/engine.py`, `main.py` |
 | 2026-04-04 | Added Phase 1 Shield Detection (CDN+WAF), Phase 2 Real IP Discovery, Phase 4 Agent Scanner (Goal Planner + Pivot Detector + OODA loop) | `core/shield_detector.py`, `core/real_ip_scanner.py`, `core/goal_planner.py`, `core/pivot_detector.py`, `core/agent_scanner.py`, `core/engine.py`, `main.py` |
 | 2026-04-03 | Added sqlmap CLI integration to SQLi and CMDi modules | `modules/sqli.py`, `modules/cmdi.py`, `main.py` |
 | 2026-04-03 | Created LOGIC_MAP.md | `LOGIC_MAP.md` |

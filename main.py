@@ -184,6 +184,12 @@ def main():
                        help='Enable real IP / origin server discovery (behind CDN)')
     parser.add_argument('--agent-scan', action='store_true',
                        help='Enable autonomous agent scanner (goal-driven with pivot detection)')
+    parser.add_argument('--passive-recon', action='store_true',
+                       help='Enable Phase 5 passive recon fan-out (Wayback, Common Crawl CDX, merged discovery)')
+    parser.add_argument('--enrich', action='store_true',
+                       help='Enable Phase 6-7 intelligence enrichment and attack surface prioritization')
+    parser.add_argument('--chain-detect', action='store_true',
+                       help='Enable Phase 9 exploit chain detection and CVSS auto-scoring')
     
     # Report options
     parser.add_argument('--report', 
@@ -530,6 +536,9 @@ def main():
         'shield_detect': getattr(args, 'shield_detect', False) or args.full,
         'real_ip': getattr(args, 'real_ip', False) or args.full,
         'agent_scan': getattr(args, 'agent_scan', False),
+        'passive_recon': getattr(args, 'passive_recon', False) or args.full,
+        'enrich': getattr(args, 'enrich', False) or args.full,
+        'chain_detect': getattr(args, 'chain_detect', False) or args.full,
     }
     
     # If no specific modules selected, enable basic ones
