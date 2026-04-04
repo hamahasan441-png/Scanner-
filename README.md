@@ -165,6 +165,38 @@ cd Scanner-
 bash setup.sh
 ```
 
+### External Security Tools
+
+The framework integrates with 20 external security tools for enhanced scanning capabilities. These are **optional** — the framework works without them, but enables additional features when they are installed.
+
+```bash
+# Check which tools are installed
+python main.py --tools-check
+
+# Install all missing tools automatically
+python main.py --tools-install
+
+# Install a specific tool
+python main.py --tools-install --tool nuclei
+```
+
+**Supported tools:**
+
+| Category | Tools | Install Method |
+|----------|-------|---------------|
+| Network Scanning | Nmap, Masscan, RustScan | apt/brew/cargo |
+| Vulnerability Scanning | Nuclei, Nikto | go/apt/brew |
+| Subdomain Enumeration | Amass, Subfinder, dnsx | go/apt/brew |
+| HTTP Probing | httpx | go/brew |
+| Web Crawling | Katana, Hakrawler | go/brew |
+| URL Harvesting | gau, waybackurls, ParamSpider | go/pip |
+| Parameter Discovery | Arjun | pip |
+| Directory Brute Force | ffuf, Gobuster, Feroxbuster, Dirsearch | go/apt/cargo/pip |
+| Reconnaissance | WhatWeb | apt/brew |
+
+> **Prerequisites for Go tools:** Install Go 1.21+ from https://go.dev/dl/
+> **Prerequisites for Rust tools:** Install Rust from https://rustup.rs/
+
 ## Usage
 
 ### Web Dashboard
@@ -228,8 +260,11 @@ python main.py --shell-id <id> --shell-cmd "whoami"           # Execute shell co
 
 ### Utilities
 ```bash
-python main.py --check-deps                                   # Verify dependencies
-python main.py --install-deps                                 # Install all dependencies
+python main.py --check-deps                                   # Verify Python dependencies
+python main.py --install-deps                                 # Install Python dependencies
+python main.py --tools-check                                  # Check external tool availability
+python main.py --tools-install                                # Download & install all missing tools
+python main.py --tools-install --tool nmap                    # Install a specific tool
 python main.py --clear-db                                     # Clear scan database
 ```
 
@@ -310,8 +345,11 @@ python main.py --clear-db                                     # Clear scan datab
 | **Shells** | `--shell-manager` | Interactive shell manager |
 | | `--shell-id` | Target specific shell |
 | | `--shell-cmd` | Execute command on shell |
-| **Utility** | `--check-deps` | Verify dependencies |
-| | `--install-deps` | Install all dependencies |
+| **Utility** | `--check-deps` | Verify Python dependencies |
+| | `--install-deps` | Install Python dependencies |
+| | `--tools-check` | Check availability of all 20 external security tools |
+| | `--tools-install` | Download and install missing external tools |
+| | `--tool` | Specific tool name for `--tools-install` |
 | | `--clear-db` | Clear scan database |
 | | `-v, --verbose` | Verbose output |
 | | `-q, --quiet` | Quiet mode |

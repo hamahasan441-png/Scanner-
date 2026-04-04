@@ -96,6 +96,11 @@ python main.py "$@"
 EOF
 chmod +x atomic.sh
 
+# Offer to install external security tools
+echo ""
+echo -e "${BLUE}[*] Checking external security tools...${NC}"
+$PYTHON main.py --tools-check 2>/dev/null || echo -e "${YELLOW}[!] Run 'python main.py --tools-check' to see tool status${NC}"
+
 echo ""
 echo "=========================================="
 echo -e "${GREEN}[+] Setup completed!${NC}"
@@ -107,6 +112,10 @@ echo "  python main.py -t https://target.com --full       # Full scan (all modul
 echo "  python main.py -t https://target.com --evasion insane  # Max evasion"
 echo "  python main.py --web                              # Launch web dashboard"
 echo "  python main.py --web --web-port 8080              # Dashboard on port 8080"
+echo ""
+echo "External Tools:"
+echo "  python main.py --tools-check                      # Check tool availability"
+echo "  python main.py --tools-install                    # Install all missing tools"
 echo ""
 echo "Quick Install (Python only):"
 echo "  pip install -r requirements.txt && python main.py --web"
