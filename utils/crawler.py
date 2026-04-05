@@ -161,8 +161,8 @@ class Crawler:
     _PATH_UUID_RE = re.compile(r'^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$', re.I)
     _PATH_HEX_HASH_RE = re.compile(r'^[0-9a-f]{32,64}$', re.I)
     _PATH_SLUG_ID_RE = re.compile(r'^\d+-[\w-]+$')
-    _PATH_BASE64_RE = re.compile(r'^[A-Za-z0-9+/=]{16,}$')
-    _PATH_SHORT_TOKEN_RE = re.compile(r'^[a-zA-Z0-9]{8,12}$')
+    _PATH_BASE64_RE = re.compile(r'^[A-Za-z0-9+/]{16,}={1,2}$')
+    _PATH_SHORT_TOKEN_RE = re.compile(r'^(?=.*[a-zA-Z])(?=.*\d)[a-zA-Z0-9]{8,12}$')
 
     def _extract_path_params(self, url: str):
         """Extract injectable path segments as testable parameters.
@@ -309,19 +309,23 @@ class Crawler:
                 continue
             src = script.string
 
-            # URLSearchParams .get/.set/.append/.has
-            for match in re.findall(r'\.(?:get|set|append|has)\(["\'](\w+)["\']\)', src):
+            # URLSearchParams .get/.set/.has
+            for match in re.findall(r'\.(?:get|set|has)\(["\'](\w+)["\']\)', src):
                 self.parameters.append((url, 'get', match, '', 'js_param'))
 
-            # FormData .append('name', ...)
+            # URLSearchParams/FormData .append('name', ...)
             for match in re.findall(r'\.append\(["\'](\w+)["\']\s*,', src):
                 self.parameters.append((url, 'post', match, '', 'js_formdata'))
 
             # Object keys in body/data/params: { key: ... }
+            _JS_NOISE = frozenset((
+                'true', 'false', 'null', 'undefined', 'constructor',
+                'prototype', 'length', 'name', 'type', 'value',
+            ))
             body_blocks = re.findall(r'(?:body|data|params)\s*[:=]\s*\{([^}]+)\}', src)
             for block in body_blocks:
                 for key in re.findall(r'["\']?(\w+)["\']?\s*:', block):
-                    if key not in ('true', 'false', 'null', 'undefined'):
+                    if key not in _JS_NOISE:
                         self.parameters.append((url, 'post', key, '', 'js_body_key'))
 
             # getElementById / getElementsByName form value extraction
