@@ -10,6 +10,7 @@ import os
 import re
 import shutil
 import subprocess
+import tempfile
 from urllib.parse import urlparse, urljoin, urlencode, parse_qs
 
 from config import Colors
@@ -54,6 +55,146 @@ class FuzzerModule:
         # External tool integrations
         self._paramspider_discover(url)
         self._ffufai_fuzz(url)
+
+    # ------------------------------------------------------------------
+    # Discovery-phase entry point
+    # ------------------------------------------------------------------
+
+    def discover(self, url):
+        """Run endpoint & parameter discovery fuzzing (discovery phase).
+
+        Unlike ``test_url`` which reports vulnerability findings, this
+        method focuses solely on discovering new endpoints and hidden
+        parameters to feed into subsequent pipeline phases.
+
+        Args:
+            url: The target URL to fuzz for hidden endpoints and
+                parameters.  When an origin IP has been resolved, this
+                should point at the origin server.
+
+        Returns:
+            dict: A dictionary with the following keys:
+                - ``urls`` (set[str]):  Discovered endpoint URLs.
+                - ``parameters`` (list[tuple]): Discovered parameters as
+                  ``(url, method, name, value, source)`` tuples.
+        """
+        discovered_urls: set = set()
+        discovered_params: list = []
+
+        # --- Parameter discovery (silent – no findings emitted) ----------
+        try:
+            baseline = self.requester.request(url, 'GET')
+            baseline_len = len(baseline.text) if baseline else 0
+            baseline_status = baseline.status_code if baseline else 0
+        except Exception:
+            baseline = None
+            baseline_len = 0
+            baseline_status = 0
+
+        for param_name in self.common_params:
+            try:
+                test_url = f"{url}{'&' if '?' in url else '?'}{param_name}=test123"
+                response = self.requester.request(test_url, 'GET')
+                if not response:
+                    continue
+                if (response.status_code != baseline_status
+                        or abs(len(response.text) - baseline_len) > 50):
+                    discovered_params.append(
+                        (url, 'get', param_name, 'test123', 'fuzzer'))
+            except Exception:
+                continue
+
+        # --- ffuf / ffufai endpoint discovery (silent) -------------------
+        ffuf_endpoints = self._ffuf_discover_endpoints(url)
+        discovered_urls.update(ffuf_endpoints)
+
+        # --- ParamSpider native parameter mining -------------------------
+        spider_params = self._discover_archive_params(url)
+        for pname in spider_params:
+            discovered_params.append((url, 'get', pname, '', 'fuzzer_archive'))
+
+        return {
+            'urls': discovered_urls,
+            'parameters': discovered_params,
+        }
+
+    def _ffuf_discover_endpoints(self, url, timeout=120):
+        """Run ffuf for endpoint discovery only (no findings).
+
+        Returns:
+            set[str]: Discovered endpoint URLs.
+        """
+        if not shutil.which('ffuf'):
+            return set()
+
+        wordlist = self._load_seclists_wordlist('common.txt')
+        endpoints: set = set()
+        wordlist_fd = None
+        output_fd = None
+        wordlist_file = ''
+        output_file = ''
+
+        try:
+            wordlist_fd, wordlist_file = tempfile.mkstemp(
+                prefix='fuzzer_disc_wl_', suffix='.txt')
+            output_fd, output_file = tempfile.mkstemp(
+                prefix='fuzzer_disc_out_', suffix='.json')
+            # Close the fd for the output file so ffuf can write to it
+            os.close(output_fd)
+            output_fd = None
+
+            with os.fdopen(wordlist_fd, 'w') as fh:
+                fh.write('\n'.join(wordlist))
+            wordlist_fd = None  # fd closed by fdopen
+
+            parsed = urlparse(url)
+            fuzz_url = f"{parsed.scheme}://{parsed.netloc}/FUZZ"
+
+            cmd = [
+                'ffuf', '-u', fuzz_url, '-w', wordlist_file,
+                '-o', output_file, '-of', 'json',
+                '-mc', '200,201,204,301,302,307,401,403',
+                '-t', '10', '-s',
+            ]
+
+            try:
+                subprocess.run(cmd, capture_output=True, text=True,
+                               timeout=timeout)
+            except (subprocess.TimeoutExpired, Exception):
+                return endpoints
+
+            if os.path.isfile(output_file):
+                try:
+                    with open(output_file, 'r') as fh:
+                        data = json.load(fh)
+                    for result in data.get('results', []):
+                        ep_url = result.get('url', '')
+                        if ep_url:
+                            endpoints.add(ep_url)
+                except (json.JSONDecodeError, KeyError):
+                    pass
+        except Exception:
+            pass
+        finally:
+            for path in (wordlist_file, output_file):
+                try:
+                    os.remove(path)
+                except OSError:
+                    pass
+
+        return endpoints
+
+    def _discover_archive_params(self, url):
+        """Mine parameter names from web archives (no findings).
+
+        Returns:
+            set[str]: Discovered parameter names.
+        """
+        parsed = urlparse(url)
+        domain = parsed.hostname
+        if not domain:
+            return set()
+        return self._paramspider_native(domain)
     
     def _fuzz_parameters(self, url):
         """Fuzz for hidden parameters"""

@@ -120,7 +120,11 @@ class TestReconRunnerRun(unittest.TestCase):
         eng = _make_engine()
         result = ReconRunner(eng).run('http://target')
 
-        mock_legacy.assert_called_once_with('http://target')
+        mock_legacy.assert_called_once_with(
+            'http://target',
+            effective_target='http://target',
+            shield_profile=None,
+        )
         self.assertEqual(result.urls, {'http://b'})
         self.assertIsNone(result.fanout_result)
 
@@ -1019,6 +1023,193 @@ class TestAttackMap(unittest.TestCase):
         # AttackMapBuilder still runs even though ExploitSearcher failed
         MockAMB.return_value.run.assert_called_once()
         self.assertIsNotNone(result)
+
+
+# ===========================================================================
+# Regulated Pipeline: origin IP → discovery flow
+# ===========================================================================
+
+class TestReconRunnerOriginIPFlow(unittest.TestCase):
+    """Test that the recon runner uses origin IP for crawling / discovery."""
+
+    @patch('core.runners.recon_runner.ReconRunner._legacy_discovery')
+    @patch('core.runners.recon_runner.ReconRunner._passive_recon')
+    @patch('core.runners.recon_runner.ReconRunner._real_ip_discover')
+    @patch('core.runners.recon_runner.ReconRunner._shield_detect')
+    def test_origin_ip_builds_effective_target(self, mock_shield, mock_rip,
+                                                mock_passive, mock_legacy):
+        """When real IP is found, _legacy_discovery receives an origin-IP URL."""
+        mock_shield.return_value = {'cdn': {'detected': True}}
+        mock_rip.return_value = {'origin_ip': '93.184.216.34'}
+        mock_passive.return_value = None
+        mock_legacy.return_value = (set(), [], [])
+
+        eng = _make_engine()
+        ReconRunner(eng).run('http://example.com/path')
+
+        call_kwargs = mock_legacy.call_args
+        effective = call_kwargs[1]['effective_target']
+        self.assertIn('93.184.216.34', effective)
+        self.assertNotIn('example.com', effective)
+
+    @patch('core.runners.recon_runner.ReconRunner._legacy_discovery')
+    @patch('core.runners.recon_runner.ReconRunner._passive_recon')
+    @patch('core.runners.recon_runner.ReconRunner._real_ip_discover')
+    @patch('core.runners.recon_runner.ReconRunner._shield_detect')
+    def test_no_origin_ip_uses_original_target(self, mock_shield, mock_rip,
+                                                mock_passive, mock_legacy):
+        """Without real IP, effective_target equals the original target."""
+        mock_shield.return_value = None
+        mock_rip.return_value = None
+        mock_passive.return_value = None
+        mock_legacy.return_value = (set(), [], [])
+
+        eng = _make_engine()
+        ReconRunner(eng).run('http://target.com')
+
+        call_kwargs = mock_legacy.call_args
+        self.assertEqual(call_kwargs[1]['effective_target'], 'http://target.com')
+
+    @patch('core.runners.recon_runner.ReconRunner._passive_recon')
+    @patch('core.runners.recon_runner.ReconRunner._real_ip_discover')
+    @patch('core.runners.recon_runner.ReconRunner._shield_detect')
+    def test_fanout_receives_effective_target(self, mock_shield, mock_rip,
+                                               mock_passive):
+        """Passive recon fan-out should receive the effective target URL."""
+        mock_shield.return_value = {'cdn': {'detected': True}}
+        mock_rip.return_value = {'origin_ip': '10.0.0.1'}
+        fanout = MagicMock()
+        fanout.urls = set()
+        fanout.forms = []
+        fanout.params = []
+        mock_passive.return_value = fanout
+
+        eng = _make_engine()
+        ReconRunner(eng).run('http://cdn-target.com')
+
+        # Passive recon should have been called with the origin-IP URL
+        called_target = mock_passive.call_args[0][0]
+        self.assertIn('10.0.0.1', called_target)
+
+
+class TestLegacyDiscoveryFuzzerStep(unittest.TestCase):
+    """Test that fuzzer discovery is integrated into legacy discovery."""
+
+    @patch('modules.fuzzer.FuzzerModule.discover')
+    @patch('utils.crawler.Crawler')
+    def test_fuzzer_runs_when_discovery_enabled(self, MockCrawler, mock_discover):
+        MockCrawler.return_value.crawl.return_value = ({'http://a'}, [], [])
+        MockCrawler.return_value.endpoint_graph = None
+        mock_discover.return_value = {
+            'urls': {'http://a/admin'},
+            'parameters': [('http://a', 'get', 'debug', 'test123', 'fuzzer')],
+        }
+
+        eng = _make_engine(config={
+            'verbose': False, 'depth': 2,
+            'modules': {'discovery': True}})
+        urls, forms, params = ReconRunner(eng)._legacy_discovery(
+            'http://a', effective_target='http://a', shield_profile=None)
+
+        mock_discover.assert_called_once_with('http://a')
+        self.assertIn('http://a/admin', urls)
+        param_names = [p[2] for p in params]
+        self.assertIn('debug', param_names)
+
+    @patch('modules.fuzzer.FuzzerModule.discover')
+    @patch('utils.crawler.Crawler')
+    def test_fuzzer_runs_when_fuzzer_flag_enabled(self, MockCrawler, mock_discover):
+        MockCrawler.return_value.crawl.return_value = (set(), [], [])
+        MockCrawler.return_value.endpoint_graph = None
+        mock_discover.return_value = {'urls': set(), 'parameters': []}
+
+        eng = _make_engine(config={
+            'verbose': False, 'depth': 2,
+            'modules': {'fuzzer': True}})
+        ReconRunner(eng)._legacy_discovery(
+            'http://t', effective_target='http://t', shield_profile=None)
+
+        mock_discover.assert_called_once()
+
+    @patch('utils.crawler.Crawler')
+    def test_fuzzer_not_run_when_both_disabled(self, MockCrawler):
+        MockCrawler.return_value.crawl.return_value = (set(), [], [])
+        MockCrawler.return_value.endpoint_graph = None
+
+        eng = _make_engine(config={
+            'verbose': False, 'depth': 2,
+            'modules': {}})
+        urls, forms, params = ReconRunner(eng)._legacy_discovery(
+            'http://t', effective_target='http://t', shield_profile=None)
+
+        # Fuzzer should not have been invoked (no discovery/fuzzer flags)
+        self.assertEqual(len(params), 0)
+
+    @patch('modules.fuzzer.FuzzerModule.discover')
+    @patch('utils.crawler.Crawler')
+    def test_fuzzer_uses_effective_target(self, MockCrawler, mock_discover):
+        """Fuzzer should receive the origin-IP effective target."""
+        MockCrawler.return_value.crawl.return_value = (set(), [], [])
+        MockCrawler.return_value.endpoint_graph = None
+        mock_discover.return_value = {'urls': set(), 'parameters': []}
+
+        eng = _make_engine(config={
+            'verbose': False, 'depth': 2,
+            'modules': {'discovery': True}})
+        ReconRunner(eng)._legacy_discovery(
+            'http://target.com',
+            effective_target='http://93.184.216.34',
+            shield_profile={'waf': {'detected': True}})
+
+        mock_discover.assert_called_once_with('http://93.184.216.34')
+
+    @patch('modules.fuzzer.FuzzerModule.discover', side_effect=RuntimeError('boom'))
+    @patch('utils.crawler.Crawler')
+    def test_fuzzer_exception_does_not_break_pipeline(self, MockCrawler, _):
+        MockCrawler.return_value.crawl.return_value = ({'http://a'}, [], [])
+        MockCrawler.return_value.endpoint_graph = None
+
+        eng = _make_engine(config={
+            'verbose': True, 'depth': 2,
+            'modules': {'discovery': True}})
+        # Should not raise
+        urls, _, _ = ReconRunner(eng)._legacy_discovery(
+            'http://a', effective_target='http://a', shield_profile=None)
+        self.assertIn('http://a', urls)
+
+    @patch('utils.crawler.Crawler')
+    def test_crawl_uses_effective_target(self, MockCrawler):
+        """Crawler should receive the origin-IP effective target."""
+        MockCrawler.return_value.crawl.return_value = (set(), [], [])
+        MockCrawler.return_value.endpoint_graph = None
+
+        eng = _make_engine(config={
+            'verbose': False, 'depth': 2,
+            'modules': {}})
+        ReconRunner(eng)._legacy_discovery(
+            'http://example.com',
+            effective_target='http://10.0.0.5')
+
+        crawl_call = MockCrawler.return_value.crawl.call_args
+        self.assertEqual(crawl_call[0][0], 'http://10.0.0.5')
+
+    @patch('modules.port_scanner.PortScanner')
+    @patch('utils.crawler.Crawler')
+    def test_port_scan_uses_effective_target(self, MockCrawler, MockPort):
+        """Port scanner should use origin IP hostname."""
+        MockCrawler.return_value.crawl.return_value = (set(), [], [])
+        MockCrawler.return_value.endpoint_graph = None
+        MockPort.return_value.run.return_value = []
+
+        eng = _make_engine(config={
+            'verbose': False, 'depth': 1,
+            'modules': {'ports': '80,443'}})
+        ReconRunner(eng)._legacy_discovery(
+            'http://example.com',
+            effective_target='http://10.0.0.5')
+
+        port_call = MockPort.return_value.run.call_args
+        self.assertEqual(port_call[0][0], '10.0.0.5')
 
 
 if __name__ == '__main__':

@@ -227,5 +227,50 @@ class TestPrintProgress(unittest.TestCase):
         print_progress(10, 10)
 
 
+# ---------------------------------------------------------------------------
+# build_origin_target / get_origin_host
+# ---------------------------------------------------------------------------
+
+from utils.helpers import build_origin_target, get_origin_host
+
+
+class TestBuildOriginTarget(unittest.TestCase):
+    """Test build_origin_target utility."""
+
+    def test_replaces_hostname_with_ip(self):
+        result = build_origin_target('https://example.com/path', '93.184.216.34')
+        self.assertEqual(result, 'https://93.184.216.34/path')
+
+    def test_preserves_port(self):
+        result = build_origin_target('https://example.com:8443/api', '10.0.0.1')
+        self.assertEqual(result, 'https://10.0.0.1:8443/api')
+
+    def test_preserves_query_and_fragment(self):
+        result = build_origin_target('http://target.com/s?q=1#top', '1.2.3.4')
+        self.assertIn('1.2.3.4', result)
+        self.assertIn('q=1', result)
+
+    def test_falsy_origin_ip_returns_target(self):
+        self.assertEqual(build_origin_target('http://x.com', ''), 'http://x.com')
+        self.assertEqual(build_origin_target('http://x.com', None), 'http://x.com')
+
+    def test_no_port_simple(self):
+        result = build_origin_target('http://cdn.site.org', '192.168.1.1')
+        self.assertEqual(result, 'http://192.168.1.1')
+
+
+class TestGetOriginHost(unittest.TestCase):
+    """Test get_origin_host utility."""
+
+    def test_returns_netloc(self):
+        self.assertEqual(get_origin_host('https://example.com/path'), 'example.com')
+
+    def test_returns_netloc_with_port(self):
+        self.assertEqual(get_origin_host('http://example.com:8080'), 'example.com:8080')
+
+    def test_empty_on_garbage(self):
+        self.assertEqual(get_origin_host(''), '')
+
+
 if __name__ == '__main__':
     unittest.main()

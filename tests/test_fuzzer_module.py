@@ -440,5 +440,81 @@ class TestFuzzVhosts(unittest.TestCase):
             self.assertTrue(hh.endswith('.example.com'))
 
 
+# ===========================================================================
+# FuzzerModule.discover()
+# ===========================================================================
+
+class TestFuzzerDiscover(unittest.TestCase):
+    """Tests for the discovery-phase entry point ``FuzzerModule.discover``."""
+
+    def _make_fuzzer(self, engine):
+        from modules.fuzzer import FuzzerModule
+        return FuzzerModule(engine)
+
+    def test_discover_returns_dict_with_keys(self):
+        engine = _MockEngine(responses=[
+            _MockResponse('baseline', 200),  # baseline request
+        ])
+        fuzzer = self._make_fuzzer(engine)
+        result = fuzzer.discover('http://example.com')
+        self.assertIn('urls', result)
+        self.assertIn('parameters', result)
+        self.assertIsInstance(result['urls'], set)
+        self.assertIsInstance(result['parameters'], list)
+
+    def test_discover_finds_hidden_params(self):
+        """If a param causes a different response, it is returned."""
+        def side_effect(url, method, **kwargs):
+            # Baseline or normal param → same response
+            if 'debug=' in url:
+                # 'debug' param triggers a noticeably different response
+                return _MockResponse('x' * 200, 200)
+            return _MockResponse('normal', 200)
+
+        engine = _MockEngine(side_effect=side_effect)
+        fuzzer = self._make_fuzzer(engine)
+        result = fuzzer.discover('http://example.com')
+
+        param_names = [p[2] for p in result['parameters']]
+        self.assertIn('debug', param_names)
+
+    def test_discover_no_findings_emitted(self):
+        """Discover should not emit findings to the engine."""
+        engine = _MockEngine(responses=[_MockResponse('ok', 200)])
+        fuzzer = self._make_fuzzer(engine)
+        fuzzer.discover('http://example.com')
+        self.assertEqual(len(engine.findings), 0)
+
+    def test_discover_handles_request_exception(self):
+        """Exceptions during baseline request should not crash."""
+        def side_effect(url, method, **kwargs):
+            raise ConnectionError('fail')
+
+        engine = _MockEngine(side_effect=side_effect)
+        fuzzer = self._make_fuzzer(engine)
+        result = fuzzer.discover('http://example.com')
+        self.assertEqual(result['parameters'], [])
+
+
+class TestDiscoverArchiveParams(unittest.TestCase):
+    """Test the _discover_archive_params helper."""
+
+    def _make_fuzzer(self, engine):
+        from modules.fuzzer import FuzzerModule
+        return FuzzerModule(engine)
+
+    def test_returns_set(self):
+        engine = _MockEngine(responses=[_MockResponse('', 404)])
+        fuzzer = self._make_fuzzer(engine)
+        result = fuzzer._discover_archive_params('http://example.com')
+        self.assertIsInstance(result, set)
+
+    def test_no_domain_returns_empty(self):
+        engine = _MockEngine()
+        fuzzer = self._make_fuzzer(engine)
+        result = fuzzer._discover_archive_params('')
+        self.assertEqual(result, set())
+
+
 if __name__ == '__main__':
     unittest.main()

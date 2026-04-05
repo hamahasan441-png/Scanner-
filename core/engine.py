@@ -4,11 +4,14 @@
 ATOMIC FRAMEWORK v9.0 - ULTIMATE EDITION
 Core Engine - Scan orchestration and module management
 
-CORE FLOW:
+CORE FLOW (regulated):
   §0 Init & Normalize →
-  §1 Scope & Policy → PHASE 1: Shield Detection (CDN + WAF) →
+  §1 Scope & Policy →
+  PHASE 1: Shield Detection (CDN + WAF) →
   PHASE 2: Real IP Discovery →
-  PHASE 5: Passive Recon & Discovery (fan-out) →
+  Build effective target (origin IP when available) →
+  PHASE 5: Passive Recon & Discovery (fan-out via origin IP) →
+    OR Legacy: Crawl + Fuzzer Discovery (via origin IP) →
   PHASE 6: Intelligence Enrichment →
   PHASE 7: Attack Surface Prioritization →
   PHASE 8: Vulnerability Scan Workers →
@@ -413,6 +416,16 @@ class AtomicEngine:
                     if self.config.get('verbose'):
                         print(f"{Colors.error(f'Real IP discovery error: {e}')}")
 
+        # ── Determine effective scan target using origin IP ──────────────
+        # When Phase 2 discovered a real origin IP behind CDN/WAF, build
+        # a URL that points directly at the origin server so that
+        # crawling, fuzzing, and recon bypass the CDN/WAF layer.
+        origin_ip = real_ip_result.get('origin_ip') if real_ip_result else None
+        effective_target = target
+        if origin_ip:
+            from utils.helpers import build_origin_target
+            effective_target = build_origin_target(target, origin_ip)
+
         # ── PHASE 5: PASSIVE RECON & DISCOVERY (fan-out) ───────────────
         # This replaces the individual recon/port/crawl/discovery calls
         # with a unified fan-out that merges all URL sources.
@@ -421,7 +434,7 @@ class AtomicEngine:
             try:
                 from core.passive_recon import PassiveReconFanout
                 fanout = PassiveReconFanout(self)
-                fanout_result = fanout.run(target)
+                fanout_result = fanout.run(effective_target)
                 urls = fanout_result.urls
                 forms = fanout_result.forms
                 parameters = fanout_result.params
@@ -444,14 +457,14 @@ class AtomicEngine:
                     if self.config.get('verbose'):
                         print(f"{Colors.error(f'Recon error: {e}')}")
 
-            # Port scanning (optional) + network exploit scanning
+            # Port scanning: use effective_target (origin IP) for accuracy
             port_spec = modules_config.get('ports')
             port_results = []
             if port_spec:
                 try:
                     from modules.port_scanner import PortScanner
                     scanner = PortScanner(self)
-                    hostname = urlparse(target).hostname
+                    hostname = urlparse(effective_target).hostname
                     port_results = scanner.run(hostname, port_spec)
                 except Exception as e:
                     if self.config.get('verbose'):
@@ -462,7 +475,7 @@ class AtomicEngine:
                 try:
                     from modules.network_exploits import NetworkExploitScanner
                     net_exploit = NetworkExploitScanner(self)
-                    hostname = urlparse(target).hostname
+                    hostname = urlparse(effective_target).hostname
                     net_exploit.run(hostname, port_results)
                 except Exception as e:
                     if self.config.get('verbose'):
@@ -478,7 +491,7 @@ class AtomicEngine:
                     if self.config.get('verbose'):
                         print(f"{Colors.error(f'Technology exploit scan error: {e}')}")
 
-            # Crawl target
+            # Crawl target (uses origin IP to bypass WAF/CDN)
             from utils.crawler import Crawler
             crawler = Crawler(self)
             depth = min(
@@ -486,8 +499,12 @@ class AtomicEngine:
                 Config.MAX_DEPTH,
             )
 
-            print(f"{Colors.info(f'Crawling with depth {depth}...')}")
-            urls, forms, parameters = crawler.crawl(target, depth)
+            if effective_target != target:
+                origin_host = urlparse(effective_target).hostname or 'origin'
+                print(f"{Colors.info(f'Crawling via origin IP ({origin_host}) with depth {depth}...')}")
+            else:
+                print(f"{Colors.info(f'Crawling with depth {depth}...')}")
+            urls, forms, parameters = crawler.crawl(effective_target, depth)
             print(f"{Colors.info(f'Found {len(urls)} URLs, {len(forms)} forms, {len(parameters)} parameters')}")
 
             # Print graph summary if verbose
@@ -498,6 +515,26 @@ class AtomicEngine:
             # Scope filter: remove out-of-scope URLs
             urls = self.scope.filter_urls(urls)
             parameters = self.scope.filter_parameters(parameters)
+
+            # ── Fuzzer discovery (uses origin IP target) ──────────────
+            if modules_config.get('fuzzer', False) or modules_config.get('discovery', False):
+                try:
+                    from modules.fuzzer import FuzzerModule
+                    fuzzer = FuzzerModule(self)
+                    fuzz_result = fuzzer.discover(effective_target)
+
+                    for fuzz_url in fuzz_result.get('urls', set()):
+                        if self.scope.is_in_scope(fuzz_url):
+                            urls.add(fuzz_url)
+                            self.adaptive.add_new_endpoint(fuzz_url)
+
+                    fuzz_params = fuzz_result.get('parameters', [])
+                    if fuzz_params:
+                        parameters.extend(fuzz_params)
+                        print(f"{Colors.info(f'Fuzzer discovered {len(fuzz_params)} additional parameters')}")
+                except Exception as e:
+                    if self.config.get('verbose'):
+                        print(f"{Colors.error(f'Fuzzer discovery error: {e}')}")
 
             # Target discovery & enumeration
             if modules_config.get('discovery', False):
