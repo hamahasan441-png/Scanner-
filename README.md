@@ -6,6 +6,8 @@ A powerful, modular web security testing framework optimized for Termux (Android
 
 ## Quick Install
 
+**Requires Python 3.10+** (upgraded from 3.9 in v8.2).
+
 ```bash
 pip install -r requirements.txt
 ```
