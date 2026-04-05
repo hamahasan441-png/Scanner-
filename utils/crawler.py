@@ -41,7 +41,7 @@ class Crawler:
             print(f"{Colors.error('BeautifulSoup not installed. Crawling limited.')}")
             return set(), [], []
         
-        max_urls = 500  # Prevent excessive crawling
+        max_urls = 2000  # Prevent excessive crawling
         to_visit = [(start_url, 0)]
         base_domain = urlparse(start_url).netloc
         
@@ -57,7 +57,10 @@ class Crawler:
                 continue
             
             self.visited.add(url)
-            
+
+            if len(self.visited) % 100 == 0 and self.engine.config.get('verbose'):
+                print(f"{Colors.info(f'Crawl progress: {len(self.visited)} URLs visited')}")
+
             try:
                 response = self.requester.request(url, 'GET')
                 
@@ -93,6 +96,12 @@ class Crawler:
                 
                 # Extract HTML comments (may contain debug info or paths)
                 self._extract_comments(soup, url)
+
+                # Extract additional links from <link>, <base>, <area>, data-* attrs
+                self._extract_link_params(soup, url, base_domain, to_visit, current_depth, depth)
+
+                # Extract parameter names from JavaScript
+                self._extract_js_params(soup, url)
 
                 # Build graph entry for this URL
                 self._update_graph(url, response, soup)
@@ -150,17 +159,30 @@ class Crawler:
     # Patterns that identify path segments likely to be injectable IDs
     _PATH_ID_RE = re.compile(r'^\d+$')
     _PATH_UUID_RE = re.compile(r'^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$', re.I)
+    _PATH_HEX_HASH_RE = re.compile(r'^[0-9a-f]{32,64}$', re.I)
+    _PATH_SLUG_ID_RE = re.compile(r'^\d+-[\w-]+$')
+    _PATH_BASE64_RE = re.compile(r'^[A-Za-z0-9+/=]{16,}$')
+    _PATH_SHORT_TOKEN_RE = re.compile(r'^[a-zA-Z0-9]{8,12}$')
 
     def _extract_path_params(self, url: str):
-        """Extract numeric/UUID path segments as testable parameters.
+        """Extract injectable path segments as testable parameters.
 
+        Detects numeric IDs, UUIDs, hex hashes, slugified IDs, Base64
+        segments, and short alphanumeric tokens.
         Example: /users/42/profile → param 'path[1]' with value '42'
-        These represent REST-style path parameters that may be injectable.
         """
         parsed = urlparse(url)
         segments = [s for s in parsed.path.split('/') if s]
+        path_patterns = (
+            self._PATH_ID_RE,
+            self._PATH_UUID_RE,
+            self._PATH_HEX_HASH_RE,
+            self._PATH_SLUG_ID_RE,
+            self._PATH_BASE64_RE,
+            self._PATH_SHORT_TOKEN_RE,
+        )
         for idx, seg in enumerate(segments):
-            if self._PATH_ID_RE.match(seg) or self._PATH_UUID_RE.match(seg):
+            if any(p.match(seg) for p in path_patterns):
                 self.parameters.append((url, 'get', f'path[{idx}]', seg, 'path_param'))
     
     def _extract_resources(self, soup, url: str):
@@ -204,6 +226,18 @@ class Crawler:
                     r'\.ajax\(\{[^}]*url:\s*["\']([^"\']+)["\']',
                     r'axios\.(get|post|put|delete)\(["\']([^"\']+)["\']',
                     r'XMLHttpRequest[^}]*\.open\(["\'](?:GET|POST|PUT|DELETE)["\']\s*,\s*["\']([^"\']+)["\']',
+                    # GraphQL endpoints
+                    r'["\'](/graphql[^"\']*)["\']',
+                    # REST versioned APIs
+                    r'["\'](/rest/[^"\']+)["\']',
+                    # WebSocket URLs
+                    r'["\'](wss?://[^"\']+)["\']',
+                    # Template literals with interpolation
+                    r'`([^`]*\$\{[^`]*\}[^`]*)`',
+                    # window.location / document.location assignments
+                    r'(?:window|document)\.location(?:\.href)?\s*=\s*["\']([^"\']+)["\']',
+                    # HTTP method calls on any object (.get/.post/.put/.delete)
+                    r'\.\s*(?:get|post|put|delete)\s*\(\s*["\']([^"\']+)["\']',
                 ]
                 
                 for pattern in patterns:
@@ -262,6 +296,76 @@ class Crawler:
             text = comment.strip()
             if text:
                 self.resources['comments'].append({'url': url, 'comment': text})
+
+    def _extract_js_params(self, soup, url: str):
+        """Extract parameter names from JavaScript source.
+
+        Looks for URLSearchParams usage, FormData appends, object keys in
+        request bodies, and getElementById/getElementsByName form value
+        extractions.
+        """
+        for script in soup.find_all('script'):
+            if not script.string:
+                continue
+            src = script.string
+
+            # URLSearchParams .get/.set/.append/.has
+            for match in re.findall(r'\.(?:get|set|append|has)\(["\'](\w+)["\']\)', src):
+                self.parameters.append((url, 'get', match, '', 'js_param'))
+
+            # FormData .append('name', ...)
+            for match in re.findall(r'\.append\(["\'](\w+)["\']\s*,', src):
+                self.parameters.append((url, 'post', match, '', 'js_formdata'))
+
+            # Object keys in body/data/params: { key: ... }
+            body_blocks = re.findall(r'(?:body|data|params)\s*[:=]\s*\{([^}]+)\}', src)
+            for block in body_blocks:
+                for key in re.findall(r'["\']?(\w+)["\']?\s*:', block):
+                    if key not in ('true', 'false', 'null', 'undefined'):
+                        self.parameters.append((url, 'post', key, '', 'js_body_key'))
+
+            # getElementById / getElementsByName form value extraction
+            for match in re.findall(r'getElement(?:ById|sByName)\(["\'](\w+)["\']\)', src):
+                self.parameters.append((url, 'get', match, '', 'js_dom_param'))
+
+    def _extract_link_params(self, soup, url: str, base_domain: str,
+                             to_visit: list, current_depth: int, max_depth: int):
+        """Extract additional navigable links from the page.
+
+        Covers <link> canonical/alternate, <base> href, <area> href,
+        and data-href / data-src / data-action attributes on any element.
+        Discovered same-domain URLs are added to the crawl queue.
+        """
+        found_urls = set()
+
+        # <link rel="canonical|alternate"> tags
+        for link in soup.find_all('link', href=True):
+            rel = ' '.join(link.get('rel', []))
+            if any(r in rel for r in ('canonical', 'alternate')):
+                found_urls.add(urljoin(url, link['href']))
+
+        # <base> href
+        base_tag = soup.find('base', href=True)
+        if base_tag:
+            found_urls.add(urljoin(url, base_tag['href']))
+
+        # <area> href
+        for area in soup.find_all('area', href=True):
+            found_urls.add(urljoin(url, area['href']))
+
+        # data-href, data-src, data-action on any element
+        for attr in ('data-href', 'data-src', 'data-action'):
+            for elem in soup.find_all(attrs={attr: True}):
+                val = elem.get(attr, '')
+                if val:
+                    found_urls.add(urljoin(url, val))
+
+        # Enqueue same-domain links for crawling
+        for found in found_urls:
+            if urlparse(found).netloc == base_domain:
+                self.parameters.append((found, 'get', '', '', 'link_extracted'))
+                if current_depth < max_depth and found not in self.visited:
+                    to_visit.append((found, current_depth + 1))
 
     # ------------------------------------------------------------------
     # Endpoint graph (§2 of the pipeline)
