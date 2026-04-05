@@ -1,10 +1,12 @@
-# ATOMIC FRAMEWORK v8.2 — ULTIMATE EDITION
+# ATOMIC FRAMEWORK v9.0 — ULTIMATE EDITION
 
 ⚠️ **FOR AUTHORIZED TESTING ONLY** ⚠️
 
 A powerful, modular web security testing framework optimized for Termux (Android) and Linux systems. Features an AI-powered vulnerability prediction engine, Burp Suite-style tools, exploit chaining, a Flask web dashboard, advanced evasion engine, and comprehensive vulnerability scanning across 27+ attack modules.
 
 ## Quick Install
+
+**Requires Python 3.10+** (upgraded from 3.9 in v8.2).
 
 ```bash
 pip install -r requirements.txt
@@ -527,4 +529,4 @@ This project is for educational purposes only.
 
 ## Credits
 
-ATOMIC Framework v8.2 — ULTIMATE EDITION | Codename: PHOENIX
+ATOMIC Framework v9.0 — ULTIMATE EDITION | Codename: PHOENIX

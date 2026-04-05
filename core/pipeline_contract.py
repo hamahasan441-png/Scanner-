@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ATOMIC FRAMEWORK v8.2 - Pipeline Contract
+ATOMIC FRAMEWORK v9.0 - Pipeline Contract
 Canonical phase definitions and state machine for the scan pipeline.
 
 This module is the **single source of truth** for:

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ATOMIC FRAMEWORK v8.0 - ULTIMATE EDITION
+ATOMIC FRAMEWORK v9.0 - ULTIMATE EDITION
 Phase 7 — Attack Surface Prioritization
 
 Builds a priority-sorted scan queue from the asset graph, intelligence

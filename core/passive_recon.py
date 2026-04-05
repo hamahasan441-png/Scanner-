@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ATOMIC FRAMEWORK v8.0 - ULTIMATE EDITION
+ATOMIC FRAMEWORK v9.0 - ULTIMATE EDITION
 Phase 5 — Passive Recon & Discovery Fan-Out
 
 Runs recon, port scan, passive URL collection, crawl, and discovery

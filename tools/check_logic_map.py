@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ATOMIC FRAMEWORK v8.2 - Logic Map Consistency Checker
+ATOMIC FRAMEWORK v9.0 - Logic Map Consistency Checker
 
 Compares the documented pipeline phases in LOGIC_MAP.md and
 ARCHITECTURE_v8_CORRECTED.md against the actual code:

@@ -1,4 +1,4 @@
-# ATOMIC Framework v8.2 - Requirements
+# ATOMIC Framework v9.0 - Requirements
 # Termux Compatible (no C-extension builds required)
 # Versions pinned to tested releases — update with care
 
