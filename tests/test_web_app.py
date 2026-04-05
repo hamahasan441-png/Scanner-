@@ -379,6 +379,10 @@ class TestScanStartValidation(unittest.TestCase):
     def setUp(self):
         app.config['TESTING'] = True
         self.client = app.test_client()
+        _rate_counters.clear()
+
+    def tearDown(self):
+        _rate_counters.clear()
 
     def test_empty_string_target_returns_400(self):
         resp = self.client.post('/api/scan', json={'target': '   '})
@@ -509,6 +513,7 @@ class TestToolEndpointsExtended(unittest.TestCase):
     def setUp(self):
         app.config['TESTING'] = True
         self.client = app.test_client()
+        _rate_counters.clear()
 
     def test_encode_base64(self):
         resp = self.client.post(
@@ -599,6 +604,7 @@ class TestCORSHeaders(unittest.TestCase):
     def setUp(self):
         app.config['TESTING'] = True
         self.client = app.test_client()
+        _rate_counters.clear()
 
     def test_cors_header_on_api_response(self):
         resp = self.client.get('/api/stats')
@@ -637,6 +643,7 @@ class TestErrorHandling(unittest.TestCase):
     def setUp(self):
         app.config['TESTING'] = True
         self.client = app.test_client()
+        _rate_counters.clear()
 
     def test_post_to_get_endpoint_returns_405(self):
         resp = self.client.post('/api/stats')
