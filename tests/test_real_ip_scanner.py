@@ -7,6 +7,8 @@ from unittest.mock import MagicMock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from core.real_ip_scanner import RealIPScanner, _is_cdn_ip
+
 
 def _engine():
     e = MagicMock()
@@ -130,6 +132,102 @@ class TestHelpers(unittest.TestCase):
         from core.real_ip_scanner import RealIPScanner
         self.assertEqual(RealIPScanner._extract_title('<title>Test Page</title>'), 'Test Page')
         self.assertEqual(RealIPScanner._extract_title('<html>no title</html>'), '')
+
+
+class TestExtractDomainAdvanced(unittest.TestCase):
+    """Advanced _extract_domain tests."""
+
+    def _make_scanner(self):
+        engine = MagicMock()
+        engine.config = {'verbose': False}
+        engine.requester = MagicMock()
+        return RealIPScanner(engine)
+
+    def test_http_url(self):
+        s = self._make_scanner()
+        self.assertEqual(s._extract_domain('http://example.com/path'), 'example.com')
+
+    def test_https_url(self):
+        s = self._make_scanner()
+        self.assertEqual(s._extract_domain('https://example.com/path'), 'example.com')
+
+    def test_url_with_port(self):
+        s = self._make_scanner()
+        self.assertEqual(s._extract_domain('http://example.com:8080/path'), 'example.com')
+
+    def test_bare_domain(self):
+        s = self._make_scanner()
+        result = s._extract_domain('http://example.com')
+        self.assertEqual(result, 'example.com')
+
+
+class TestCDNIPDetection(unittest.TestCase):
+    """Test _is_cdn_ip detection."""
+
+    def test_cloudflare_ip(self):
+        self.assertTrue(_is_cdn_ip('104.16.0.1'))
+
+    def test_non_cdn_private(self):
+        self.assertFalse(_is_cdn_ip('192.168.1.1'))
+
+    def test_non_cdn_public(self):
+        self.assertFalse(_is_cdn_ip('8.8.8.8'))
+
+    def test_invalid_ip(self):
+        self.assertFalse(_is_cdn_ip('not-an-ip'))
+
+
+class TestRankCandidatesAdvanced(unittest.TestCase):
+    """Advanced ranking tests."""
+
+    def _make_scanner(self):
+        engine = MagicMock()
+        engine.config = {'verbose': False}
+        engine.requester = MagicMock()
+        return RealIPScanner(engine)
+
+    def test_single_candidate(self):
+        s = self._make_scanner()
+        candidates = [{'ip': '1.2.3.4', 'score': 5, 'source': 'dns'}]
+        result = s._rank_candidates(candidates)
+        self.assertEqual(len(result), 1)
+
+    def test_highest_score_first(self):
+        s = self._make_scanner()
+        candidates = [
+            {'ip': '1.1.1.1', 'score': 3, 'source': 'dns'},
+            {'ip': '2.2.2.2', 'score': 10, 'source': 'spf'},
+            {'ip': '3.3.3.3', 'score': 1, 'source': 'brute'},
+        ]
+        result = s._rank_candidates(candidates)
+        self.assertEqual(result[0]['ip'], '2.2.2.2')
+
+    def test_empty_candidates(self):
+        s = self._make_scanner()
+        result = s._rank_candidates([])
+        self.assertEqual(result, [])
+
+
+class TestRunIntegration(unittest.TestCase):
+    """Integration-level run() tests."""
+
+    def _make_scanner(self):
+        engine = MagicMock()
+        engine.config = {'verbose': False}
+        engine.requester = MagicMock()
+        engine.requester.request.return_value = None
+        return RealIPScanner(engine)
+
+    def test_returns_expected_keys(self):
+        s = self._make_scanner()
+        result = s.run('http://example.com')
+        for key in ('origin_ip', 'confidence', 'verified', 'all_candidates'):
+            self.assertIn(key, result)
+
+    def test_low_confidence_when_no_candidates(self):
+        s = self._make_scanner()
+        result = s.run('http://example.com')
+        self.assertIn(result['confidence'], ('LOW', 'NONE', None))
 
 
 if __name__ == '__main__':

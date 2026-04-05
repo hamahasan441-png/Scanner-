@@ -3,9 +3,11 @@
 import sys
 import os
 import unittest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from core.shield_detector import ShieldDetector
 
 
 def _engine():
@@ -142,6 +144,100 @@ class TestStaticHelpers(unittest.TestCase):
                     found = True
                     break
         self.assertTrue(found)
+
+
+class TestWAFSignatureMatching(unittest.TestCase):
+    """Test _match_waf_signature for various WAFs."""
+
+    def test_cloudflare_signature(self):
+        result = ShieldDetector._match_waf_signature(403, {'cf-ray': '12345', 'server': 'cloudflare'}, '')
+        self.assertEqual(result, 'Cloudflare WAF')
+
+    def test_modsecurity_status_body(self):
+        result = ShieldDetector._match_waf_signature(406, {}, 'Not Acceptable')
+        self.assertEqual(result, 'ModSecurity')
+
+    def test_modsecurity_no_match_wrong_status(self):
+        result = ShieldDetector._match_waf_signature(200, {}, 'Not Acceptable')
+        self.assertIsNone(result)
+
+    def test_sucuri_header(self):
+        result = ShieldDetector._match_waf_signature(403, {'x-sucuri-block': 'yes'}, '')
+        self.assertEqual(result, 'Sucuri WAF')
+
+    def test_akamai_server(self):
+        result = ShieldDetector._match_waf_signature(403, {'server': 'AkamaiGHost'}, '')
+        self.assertEqual(result, 'Akamai WAF')
+
+    def test_no_match(self):
+        result = ShieldDetector._match_waf_signature(200, {'server': 'nginx'}, 'OK')
+        self.assertIsNone(result)
+
+    def test_generic_waf_403_blocked_body(self):
+        result = ShieldDetector._match_waf_signature(403, {}, 'access denied blocked by firewall')
+        self.assertIsNotNone(result)
+
+
+class TestCDNDetectionAdvanced(unittest.TestCase):
+    """Advanced CDN detection tests."""
+
+    def _make_detector(self):
+        engine = MagicMock()
+        engine.config = {'verbose': False}
+        engine.requester = MagicMock()
+        return ShieldDetector(engine)
+
+    def test_detect_cdn_returns_dict(self):
+        det = self._make_detector()
+        with patch.object(det, '_resolve_dns', return_value=([], [])):
+            result = det.detect_cdn('http://example.com')
+        self.assertIsInstance(result, dict)
+        self.assertIn('detected', result)
+
+    def test_detect_cdn_cloudflare_header(self):
+        det = self._make_detector()
+        probe = MagicMock()
+        probe.headers = {'cf-ray': '123abc'}
+        with patch.object(det, '_resolve_dns', return_value=(['104.16.0.1'], ['example.com.cdn.cloudflare.net'])):
+            result = det.detect_cdn('http://example.com', probe_result={'response': probe})
+        self.assertTrue(result['detected'])
+
+
+class TestBuildProbeUrl(unittest.TestCase):
+    """Test _build_probe_url."""
+
+    def test_includes_payload(self):
+        url = ShieldDetector._build_probe_url('http://example.com', "' OR 1=1")
+        self.assertIn('waftest', url)
+
+    def test_handles_existing_query(self):
+        url = ShieldDetector._build_probe_url('http://example.com?foo=bar', 'test')
+        self.assertIn('waftest', url)
+
+
+class TestShieldProfileStructure(unittest.TestCase):
+    """Test run() return structure."""
+
+    def _make_detector(self):
+        engine = MagicMock()
+        engine.config = {'verbose': False}
+        engine.requester = MagicMock()
+        return ShieldDetector(engine)
+
+    def test_run_returns_expected_keys(self):
+        det = self._make_detector()
+        with patch.object(det, 'detect_cdn', return_value={'detected': False, 'provider': None, 'edge_ip': None, 'cname_chain': [], 'cidr_matched': False}), \
+             patch.object(det, 'detect_waf', return_value={'detected': False, 'provider': None, 'confidence': 0, 'block_code': None, 'block_threshold': 0, 'signatures_matched': []}):
+            result = det.run('http://example.com')
+        for key in ('cdn', 'waf', 'needs_origin_discovery', 'needs_waf_bypass'):
+            self.assertIn(key, result)
+
+    def test_needs_origin_when_cdn_detected(self):
+        det = self._make_detector()
+        with patch.object(det, 'detect_cdn', return_value={'detected': True, 'provider': 'Cloudflare', 'edge_ip': '1.1.1.1', 'cname_chain': [], 'cidr_matched': True}), \
+             patch.object(det, 'detect_waf', return_value={'detected': False, 'provider': None, 'confidence': 0, 'block_code': None, 'block_threshold': 0, 'signatures_matched': []}):
+            result = det.run('http://example.com')
+        self.assertTrue(result['needs_origin_discovery'])
 
 
 if __name__ == '__main__':

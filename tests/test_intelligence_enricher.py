@@ -7,6 +7,10 @@ from unittest.mock import MagicMock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from core.intelligence_enricher import (
+    TechFingerprinter, CVEMatcher, TechStack, IntelligenceEnricher,
+)
+
 
 def _mock_engine():
     e = MagicMock()
@@ -192,6 +196,169 @@ class TestIntelligenceEnricher(unittest.TestCase):
         self.assertIsNotNone(result.tech_stack)
         self.assertGreater(len(result.param_weights), 0)
         self.assertGreater(len(result.endpoint_types), 0)
+
+
+class TestTechFingerprinterAdvanced(unittest.TestCase):
+    """Advanced tech fingerprinting tests."""
+
+    def _make_fp(self):
+        engine = MagicMock()
+        engine.config = {'verbose': False}
+        return TechFingerprinter(engine)
+
+    def test_detect_apache(self):
+        fp = self._make_fp()
+        resp = MagicMock()
+        resp.headers = {'Server': 'Apache/2.4.52'}
+        resp.text = ''
+        stack = fp.run([resp])
+        self.assertEqual(stack.server, 'Apache')
+
+    def test_detect_iis(self):
+        fp = self._make_fp()
+        resp = MagicMock()
+        resp.headers = {'Server': 'Microsoft-IIS/10.0'}
+        resp.text = ''
+        stack = fp.run([resp])
+        self.assertEqual(stack.server, 'IIS')
+
+    def test_detect_php_cookie(self):
+        fp = self._make_fp()
+        resp = MagicMock()
+        resp.headers = {'Set-Cookie': 'PHPSESSID=abc123'}
+        resp.text = ''
+        resp.cookies = MagicMock()
+        resp.cookies.keys.return_value = ['PHPSESSID']
+        stack = fp.run([resp])
+        self.assertEqual(stack.language, 'PHP')
+
+    def test_detect_wordpress_body(self):
+        fp = self._make_fp()
+        resp = MagicMock()
+        resp.headers = {}
+        resp.text = '<link rel="stylesheet" href="/wp-content/themes/test/style.css">'
+        resp.cookies = MagicMock()
+        resp.cookies.keys.return_value = []
+        stack = fp.run([resp])
+        self.assertEqual(stack.cms, 'WordPress')
+
+    def test_detect_react_body(self):
+        fp = self._make_fp()
+        resp = MagicMock()
+        resp.headers = {}
+        resp.text = '<script src="/static/js/react.production.min.js"></script>'
+        resp.cookies = MagicMock()
+        resp.cookies.keys.return_value = []
+        stack = fp.run([resp])
+        self.assertIn('React', stack.js_frameworks)
+
+    def test_detect_jquery_body(self):
+        fp = self._make_fp()
+        resp = MagicMock()
+        resp.headers = {}
+        resp.text = '<script src="/js/jquery.min.js"></script>'
+        resp.cookies = MagicMock()
+        resp.cookies.keys.return_value = []
+        stack = fp.run([resp])
+        self.assertIn('jQuery', stack.all_techs)
+
+    def test_multiple_techs_from_single_response(self):
+        fp = self._make_fp()
+        resp = MagicMock()
+        resp.headers = {'Server': 'Apache/2.4', 'Set-Cookie': 'PHPSESSID=abc'}
+        resp.text = '<link href="/wp-content/themes/t/s.css">'
+        resp.cookies = MagicMock()
+        resp.cookies.keys.return_value = ['PHPSESSID']
+        stack = fp.run([resp])
+        self.assertEqual(stack.server, 'Apache')
+        self.assertEqual(stack.language, 'PHP')
+        self.assertEqual(stack.cms, 'WordPress')
+
+
+class TestCVEMatcherAdvanced(unittest.TestCase):
+    """Advanced CVE matching tests."""
+
+    def _make_matcher(self):
+        engine = MagicMock()
+        engine.config = {'verbose': False}
+        return CVEMatcher(engine)
+
+    def test_matches_php_cve(self):
+        matcher = self._make_matcher()
+        stack = TechStack(language='PHP')
+        stack.all_techs = {'PHP': 'language'}
+        results = matcher.run(stack)
+        cve_ids = [m.cve_id for m in results]
+        self.assertTrue(any('CVE' in c for c in cve_ids))
+
+    def test_no_match_for_unknown_tech(self):
+        matcher = self._make_matcher()
+        stack = TechStack(language='Brainfuck')
+        stack.all_techs = {'Brainfuck': 'language'}
+        results = matcher.run(stack)
+        self.assertEqual(len(results), 0)
+
+
+class TestParamEnrichment(unittest.TestCase):
+    """Test parameter enrichment weights."""
+
+    def _make_enricher(self):
+        engine = MagicMock()
+        engine.config = {'verbose': False}
+        return IntelligenceEnricher(engine)
+
+    def test_numeric_id_high_weight(self):
+        enricher = self._make_enricher()
+        weights = enricher._enrich_params([
+            ('http://a.com/', 'get', 'id', '123', 'crawl'),
+        ])
+        self.assertGreaterEqual(weights.get('id', 0), 0.5)
+
+    def test_token_param_max_weight(self):
+        enricher = self._make_enricher()
+        weights = enricher._enrich_params([
+            ('http://a.com/', 'get', 'token', 'abc', 'crawl'),
+        ])
+        self.assertAlmostEqual(weights.get('token', 0), 1.0)
+
+    def test_empty_params(self):
+        enricher = self._make_enricher()
+        weights = enricher._enrich_params([])
+        self.assertEqual(weights, {})
+
+
+class TestEndpointClassification(unittest.TestCase):
+    """Test endpoint classification."""
+
+    def _make_enricher(self):
+        engine = MagicMock()
+        engine.config = {'verbose': False}
+        return IntelligenceEnricher(engine)
+
+    def test_login_classified(self):
+        enricher = self._make_enricher()
+        types = enricher._classify_endpoints(['http://a.com/login'])
+        self.assertEqual(types.get('http://a.com/login'), 'LOGIN')
+
+    def test_admin_classified(self):
+        enricher = self._make_enricher()
+        types = enricher._classify_endpoints(['http://a.com/admin/panel'])
+        self.assertEqual(types.get('http://a.com/admin/panel'), 'ADMIN')
+
+    def test_api_classified(self):
+        enricher = self._make_enricher()
+        types = enricher._classify_endpoints(['http://a.com/api/v1/users'])
+        self.assertEqual(types.get('http://a.com/api/v1/users'), 'API')
+
+    def test_static_classified(self):
+        enricher = self._make_enricher()
+        types = enricher._classify_endpoints(['http://a.com/static/main.css'])
+        self.assertEqual(types.get('http://a.com/static/main.css'), 'STATIC')
+
+    def test_unknown_classified(self):
+        enricher = self._make_enricher()
+        types = enricher._classify_endpoints(['http://a.com/xyz'])
+        self.assertEqual(types.get('http://a.com/xyz'), 'UNKNOWN')
 
 
 if __name__ == '__main__':
