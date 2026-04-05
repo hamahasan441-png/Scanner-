@@ -225,7 +225,8 @@ class ReconRunner:
             Config.MAX_DEPTH,
         )
         if crawl_target != target:
-            print(f"{Colors.info(f'Crawling via origin IP ({crawl_target}) with depth {depth}...')}")
+            origin_host = urlparse(crawl_target).hostname or 'origin'
+            print(f"{Colors.info(f'Crawling via origin IP ({origin_host}) with depth {depth}...')}")
         else:
             print(f"{Colors.info(f'Crawling with depth {depth}...')}")
         urls, forms, parameters = crawler.crawl(crawl_target, depth)

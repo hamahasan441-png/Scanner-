@@ -10,6 +10,7 @@ import os
 import re
 import shutil
 import subprocess
+import tempfile
 from urllib.parse import urlparse, urljoin, urlencode, parse_qs
 
 from config import Colors
@@ -65,6 +66,11 @@ class FuzzerModule:
         Unlike ``test_url`` which reports vulnerability findings, this
         method focuses solely on discovering new endpoints and hidden
         parameters to feed into subsequent pipeline phases.
+
+        Args:
+            url: The target URL to fuzz for hidden endpoints and
+                parameters.  When an origin IP has been resolved, this
+                should point at the origin server.
 
         Returns:
             dict: A dictionary with the following keys:
@@ -122,13 +128,24 @@ class FuzzerModule:
             return set()
 
         wordlist = self._load_seclists_wordlist('common.txt')
-        wordlist_file = os.path.join(os.getcwd(), '.fuzzer_disc_wordlist.txt')
-        output_file = os.path.join(os.getcwd(), '.fuzzer_disc_output.json')
         endpoints: set = set()
+        wordlist_fd = None
+        output_fd = None
+        wordlist_file = ''
+        output_file = ''
 
         try:
-            with open(wordlist_file, 'w') as fh:
+            wordlist_fd, wordlist_file = tempfile.mkstemp(
+                prefix='fuzzer_disc_wl_', suffix='.txt')
+            output_fd, output_file = tempfile.mkstemp(
+                prefix='fuzzer_disc_out_', suffix='.json')
+            # Close the fd for the output file so ffuf can write to it
+            os.close(output_fd)
+            output_fd = None
+
+            with os.fdopen(wordlist_fd, 'w') as fh:
                 fh.write('\n'.join(wordlist))
+            wordlist_fd = None  # fd closed by fdopen
 
             parsed = urlparse(url)
             fuzz_url = f"{parsed.scheme}://{parsed.netloc}/FUZZ"

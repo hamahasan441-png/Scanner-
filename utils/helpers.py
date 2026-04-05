@@ -33,10 +33,9 @@ def build_origin_target(target: str, origin_ip: str) -> str:
         return target
     try:
         parsed = urlparse(target)
-        # Preserve port if present in the original netloc
-        if ':' in (parsed.netloc or ''):
-            _, port = parsed.netloc.rsplit(':', 1)
-            new_netloc = f"{origin_ip}:{port}"
+        # Preserve explicit port if present in the original URL
+        if parsed.port:
+            new_netloc = f"{origin_ip}:{parsed.port}"
         else:
             new_netloc = origin_ip
         return urlunparse(parsed._replace(netloc=new_netloc))

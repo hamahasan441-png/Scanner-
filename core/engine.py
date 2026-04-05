@@ -500,7 +500,8 @@ class AtomicEngine:
             )
 
             if effective_target != target:
-                print(f"{Colors.info(f'Crawling via origin IP ({effective_target}) with depth {depth}...')}")
+                origin_host = urlparse(effective_target).hostname or 'origin'
+                print(f"{Colors.info(f'Crawling via origin IP ({origin_host}) with depth {depth}...')}")
             else:
                 print(f"{Colors.info(f'Crawling with depth {depth}...')}")
             urls, forms, parameters = crawler.crawl(effective_target, depth)
