@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ATOMIC FRAMEWORK v8.0 - ULTIMATE EDITION
+ATOMIC FRAMEWORK v9.0 - ULTIMATE EDITION
 Multi-Signal Analysis & Scoring Module
 
 Collects multiple detection signals (timing, reflection, error patterns,

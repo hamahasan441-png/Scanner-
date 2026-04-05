@@ -1,4 +1,4 @@
-# ATOMIC FRAMEWORK v8.2 — ULTIMATE EDITION
+# ATOMIC FRAMEWORK v9.0 — ULTIMATE EDITION
 
 ⚠️ **FOR AUTHORIZED TESTING ONLY** ⚠️
 
@@ -527,4 +527,4 @@ This project is for educational purposes only.
 
 ## Credits
 
-ATOMIC Framework v8.2 — ULTIMATE EDITION | Codename: PHOENIX
+ATOMIC Framework v9.0 — ULTIMATE EDITION | Codename: PHOENIX

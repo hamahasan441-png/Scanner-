@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ATOMIC FRAMEWORK v8.0 - ULTIMATE EDITION
+ATOMIC FRAMEWORK v9.0 - ULTIMATE EDITION
 Target Discovery & Enumeration Module
 
 Performs structured discovery to identify valid attack surfaces before
@@ -842,7 +842,7 @@ class DiscoveryModule:
                 f"&output=json&fl=original&collapse=urlkey&limit=500"
             )
             req = Request(cdx_url, headers={
-                'User-Agent': 'ATOMIC-Framework/8.0'
+                'User-Agent': 'ATOMIC-Framework/9.0'
             })
             with urlopen(req, timeout=timeout) as response:
                 data = json.loads(response.read().decode('utf-8', errors='replace'))
