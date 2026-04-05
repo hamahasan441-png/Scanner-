@@ -157,5 +157,218 @@ vuln_map: {}
             os.unlink(f.name)
 
 
+class TestRulesEngineGetters(unittest.TestCase):
+    """Test all getter methods not already covered."""
+
+    def setUp(self):
+        self.rules = RulesEngine()
+
+    def test_get_strip_patterns_returns_list(self):
+        result = self.rules.get_strip_patterns()
+        self.assertIsInstance(result, list)
+        self.assertIn('timestamps', result)
+
+    def test_get_min_repro_runs(self):
+        self.assertEqual(self.rules.get_min_repro_runs(), 3)
+
+    def test_get_min_strong_signals(self):
+        self.assertEqual(self.rules.get_min_strong_signals(), 2)
+
+    def test_get_appendix_labels(self):
+        labels = self.rules.get_appendix_labels()
+        self.assertIn('suspected', labels)
+        self.assertIn('likely', labels)
+
+    def test_get_main_report_labels(self):
+        labels = self.rules.get_main_report_labels()
+        self.assertIn('high', labels)
+        self.assertIn('confirmed', labels)
+
+    def test_get_evidence_required_returns_list(self):
+        result = self.rules.get_evidence_required()
+        self.assertIsInstance(result, list)
+        self.assertIn('endpoint', result)
+
+    def test_get_priority_order_returns_list(self):
+        order = self.rules.get_priority_order()
+        self.assertIsInstance(order, list)
+        self.assertTrue(len(order) > 0)
+
+    def test_get_keyword_buckets_returns_dict(self):
+        buckets = self.rules.get_keyword_buckets()
+        self.assertIsInstance(buckets, dict)
+        self.assertIn('auth_admin_account', buckets)
+
+
+class TestRulesEngineProperties(unittest.TestCase):
+    """Test property accessors return correct types."""
+
+    def setUp(self):
+        self.rules = RulesEngine()
+
+    def test_discovery_is_dict(self):
+        self.assertIsInstance(self.rules.discovery, dict)
+
+    def test_baseline_is_dict(self):
+        self.assertIsInstance(self.rules.baseline, dict)
+
+    def test_prioritization_is_dict(self):
+        self.assertIsInstance(self.rules.prioritization, dict)
+
+    def test_context_classification_is_dict(self):
+        self.assertIsInstance(self.rules.context_classification, dict)
+
+    def test_verification_is_dict(self):
+        self.assertIsInstance(self.rules.verification, dict)
+
+    def test_scoring_is_dict(self):
+        self.assertIsInstance(self.rules.scoring, dict)
+
+    def test_reporting_is_dict(self):
+        self.assertIsInstance(self.rules.reporting, dict)
+
+    def test_vuln_map_is_dict(self):
+        self.assertIsInstance(self.rules.vuln_map, dict)
+
+    def test_vuln_map_deep_copy(self):
+        vm1 = self.rules.vuln_map
+        vm2 = self.rules.vuln_map
+        self.assertEqual(vm1, vm2)
+        # Mutating one should not affect the other
+        if vm1:
+            first_key = next(iter(vm1))
+            vm1[first_key]['_test'] = True
+            self.assertNotIn('_test', vm2.get(first_key, {}))
+
+
+class TestRulesEngineMatchersExtended(unittest.TestCase):
+    """Extended tests for matcher methods."""
+
+    def setUp(self):
+        self.rules = RulesEngine()
+
+    def test_matches_vuln_path_wildcard(self):
+        # Set up a vuln with wildcard paths
+        self.rules._raw['vuln_map']['test_vuln'] = {
+            'paths': ['*'], 'params': [], 'strong_signals': [], 'reject_if': [],
+        }
+        self.assertTrue(self.rules.matches_vuln_path('test_vuln', '/any/path'))
+
+    def test_matches_vuln_path_empty_paths(self):
+        self.rules._raw['vuln_map']['test_vuln'] = {
+            'paths': [], 'params': [], 'strong_signals': [], 'reject_if': [],
+        }
+        self.assertTrue(self.rules.matches_vuln_path('test_vuln', '/any/path'))
+
+    def test_matches_vuln_path_template(self):
+        self.rules._raw['vuln_map']['test_vuln'] = {
+            'paths': ['/users/{id}'], 'params': [], 'strong_signals': [], 'reject_if': [],
+        }
+        self.assertTrue(self.rules.matches_vuln_path('test_vuln', '/users/123'))
+
+    def test_matches_vuln_path_no_match(self):
+        self.rules._raw['vuln_map']['test_vuln'] = {
+            'paths': ['/admin'], 'params': [], 'strong_signals': [], 'reject_if': [],
+        }
+        self.assertFalse(self.rules.matches_vuln_path('test_vuln', '/public'))
+
+    def test_matches_vuln_param_case_insensitive(self):
+        self.rules._raw['vuln_map']['test_vuln'] = {
+            'paths': [], 'params': ['ID', 'Username'], 'strong_signals': [], 'reject_if': [],
+        }
+        self.assertTrue(self.rules.matches_vuln_param('test_vuln', 'id'))
+        self.assertTrue(self.rules.matches_vuln_param('test_vuln', 'username'))
+
+    def test_matches_vuln_param_no_match(self):
+        self.rules._raw['vuln_map']['test_vuln'] = {
+            'paths': [], 'params': ['id'], 'strong_signals': [], 'reject_if': [],
+        }
+        self.assertFalse(self.rules.matches_vuln_param('test_vuln', 'random'))
+
+    def test_should_reject_finding_with_set(self):
+        self.rules._raw['vuln_map']['test_vuln'] = {
+            'paths': [], 'params': [], 'strong_signals': [],
+            'reject_if': ['reflection_only', 'generic_500_only'],
+        }
+        self.assertTrue(self.rules.should_reject_finding('test_vuln', {'reflection_only'}))
+        self.assertFalse(self.rules.should_reject_finding('test_vuln', {'valid_signal'}))
+
+    def test_should_reject_finding_unknown_vuln(self):
+        self.assertFalse(self.rules.should_reject_finding('nonexistent', ['anything']))
+
+    def test_is_noisy_endpoint_zero_mean(self):
+        self.assertFalse(self.rules.is_noisy_endpoint(0.5, 0))
+
+    def test_is_noisy_endpoint_below_threshold(self):
+        self.assertFalse(self.rules.is_noisy_endpoint(0.1, 1.0))
+
+    def test_is_noisy_endpoint_above_threshold(self):
+        self.assertTrue(self.rules.is_noisy_endpoint(0.5, 1.0))
+
+
+class TestRulesEngineToDict(unittest.TestCase):
+    """Test to_dict returns deep copy."""
+
+    def test_returns_dict(self):
+        rules = RulesEngine()
+        d = rules.to_dict()
+        self.assertIsInstance(d, dict)
+
+    def test_contains_required_keys(self):
+        rules = RulesEngine()
+        d = rules.to_dict()
+        for key in ('profile', 'pipeline', 'runtime_defaults', 'scoring', 'verification'):
+            self.assertIn(key, d)
+
+    def test_deep_copy_isolation(self):
+        rules = RulesEngine()
+        d = rules.to_dict()
+        d['profile'] = 'MODIFIED'
+        self.assertNotEqual(rules.profile, 'MODIFIED')
+
+
+class TestRulesEngineScoringLabels(unittest.TestCase):
+    """Test boundary conditions for scoring labels."""
+
+    def setUp(self):
+        self.rules = RulesEngine()
+
+    def test_score_0_is_suspected(self):
+        self.assertEqual(self.rules.get_scoring_label(0), 'suspected')
+
+    def test_score_39_is_suspected(self):
+        self.assertEqual(self.rules.get_scoring_label(39), 'suspected')
+
+    def test_score_40_is_likely(self):
+        self.assertEqual(self.rules.get_scoring_label(40), 'likely')
+
+    def test_score_64_is_likely(self):
+        self.assertEqual(self.rules.get_scoring_label(64), 'likely')
+
+    def test_score_65_is_high(self):
+        self.assertEqual(self.rules.get_scoring_label(65), 'high')
+
+    def test_score_84_is_high(self):
+        self.assertEqual(self.rules.get_scoring_label(84), 'high')
+
+    def test_score_85_is_confirmed(self):
+        self.assertEqual(self.rules.get_scoring_label(85), 'confirmed')
+
+    def test_score_100_is_confirmed(self):
+        self.assertEqual(self.rules.get_scoring_label(100), 'confirmed')
+
+
+class TestRulesEngineConfigOverrideDelay(unittest.TestCase):
+    """Test delay override."""
+
+    def test_config_overrides_delay(self):
+        rules = RulesEngine(config={'delay': 0.5})
+        self.assertAlmostEqual(rules.runtime['delay_seconds'], 0.5)
+
+    def test_delay_zero_override(self):
+        rules = RulesEngine(config={'delay': 0})
+        self.assertEqual(rules.runtime['delay_seconds'], 0)
+
+
 if __name__ == '__main__':
     unittest.main()

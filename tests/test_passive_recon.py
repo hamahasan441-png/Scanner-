@@ -7,6 +7,10 @@ from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from core.passive_recon import (
+    URLDeduplicator, AssetGraph, ReconBundle, PortBundle, FanoutResult,
+)
+
 
 def _mock_engine():
     e = MagicMock()
@@ -154,6 +158,73 @@ class TestPassiveReconFanout(unittest.TestCase):
         result.params = []
         merged = f._merge_results('http://example.com', result)
         self.assertEqual(len(merged.urls), 4)
+
+
+class TestURLDeduplicatorAdvanced(unittest.TestCase):
+    """Advanced URL dedup tests."""
+
+    def test_normalize_with_port(self):
+        dd = URLDeduplicator()
+        result = dd.normalize('HTTP://Example.COM:8080/path')
+        self.assertIn('example.com', result)
+
+    def test_is_static_font(self):
+        dd = URLDeduplicator()
+        self.assertTrue(dd.is_static('http://a.com/f.woff'))
+        self.assertTrue(dd.is_static('http://a.com/f.ttf'))
+
+    def test_is_static_false_for_dynamic(self):
+        dd = URLDeduplicator()
+        self.assertFalse(dd.is_static('http://a.com/page.php'))
+        self.assertFalse(dd.is_static('http://a.com/api/users'))
+
+    def test_deduplicate_removes_duplicates(self):
+        dd = URLDeduplicator()
+        urls = ['http://a.com/path', 'HTTP://A.COM/path', 'http://a.com/path?']
+        result = dd.deduplicate(urls)
+        self.assertLessEqual(len(result), 2)
+
+
+class TestAssetGraphAdvanced(unittest.TestCase):
+    """Advanced asset graph tests."""
+
+    def test_add_multiple_edges(self):
+        g = AssetGraph()
+        g.add_node('http://a.com/')
+        g.add_node('http://a.com/about')
+        g.add_node('http://a.com/contact')
+        g.add_edge('http://a.com/', 'http://a.com/about')
+        g.add_edge('http://a.com/', 'http://a.com/contact')
+        d = g.to_dict()
+        self.assertEqual(d['node_count'], 3)
+
+    def test_get_depth_unknown_url(self):
+        g = AssetGraph()
+        self.assertEqual(g.get_depth('http://nonexistent.com'), 0)
+
+
+class TestDataclassSerialization(unittest.TestCase):
+    """Test dataclass to_dict methods."""
+
+    def test_recon_bundle_to_dict(self):
+        b = ReconBundle()
+        d = b.to_dict()
+        self.assertIsInstance(d, dict)
+
+    def test_port_bundle_to_dict(self):
+        b = PortBundle()
+        d = b.to_dict()
+        self.assertIsInstance(d, dict)
+
+    def test_fanout_result_to_dict(self):
+        r = FanoutResult()
+        d = r.to_dict()
+        self.assertIsInstance(d, dict)
+
+    def test_recon_bundle_custom_values(self):
+        b = ReconBundle(dns={'A': ['1.1.1.1']})
+        d = b.to_dict()
+        self.assertEqual(d['dns'], {'A': ['1.1.1.1']})
 
 
 if __name__ == '__main__':
