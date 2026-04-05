@@ -151,7 +151,9 @@ class ScanRunner:
 
     def _run_modules(self, enriched_params, prioritized_urls, ai_strategy):
         """Adaptive module testing with reflection gate."""
-        REFLECTION_DEPENDENT = {'xss', 'ssti'}
+        # Determine which modules require input reflection from module metadata
+        # (falls back to known set if module lacks the attribute)
+        _FALLBACK_REFLECTION_MODULES = {'xss', 'ssti'}
 
         # Determine module order
         ordered_modules = []
@@ -164,6 +166,14 @@ class ScanRunner:
                     ordered_modules.append((mkey, minst))
         else:
             ordered_modules = list(self.engine._modules.items())
+
+        # Build reflection-dependent set from module metadata
+        reflection_dependent: set = set()
+        for mkey, minst in ordered_modules:
+            if getattr(minst, 'requires_reflection', False):
+                reflection_dependent.add(mkey)
+            elif mkey in _FALLBACK_REFLECTION_MODULES:
+                reflection_dependent.add(mkey)
 
         # Reflection cache
         reflection_cache: dict = {}
@@ -185,7 +195,7 @@ class ScanRunner:
                 ep_key = f"{module_key}:{ep['method']}:{ep['url']}:{ep['param']}"
                 if self.engine.persistence.is_tested(ep_key):
                     continue
-                if module_key in REFLECTION_DEPENDENT:
+                if module_key in reflection_dependent:
                     r_key = (ep['url'], ep['method'], ep['param'])
                     if not reflection_cache.get(r_key, False):
                         self.engine.persistence.mark_tested(ep_key)

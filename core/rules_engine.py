@@ -143,7 +143,7 @@ class RulesEngine:
         if not os.path.isfile(_SCHEMA_PATH):
             return  # schema file not shipped — skip
         try:
-            import jsonschema  # noqa: F811
+            import jsonschema
         except ImportError:
             # jsonschema is optional; skip validation when not installed
             return

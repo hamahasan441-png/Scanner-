@@ -35,7 +35,7 @@ def _extract_file_refs(doc_path: str) -> set:
     with open(doc_path, 'r', encoding='utf-8') as fh:
         text = fh.read()
     # Match patterns like `core/engine.py`, `modules/sqli.py`, etc.
-    for m in re.finditer(r'(?:^|[`\s/])([a-z_]+/[a-z_]+(?:/[a-z_]+)?\.py)\b', text):
+    for m in re.finditer(r'(?:^|[`\s/])([a-zA-Z0-9_-]+/[a-zA-Z0-9_-]+(?:/[a-zA-Z0-9_-]+)?\.py)\b', text):
         refs.add(m.group(1))
     return refs
 
