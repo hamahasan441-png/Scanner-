@@ -164,6 +164,11 @@ class Crawler:
     _PATH_BASE64_RE = re.compile(r'^[A-Za-z0-9+/]{16,}={1,2}$')
     _PATH_SHORT_TOKEN_RE = re.compile(r'^(?=.*[a-zA-Z])(?=.*\d)[a-zA-Z0-9]{8,12}$')
 
+    _JS_NOISE = frozenset((
+        'true', 'false', 'null', 'undefined', 'constructor',
+        'prototype', 'length', 'name', 'type', 'value',
+    ))
+
     def _extract_path_params(self, url: str):
         """Extract injectable path segments as testable parameters.
 
@@ -318,14 +323,10 @@ class Crawler:
                 self.parameters.append((url, 'post', match, '', 'js_formdata'))
 
             # Object keys in body/data/params: { key: ... }
-            _JS_NOISE = frozenset((
-                'true', 'false', 'null', 'undefined', 'constructor',
-                'prototype', 'length', 'name', 'type', 'value',
-            ))
             body_blocks = re.findall(r'(?:body|data|params)\s*[:=]\s*\{([^}]+)\}', src)
             for block in body_blocks:
                 for key in re.findall(r'["\']?(\w+)["\']?\s*:', block):
-                    if key not in _JS_NOISE:
+                    if key not in self._JS_NOISE:
                         self.parameters.append((url, 'post', key, '', 'js_body_key'))
 
             # getElementById / getElementsByName form value extraction
