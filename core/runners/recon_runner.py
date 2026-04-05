@@ -51,7 +51,15 @@ class ReconRunner:
     # ------------------------------------------------------------------
 
     def run(self, target: str, init_resp: Any = None) -> ReconResult:
-        """Execute the full recon phase and return ``ReconResult``."""
+        """Execute the full recon phase and return ``ReconResult``.
+
+        Regulated pipeline order:
+          1. WAF/CDN detection (shield detect)
+          2. Real IP discovery
+          3. Discovery: crawler + fuzzer (using origin IP when available)
+          4. Passive recon fan-out (uses origin IP for tool targets)
+          5. Vulnerability scanning happens downstream in ScanRunner
+        """
         result = ReconResult()
 
         # ── PHASE 1: SHIELD DETECTION (CDN + WAF) ────────────────────
@@ -60,16 +68,27 @@ class ReconRunner:
         # ── PHASE 2: REAL IP DISCOVERY ────────────────────────────────
         result.real_ip_result = self._real_ip_discover(target, result.shield_profile)
 
-        # ── PHASE 5: PASSIVE RECON & DISCOVERY (fan-out) ──────────────
-        result.fanout_result = self._passive_recon(target)
+        # Determine the effective scan target: use origin IP when found
+        # so that crawling, fuzzing, and recon hit the real server.
+        origin_ip = (result.real_ip_result.get('origin_ip')
+                     if result.real_ip_result else None)
+        effective_target = target
+        if origin_ip:
+            from utils.helpers import build_origin_target
+            effective_target = build_origin_target(target, origin_ip)
+
+        # ── PHASE 3: PASSIVE RECON & DISCOVERY (fan-out) ──────────────
+        result.fanout_result = self._passive_recon(effective_target)
 
         if result.fanout_result is not None:
             result.urls = result.fanout_result.urls
             result.forms = result.fanout_result.forms
             result.parameters = result.fanout_result.params
         else:
-            # Fallback: legacy discovery path
-            urls, forms, parameters = self._legacy_discovery(target)
+            # Fallback: legacy discovery path (crawler + fuzzer)
+            urls, forms, parameters = self._legacy_discovery(
+                target, effective_target=effective_target,
+                shield_profile=result.shield_profile)
             result.urls = urls
             result.forms = forms
             result.parameters = parameters
@@ -138,8 +157,21 @@ class ReconRunner:
                 print(f"{Colors.error(f'Phase 5 fan-out error: {e}')}")
             return None
 
-    def _legacy_discovery(self, target: str) -> Tuple[Set[str], list, list]:
-        """Run legacy crawl + discovery when passive recon is disabled."""
+    def _legacy_discovery(self, target: str, *,
+                          effective_target: str = '',
+                          shield_profile: Optional[Dict] = None,
+                          ) -> Tuple[Set[str], list, list]:
+        """Run legacy crawl + fuzzer + discovery when passive recon is disabled.
+
+        Args:
+            target: The original user-supplied target URL.
+            effective_target: The URL to actually crawl / fuzz.  When
+                an origin IP has been discovered this will point at the
+                real server.  Falls back to *target* when empty.
+            shield_profile: CDN/WAF detection results (used to log
+                context; evasion headers are injected by the requester).
+        """
+        crawl_target = effective_target or target
         mc = self.modules_config
 
         # Reconnaissance (optional)
@@ -152,14 +184,14 @@ class ReconRunner:
                 if self.config.get('verbose'):
                     print(f"{Colors.error(f'Recon error: {e}')}")
 
-        # Port scanning + network exploit scanning
+        # Port scanning: use origin IP when available for accurate port scans
         port_results: list = []
         port_spec = mc.get('ports')
         if port_spec:
             try:
                 from modules.port_scanner import PortScanner
                 scanner = PortScanner(self.engine)
-                hostname = urlparse(target).hostname
+                hostname = urlparse(crawl_target).hostname
                 port_results = scanner.run(hostname, port_spec)
             except Exception as e:
                 if self.config.get('verbose'):
@@ -169,7 +201,7 @@ class ReconRunner:
             try:
                 from modules.network_exploits import NetworkExploitScanner
                 net_exploit = NetworkExploitScanner(self.engine)
-                hostname = urlparse(target).hostname
+                hostname = urlparse(crawl_target).hostname
                 net_exploit.run(hostname, port_results)
             except Exception as e:
                 if self.config.get('verbose'):
@@ -185,15 +217,18 @@ class ReconRunner:
                 if self.config.get('verbose'):
                     print(f"{Colors.error(f'Technology exploit scan error: {e}')}")
 
-        # Crawl target
+        # Crawl target (uses origin IP URL to bypass WAF/CDN)
         from utils.crawler import Crawler
         crawler = Crawler(self.engine)
         depth = min(
             self.config.get('depth', 3) + self.engine.adaptive.get_depth_boost(),
             Config.MAX_DEPTH,
         )
-        print(f"{Colors.info(f'Crawling with depth {depth}...')}")
-        urls, forms, parameters = crawler.crawl(target, depth)
+        if crawl_target != target:
+            print(f"{Colors.info(f'Crawling via origin IP ({crawl_target}) with depth {depth}...')}")
+        else:
+            print(f"{Colors.info(f'Crawling with depth {depth}...')}")
+        urls, forms, parameters = crawler.crawl(crawl_target, depth)
         print(f"{Colors.info(f'Found {len(urls)} URLs, {len(forms)} forms, {len(parameters)} parameters')}")
 
         if self.config.get('verbose') and crawler.endpoint_graph:
@@ -203,6 +238,28 @@ class ReconRunner:
         # Scope filter
         urls = self.engine.scope.filter_urls(urls)
         parameters = self.engine.scope.filter_parameters(parameters)
+
+        # ── Fuzzer discovery (uses origin IP target) ──────────────────
+        # Run fuzzer to discover additional endpoints and hidden
+        # parameters *before* the vulnerability scan phase begins.
+        if mc.get('fuzzer', False) or mc.get('discovery', False):
+            try:
+                from modules.fuzzer import FuzzerModule
+                fuzzer = FuzzerModule(self.engine)
+                fuzz_result = fuzzer.discover(crawl_target)
+
+                for fuzz_url in fuzz_result.get('urls', set()):
+                    if self.engine.scope.is_in_scope(fuzz_url):
+                        urls.add(fuzz_url)
+                        self.engine.adaptive.add_new_endpoint(fuzz_url)
+
+                fuzz_params = fuzz_result.get('parameters', [])
+                if fuzz_params:
+                    parameters.extend(fuzz_params)
+                    print(f"{Colors.info(f'Fuzzer discovered {len(fuzz_params)} additional parameters')}")
+            except Exception as e:
+                if self.config.get('verbose'):
+                    print(f"{Colors.error(f'Fuzzer discovery error: {e}')}")
 
         # Discovery module
         if mc.get('discovery', False):

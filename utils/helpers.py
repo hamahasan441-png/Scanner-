@@ -7,8 +7,58 @@ ATOMIC FRAMEWORK - Helper Utilities
 import sys
 import subprocess
 import platform
+from urllib.parse import urlparse, urlunparse
 
 from config import Colors
+
+
+def build_origin_target(target: str, origin_ip: str) -> str:
+    """Build a URL that points to the discovered origin IP.
+
+    Replaces the hostname in *target* with *origin_ip* so that
+    subsequent requests bypass CDN/WAF and hit the real server.
+    The original hostname is preserved for the ``Host`` header
+    (handled by callers via ``requester`` or ``headers`` kwarg).
+
+    Args:
+        target: The original target URL (e.g. ``https://example.com/path``).
+        origin_ip: The discovered origin IP address.
+
+    Returns:
+        A new URL string with the host replaced by *origin_ip*.
+        If *origin_ip* is falsy or parsing fails the original
+        *target* is returned unchanged.
+    """
+    if not origin_ip:
+        return target
+    try:
+        parsed = urlparse(target)
+        # Preserve port if present in the original netloc
+        if ':' in (parsed.netloc or ''):
+            _, port = parsed.netloc.rsplit(':', 1)
+            new_netloc = f"{origin_ip}:{port}"
+        else:
+            new_netloc = origin_ip
+        return urlunparse(parsed._replace(netloc=new_netloc))
+    except Exception:
+        return target
+
+
+def get_origin_host(target: str) -> str:
+    """Extract the original hostname from *target* for use as ``Host`` header.
+
+    Args:
+        target: The original target URL.
+
+    Returns:
+        The hostname (and optional port) from *target*, suitable for
+        use as an HTTP ``Host`` header value.
+    """
+    try:
+        parsed = urlparse(target)
+        return parsed.netloc or ''
+    except Exception:
+        return ''
 
 
 def check_dependencies():
