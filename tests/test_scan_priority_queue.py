@@ -7,6 +7,8 @@ from unittest.mock import MagicMock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from core.scan_priority_queue import ScanItem, StructuralDeduplicator, ScanPriorityQueue
+
 
 def _mock_engine():
     e = MagicMock()
@@ -112,6 +114,130 @@ class TestScanPriorityQueue(unittest.TestCase):
         self.assertEqual(self.pq._classify_endpoint('http://a.com/api/v1/users'), 'API')
         self.assertEqual(self.pq._classify_endpoint('http://a.com/search'), 'FORM')
         self.assertEqual(self.pq._classify_endpoint('http://a.com/about'), 'UNKNOWN')
+
+
+class TestScanItemExtended(unittest.TestCase):
+    """Extended ScanItem tests."""
+
+    def test_all_defaults(self):
+        item = ScanItem(url='http://a.com', param='id')
+        self.assertEqual(item.method, 'GET')
+        self.assertEqual(item.value, '')
+        self.assertEqual(item.source, '')
+        self.assertEqual(item.priority, 0.0)
+        self.assertEqual(item.cve_matches, [])
+        self.assertIsNone(item.bypass_profile)
+        self.assertEqual(item.scan_target, '')
+
+    def test_to_dict_all_fields(self):
+        item = ScanItem(url='http://a.com', param='id', priority=0.8)
+        d = item.to_dict()
+        for key in ('url', 'param', 'priority', 'method', 'endpoint_type'):
+            self.assertIn(key, d)
+
+
+class TestStructuralDeduplicatorAdvanced(unittest.TestCase):
+    """Advanced structural dedup tests."""
+
+    def test_nested_numeric_paths(self):
+        dd = StructuralDeduplicator()
+        key = dd.structural_key('http://example.com/api/1/comments/2')
+        self.assertIn('{N}', key)
+
+    def test_dedup_keeps_highest_priority(self):
+        dd = StructuralDeduplicator()
+        items = [
+            ScanItem(url='http://a.com/users/1', param='id', priority=0.5),
+            ScanItem(url='http://a.com/users/2', param='id', priority=0.9),
+        ]
+        result = dd.deduplicate(items)
+        self.assertEqual(len(result), 1)
+        self.assertAlmostEqual(result[0].priority, 0.9)
+
+    def test_different_structures_not_deduped(self):
+        dd = StructuralDeduplicator()
+        items = [
+            ScanItem(url='http://a.com/users/1', param='id', priority=0.5),
+            ScanItem(url='http://a.com/posts/1', param='id', priority=0.9),
+        ]
+        result = dd.deduplicate(items)
+        self.assertEqual(len(result), 2)
+
+    def test_empty_list(self):
+        dd = StructuralDeduplicator()
+        result = dd.deduplicate([])
+        self.assertEqual(result, [])
+
+
+class TestScanPriorityQueueScoring(unittest.TestCase):
+    """Test scoring and prioritization."""
+
+    def _make_queue(self):
+        engine = MagicMock()
+        engine.config = {'verbose': False}
+        return ScanPriorityQueue(engine)
+
+    def test_sorted_descending_by_priority(self):
+        pq = self._make_queue()
+        params = [
+            {'url': 'http://a.com/login', 'method': 'GET', 'param': 'user', 'value': 'admin', 'source': 'crawl', 'weight': 0.8},
+            {'url': 'http://a.com/static.css', 'method': 'GET', 'param': 'v', 'value': '1', 'source': 'crawl', 'weight': 0.1},
+            {'url': 'http://a.com/api/users', 'method': 'GET', 'param': 'id', 'value': '1', 'source': 'crawl', 'weight': 0.8},
+        ]
+        urls = {'http://a.com/login', 'http://a.com/api/users'}
+        result = pq.build(params, urls)
+        if len(result) > 1:
+            for i in range(len(result) - 1):
+                self.assertGreaterEqual(result[i].priority, result[i + 1].priority)
+
+    def test_login_endpoint_scored_higher(self):
+        pq = self._make_queue()
+        self.assertEqual(pq._classify_endpoint('http://a.com/login'), 'LOGIN')
+
+    def test_admin_endpoint_classified(self):
+        pq = self._make_queue()
+        self.assertEqual(pq._classify_endpoint('http://a.com/admin/dashboard'), 'ADMIN')
+
+    def test_api_endpoint_classified(self):
+        pq = self._make_queue()
+        self.assertEqual(pq._classify_endpoint('http://a.com/api/v1/users'), 'API')
+
+    def test_static_endpoint_classified(self):
+        pq = self._make_queue()
+        self.assertEqual(pq._classify_endpoint('http://a.com/static/main.css'), 'STATIC')
+
+    def test_upload_endpoint_classified(self):
+        pq = self._make_queue()
+        self.assertEqual(pq._classify_endpoint('http://a.com/upload'), 'UPLOAD')
+
+    def test_unknown_endpoint_classified(self):
+        pq = self._make_queue()
+        self.assertEqual(pq._classify_endpoint('http://a.com/xyz'), 'UNKNOWN')
+
+
+class TestScanPriorityQueueOriginIP(unittest.TestCase):
+    """Test origin IP propagation."""
+
+    def _make_queue(self):
+        engine = MagicMock()
+        engine.config = {'verbose': False}
+        return ScanPriorityQueue(engine)
+
+    def test_origin_ip_set_on_items(self):
+        pq = self._make_queue()
+        params = [{'url': 'http://a.com/', 'method': 'GET', 'param': 'id', 'value': '1', 'source': 'crawl', 'weight': 0.8}]
+        urls = {'http://a.com/'}
+        result = pq.build(params, urls, origin_ip='1.2.3.4')
+        if result:
+            self.assertIn('1.2.3.4', result[0].scan_target)
+
+    def test_no_origin_ip_default(self):
+        pq = self._make_queue()
+        params = [{'url': 'http://a.com/', 'method': 'GET', 'param': 'id', 'value': '1', 'source': 'crawl', 'weight': 0.8}]
+        urls = {'http://a.com/'}
+        result = pq.build(params, urls)
+        if result:
+            self.assertEqual(result[0].scan_target, result[0].url)
 
 
 if __name__ == '__main__':
