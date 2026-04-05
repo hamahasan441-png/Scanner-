@@ -118,6 +118,47 @@ CONTEXT_RULES = {
         ],
         'content_hints': ['mongo', 'nosql', 'json', 'bson', 'collection'],
     },
+    'xxe': {
+        'param_patterns': [
+            r'(?i)(xml|data|body|content|payload|input|upload|import)',
+            r'(?i)(feed|rss|soap|wsdl|schema)',
+        ],
+        'value_patterns': [r'.*<\?xml.*', r'.*<!DOCTYPE.*', r'.*<!ENTITY.*'],
+        'endpoint_patterns': [
+            r'(?i)(xml|soap|rss|feed|import|upload|parse|process)',
+        ],
+        'content_hints': ['xml', 'soap', 'dtd', 'entity', 'xmlns'],
+    },
+    'open_redirect': {
+        'param_patterns': [
+            r'(?i)(redirect|url|next|return|rurl|redir|destination|go|goto|out|view|login_url|continue|target|link|forward)',
+        ],
+        'value_patterns': [r'^https?://', r'^//', r'^/\w'],
+        'endpoint_patterns': [
+            r'(?i)(redirect|login|logout|return|callback|oauth|sso)',
+        ],
+        'content_hints': ['redirect', 'location', 'refresh', 'forward'],
+    },
+    'crlf': {
+        'param_patterns': [
+            r'(?i)(url|redirect|header|host|referer|origin|location)',
+        ],
+        'value_patterns': [r'.*%0[dD].*', r'.*%0[aA].*', r'.*\\r.*', r'.*\\n.*'],
+        'endpoint_patterns': [
+            r'(?i)(redirect|proxy|forward|load|fetch)',
+        ],
+        'content_hints': ['header', 'set-cookie', 'location'],
+    },
+    'jwt': {
+        'param_patterns': [
+            r'(?i)(token|jwt|bearer|auth|authorization|access_token|id_token|refresh_token)',
+        ],
+        'value_patterns': [r'^eyJ[a-zA-Z0-9_-]*\.eyJ[a-zA-Z0-9_-]*\.[a-zA-Z0-9_-]*$'],
+        'endpoint_patterns': [
+            r'(?i)(auth|login|token|oauth|jwt|verify|validate|session)',
+        ],
+        'content_hints': ['jwt', 'bearer', 'token', 'authorization'],
+    },
 }
 
 # Input type inference rules
@@ -164,6 +205,16 @@ TECH_FINGERPRINTS = {
     'flask': re.compile(r'Werkzeug|flask', re.IGNORECASE),
     'express': re.compile(r'X-Powered-By:\s*Express', re.IGNORECASE),
     'java': re.compile(r'JSESSIONID|X-Powered-By:\s*Servlet', re.IGNORECASE),
+    'rails': re.compile(r'X-Powered-By:\s*Phusion|X-Runtime|_rails_session', re.IGNORECASE),
+    'laravel': re.compile(r'laravel_session|XSRF-TOKEN.*laravel', re.IGNORECASE),
+    'spring': re.compile(r'X-Application-Context|spring|whitelabel', re.IGNORECASE),
+    'nextjs': re.compile(r'x-nextjs|__next|_next/static', re.IGNORECASE),
+    'nginx': re.compile(r'Server:\s*nginx', re.IGNORECASE),
+    'apache': re.compile(r'Server:\s*Apache', re.IGNORECASE),
+    'iis': re.compile(r'Server:\s*Microsoft-IIS', re.IGNORECASE),
+    'tomcat': re.compile(r'Server:\s*Apache-Coyote|Apache Tomcat', re.IGNORECASE),
+    'wordpress': re.compile(r'wp-content|wp-includes|wordpress', re.IGNORECASE),
+    'drupal': re.compile(r'Drupal|sites/default|X-Drupal', re.IGNORECASE),
 }
 
 
@@ -317,8 +368,34 @@ class ContextIntelligence:
                     weight += WEIGHT_ENDPOINT_MATCH
                     break
 
+            # Check content hints against detected tech
+            for hint in rules.get('content_hints', []):
+                if any(hint.lower() in str(t).lower() for t in self.detected_tech):
+                    weight += WEIGHT_RESPONSE_HINT
+                    break
+
             # Clamp weight to [0, 1]
             predictions[vuln_type] = min(weight, 1.0)
+
+        # Technology-adaptive weight boost
+        tech_vuln_boost = {
+            'php': {'sqli': 0.1, 'lfi': 0.15, 'cmdi': 0.1, 'ssti': 0.1, 'xxe': 0.1},
+            'asp': {'sqli': 0.1, 'cmdi': 0.1, 'xxe': 0.1},
+            'django': {'ssti': 0.15, 'sqli': 0.05},
+            'flask': {'ssti': 0.15, 'lfi': 0.1},
+            'express': {'nosql': 0.15, 'ssti': 0.1, 'xss': 0.05},
+            'java': {'ssti': 0.1, 'sqli': 0.1, 'ssrf': 0.1, 'xxe': 0.15},
+            'mysql': {'sqli': 0.15},
+            'postgresql': {'sqli': 0.15},
+            'mssql': {'sqli': 0.15},
+            'mongodb': {'nosql': 0.2},
+            'sqlite': {'sqli': 0.1},
+        }
+        for tech in self.detected_tech:
+            if tech in tech_vuln_boost:
+                for vuln_type, boost in tech_vuln_boost[tech].items():
+                    if vuln_type in predictions:
+                        predictions[vuln_type] = min(1.0, predictions[vuln_type] + boost)
 
         return predictions
 
@@ -350,6 +427,17 @@ class ContextIntelligence:
                 candidates.append('xss')
             if re.search(r'[;|&`$]', value):
                 candidates.append('cmdi')
+
+        if input_type == 'email':
+            candidates.append('xss')  # Email fields often reflected
+        if param:
+            param_lower = param.lower()
+            if any(kw in param_lower for kw in ['token', 'jwt', 'bearer', 'auth']):
+                candidates.append('jwt')
+            if any(kw in param_lower for kw in ['redirect', 'url', 'next', 'goto', 'return']):
+                candidates.append('open_redirect')
+            if any(kw in param_lower for kw in ['xml', 'soap', 'data', 'body']):
+                candidates.append('xxe')
 
         return candidates
 

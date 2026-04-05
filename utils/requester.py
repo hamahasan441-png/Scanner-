@@ -8,6 +8,7 @@ Advanced HTTP request handler with evasion
 import random
 import re
 import time
+import unicodedata
 import warnings
 from urllib.parse import urlencode, quote, unquote, urlparse, parse_qs, urlunparse
 
@@ -46,6 +47,7 @@ class Requester:
         self.total_requests = 0
         self.proxies = []
         self._rate_limited = False
+        self._consecutive_429 = 0
         
         # Initialize evasion engine
         try:
@@ -153,6 +155,53 @@ class Requester:
         if 'UNION' in payload.upper():
             variants.append(payload.replace('UNION', 'UN/**/ION'))
             variants.append(payload.replace('SELECT', 'SEL/**/ECT'))
+        
+        # Unicode normalization forms
+        if technique in ['all', 'unicode_norm']:
+            for form in ['NFD', 'NFC', 'NFKC', 'NFKD']:
+                variants.append(unicodedata.normalize(form, payload))
+        
+        # Overlong UTF-8 sequences for key characters
+        if technique in ['all', 'overlong_utf8']:
+            overlong_map = {
+                '<': '%c0%bc', '>': '%c0%be', "'": '%c0%a7',
+                '"': '%c0%a2', '/': '%c0%af',
+            }
+            overlong = ''.join(overlong_map.get(c, c) for c in payload)
+            variants.append(overlong)
+        
+        # Mixed encoding — alternate URL, Unicode, and HTML entity per character
+        if technique in ['all', 'mixed']:
+            mixed = ''
+            for i, c in enumerate(payload):
+                mod = i % 3
+                if mod == 0:
+                    mixed += f'%{ord(c):02x}'
+                elif mod == 1:
+                    mixed += f'\\u{ord(c):04x}'
+                else:
+                    mixed += f'&#{ord(c)};'
+            variants.append(mixed)
+        
+        # SQL inline comments — MySQL versioned comments for SQL keywords
+        if technique in ['all', 'sql_comments']:
+            sql_keywords = ['UNION', 'SELECT', 'INSERT', 'UPDATE', 'DELETE',
+                            'FROM', 'WHERE', 'AND', 'OR', 'DROP']
+            sql_variant = payload
+            for kw in sql_keywords:
+                sql_variant = re.sub(
+                    re.escape(kw),
+                    f'/*!{kw}*/',
+                    sql_variant,
+                    flags=re.IGNORECASE,
+                )
+            if sql_variant != payload:
+                variants.append(sql_variant)
+        
+        # Whitespace alternatives — tab, newline, CR, vertical tab as space replacements
+        if technique in ['all', 'whitespace']:
+            for ws in ['\t', '\n', '\r', '\x0b']:
+                variants.append(payload.replace(' ', ws))
         
         return list(set(variants))
     
@@ -329,13 +378,17 @@ class Requester:
             
             self.total_requests += 1
             
-            # Rate limit detection and backoff
+            # Rate limit detection and exponential backoff
             if response.status_code == 429:
                 self._rate_limited = True
+                self._consecutive_429 += 1
+                backoff = min(60, 2 ** self._consecutive_429 + random.uniform(0, 1))
+                time.sleep(backoff)
                 if self._evasion_engine and self._evasion_engine.timing:
                     self._evasion_engine.timing.signal_rate_limit()
             elif self._rate_limited:
                 self._rate_limited = False
+                self._consecutive_429 = max(0, self._consecutive_429 - 1)
                 if self._evasion_engine and self._evasion_engine.timing:
                     self._evasion_engine.timing.signal_success()
             

