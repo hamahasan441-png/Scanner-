@@ -29,6 +29,7 @@ from urllib.parse import urlparse, parse_qs
 
 from config import Config, Colors, MITRE_CWE_MAP
 from core.rules_engine import RulesEngine
+from core.pipeline_contract import Phase, Partition, PHASE_PARTITION
 
 # Remediation suggestions keyed by vulnerability family
 REMEDIATION_MAP = {
