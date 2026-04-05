@@ -1,0 +1,260 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ATOMIC Framework Scanner Rules",
+  "description": "Schema for scanner_rules.yaml — the pipeline configuration file.",
+  "type": "object",
+  "required": [
+    "profile",
+    "pipeline",
+    "runtime_defaults",
+    "discovery",
+    "baseline",
+    "scoring",
+    "verification",
+    "reporting",
+    "vuln_map"
+  ],
+  "properties": {
+    "profile": {
+      "type": "string",
+      "description": "Scanning profile name.",
+      "enum": ["accuracy_only", "balanced", "speed"]
+    },
+    "pipeline": {
+      "type": "object",
+      "required": ["stages"],
+      "properties": {
+        "stages": {
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 1,
+          "description": "Ordered list of pipeline stage names."
+        }
+      },
+      "additionalProperties": false
+    },
+    "runtime_defaults": {
+      "type": "object",
+      "required": ["threads", "timeout_seconds", "retries", "delay_seconds"],
+      "properties": {
+        "threads": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 500
+        },
+        "timeout_seconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 300
+        },
+        "retries": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10
+        },
+        "delay_seconds": {
+          "type": "number",
+          "minimum": 0
+        },
+        "jitter": { "type": "boolean" },
+        "backoff": {
+          "type": "string",
+          "enum": ["exponential", "linear", "none"]
+        }
+      },
+      "additionalProperties": false
+    },
+    "discovery": {
+      "type": "object",
+      "properties": {
+        "waf_bypass": { "type": "boolean" },
+        "reconscan": { "type": "boolean" },
+        "sources": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "collect_inputs": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "endpoint_profile_fields": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "baseline": {
+      "type": "object",
+      "properties": {
+        "min_samples": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "max_samples": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "required_metrics": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "normalization": {
+          "type": "object",
+          "properties": {
+            "strip_patterns": {
+              "type": "array",
+              "items": { "type": "string" }
+            }
+          },
+          "additionalProperties": false
+        },
+        "timing_stability": {
+          "type": "object",
+          "properties": {
+            "formula": { "type": "string" },
+            "noisy_threshold": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "prioritization": {
+      "type": "object",
+      "properties": {
+        "order": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "endpoint_keyword_buckets": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "context_classification": {
+      "type": "object",
+      "properties": {
+        "sinks": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "verification": {
+      "type": "object",
+      "properties": {
+        "min_repro_runs_for_high_or_confirmed": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "min_strong_signals": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "confirmed_requires_secondary_proof": { "type": "boolean" },
+        "auto_demote_rules": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "noisy_timing_cap": {
+          "type": "object",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "max_label_if_timing_only_on_noisy_endpoint": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "scoring": {
+      "type": "object",
+      "required": ["formula", "components", "labels"],
+      "properties": {
+        "formula": { "type": "string" },
+        "components": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": { "type": "number" },
+            "minItems": 2,
+            "maxItems": 2
+          }
+        },
+        "labels": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": { "type": "number" },
+            "minItems": 2,
+            "maxItems": 2
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "reporting": {
+      "type": "object",
+      "properties": {
+        "main_labels": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "appendix_labels": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "require_why_not_confirmed": { "type": "boolean" },
+        "evidence_required": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "vuln_map": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["paths", "params", "strong_signals", "reject_if"],
+        "properties": {
+          "paths": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "params": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "strong_signals": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "secondary_proof": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "reject_if": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

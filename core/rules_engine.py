@@ -21,6 +21,7 @@ Usage:
     ...
 """
 
+import json
 import os
 import copy
 
@@ -32,6 +33,13 @@ from config import Colors
 _DEFAULT_RULES_PATH = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
     'scanner_rules.yaml',
+)
+
+# JSON Schema file for strict validation
+_SCHEMA_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    'schemas',
+    'scanner_rules.schema.json',
 )
 
 # Minimal required top-level keys
@@ -83,6 +91,7 @@ class RulesEngine:
 
         self._validate_scoring(data.get('scoring', {}))
         self._validate_vuln_map(data.get('vuln_map', {}))
+        self._validate_json_schema(data)
 
         self._raw = data
 
@@ -123,6 +132,30 @@ class RulesEngine:
             missing = required_vuln_keys - set(definition.keys())
             if missing:
                 raise ValueError(f'vuln_map.{vuln_type} missing keys: {missing}')
+
+    @staticmethod
+    def _validate_json_schema(data):
+        """Validate the rules data against the JSON Schema if available.
+
+        Uses ``jsonschema`` when installed; otherwise falls back to a
+        soft warning so that the framework still starts.
+        """
+        if not os.path.isfile(_SCHEMA_PATH):
+            return  # schema file not shipped — skip
+        try:
+            import jsonschema
+        except ImportError:
+            # jsonschema is optional; skip validation when not installed
+            return
+        try:
+            with open(_SCHEMA_PATH, 'r', encoding='utf-8') as fh:
+                schema = json.load(fh)
+            jsonschema.validate(instance=data, schema=schema)
+        except jsonschema.ValidationError as ve:
+            raise ValueError(
+                f'Scanner rules schema validation failed: {ve.message} '
+                f'(path: {".".join(str(p) for p in ve.absolute_path)})'
+            ) from ve
 
     # ------------------------------------------------------------------
     # Public accessors (read-only deep copies where mutation is a risk)
