@@ -305,6 +305,385 @@ class TestListEncodings(unittest.TestCase):
         self.assertGreater(len(data['data']), 0)
 
 
+# ---------------------------------------------------------------------------
+# Additional endpoint & behaviour tests
+# ---------------------------------------------------------------------------
+
+
+class TestScanListEndpoint(unittest.TestCase):
+    """Tests for GET /api/scans."""
+
+    def setUp(self):
+        app.config['TESTING'] = True
+        self.client = app.test_client()
+
+    @patch('web.app._get_db', return_value=None)
+    def test_scans_returns_503_when_db_unavailable(self, _mock_db):
+        resp = self.client.get('/api/scans')
+        self.assertEqual(resp.status_code, 503)
+        data = resp.get_json()
+        self.assertEqual(data['status'], 'error')
+        self.assertIn('Database unavailable', data['data'])
+
+    @patch('web.app._get_db')
+    def test_scans_returns_200_with_list(self, mock_db):
+        mock_session = mock_db.return_value.Session.return_value
+        mock_session.query.return_value.order_by.return_value.all.return_value = []
+        resp = self.client.get('/api/scans')
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertEqual(data['status'], 'success')
+        self.assertIsInstance(data['data'], list)
+
+    @patch('web.app._get_db')
+    def test_scans_exception_returns_500(self, mock_db):
+        mock_db.return_value.Session.side_effect = RuntimeError('db error')
+        resp = self.client.get('/api/scans')
+        self.assertEqual(resp.status_code, 500)
+        data = resp.get_json()
+        self.assertEqual(data['status'], 'error')
+
+
+class TestScanDetailEndpoint(unittest.TestCase):
+    """Tests for GET /api/scan/<scan_id>."""
+
+    def setUp(self):
+        app.config['TESTING'] = True
+        self.client = app.test_client()
+
+    @patch('web.app._get_db', return_value=None)
+    def test_scan_detail_returns_503_when_db_unavailable(self, _mock_db):
+        resp = self.client.get('/api/scan/abc123')
+        self.assertEqual(resp.status_code, 503)
+
+    @patch('web.app._get_db')
+    def test_scan_detail_returns_404_when_not_found(self, mock_db):
+        mock_session = mock_db.return_value.Session.return_value
+        mock_session.query.return_value.filter_by.return_value.first.return_value = None
+        resp = self.client.get('/api/scan/nonexistent')
+        self.assertEqual(resp.status_code, 404)
+        data = resp.get_json()
+        self.assertEqual(data['status'], 'error')
+        self.assertIn('not found', data['data'].lower())
+
+    @patch('web.app._get_db')
+    def test_scan_detail_exception_returns_500(self, mock_db):
+        mock_db.return_value.Session.side_effect = RuntimeError('db error')
+        resp = self.client.get('/api/scan/abc123')
+        self.assertEqual(resp.status_code, 500)
+
+
+class TestScanStartValidation(unittest.TestCase):
+    """Extended validation tests for POST /api/scan."""
+
+    def setUp(self):
+        app.config['TESTING'] = True
+        self.client = app.test_client()
+
+    def test_empty_string_target_returns_400(self):
+        resp = self.client.post('/api/scan', json={'target': '   '})
+        self.assertEqual(resp.status_code, 400)
+
+    def test_ftp_url_is_rejected(self):
+        resp = self.client.post('/api/scan', json={'target': 'ftp://example.com'})
+        self.assertEqual(resp.status_code, 400)
+
+    def test_https_url_accepted(self):
+        resp = self.client.post('/api/scan', json={'target': 'https://example.com'})
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertEqual(data['status'], 'success')
+
+    def test_modules_parameter_accepted(self):
+        resp = self.client.post('/api/scan', json={
+            'target': 'http://example.com',
+            'modules': ['sqli', 'xss'],
+        })
+        self.assertEqual(resp.status_code, 200)
+
+    def test_depth_and_threads_accepted(self):
+        resp = self.client.post('/api/scan', json={
+            'target': 'http://example.com',
+            'depth': 3,
+            'threads': 10,
+        })
+        self.assertEqual(resp.status_code, 200)
+
+    def test_full_scan_flag_accepted(self):
+        resp = self.client.post('/api/scan', json={
+            'target': 'http://example.com',
+            'full_scan': True,
+        })
+        self.assertEqual(resp.status_code, 200)
+
+    def test_non_list_targets_falls_back_to_target(self):
+        resp = self.client.post('/api/scan', json={
+            'targets': 'not-a-list',
+            'target': 'http://example.com',
+        })
+        self.assertEqual(resp.status_code, 200)
+
+    def test_missing_both_target_and_targets_returns_400(self):
+        resp = self.client.post('/api/scan', json={'modules': ['sqli']})
+        self.assertEqual(resp.status_code, 400)
+
+    def test_non_json_content_type_returns_400(self):
+        resp = self.client.post(
+            '/api/scan',
+            data='target=http://example.com',
+            content_type='application/x-www-form-urlencoded',
+        )
+        self.assertEqual(resp.status_code, 400)
+
+
+class TestReportFormats(unittest.TestCase):
+    """Report format validation tests for GET /api/report/<scan_id>/<fmt>."""
+
+    def setUp(self):
+        app.config['TESTING'] = True
+        self.client = app.test_client()
+
+    def test_html_format_accepted(self):
+        resp = self.client.get('/api/report/abc123/html')
+        self.assertNotEqual(resp.status_code, 400)
+
+    def test_json_format_accepted(self):
+        resp = self.client.get('/api/report/abc123/json')
+        self.assertNotEqual(resp.status_code, 400)
+
+    def test_csv_format_accepted(self):
+        resp = self.client.get('/api/report/abc123/csv')
+        self.assertNotEqual(resp.status_code, 400)
+
+    def test_txt_format_accepted(self):
+        resp = self.client.get('/api/report/abc123/txt')
+        self.assertNotEqual(resp.status_code, 400)
+
+    def test_xml_format_rejected(self):
+        resp = self.client.get('/api/report/abc123/xml')
+        self.assertEqual(resp.status_code, 400)
+
+    def test_pdf_format_rejected(self):
+        resp = self.client.get('/api/report/abc123/pdf')
+        self.assertEqual(resp.status_code, 400)
+
+    def test_path_traversal_scan_id_rejected(self):
+        resp = self.client.get('/api/report/../etc/passwd/html')
+        self.assertIn(resp.status_code, (400, 404))
+
+    def test_scan_id_with_dots_rejected(self):
+        resp = self.client.get('/api/report/abc.123/html')
+        self.assertEqual(resp.status_code, 400)
+        data = resp.get_json()
+        self.assertEqual(data['status'], 'error')
+
+
+class TestDashboardContent(unittest.TestCase):
+    """Tests for dashboard HTML structure and content."""
+
+    def setUp(self):
+        app.config['TESTING'] = True
+        self.client = app.test_client()
+
+    def test_dashboard_content_type_is_html(self):
+        resp = self.client.get('/')
+        self.assertIn('text/html', resp.content_type)
+
+    def test_dashboard_contains_html_tags(self):
+        resp = self.client.get('/')
+        self.assertIn(b'<html', resp.data.lower())
+        self.assertIn(b'</html>', resp.data.lower())
+
+    def test_dashboard_contains_head_section(self):
+        resp = self.client.get('/')
+        self.assertIn(b'<head', resp.data.lower())
+
+    def test_dashboard_contains_body_section(self):
+        resp = self.client.get('/')
+        self.assertIn(b'<body', resp.data.lower())
+
+
+class TestToolEndpointsExtended(unittest.TestCase):
+    """Extended tests for Burp Suite-style tool API endpoints."""
+
+    def setUp(self):
+        app.config['TESTING'] = True
+        self.client = app.test_client()
+
+    def test_encode_base64(self):
+        resp = self.client.post(
+            '/api/tools/encode', json={'data': 'hello', 'encoding': 'base64'}
+        )
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertEqual(data['status'], 'success')
+        self.assertIn('result', data['data'])
+
+    def test_encode_html(self):
+        resp = self.client.post(
+            '/api/tools/encode', json={'data': '<b>test</b>', 'encoding': 'html'}
+        )
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertEqual(data['status'], 'success')
+
+    def test_decode_url_encoded(self):
+        resp = self.client.post(
+            '/api/tools/decode', json={'data': '%3Cscript%3E', 'encoding': 'url'}
+        )
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertEqual(data['status'], 'success')
+
+    def test_hash_md5(self):
+        resp = self.client.post(
+            '/api/tools/hash', json={'data': 'test', 'algorithm': 'md5'}
+        )
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertEqual(data['status'], 'success')
+        self.assertIn('result', data['data'])
+
+    def test_hash_sha1(self):
+        resp = self.client.post(
+            '/api/tools/hash', json={'data': 'test', 'algorithm': 'sha1'}
+        )
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertEqual(data['status'], 'success')
+
+    def test_hash_default_algorithm(self):
+        resp = self.client.post('/api/tools/hash', json={'data': 'test'})
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertEqual(data['status'], 'success')
+
+    def test_compare_identical_strings(self):
+        resp = self.client.post(
+            '/api/tools/compare', json={'text1': 'same', 'text2': 'same'}
+        )
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertIn('similarity', data['data'])
+        self.assertEqual(data['data']['similarity'], 1.0)
+
+    def test_compare_completely_different(self):
+        resp = self.client.post(
+            '/api/tools/compare', json={'text1': 'aaaa', 'text2': 'zzzz'}
+        )
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertIn('similarity', data['data'])
+        self.assertLess(data['data']['similarity'], 1.0)
+
+    def test_sequencer_with_two_tokens(self):
+        resp = self.client.post(
+            '/api/tools/sequencer', json={'tokens': ['aa', 'bb']}
+        )
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertEqual(data['status'], 'success')
+
+    def test_decode_smart_detects_url_encoding(self):
+        resp = self.client.post(
+            '/api/tools/decode', json={'data': 'hello%20world'}
+        )
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertEqual(data['status'], 'success')
+
+
+class TestCORSHeaders(unittest.TestCase):
+    """Tests to verify CORS headers are present on responses."""
+
+    def setUp(self):
+        app.config['TESTING'] = True
+        self.client = app.test_client()
+
+    def test_cors_header_on_api_response(self):
+        resp = self.client.get('/api/stats')
+        header = resp.headers.get('Access-Control-Allow-Origin')
+        self.assertIsNotNone(
+            header,
+            'Expected Access-Control-Allow-Origin header on API response',
+        )
+
+    def test_cors_header_on_dashboard(self):
+        resp = self.client.get('/')
+        header = resp.headers.get('Access-Control-Allow-Origin')
+        self.assertIsNotNone(
+            header,
+            'Expected Access-Control-Allow-Origin header on dashboard',
+        )
+
+    def test_options_preflight_returns_200(self):
+        resp = self.client.options('/api/stats')
+        self.assertIn(resp.status_code, (200, 204))
+
+    def test_options_preflight_includes_allow_methods(self):
+        resp = self.client.options(
+            '/api/scan',
+            headers={
+                'Origin': 'http://localhost:3000',
+                'Access-Control-Request-Method': 'POST',
+            },
+        )
+        self.assertIn(resp.status_code, (200, 204))
+
+
+class TestErrorHandling(unittest.TestCase):
+    """Tests for error paths and edge cases."""
+
+    def setUp(self):
+        app.config['TESTING'] = True
+        self.client = app.test_client()
+
+    def test_post_to_get_endpoint_returns_405(self):
+        resp = self.client.post('/api/stats')
+        self.assertEqual(resp.status_code, 405)
+
+    def test_get_to_post_endpoint_returns_405(self):
+        resp = self.client.get('/api/tools/decode')
+        self.assertEqual(resp.status_code, 405)
+
+    def test_nonexistent_route_returns_404(self):
+        resp = self.client.get('/api/does_not_exist')
+        self.assertEqual(resp.status_code, 404)
+
+    def test_malformed_json_returns_400(self):
+        resp = self.client.post(
+            '/api/scan',
+            data='{invalid json',
+            content_type='application/json',
+        )
+        self.assertEqual(resp.status_code, 400)
+
+    def test_scan_status_nonexistent_returns_404(self):
+        resp = self.client.get('/api/scan/nonexistent999/status')
+        self.assertEqual(resp.status_code, 404)
+        data = resp.get_json()
+        self.assertEqual(data['status'], 'error')
+
+    def test_stats_endpoint_returns_expected_keys(self):
+        resp = self.client.get('/api/stats')
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()['data']
+        for key in ('total_scans', 'total_findings', 'critical',
+                     'high', 'medium', 'low', 'info', 'active_scans'):
+            self.assertIn(key, data, f'Missing expected key: {key}')
+
+    def test_tools_encode_missing_encoding_still_works(self):
+        resp = self.client.post(
+            '/api/tools/encode', json={'data': 'test'}
+        )
+        self.assertIn(resp.status_code, (200, 400))
+
+    def test_delete_scan_without_db_returns_503(self):
+        with patch('web.app._get_db', return_value=None):
+            resp = self.client.delete('/api/scan/abc123')
+            self.assertEqual(resp.status_code, 503)
+
+
 if __name__ == '__main__':
     unittest.main()
 
