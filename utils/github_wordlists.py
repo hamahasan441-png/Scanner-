@@ -71,7 +71,7 @@ _REPO_URLS: Dict[str, str] = {
 
 # ─── Cache directory ─────────────────────────────────────────────────────
 _CACHE_DIR = os.path.join(Config.BASE_DIR, ".github_wordlist_cache")
-_CACHE_TTL_SECONDS = 86400  # 24 h
+_CACHE_TTL_SECONDS = 86400  # 24 hours
 
 
 # ─── HTTP helper (lightweight — no external dependency) ──────────────────

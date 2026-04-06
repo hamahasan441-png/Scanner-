@@ -37,3 +37,6 @@ Thumbs.db
 
 # mypy cache
 .mypy_cache/
+
+# GitHub wordlist cache (fetched at runtime)
+.github_wordlist_cache/
