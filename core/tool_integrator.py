@@ -8,7 +8,8 @@ Integrates with industry-standard security tools when available:
   - Nikto      (web server assessment)
   - WhatWeb    (technology fingerprinting)
   - Subfinder  (subdomain enumeration)
-  - Httpx      (HTTP probing)
+  - Httpx      (HTTP probing, tech detection)
+  - Ffuf       (web fuzzing, directory brute-forcing)
 
 Each tool adapter follows a common interface:
   .is_available() → bool
@@ -479,6 +480,158 @@ class SubfinderAdapter:
 
 
 # ---------------------------------------------------------------------------
+# Httpx Adapter
+# ---------------------------------------------------------------------------
+class HttpxAdapter:
+    """Integration with ProjectDiscovery Httpx for HTTP probing."""
+
+    TOOL_NAME = 'httpx'
+
+    def is_available(self) -> bool:
+        return shutil.which('httpx') is not None
+
+    def run(self, target: str, paths: Optional[List[str]] = None,
+            follow_redirects: bool = True, timeout: int = 120) -> ToolResult:
+        """Run HTTP probing with Httpx.
+
+        Args:
+            target: URL or domain to probe.
+            paths: Optional list of paths to check.
+            follow_redirects: Whether to follow HTTP redirects.
+            timeout: Max seconds.
+        """
+        if not self.is_available():
+            return ToolResult(tool=self.TOOL_NAME, target=target, success=False,
+                              error='httpx not installed')
+
+        cmd = ['httpx', '-u', target, '-json', '-silent',
+               '-status-code', '-content-length', '-title',
+               '-tech-detect', '-server']
+        if follow_redirects:
+            cmd.append('-follow-redirects')
+        if paths:
+            cmd += ['-path', ','.join(paths)]
+
+        exit_code, stdout, stderr, duration = _run_command(cmd, timeout=timeout)
+
+        result = ToolResult(
+            tool=self.TOOL_NAME,
+            target=target,
+            success=exit_code == 0,
+            exit_code=exit_code,
+            raw_output=stdout,
+            duration_seconds=round(duration, 2),
+            timestamp=datetime.now(timezone.utc).isoformat(),
+            error=stderr if exit_code != 0 else '',
+        )
+
+        result.findings = self._parse_jsonl(stdout)
+        result.parsed_data = {'total_probed': len(result.findings)}
+        return result
+
+    def _parse_jsonl(self, output: str) -> List[dict]:
+        """Parse Httpx JSONL output."""
+        findings = []
+        for line in output.strip().split('\n'):
+            if not line.strip():
+                continue
+            try:
+                data = json.loads(line)
+                findings.append({
+                    'url': data.get('url', ''),
+                    'status_code': data.get('status_code', 0),
+                    'title': data.get('title', ''),
+                    'content_length': data.get('content_length', 0),
+                    'technologies': data.get('tech', []),
+                    'server': data.get('webserver', ''),
+                    'content_type': data.get('content_type', ''),
+                    'host': data.get('host', ''),
+                })
+            except (json.JSONDecodeError, AttributeError):
+                continue
+        return findings
+
+
+# ---------------------------------------------------------------------------
+# Ffuf Adapter
+# ---------------------------------------------------------------------------
+class FfufAdapter:
+    """Integration with ffuf for web fuzzing and directory brute-forcing."""
+
+    TOOL_NAME = 'ffuf'
+
+    def is_available(self) -> bool:
+        return shutil.which('ffuf') is not None
+
+    def run(self, target: str, wordlist: str = '', extensions: str = '',
+            filter_codes: str = '404', timeout: int = 300) -> ToolResult:
+        """Run ffuf web fuzzing.
+
+        Args:
+            target: URL with FUZZ keyword (e.g. ``https://target.com/FUZZ``).
+            wordlist: Path to wordlist file.
+            extensions: Comma-separated extensions (e.g. ``php,html,txt``).
+            filter_codes: HTTP status codes to filter out.
+            timeout: Max seconds.
+        """
+        if not self.is_available():
+            return ToolResult(tool=self.TOOL_NAME, target=target, success=False,
+                              error='ffuf not installed')
+
+        # Ensure FUZZ keyword is present
+        fuzz_url = target if 'FUZZ' in target else f'{target.rstrip("/")}/FUZZ'
+
+        cmd = ['ffuf', '-u', fuzz_url, '-o', '/dev/stdout',
+               '-of', 'json', '-s']
+        if wordlist:
+            cmd += ['-w', wordlist]
+        else:
+            # Use a minimal built-in list when no wordlist is specified
+            cmd += ['-w', '-']
+        if extensions:
+            cmd += ['-e', extensions]
+        if filter_codes:
+            cmd += ['-fc', filter_codes]
+
+        exit_code, stdout, stderr, duration = _run_command(cmd, timeout=timeout)
+
+        result = ToolResult(
+            tool=self.TOOL_NAME,
+            target=target,
+            success=exit_code == 0,
+            exit_code=exit_code,
+            raw_output=stdout,
+            duration_seconds=round(duration, 2),
+            timestamp=datetime.now(timezone.utc).isoformat(),
+            error=stderr if exit_code != 0 else '',
+        )
+
+        result.findings = self._parse_json(stdout)
+        result.parsed_data = {'total_findings': len(result.findings)}
+        return result
+
+    def _parse_json(self, output: str) -> List[dict]:
+        """Parse ffuf JSON output."""
+        findings = []
+        try:
+            data = json.loads(output)
+            for r in data.get('results', []):
+                findings.append({
+                    'url': r.get('url', ''),
+                    'status': r.get('status', 0),
+                    'length': r.get('length', 0),
+                    'words': r.get('words', 0),
+                    'lines': r.get('lines', 0),
+                    'input': r.get('input', {}).get('FUZZ', ''),
+                    'redirectlocation': r.get('redirectlocation', ''),
+                    'content_type': r.get('content-type', ''),
+                })
+        except (json.JSONDecodeError, TypeError, AttributeError):
+            pass
+        return findings
+
+
+# ---------------------------------------------------------------------------
 # Tool Integrator (Facade)
 # ---------------------------------------------------------------------------
 class ToolIntegrator:
@@ -490,6 +643,8 @@ class ToolIntegrator:
         self.nikto = NiktoAdapter()
         self.whatweb = WhatWebAdapter()
         self.subfinder = SubfinderAdapter()
+        self.httpx = HttpxAdapter()
+        self.ffuf = FfufAdapter()
 
         self._adapters = {
             'nmap': self.nmap,
@@ -497,6 +652,8 @@ class ToolIntegrator:
             'nikto': self.nikto,
             'whatweb': self.whatweb,
             'subfinder': self.subfinder,
+            'httpx': self.httpx,
+            'ffuf': self.ffuf,
         }
 
     def get_available_tools(self) -> Dict[str, bool]:
@@ -519,6 +676,9 @@ class ToolIntegrator:
 
         if self.whatweb.is_available():
             results['whatweb'] = self.whatweb.run(target)
+
+        if self.httpx.is_available():
+            results['httpx'] = self.httpx.run(target)
 
         if domain and self.subfinder.is_available():
             results['subfinder'] = self.subfinder.run(domain)

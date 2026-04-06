@@ -382,5 +382,106 @@ class TestEvasionEngineRequestConfig(unittest.TestCase):
         self.assertGreaterEqual(cfg["delay"], 0.0)
 
 
+# ---------------------------------------------------------------------------
+# New mutation technique tests
+# ---------------------------------------------------------------------------
+
+class TestPayloadMutatorUnicodeNormalize(unittest.TestCase):
+    """Tests for the unicode_normalize mutation technique."""
+
+    def setUp(self):
+        self.mutator = PayloadMutator()
+
+    def test_returns_string(self):
+        result = self.mutator.mutate("SELECT * FROM users", "unicode_normalize")
+        self.assertIsInstance(result, str)
+
+    def test_same_length(self):
+        payload = "SELECT"
+        result = self.mutator.mutate(payload, "unicode_normalize")
+        self.assertEqual(len(result), len(payload))
+
+    def test_may_contain_non_ascii(self):
+        """With enough runs, some characters should be replaced with homoglyphs."""
+        found_non_ascii = False
+        for _ in range(50):
+            result = self.mutator.mutate("SELECTA", "unicode_normalize")
+            if any(ord(c) > 127 for c in result):
+                found_non_ascii = True
+                break
+        self.assertTrue(found_non_ascii, "Expected at least one Unicode homoglyph substitution")
+
+    def test_preserves_non_mappable_chars(self):
+        result = self.mutator.mutate("123!@#", "unicode_normalize")
+        self.assertEqual(result, "123!@#")
+
+
+class TestPayloadMutatorHppSplit(unittest.TestCase):
+    """Tests for the hpp_split mutation technique."""
+
+    def setUp(self):
+        self.mutator = PayloadMutator()
+
+    def test_short_payload_unchanged(self):
+        result = self.mutator.mutate("ab", "hpp_split")
+        self.assertEqual(result, "ab")
+
+    def test_contains_inject_parameter(self):
+        result = self.mutator.mutate("SELECT * FROM users", "hpp_split")
+        self.assertIn("&inject=", result)
+
+    def test_returns_string(self):
+        result = self.mutator.mutate("test payload", "hpp_split")
+        self.assertIsInstance(result, str)
+
+
+class TestPayloadMutatorDoubleEncode(unittest.TestCase):
+    """Tests for the double_encode mutation technique."""
+
+    def setUp(self):
+        self.mutator = PayloadMutator()
+
+    def test_double_encodes_special_chars(self):
+        result = self.mutator.mutate("<script>", "double_encode")
+        # '<' becomes %3C which becomes %253C
+        self.assertIn("%25", result)
+
+    def test_plain_ascii_letters_unchanged(self):
+        result = self.mutator.mutate("abc", "double_encode")
+        self.assertEqual(result, "abc")
+
+    def test_space_double_encoded(self):
+        result = self.mutator.mutate("a b", "double_encode")
+        # Space becomes %20 then %2520
+        self.assertIn("%2520", result)
+
+
+class TestNewTechniquesInList(unittest.TestCase):
+    """Verify new techniques are properly registered."""
+
+    def test_unicode_normalize_in_techniques(self):
+        self.assertIn('unicode_normalize', PayloadMutator.TECHNIQUES)
+
+    def test_hpp_split_in_techniques(self):
+        self.assertIn('hpp_split', PayloadMutator.TECHNIQUES)
+
+    def test_double_encode_in_techniques(self):
+        self.assertIn('double_encode', PayloadMutator.TECHNIQUES)
+
+
+class TestEvasionEngineHppContext(unittest.TestCase):
+    """Test that hpp context uses the new techniques."""
+
+    def test_hpp_context_exists(self):
+        eng = EvasionEngine("high")
+        self.assertIn('hpp', eng.CONTEXT_TECHNIQUES)
+
+    def test_hpp_context_includes_hpp_split(self):
+        self.assertIn('hpp_split', EvasionEngine.CONTEXT_TECHNIQUES['hpp'])
+
+    def test_hpp_context_includes_double_encode(self):
+        self.assertIn('double_encode', EvasionEngine.CONTEXT_TECHNIQUES['hpp'])
+
+
 if __name__ == "__main__":
     unittest.main()

