@@ -12,6 +12,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from core.tool_integrator import (
     ToolResult, ToolIntegrator,
     NmapAdapter, NucleiAdapter, NiktoAdapter, WhatWebAdapter, SubfinderAdapter,
+    HttpxAdapter, FfufAdapter,
     _run_command,
 )
 
@@ -226,6 +227,8 @@ class TestToolIntegrator(unittest.TestCase):
         self.assertIn('nikto', tools)
         self.assertIn('whatweb', tools)
         self.assertIn('subfinder', tools)
+        self.assertIn('httpx', tools)
+        self.assertIn('ffuf', tools)
 
     def test_run_unknown_tool(self):
         result = self.integrator.run_tool('unknown_tool', 'example.com')
@@ -237,6 +240,102 @@ class TestToolIntegrator(unittest.TestCase):
             mock_run.return_value = ToolResult(tool='nmap', target='test', success=True)
             result = self.integrator.run_tool('nmap', 'example.com')
             mock_run.assert_called_once()
+
+    def test_integrator_has_httpx_adapter(self):
+        self.assertIsInstance(self.integrator.httpx, HttpxAdapter)
+
+    def test_integrator_has_ffuf_adapter(self):
+        self.assertIsInstance(self.integrator.ffuf, FfufAdapter)
+
+
+class TestHttpxAdapter(unittest.TestCase):
+    """Test Httpx adapter."""
+
+    def setUp(self):
+        self.adapter = HttpxAdapter()
+
+    def test_not_available(self):
+        with patch('shutil.which', return_value=None):
+            adapter = HttpxAdapter()
+            self.assertFalse(adapter.is_available())
+            result = adapter.run('https://example.com')
+            self.assertFalse(result.success)
+            self.assertIn('not installed', result.error)
+
+    @patch('shutil.which', return_value='/usr/local/bin/httpx')
+    def test_available(self, mock_which):
+        self.assertTrue(self.adapter.is_available())
+
+    def test_parse_jsonl_valid(self):
+        output = '{"url":"https://example.com","status_code":200,"title":"Example","content_length":1234,"tech":["Apache"],"webserver":"Apache","content_type":"text/html","host":"example.com"}\n'
+        findings = self.adapter._parse_jsonl(output)
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0]['url'], 'https://example.com')
+        self.assertEqual(findings[0]['status_code'], 200)
+        self.assertEqual(findings[0]['technologies'], ['Apache'])
+
+    def test_parse_jsonl_empty(self):
+        findings = self.adapter._parse_jsonl('')
+        self.assertEqual(findings, [])
+
+    def test_parse_jsonl_invalid(self):
+        findings = self.adapter._parse_jsonl('not json\n')
+        self.assertEqual(findings, [])
+
+    def test_parse_jsonl_multiple(self):
+        output = '{"url":"https://a.com","status_code":200}\n{"url":"https://b.com","status_code":301}\n'
+        findings = self.adapter._parse_jsonl(output)
+        self.assertEqual(len(findings), 2)
+
+    def test_tool_name(self):
+        self.assertEqual(self.adapter.TOOL_NAME, 'httpx')
+
+
+class TestFfufAdapter(unittest.TestCase):
+    """Test Ffuf adapter."""
+
+    def setUp(self):
+        self.adapter = FfufAdapter()
+
+    def test_not_available(self):
+        with patch('shutil.which', return_value=None):
+            adapter = FfufAdapter()
+            self.assertFalse(adapter.is_available())
+            result = adapter.run('https://example.com/FUZZ')
+            self.assertFalse(result.success)
+            self.assertIn('not installed', result.error)
+
+    @patch('shutil.which', return_value='/usr/local/bin/ffuf')
+    def test_available(self, mock_which):
+        self.assertTrue(self.adapter.is_available())
+
+    def test_parse_json_valid(self):
+        output = '{"results":[{"url":"https://example.com/admin","status":200,"length":1234,"words":50,"lines":10,"input":{"FUZZ":"admin"},"redirectlocation":"","content-type":"text/html"}]}'
+        findings = self.adapter._parse_json(output)
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0]['url'], 'https://example.com/admin')
+        self.assertEqual(findings[0]['status'], 200)
+        self.assertEqual(findings[0]['input'], 'admin')
+
+    def test_parse_json_empty(self):
+        findings = self.adapter._parse_json('')
+        self.assertEqual(findings, [])
+
+    def test_parse_json_no_results(self):
+        findings = self.adapter._parse_json('{"results":[]}')
+        self.assertEqual(findings, [])
+
+    def test_parse_json_invalid(self):
+        findings = self.adapter._parse_json('not json at all')
+        self.assertEqual(findings, [])
+
+    def test_tool_name(self):
+        self.assertEqual(self.adapter.TOOL_NAME, 'ffuf')
+
+    def test_parse_json_multiple(self):
+        output = '{"results":[{"url":"https://a.com/admin","status":200,"length":100,"words":10,"lines":5,"input":{"FUZZ":"admin"},"redirectlocation":"","content-type":"text/html"},{"url":"https://a.com/login","status":200,"length":200,"words":20,"lines":10,"input":{"FUZZ":"login"},"redirectlocation":"","content-type":"text/html"}]}'
+        findings = self.adapter._parse_json(output)
+        self.assertEqual(len(findings), 2)
 
 
 if __name__ == '__main__':
