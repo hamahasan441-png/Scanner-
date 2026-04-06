@@ -475,6 +475,55 @@ class Payloads:
         '{"query":"mutation{createUser(username:\\"admin\\",password:\\"admin\\",role:\\"admin\\"){id}}"}',
     ]
 
+    # ── GitHub-style Secret Scanning Patterns ─────────────────────
+    # Regex patterns for detecting leaked secrets/tokens in HTTP
+    # responses, based on the techniques used by GitHub secret
+    # scanning. Each entry is (name, pattern_string).
+    SECRET_PATTERNS = [
+        # AWS credentials
+        ('AWS Access Key', r'(?:A3T[A-Z0-9]|AKIA|AGPA|AIDA|AROA|AIPA|ANPA|ANVA|ASIA)[A-Z0-9]{16}'),
+        ('AWS Secret Key', r'(?i)aws_?secret_?access_?key\s*[=:]\s*[A-Za-z0-9/+=]{40}'),
+        # GitHub tokens
+        ('GitHub PAT (classic)', r'ghp_[A-Za-z0-9]{36}'),
+        ('GitHub PAT (fine-grained)', r'github_pat_[A-Za-z0-9_]{82}'),
+        ('GitHub OAuth', r'gho_[A-Za-z0-9]{36}'),
+        ('GitHub App Token', r'(?:ghu|ghs)_[A-Za-z0-9]{36}'),
+        ('GitHub App Refresh', r'ghr_[A-Za-z0-9]{36,}'),
+        # Google
+        ('Google API Key', r'AIza[A-Za-z0-9_\\-]{35}'),
+        ('Google OAuth Secret', r'(?i)client_secret\s*[=:]\s*[A-Za-z0-9_\\-]{24}'),
+        # Stripe
+        ('Stripe Secret Key', r'sk_live_[A-Za-z0-9]{24,}'),
+        ('Stripe Publishable Key', r'pk_live_[A-Za-z0-9]{24,}'),
+        # Slack
+        ('Slack Bot Token', r'xoxb-[0-9]{10,13}-[0-9]{10,13}-[a-zA-Z0-9]{24}'),
+        ('Slack Webhook', r'https://hooks\.slack\.com/services/T[A-Z0-9]{8,}/B[A-Z0-9]{8,}/[A-Za-z0-9]{24}'),
+        # Private keys
+        ('RSA Private Key', r'-----BEGIN RSA PRIVATE KEY-----'),
+        ('SSH Private Key', r'-----BEGIN (?:OPENSSH|DSA|EC) PRIVATE KEY-----'),
+        ('PGP Private Key', r'-----BEGIN PGP PRIVATE KEY BLOCK-----'),
+        # JWT / Bearer tokens
+        ('JWT Token', r'eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}'),
+        ('Bearer Token', r'(?i)bearer\s+[A-Za-z0-9_\-.~+/]{20,}'),
+        # Generic API keys / passwords in config
+        ('Generic API Key', r'(?i)(?:api[_-]?key|apikey)\s*[=:]\s*["\']?[A-Za-z0-9_\-]{20,}["\']?'),
+        ('Generic Secret', r'(?i)(?:secret|password|passwd|pwd)\s*[=:]\s*["\'][^"\']{8,}["\']'),
+        # Database connection strings
+        ('Database URL', r'(?i)(?:mysql|postgres(?:ql)?|mongodb(?:\+srv)?|redis)://[^\s"\'<>]{10,}'),
+        # Heroku
+        ('Heroku API Key', r'(?i)heroku[_-]?api[_-]?key\s*[=:]\s*[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'),
+        # Twilio
+        ('Twilio API Key', r'SK[0-9a-f]{32}'),
+        # SendGrid
+        ('SendGrid API Key', r'SG\.[A-Za-z0-9_\-]{22}\.[A-Za-z0-9_\-]{43}'),
+        # Mailgun
+        ('Mailgun API Key', r'key-[0-9a-zA-Z]{32}'),
+        # NPM
+        ('NPM Access Token', r'npm_[A-Za-z0-9]{36}'),
+        # PyPI
+        ('PyPI API Token', r'pypi-[A-Za-z0-9_\-]{50,}'),
+    ]
+
 
 class Colors:
     """Terminal Colors"""

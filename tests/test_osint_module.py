@@ -37,6 +37,7 @@ class _MockEngine:
     def __init__(self, responses=None, side_effect=None):
         self.requester = _MockRequester(responses, side_effect=side_effect)
         self.findings = []
+        self.config = {'verbose': False}
 
     def add_finding(self, finding):
         self.findings.append(finding)
@@ -85,12 +86,16 @@ class TestOSINTTestUrl(unittest.TestCase):
         with patch.object(mod, '_generate_google_dorks') as m1, \
              patch.object(mod, '_check_github_leaks') as m2, \
              patch.object(mod, '_wayback_harvest') as m3, \
-             patch.object(mod, '_check_robots_sitemap') as m4:
+             patch.object(mod, '_check_robots_sitemap') as m4, \
+             patch.object(mod, '_scan_github_code_search') as m5, \
+             patch.object(mod, '_scan_response_secrets') as m6:
             mod.test_url('http://example.com')
         m1.assert_called_once()
         m2.assert_called_once()
         m3.assert_called_once_with('http://example.com')
         m4.assert_called_once_with('http://example.com')
+        m5.assert_called_once()
+        m6.assert_called_once_with('http://example.com')
 
     def test_domain_extracted_from_url(self):
         from modules.osint import OSINTModule
@@ -98,7 +103,9 @@ class TestOSINTTestUrl(unittest.TestCase):
         with patch.object(mod, '_generate_google_dorks') as m1, \
              patch.object(mod, '_check_github_leaks') as m2, \
              patch.object(mod, '_wayback_harvest'), \
-             patch.object(mod, '_check_robots_sitemap'):
+             patch.object(mod, '_check_robots_sitemap'), \
+             patch.object(mod, '_scan_github_code_search'), \
+             patch.object(mod, '_scan_response_secrets'):
             mod.test_url('http://example.com/path')
         m1.assert_called_once_with('example.com')
         m2.assert_called_once_with('example.com')
@@ -363,6 +370,181 @@ class TestCheckRobotsSitemap(unittest.TestCase):
         mod = OSINTModule(engine)
         mod._check_robots_sitemap('http://example.com')
         self.assertIn('Robots/Sitemap', engine.findings[0].technique)
+
+
+# ── _scan_github_code_search ─────────────────────────────────────────────
+
+class TestScanGitHubCodeSearch(unittest.TestCase):
+    """Tests for _scan_github_code_search — GitHub Code Search API."""
+
+    def test_skipped_when_no_token(self):
+        from modules.osint import OSINTModule
+        engine = _MockEngine()
+        mod = OSINTModule(engine)
+        with patch('modules.osint.Config') as mock_cfg:
+            mock_cfg.GITHUB_TOKEN = ''
+            mod._scan_github_code_search('example.com')
+        self.assertEqual(len(engine.findings), 0)
+
+    def test_finding_added_when_results_found(self):
+        from modules.osint import OSINTModule
+        engine = _MockEngine()
+        mod = OSINTModule(engine)
+
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {
+            'total_count': 5,
+            'items': [
+                {'repository': {'full_name': 'user/repo'}, 'path': 'config.py'},
+            ],
+        }
+
+        with patch('modules.osint.Config') as mock_cfg, \
+             patch.object(mod, '_github_request', return_value=mock_resp):
+            mock_cfg.GITHUB_TOKEN = 'test-token'
+            mod._scan_github_code_search('example.com')
+
+        self.assertGreater(len(engine.findings), 0)
+        self.assertIn('GitHub Code Search', engine.findings[0].technique)
+
+    def test_no_finding_when_zero_results(self):
+        from modules.osint import OSINTModule
+        engine = _MockEngine()
+        mod = OSINTModule(engine)
+
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {'total_count': 0, 'items': []}
+
+        with patch('modules.osint.Config') as mock_cfg, \
+             patch.object(mod, '_github_request', return_value=mock_resp):
+            mock_cfg.GITHUB_TOKEN = 'test-token'
+            mod._scan_github_code_search('example.com')
+
+        self.assertEqual(len(engine.findings), 0)
+
+    def test_exception_handled_gracefully(self):
+        from modules.osint import OSINTModule
+        engine = _MockEngine()
+        mod = OSINTModule(engine)
+
+        with patch('modules.osint.Config') as mock_cfg, \
+             patch.object(mod, '_github_request', side_effect=Exception('fail')):
+            mock_cfg.GITHUB_TOKEN = 'test-token'
+            mod._scan_github_code_search('example.com')
+
+        self.assertEqual(len(engine.findings), 0)
+
+    def test_severity_scales_with_hit_count(self):
+        from modules.osint import OSINTModule
+        engine = _MockEngine()
+        mod = OSINTModule(engine)
+
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {
+            'total_count': 15,
+            'items': [{'repository': {'full_name': 'u/r'}, 'path': 'f.py'}],
+        }
+
+        with patch('modules.osint.Config') as mock_cfg, \
+             patch.object(mod, '_github_request', return_value=mock_resp):
+            mock_cfg.GITHUB_TOKEN = 'test-token'
+            mod._scan_github_code_search('example.com')
+
+        self.assertEqual(engine.findings[0].severity, 'HIGH')
+
+
+# ── _scan_response_secrets ───────────────────────────────────────────────
+
+class TestScanResponseSecrets(unittest.TestCase):
+    """Tests for _scan_response_secrets — GitHub-style secret pattern scanning."""
+
+    def test_detects_aws_key_in_response(self):
+        from modules.osint import OSINTModule
+        body = 'config = {"aws_key": "AKIAIOSFODNN7EXAMPLE"}'
+        engine = _MockEngine(responses=[_MockResponse(text=body)])
+        mod = OSINTModule(engine)
+        mod._scan_response_secrets('http://example.com')
+        secrets = [f for f in engine.findings if 'Secret Pattern' in f.technique]
+        self.assertGreater(len(secrets), 0)
+
+    def test_detects_github_pat(self):
+        from modules.osint import OSINTModule
+        body = 'token = ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij'
+        engine = _MockEngine(responses=[_MockResponse(text=body)])
+        mod = OSINTModule(engine)
+        mod._scan_response_secrets('http://example.com')
+        secrets = [f for f in engine.findings if 'Secret Pattern' in f.technique]
+        self.assertGreater(len(secrets), 0)
+
+    def test_detects_jwt_token(self):
+        from modules.osint import OSINTModule
+        body = 'auth = eyJhbGciOiJIUzI1NiJ9.eyJ1c2VyIjoiYWRtaW4ifQ.dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk'
+        engine = _MockEngine(responses=[_MockResponse(text=body)])
+        mod = OSINTModule(engine)
+        mod._scan_response_secrets('http://example.com')
+        secrets = [f for f in engine.findings if 'Secret Pattern' in f.technique]
+        self.assertGreater(len(secrets), 0)
+
+    def test_detects_private_key_header(self):
+        from modules.osint import OSINTModule
+        body = '-----BEGIN RSA PRIVATE KEY-----\nMIIEpAIBAAKCAQEA...'
+        engine = _MockEngine(responses=[_MockResponse(text=body)])
+        mod = OSINTModule(engine)
+        mod._scan_response_secrets('http://example.com')
+        secrets = [f for f in engine.findings if 'Secret Pattern' in f.technique]
+        self.assertGreater(len(secrets), 0)
+
+    def test_no_finding_on_clean_response(self):
+        from modules.osint import OSINTModule
+        body = '<html><body>Hello World</body></html>'
+        engine = _MockEngine(responses=[_MockResponse(text=body)])
+        mod = OSINTModule(engine)
+        mod._scan_response_secrets('http://example.com')
+        secrets = [f for f in engine.findings if 'Secret Pattern' in f.technique]
+        self.assertEqual(len(secrets), 0)
+
+    def test_no_finding_on_404(self):
+        from modules.osint import OSINTModule
+        engine = _MockEngine(responses=[_MockResponse(text='Not found', status_code=404)])
+        mod = OSINTModule(engine)
+        mod._scan_response_secrets('http://example.com')
+        secrets = [f for f in engine.findings if 'Secret Pattern' in f.technique]
+        self.assertEqual(len(secrets), 0)
+
+    def test_severity_is_critical_for_many_secrets(self):
+        from modules.osint import OSINTModule
+        body = (
+            'AWS_KEY=AKIAIOSFODNN7EXAMPLE\n'
+            'ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij\n'
+            'sk_live_' + 'T' * 24 + '\n'
+            '-----BEGIN RSA PRIVATE KEY-----\n'
+        )
+        # Provide enough responses for all paths checked
+        responses = [_MockResponse(text=body)] * 6
+        engine = _MockEngine(responses=responses)
+        mod = OSINTModule(engine)
+        mod._scan_response_secrets('http://example.com')
+        secrets = [f for f in engine.findings if 'Secret Pattern' in f.technique]
+        self.assertGreater(len(secrets), 0)
+        self.assertEqual(secrets[0].severity, 'CRITICAL')
+
+    def test_evidence_contains_redacted_samples(self):
+        from modules.osint import OSINTModule
+        body = 'key=AKIAIOSFODNN7EXAMPLE'
+        engine = _MockEngine(responses=[_MockResponse(text=body)])
+        mod = OSINTModule(engine)
+        mod._scan_response_secrets('http://example.com')
+        secrets = [f for f in engine.findings if 'Secret Pattern' in f.technique]
+        if secrets:
+            self.assertIn('...', secrets[0].evidence)
+
+    def test_exception_handled_gracefully(self):
+        from modules.osint import OSINTModule
+        engine = _MockEngine(side_effect=Exception('network fail'))
+        mod = OSINTModule(engine)
+        mod._scan_response_secrets('http://example.com')
+        secrets = [f for f in engine.findings if 'Secret Pattern' in f.technique]
+        self.assertEqual(len(secrets), 0)
 
 
 if __name__ == '__main__':
