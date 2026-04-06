@@ -85,7 +85,7 @@ class Finding:
     nuclei_ready: bool = False
     exploit_record: object = None
     _exploit_finding_id: str = ''
-    github_advisory_id: str = ''
+    github_advisory_id: Optional[str] = None
 
     def __post_init__(self):
         # Auto-populate MITRE/CWE from technique name

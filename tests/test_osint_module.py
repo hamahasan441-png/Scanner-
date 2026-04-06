@@ -519,7 +519,8 @@ class TestScanResponseSecrets(unittest.TestCase):
             'sk_live_' + 'T' * 24 + '\n'
             '-----BEGIN RSA PRIVATE KEY-----\n'
         )
-        # Provide enough responses for all paths checked
+        # Provide enough responses for all 6 paths checked by _scan_response_secrets
+        # (main url + 5 sensitive path probes: .env, config.js, wp-config.php.bak, api/config, .git/config)
         responses = [_MockResponse(text=body)] * 6
         engine = _MockEngine(responses=responses)
         mod = OSINTModule(engine)

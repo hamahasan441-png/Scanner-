@@ -19,7 +19,6 @@ class OSINTModule:
         self.engine = engine
         self.requester = engine.requester
         self.name = "OSINT Recon"
-        self.verbose = engine.config.get('verbose', False)
         # Compile secret patterns once for reuse
         self._secret_regexes = []
         for name, pattern in Payloads.SECRET_PATTERNS:
@@ -98,7 +97,7 @@ class OSINTModule:
         Requires a GITHUB_TOKEN for higher rate limits.
         """
         if not Config.GITHUB_TOKEN:
-            return  # Skip if no token — unauthenticated code search is very limited
+            return  # Code search API requires authentication
 
         from core.engine import Finding
 
@@ -173,6 +172,7 @@ class OSINTModule:
             f"{base_url}/.git/config",
         ]
 
+        _MAX_MATCHES_PER_PATTERN = 2  # Cap per-pattern matches to reduce noise
         found_secrets = []
         for check_url in paths_to_check:
             try:
@@ -186,7 +186,7 @@ class OSINTModule:
                     matches = regex.findall(body)
                     if matches:
                         # Redact matched values for safe reporting
-                        for m in matches[:2]:
+                        for m in matches[:_MAX_MATCHES_PER_PATTERN]:
                             redacted = m[:8] + '...' + m[-4:] if len(m) > 16 else m[:4] + '****'
                             found_secrets.append({
                                 'type': secret_name,
