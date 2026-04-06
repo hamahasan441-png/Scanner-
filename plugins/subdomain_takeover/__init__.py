@@ -228,6 +228,9 @@ class PluginScanner:
             import requests
             for scheme in ('https', 'http'):
                 try:
+                    # SSL verification is intentionally disabled because
+                    # subdomain takeover targets often have invalid or
+                    # expired certificates on the dangling endpoint.
                     resp = requests.get(
                         f'{scheme}://{fqdn}',
                         timeout=10,

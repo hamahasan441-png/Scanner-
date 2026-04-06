@@ -586,7 +586,9 @@ class FfufAdapter:
         if wordlist:
             cmd += ['-w', wordlist]
         else:
-            # Use a minimal built-in list when no wordlist is specified
+            # Read wordlist from stdin (caller must pipe data, or ffuf
+            # exits immediately).  Prefer passing an explicit wordlist
+            # path via the ``wordlist`` argument.
             cmd += ['-w', '-']
         if extensions:
             cmd += ['-e', extensions]
