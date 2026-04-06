@@ -25,6 +25,9 @@ class Config:
     # Database
     DB_URL = os.environ.get('ATOMIC_DB_URL', f'sqlite:///{BASE_DIR}/atomic_framework.db')
     
+    # GitHub API — optional token for higher rate limits (60 → 5000 req/hr)
+    GITHUB_TOKEN = os.environ.get('GITHUB_TOKEN', '')
+    
     # Threading
     MAX_THREADS = min(100, (os.cpu_count() or 4) * 10)
     TIMEOUT = 15
