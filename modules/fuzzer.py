@@ -3,6 +3,11 @@
 """
 ATOMIC FRAMEWORK - Fuzzer Module
 Parameter, header, HTTP method, and virtual host fuzzing
+
+Integrates wordlists and payloads directly from the best GitHub
+security repositories (SecLists, PayloadsAllTheThings, fuzzdb,
+dirsearch) via the ``utils.github_wordlists`` fetcher — no external
+tool installation required.
 """
 
 import json
@@ -13,11 +18,16 @@ import subprocess
 import tempfile
 from urllib.parse import urlparse, urljoin, urlencode, parse_qs
 
-from config import Colors
+from config import Colors, Payloads
 
 
 class FuzzerModule:
-    """Fuzzer Module for parameter, header, method, and vhost enumeration"""
+    """Fuzzer Module for parameter, header, method, and vhost enumeration.
+
+    Combines built-in parameter lists with curated payloads from top
+    GitHub security repositories (Payloads.FUZZER_EXTRA_PARAMS) and
+    optionally fetches live wordlists via ``utils.github_wordlists``.
+    """
     
     def __init__(self, engine):
         self.engine = engine
@@ -64,6 +74,13 @@ class FuzzerModule:
             'process', 'execute', 'eval', 'run', 'system', 'shell',
             'ping', 'nslookup', 'dig', 'curl', 'wget',
         ]
+
+        # Merge curated GitHub-sourced extra params (no duplicates)
+        _existing = set(self.common_params)
+        for p in Payloads.FUZZER_EXTRA_PARAMS:
+            if p not in _existing:
+                self.common_params.append(p)
+                _existing.add(p)
         
         self.fuzz_headers = [
             'X-Forwarded-For', 'X-Real-IP', 'X-Originating-IP',
@@ -93,6 +110,10 @@ class FuzzerModule:
         # External tool integrations
         self._paramspider_discover(url)
         self._ffufai_fuzz(url)
+
+        # GitHub-sourced endpoint & param discovery (native, no install)
+        self._github_endpoint_discover(url)
+        self._github_param_discover(url)
 
     # ------------------------------------------------------------------
     # Discovery-phase entry point
@@ -150,6 +171,15 @@ class FuzzerModule:
         spider_params = self._discover_archive_params(url)
         for pname in spider_params:
             discovered_params.append((url, 'get', pname, '', 'fuzzer_archive'))
+
+        # --- GitHub wordlist-powered endpoint discovery (native) ---------
+        gh_endpoints = self._github_endpoint_discover(url, silent=True)
+        discovered_urls.update(gh_endpoints)
+
+        # --- GitHub wordlist-powered param discovery (native) ------------
+        gh_params = self._github_param_discover(url, silent=True)
+        for pname in gh_params:
+            discovered_params.append((url, 'get', pname, '', 'fuzzer_github'))
 
         return {
             'urls': discovered_urls,
@@ -493,6 +523,21 @@ class FuzzerModule:
                 except Exception:
                     continue
         
+        # ── GitHub raw fetcher (SecLists via HTTPS, no install) ──
+        _SECLISTS_MAP = {
+            'common.txt': 'seclists_common',
+            'big.txt': 'seclists_big',
+        }
+        wl_key = _SECLISTS_MAP.get(wordlist_name)
+        if wl_key:
+            try:
+                from utils.github_wordlists import fetch_wordlist
+                lines = fetch_wordlist(wl_key, max_lines=5000)
+                if lines:
+                    return lines
+            except Exception:
+                pass
+
         # Built-in fallback wordlist
         return [
             'admin', 'login', 'dashboard', 'api', 'config', 'backup',
@@ -810,3 +855,159 @@ class FuzzerModule:
             pass
         
         return discovered_params
+
+    # ------------------------------------------------------------------
+    # GitHub repository-powered discovery (no external tool required)
+    # ------------------------------------------------------------------
+
+    def _github_endpoint_discover(self, url, *, silent=False):
+        """Discover endpoints using wordlists fetched from GitHub repos.
+
+        Fetches curated content-discovery wordlists from SecLists,
+        dirsearch, and the framework's own ``Payloads.DISCOVERY_PATHS_EXTENDED``
+        via ``utils.github_wordlists``, then probes the target for each
+        path.  No external tool installation is required.
+
+        Args:
+            url: Target URL.
+            silent: If *True*, return discovered URLs without emitting
+                findings (used in the discovery pipeline phase).
+
+        Returns:
+            set[str]: Discovered endpoint URLs (always returned; findings
+            are only emitted when *silent* is False).
+        """
+        parsed = urlparse(url)
+        base = f"{parsed.scheme}://{parsed.netloc}"
+        discovered = set()
+
+        # Collect paths: start with built-in extended paths
+        paths = list(Payloads.DISCOVERY_PATHS_EXTENDED)
+
+        # Merge API endpoint patterns
+        for ep in Payloads.API_ENDPOINT_PATTERNS:
+            if ep not in paths:
+                paths.append(ep)
+
+        # Fetch live SecLists common wordlist (up to 500 entries)
+        try:
+            from utils.github_wordlists import fetch_wordlist
+            gh_common = fetch_wordlist('seclists_common', max_lines=500)
+            _existing = set(paths)
+            for p in gh_common:
+                if p.startswith('/') or p.startswith('.'):
+                    entry = p if p.startswith('/') else f'/{p}'
+                else:
+                    entry = f'/{p}'
+                if entry not in _existing:
+                    paths.append(entry)
+                    _existing.add(entry)
+        except Exception:
+            pass
+
+        # ── Baseline for custom-404 detection ───────────────────────
+        try:
+            canary_resp = self.requester.request(
+                f"{base}/atomic_canary_{os.urandom(4).hex()}", 'GET')
+            canary_len = len(canary_resp.text) if canary_resp else 0
+            canary_status = canary_resp.status_code if canary_resp else 0
+        except Exception:
+            canary_len = 0
+            canary_status = 0
+
+        for path in paths:
+            try:
+                test_url = f"{base}{path}"
+                resp = self.requester.request(test_url, 'GET')
+                if not resp:
+                    continue
+                # Skip custom 404s
+                if resp.status_code == canary_status and abs(len(resp.text) - canary_len) < 50:
+                    continue
+                if resp.status_code in (200, 201, 204, 301, 302, 307, 401, 403):
+                    discovered.add(test_url)
+            except Exception:
+                continue
+
+        if not silent and discovered:
+            from core.engine import Finding
+            finding = Finding(
+                technique="Fuzzer (GitHub Wordlist Discovery)",
+                url=url, severity='MEDIUM', confidence=0.7,
+                param='N/A',
+                payload=', '.join(sorted(discovered)[:15]),
+                evidence=(
+                    f"Discovered {len(discovered)} endpoints using GitHub-sourced "
+                    f"wordlists (SecLists + PayloadsAllTheThings): "
+                    f"{'; '.join(sorted(discovered)[:10])}"
+                ),
+            )
+            self.engine.add_finding(finding)
+
+        return discovered
+
+    def _github_param_discover(self, url, *, silent=False):
+        """Discover hidden parameters using GitHub-sourced param wordlists.
+
+        Fetches the SecLists ``burp-parameter-names.txt`` wordlist from
+        GitHub and probes each parameter against the target, comparing
+        responses to a baseline.
+
+        Args:
+            url: Target URL.
+            silent: If *True*, return param names without emitting findings.
+
+        Returns:
+            set[str]: Discovered parameter names.
+        """
+        discovered = set()
+
+        try:
+            from utils.github_wordlists import fetch_wordlist
+            gh_params = fetch_wordlist('seclists_params', max_lines=500)
+        except Exception:
+            gh_params = []
+
+        if not gh_params:
+            return discovered
+
+        # Baseline
+        try:
+            baseline = self.requester.request(url, 'GET')
+            baseline_len = len(baseline.text) if baseline else 0
+            baseline_status = baseline.status_code if baseline else 0
+        except Exception:
+            return discovered
+
+        # Skip params already in common_params
+        existing = set(self.common_params)
+        test_params = [p for p in gh_params if p not in existing and len(p) < 50]
+
+        for param_name in test_params:
+            try:
+                test_url = f"{url}{'&' if '?' in url else '?'}{param_name}=test123"
+                resp = self.requester.request(test_url, 'GET')
+                if not resp:
+                    continue
+                if (resp.status_code != baseline_status
+                        or abs(len(resp.text) - baseline_len) > 50):
+                    discovered.add(param_name)
+            except Exception:
+                continue
+
+        if not silent and discovered:
+            from core.engine import Finding
+            finding = Finding(
+                technique="Fuzzer (GitHub Param Discovery)",
+                url=url, severity='INFO', confidence=0.6,
+                param='N/A',
+                payload=', '.join(sorted(discovered)[:20]),
+                evidence=(
+                    f"Discovered {len(discovered)} hidden parameters via "
+                    f"GitHub-sourced wordlist (SecLists/burp-parameter-names): "
+                    f"{', '.join(sorted(discovered)[:10])}"
+                ),
+            )
+            self.engine.add_finding(finding)
+
+        return discovered

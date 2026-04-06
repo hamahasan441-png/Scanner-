@@ -26,31 +26,53 @@ class WAFBypass:
         self.name = "WAF Bypass"
     
     def detect_waf(self, url: str) -> list:
-        """Detect WAF type via passive header/cookie/content checks and active probing"""
+        """Detect WAF type via passive header/cookie/content checks and active probing.
+
+        Signature database is compiled from the WafW00f GitHub repository
+        (EnableSecurity/wafw00f) and other community WAF-detection sources.
+        """
         waf_signatures = {
-            'Cloudflare': ['cf-ray', 'cloudflare', '__cfduid', 'cf_clearance'],
-            'AWS WAF': ['awselb', 'aws-waf', 'x-amzn-requestid'],
-            'ModSecurity': ['mod_security', 'ModSecurity', 'NOYB'],
-            'Sucuri': ['sucuri', 'x-sucuri', 'sucuri_cloudproxy'],
-            'Incapsula': ['incap_ses', 'visid_incap', 'incapsula'],
-            'Akamai': ['akamai', 'ak_bmsc', 'x-akamai-transformed'],
-            'F5 BIG-IP': ['bigip', 'f5', 'x-waf-status'],
-            'Imperva': ['incap_ses', 'visid_incap', 'imperva'],
-            'Barracuda': ['barra'],
-            'Fortinet': ['fortigate', 'fgd'],
-            'Wordfence': ['wordfence', 'wf'],
-            'Citrix': ['citrix', 'ns_af'],
-            'Radware': ['radware', 'x-info'],
-            'DenyAll': ['denyhosts', 'denyall'],
-            'SonicWall': ['sonicwall', 'dell'],
-            'Palo Alto': ['paloalto', 'pa-fw'],
-            'Alibaba Cloud': ['alicloud', 'yundun'],
-            'Tencent Cloud': ['tencent', 'waf.tencent'],
-            'Azure WAF': ['azure', 'x-azure'],
-            'Google Cloud Armor': ['google', 'x-goog'],
+            'Cloudflare': ['cf-ray', 'cloudflare', '__cfduid', 'cf_clearance', 'cf-cache-status', 'cf-request-id'],
+            'AWS WAF': ['awselb', 'aws-waf', 'x-amzn-requestid', 'x-amzn-errortype', 'x-amz-cf-id'],
+            'ModSecurity': ['mod_security', 'ModSecurity', 'NOYB', 'modsecurity'],
+            'Sucuri': ['sucuri', 'x-sucuri', 'sucuri_cloudproxy', 'sucuri-cache'],
+            'Incapsula': ['incap_ses', 'visid_incap', 'incapsula', 'x-iinfo'],
+            'Akamai': ['akamai', 'ak_bmsc', 'x-akamai-transformed', 'akamai-ghost'],
+            'F5 BIG-IP': ['bigip', 'f5', 'x-waf-status', 'bigipserver', 'x-cnection'],
+            'Imperva': ['incap_ses', 'visid_incap', 'imperva', 'x-iinfo', 'incapsula'],
+            'Barracuda': ['barra', 'barracuda', 'barra_counter_session'],
+            'Fortinet': ['fortigate', 'fgd', 'fortiwafd', 'fortiwaf'],
+            'Wordfence': ['wordfence', 'wf', 'wordfence_loginhash'],
+            'Citrix': ['citrix', 'ns_af', 'citrix_ns', 'ns-nonce'],
+            'Radware': ['radware', 'x-info', 'x-sl-compstate'],
+            'DenyAll': ['denyhosts', 'denyall', 'sessioncookie'],
+            'SonicWall': ['sonicwall', 'dell', 'snwl'],
+            'Palo Alto': ['paloalto', 'pa-fw', 'palo alto'],
+            'Alibaba Cloud': ['alicloud', 'yundun', 'ali-cdn'],
+            'Tencent Cloud': ['tencent', 'waf.tencent', 'tencent-cloud'],
+            'Azure WAF': ['azure', 'x-azure', 'azure-ref', 'x-ms-request-id'],
+            'Google Cloud Armor': ['google', 'x-goog', 'x-gfe', 'x-cloud-trace-context'],
             'Reblaze': ['reblaze', 'rbzid'],
             'StackPath': ['stackpath', 'stackpath-waf'],
-            'Fastly': ['fastly', 'x-fastly'],
+            'Fastly': ['fastly', 'x-fastly', 'x-served-by', 'fastly-restarts'],
+            # Additional WAFs from WafW00f / community
+            'Comodo WAF': ['x-waf-event-info', 'comodo'],
+            'DDoS-Guard': ['ddos-guard', 'ddos_guard'],
+            'LiteSpeed': ['litespeed', 'x-litespeed'],
+            'Wallarm': ['wallarm', 'nginx-wallarm'],
+            'Varnish': ['x-varnish', 'via: varnish'],
+            'Edgecast': ['ecdf', 'x-ec-custom-error'],
+            'KeyCDN': ['keycdn', 'x-pull-origin'],
+            'Netlify': ['x-nf-request-id', 'netlify'],
+            'Vercel': ['x-vercel-id', 'x-vercel-cache'],
+            'Shadow Daemon': ['shadow daemon'],
+            'Safe3WAF': ['safe3', 'safe3waf'],
+            'NAXSI': ['naxsi', 'x-naxsi'],
+            'WebKnight': ['webknight'],
+            'BulletProof': ['bulletproof'],
+            'AnYu WAF': ['anyu', 'x-anyu'],
+            'Safedog': ['safedog', 'waf-safedog'],
+            'Chaitin SafeLine': ['chaitin', 'safeline'],
         }
         
         try:

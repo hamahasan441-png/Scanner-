@@ -219,7 +219,12 @@ class Crawler:
             self.resources['media'].add(urljoin(url, tag['src']))
 
     def _extract_api_endpoints(self, soup, url: str):
-        """Extract API endpoints from JavaScript"""
+        """Extract API endpoints from JavaScript.
+
+        Regex patterns cover REST, GraphQL, gRPC-web, Swagger/OpenAPI,
+        WebSocket, fetch/axios/jQuery/XMLHttpRequest, and template-
+        literal URL patterns — curated from top GitHub security repos.
+        """
         for script in soup.find_all('script'):
             if script.string:
                 # Find API patterns
@@ -243,6 +248,34 @@ class Crawler:
                     r'(?:window|document)\.location(?:\.href)?\s*=\s*["\']([^"\']+)["\']',
                     # HTTP method calls on any object (.get/.post/.put/.delete)
                     r'\.\s*(?:get|post|put|delete)\s*\(\s*["\']([^"\']+)["\']',
+                    # ── Additional patterns from GitHub security repos ──
+                    # OpenAPI / Swagger definition URLs
+                    r'["\'](/swagger[^"\']*)["\']',
+                    r'["\'](/openapi[^"\']*)["\']',
+                    r'["\'](/api-docs[^"\']*)["\']',
+                    # gRPC-web & protobuf endpoints
+                    r'["\'](/grpc[^"\']*)["\']',
+                    r'["\'](/twirp/[^"\']+)["\']',
+                    # Next.js / Nuxt.js API routes
+                    r'["\'](/api/[a-z][a-zA-Z0-9_/]*)["\']',
+                    r'["\'](/_next/data/[^"\']+)["\']',
+                    # AWS API Gateway patterns
+                    r'["\'](https?://[a-z0-9]+\.execute-api\.[^"\']+)["\']',
+                    # Firebase / Firestore patterns
+                    r'["\'](https?://[^"\']*firebaseio\.com[^"\']*)["\']',
+                    r'["\'](https?://[^"\']*firestore\.googleapis\.com[^"\']*)["\']',
+                    # OAuth / token endpoints
+                    r'["\'](/oauth/[^"\']+)["\']',
+                    r'["\'](/auth/[^"\']+)["\']',
+                    r'["\'](/token[^"\']*)["\']',
+                    r'["\'](/\.well-known/[^"\']+)["\']',
+                    # Internal/admin endpoints
+                    r'["\'](/internal/[^"\']+)["\']',
+                    r'["\'](/admin/api[^"\']*)["\']',
+                    r'["\'](/debug/[^"\']+)["\']',
+                    r'["\'](/actuator[^"\']*)["\']',
+                    # Config / environment exposure
+                    r'["\'](/config[^"\']*\.(?:json|yml|yaml|xml))["\']',
                 ]
                 
                 for pattern in patterns:
