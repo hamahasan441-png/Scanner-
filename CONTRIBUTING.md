@@ -5,7 +5,7 @@ Thank you for your interest in contributing to the ATOMIC Framework! This guide 
 ## Development Setup
 
 ### Prerequisites
-- Python 3.9 or higher
+- Python 3.10 or higher
 - Git
 
 ### Clone & Install

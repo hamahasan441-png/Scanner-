@@ -33,7 +33,7 @@ fi
 
 # Verify Python is available
 if ! command -v python3 &>/dev/null && ! command -v python &>/dev/null; then
-    fail "Python is not installed. Please install Python 3.9+ first."
+    fail "Python is not installed. Please install Python 3.10+ first."
 fi
 
 PYTHON=$(command -v python3 || command -v python)
