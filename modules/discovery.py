@@ -35,7 +35,7 @@ except ImportError:
     _HAS_BS4 = False
 
 
-from config import Colors
+from config import Colors, Payloads
 
 
 # ────────────────────────────────────────────
@@ -264,8 +264,32 @@ class DiscoveryModule:
 
         Uses a baseline 404 fingerprint to avoid false positives from
         custom error pages that return HTTP 200.
+
+        The path list is the union of the built-in ``COMMON_PATHS`` and
+        curated ``Payloads.DISCOVERY_PATHS_EXTENDED`` (sourced from
+        SecLists, dirsearch, and PayloadsAllTheThings).
         """
-        print(f"{Colors.info(f'Directory brute-force ({len(COMMON_PATHS)} paths)...')}")
+        # Merge built-in + GitHub-curated extended paths (no duplicates)
+        all_paths = list(COMMON_PATHS)
+        _seen = set(all_paths)
+        for p in Payloads.DISCOVERY_PATHS_EXTENDED:
+            if p not in _seen:
+                all_paths.append(p)
+                _seen.add(p)
+
+        # Optionally fetch live SecLists common wordlist
+        try:
+            from utils.github_wordlists import fetch_wordlist
+            gh_common = fetch_wordlist('seclists_common', max_lines=300)
+            for p in gh_common:
+                entry = p if p.startswith('/') else f'/{p}'
+                if entry not in _seen:
+                    all_paths.append(entry)
+                    _seen.add(entry)
+        except Exception:
+            pass
+
+        print(f"{Colors.info(f'Directory brute-force ({len(all_paths)} paths)...')}")
         found = 0
 
         # Build a baseline "not found" fingerprint so we can detect
@@ -281,7 +305,7 @@ class DiscoveryModule:
         except Exception:
             pass
 
-        for path in COMMON_PATHS:
+        for path in all_paths:
             full_url = urljoin(base_url, path)
 
             # Skip if already discovered

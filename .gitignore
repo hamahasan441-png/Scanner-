@@ -12,6 +12,8 @@ build/
 .atomic_ai_data.json
 .atomic_progress.json
 .pytest_cache/
+.coverage
+htmlcov/
 
 # Environment & secrets
 .env
@@ -32,3 +34,9 @@ env/
 # OS files
 .DS_Store
 Thumbs.db
+
+# mypy cache
+.mypy_cache/
+
+# GitHub wordlist cache (fetched at runtime)
+.github_wordlist_cache/
