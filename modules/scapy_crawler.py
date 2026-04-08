@@ -1134,7 +1134,7 @@ class ScapyVulnScanner:
                 vuln = self._get_vuln("SVD-003")
                 vuln["evidence"] = "Host did not reject ICMP redirect (heuristic)"
                 vuln["host"] = host
-                vuln["confidence"] = "low"
+                vuln["confidence"] = 0.3  # heuristic check — low confidence
                 self.findings.append(vuln)
                 self._print_finding(vuln)
                 self._register_finding(host, vuln)
