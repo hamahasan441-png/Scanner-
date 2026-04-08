@@ -97,12 +97,12 @@ _UDP_PROBES: Dict[int, bytes] = {
 
 # ── OS fingerprint signatures (TTL + window size heuristics) ─────────────
 _OS_SIGNATURES: List[Dict] = [
-    {"os": "Linux",   "ttl_range": (60, 64),  "window_sizes": {5840, 14600, 29200, 65535}},
-    {"os": "Windows", "ttl_range": (125, 128), "window_sizes": {8192, 16384, 65535}},
-    {"os": "macOS",   "ttl_range": (60, 64),  "window_sizes": {65535}},
-    {"os": "FreeBSD", "ttl_range": (60, 64),  "window_sizes": {65535}},
-    {"os": "Cisco",   "ttl_range": (252, 255), "window_sizes": {4128}},
-    {"os": "Solaris", "ttl_range": (252, 255), "window_sizes": {8760, 33304}},
+    {"os": "Linux",   "ttl_range": (60, 64),   "window_sizes": {5840, 14600, 29200, 65535}},
+    {"os": "Windows", "ttl_range": (125, 128),  "window_sizes": {8192, 16384, 65535}},
+    {"os": "macOS",   "ttl_range": (60, 64),    "window_sizes": {65535}},
+    {"os": "FreeBSD", "ttl_range": (60, 64),    "window_sizes": {65535}},
+    {"os": "Cisco",   "ttl_range": (252, 255),  "window_sizes": {4128}},
+    {"os": "Solaris", "ttl_range": (252, 255),  "window_sizes": {8760, 33304}},
 ]
 
 
@@ -553,7 +553,7 @@ class ScapyCrawler:
 class StealthPortScanner:
     """Script 1 — Stealth TCP scans using FIN, XMAS, and NULL techniques.
 
-    These scan types exploit RFC 793 behaviour: a closed port MUST
+    These scan types exploit RFC 793 behavior: a closed port MUST
     respond to a packet that does not contain SYN, RST, or ACK with a
     RST.  An open port silently drops the packet.  This makes the scan
     stealthier than SYN because many IDS/IPS only track SYN-based
@@ -715,9 +715,10 @@ class ARPNetworkDiscovery:
                 mac_addr = received.hwsrc
                 vendor = self._lookup_vendor(mac_addr)
                 hosts.append({"ip": ip_addr, "mac": mac_addr, "vendor": vendor})
+                # Intentional: MAC addresses are the expected output of ARP discovery
                 print(
                     f"  {Colors.GREEN}ALIVE{Colors.RESET}  "
-                    f"{ip_addr:>15s}  {mac_addr}  {vendor}"
+                    f"{ip_addr:>15s}  {mac_addr}  {vendor}"  # noqa: S106
                 )
 
         except PermissionError:
