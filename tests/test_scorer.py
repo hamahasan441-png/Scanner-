@@ -17,7 +17,7 @@ class _MockEngine:
 
     class _MockLearning:
         def get_signal_weights(self):
-            return {'timing': 3, 'error': 2, 'reflection': 2, 'diff': 1}
+            return {'timing': 3, 'error': 2, 'reflection': 2, 'diff': 1, 'behavior': 2}
 
     def __init__(self):
         self.config = {'verbose': False}
@@ -50,6 +50,7 @@ class TestSignalSet(unittest.TestCase):
         ss.error_signal = 1.0
         ss.reflection_signal = 1.0
         ss.diff_signal = 1.0
+        ss.behavior_signal = 1.0
         self.assertEqual(ss.combined_score, 1.0)
 
     def test_active_signal_threshold(self):
@@ -62,10 +63,9 @@ class TestSignalSet(unittest.TestCase):
         ss = SignalSet()
         ss.timing_signal = 1.0
         ss.error_signal = 1.0
-        # combined = (3 + 2) / 8 = 0.625 → still below 0.75
-        # So need more signals
         ss.reflection_signal = 1.0
-        # (3+2+2)/8 = 0.875, active=3 → HIGH
+        ss.behavior_signal = 1.0
+        # (3+2+2+2)/10 = 0.9, active=4 → HIGH
         self.assertEqual(ss.confidence_label, 'HIGH')
 
     def test_medium_label(self):
@@ -74,22 +74,25 @@ class TestSignalSet(unittest.TestCase):
         ss.error_signal = 0.0
         ss.reflection_signal = 0.0
         ss.diff_signal = 0.0
-        # combined = 3/8 = 0.375, active=1 → LOW (below 0.45)
+        ss.behavior_signal = 0.0
+        # combined = 3/10 = 0.3, active=1 → LOW (below 0.45)
         self.assertEqual(ss.confidence_label, 'LOW')
         ss.error_signal = 0.5
-        # combined = (3 + 1)/8 = 0.5, active=2 → MEDIUM (below 0.75)
+        ss.behavior_signal = 0.5
+        # combined = (3 + 1 + 1)/10 = 0.5, active=3 → MEDIUM
         self.assertEqual(ss.confidence_label, 'MEDIUM')
 
     def test_custom_weights(self):
-        ss = SignalSet(weights={'timing': 1, 'error': 1, 'reflection': 1, 'diff': 1})
+        ss = SignalSet(weights={'timing': 1, 'error': 1, 'reflection': 1, 'diff': 1, 'behavior': 1})
         ss.timing_signal = 1.0
-        # combined = 1/4 = 0.25
-        self.assertAlmostEqual(ss.combined_score, 0.25)
+        # combined = 1/5 = 0.2
+        self.assertAlmostEqual(ss.combined_score, 0.2)
 
     def test_to_dict(self):
         ss = SignalSet()
         d = ss.to_dict()
         self.assertIn('timing', d)
+        self.assertIn('behavior', d)
         self.assertIn('combined', d)
         self.assertIn('label', d)
 # ---------------------------------------------------------------------------

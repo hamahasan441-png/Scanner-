@@ -55,14 +55,14 @@ class TestGoalPlanner(unittest.TestCase):
 
     def test_plan_creates_base_goals(self):
         goals = self.planner.plan([])
-        self.assertGreaterEqual(len(goals), 11)  # 11 base goals
+        self.assertGreaterEqual(len(goals), 15)  # 15 base goals (v10.0)
 
     def test_plan_adds_hypothesis_goals(self):
         hypotheses = [{'claim': 'test', 'confidence': 0.8,
                        'vuln_class': 'sqli', 'required_tools': ['sqli'],
                        'target_endpoint': 'https://example.com'}]
         goals = self.planner.plan(hypotheses)
-        self.assertGreater(len(goals), 11)
+        self.assertGreater(len(goals), 15)
 
     def test_plan_sorted_by_priority(self):
         self.planner.plan([])
