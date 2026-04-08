@@ -471,6 +471,70 @@ class AtomicEngine:
                     if self.config.get('verbose'):
                         print(f"{Colors.error(f'Port scan error: {e}')}")
 
+            # Scapy network crawl (SYN scan + UDP + OS fingerprint)
+            scapy_results = {}
+            if modules_config.get('scapy', False) or modules_config.get('scapy_crawl', False):
+                try:
+                    from modules.scapy_crawler import ScapyCrawler, is_scapy_available
+                    if is_scapy_available():
+                        scapy = ScapyCrawler(self)
+                        hostname = urlparse(effective_target).hostname
+                        scapy_results = scapy.run(
+                            hostname,
+                            port_spec,
+                            syn_scan=True,
+                            udp_scan=True,
+                            os_detect=True,
+                            traceroute=modules_config.get('traceroute', False),
+                        )
+                        # Merge Scapy TCP results into port_results for exploit matching
+                        scapy_ports = scapy.to_port_scanner_format(scapy_results)
+                        existing = {r['port'] for r in port_results}
+                        for sp in scapy_ports:
+                            if sp['port'] not in existing:
+                                port_results.append(sp)
+                    elif self.config.get('verbose'):
+                        print(f"{Colors.info('scapy not installed — Scapy crawl skipped')}")
+                except Exception as e:
+                    if self.config.get('verbose'):
+                        print(f"{Colors.error(f'Scapy crawl error: {e}')}")
+
+            # Stealth scan (FIN/XMAS/NULL) via Scapy
+            if modules_config.get('stealth_scan', False):
+                try:
+                    from modules.scapy_crawler import StealthPortScanner, is_scapy_available
+                    if is_scapy_available():
+                        stealth = StealthPortScanner(self)
+                        hostname = urlparse(effective_target).hostname
+                        stealth.run(hostname)
+                except Exception as e:
+                    if self.config.get('verbose'):
+                        print(f"{Colors.error(f'Stealth scan error: {e}')}")
+
+            # ARP network discovery (LAN host enumeration)
+            if modules_config.get('arp_discovery', False):
+                try:
+                    from modules.scapy_crawler import ARPNetworkDiscovery, is_scapy_available
+                    if is_scapy_available():
+                        arp = ARPNetworkDiscovery(self)
+                        subnet = modules_config.get('subnet', '')
+                        if subnet:
+                            arp.discover(subnet)
+                except Exception as e:
+                    if self.config.get('verbose'):
+                        print(f"{Colors.error(f'ARP discovery error: {e}')}")
+
+            # DNS recon (zone transfer + subdomain brute-force)
+            if modules_config.get('dns_recon', False):
+                try:
+                    from modules.scapy_crawler import DNSReconScanner
+                    dns_recon = DNSReconScanner(self)
+                    domain = urlparse(target).hostname or urlparse(target).netloc
+                    dns_recon.run(domain)
+                except Exception as e:
+                    if self.config.get('verbose'):
+                        print(f"{Colors.error(f'DNS recon error: {e}')}")
+
             # Network exploit scanning (runs after port scan)
             if port_results and modules_config.get('net_exploit', False):
                 try:
@@ -481,6 +545,42 @@ class AtomicEngine:
                 except Exception as e:
                     if self.config.get('verbose'):
                         print(f"{Colors.error(f'Network exploit scan error: {e}')}")
+
+            # Scapy packet-level vulnerability scan
+            if modules_config.get('scapy_vuln_scan', False) or modules_config.get('scapy', False):
+                try:
+                    from modules.scapy_crawler import ScapyVulnScanner, is_scapy_available
+                    if is_scapy_available():
+                        vuln_scanner = ScapyVulnScanner(self)
+                        hostname = urlparse(effective_target).hostname
+                        vuln_scanner.run(
+                            hostname,
+                            port_results=port_results,
+                            os_guess=scapy_results.get('os_guess', '') if scapy_results else '',
+                        )
+                    elif self.config.get('verbose'):
+                        print(f"{Colors.info('scapy not installed — vuln scan skipped')}")
+                except Exception as e:
+                    if self.config.get('verbose'):
+                        print(f"{Colors.error(f'Scapy vuln scan error: {e}')}")
+
+            # Scapy attack chain (network-layer multi-step exploitation)
+            if modules_config.get('scapy_attack_chain', False):
+                try:
+                    from modules.scapy_crawler import ScapyAttackChain, is_scapy_available
+                    if is_scapy_available():
+                        chain = ScapyAttackChain(self)
+                        hostname = urlparse(effective_target).hostname
+                        chain.run(
+                            hostname,
+                            port_results=port_results,
+                            scapy_results=scapy_results,
+                        )
+                    elif self.config.get('verbose'):
+                        print(f"{Colors.info('scapy not installed — attack chain skipped')}")
+                except Exception as e:
+                    if self.config.get('verbose'):
+                        print(f"{Colors.error(f'Scapy attack chain error: {e}')}")
 
             # Technology exploit scanning
             if modules_config.get('tech_exploit', False):
