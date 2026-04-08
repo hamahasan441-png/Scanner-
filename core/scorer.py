@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ATOMIC FRAMEWORK v9.0 - ULTIMATE EDITION
+ATOMIC FRAMEWORK v10.0 - ULTIMATE EDITION
 Multi-Signal Analysis & Scoring Module
 
 Collects multiple detection signals (timing, reflection, error patterns,
@@ -25,8 +25,11 @@ DEFAULT_WEIGHT_TIMING = 3
 DEFAULT_WEIGHT_ERROR = 2
 DEFAULT_WEIGHT_REFLECTION = 2
 DEFAULT_WEIGHT_DIFF = 1
+DEFAULT_WEIGHT_BEHAVIOR = 2
 
-TOTAL_WEIGHT = DEFAULT_WEIGHT_TIMING + DEFAULT_WEIGHT_ERROR + DEFAULT_WEIGHT_REFLECTION + DEFAULT_WEIGHT_DIFF
+TOTAL_WEIGHT = (DEFAULT_WEIGHT_TIMING + DEFAULT_WEIGHT_ERROR
+                + DEFAULT_WEIGHT_REFLECTION + DEFAULT_WEIGHT_DIFF
+                + DEFAULT_WEIGHT_BEHAVIOR)
 
 # Confidence thresholds
 CONFIDENCE_HIGH = 0.75
@@ -41,7 +44,7 @@ class SignalSet:
 
     __slots__ = (
         'timing_signal', 'error_signal', 'reflection_signal', 'diff_signal',
-        'raw_scores', '_weights',
+        'behavior_signal', 'raw_scores', '_weights',
     )
 
     def __init__(self, weights=None):
@@ -49,12 +52,14 @@ class SignalSet:
         self.error_signal = 0.0      # 0.0 - 1.0
         self.reflection_signal = 0.0  # 0.0 - 1.0
         self.diff_signal = 0.0       # 0.0 - 1.0
+        self.behavior_signal = 0.0   # 0.0 - 1.0 (v10.0: status code / redirect behavior)
         self.raw_scores = {}
         self._weights = weights or {
             'timing': DEFAULT_WEIGHT_TIMING,
             'error': DEFAULT_WEIGHT_ERROR,
             'reflection': DEFAULT_WEIGHT_REFLECTION,
             'diff': DEFAULT_WEIGHT_DIFF,
+            'behavior': DEFAULT_WEIGHT_BEHAVIOR,
         }
 
     @property
@@ -66,6 +71,7 @@ class SignalSet:
             + self.error_signal * w['error']
             + self.reflection_signal * w['reflection']
             + self.diff_signal * w['diff']
+            + self.behavior_signal * w.get('behavior', DEFAULT_WEIGHT_BEHAVIOR)
         )
         total_weight = sum(w.values())
         return round(total / total_weight, 3) if total_weight > 0 else 0.0
@@ -81,6 +87,8 @@ class SignalSet:
         if self.reflection_signal > 0.3:
             count += 1
         if self.diff_signal > 0.3:
+            count += 1
+        if self.behavior_signal > 0.3:
             count += 1
         return count
 
@@ -101,6 +109,7 @@ class SignalSet:
             'error': round(self.error_signal, 3),
             'reflection': round(self.reflection_signal, 3),
             'diff': round(self.diff_signal, 3),
+            'behavior': round(self.behavior_signal, 3),
             'combined': self.combined_score,
             'active_signals': self.active_signal_count,
             'label': self.confidence_label,
@@ -125,6 +134,7 @@ class SignalScorer:
                 'error': learned.get('error', DEFAULT_WEIGHT_ERROR),
                 'reflection': learned.get('reflection', DEFAULT_WEIGHT_REFLECTION),
                 'diff': learned.get('diff', DEFAULT_WEIGHT_DIFF),
+                'behavior': learned.get('behavior', DEFAULT_WEIGHT_BEHAVIOR),
             }
         except (AttributeError, TypeError):
             return {
@@ -132,6 +142,7 @@ class SignalScorer:
                 'error': DEFAULT_WEIGHT_ERROR,
                 'reflection': DEFAULT_WEIGHT_REFLECTION,
                 'diff': DEFAULT_WEIGHT_DIFF,
+                'behavior': DEFAULT_WEIGHT_BEHAVIOR,
             }
 
     def score_timing(self, baseline, elapsed):
@@ -243,8 +254,55 @@ class SignalScorer:
             return 0.4
         return 0.0
 
+    def score_behavior(self, baseline, status_code, headers=None):
+        """Score based on HTTP behavior anomalies (v10.0 signal).
+
+        Detects unexpected status codes, redirects, or header changes
+        compared to baseline responses.
+
+        Returns 0.0 - 1.0.
+        """
+        if baseline is None:
+            return 0.0
+
+        score = 0.0
+        baseline_status = getattr(baseline, 'status_code', None)
+        baseline_headers = getattr(baseline, 'response_headers', None)
+
+        # Status code anomaly detection
+        if baseline_status is not None and status_code is not None:
+            if baseline_status != status_code:
+                # Error status codes are highly suspicious
+                if status_code >= 500:
+                    score = max(score, 0.8)
+                # Redirect anomaly (302/301 when baseline was 200)
+                elif status_code in (301, 302, 303, 307, 308) and baseline_status == 200:
+                    score = max(score, 0.6)
+                # Forbidden/unauthorized change
+                elif status_code in (401, 403) and baseline_status == 200:
+                    score = max(score, 0.5)
+                # Any other status change
+                else:
+                    score = max(score, 0.3)
+
+        # Header anomaly detection
+        if headers and baseline_headers:
+            # Check for new security-relevant headers appearing/disappearing
+            security_headers = {
+                'x-frame-options', 'content-security-policy',
+                'x-content-type-options', 'x-xss-protection',
+            }
+            for hdr in security_headers:
+                baseline_has = hdr in {k.lower() for k in baseline_headers}
+                current_has = hdr in {k.lower() for k in headers}
+                if baseline_has and not current_has:
+                    score = max(score, 0.4)
+
+        return min(1.0, score)
+
     def analyze(self, baseline, elapsed, response_text, payload,
-                error_patterns=None, baseline_text=''):
+                error_patterns=None, baseline_text='',
+                status_code=None, headers=None):
         """Run all signal checks and return a :class:`SignalSet`."""
         weights = self._get_weights()
         signals = SignalSet(weights=weights)
@@ -254,4 +312,5 @@ class SignalScorer:
         )
         signals.reflection_signal = self.score_reflection(payload, response_text)
         signals.diff_signal = self.score_diff(baseline, response_text)
+        signals.behavior_signal = self.score_behavior(baseline, status_code, headers)
         return signals

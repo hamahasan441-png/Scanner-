@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ATOMIC FRAMEWORK v9.0 - ULTIMATE EDITION
+ATOMIC FRAMEWORK v10.0 - ULTIMATE EDITION
 Phase 4 — Dynamic Goal Planning & Stack Management
 
 Generates vulnerability hypotheses from recon data, builds a prioritised
@@ -37,6 +37,27 @@ HYPOTHESIS_TEMPLATES = [
      'CORS wildcard credential leak chain', 0.80, ['cors']),
     ('redirect', 'open_redirect',
      'Phishing + token theft via open redirect', 0.70, ['open_redirect']),
+    # v10.0 additions
+    ('django', 'ssti',
+     'Django template injection via debug mode', 0.70, ['ssti']),
+    ('node', 'proto_pollution',
+     'Node.js prototype pollution via __proto__', 0.75, ['proto_pollution']),
+    ('spring', 'rce',
+     'Spring4Shell / SpEL injection RCE', 0.80, ['cmdi', 'tech_exploit']),
+    ('docker', 'container_escape',
+     'Docker API exposed / container escape', 0.65, ['discovery', 'net_exploit']),
+    ('kubernetes', 'cloud_misconfig',
+     'Kubernetes dashboard / etcd exposed', 0.70, ['discovery', 'net_exploit']),
+    ('elasticsearch', 'info_disclosure',
+     'Elasticsearch cluster info disclosure', 0.60, ['discovery']),
+    ('redis', 'unauth_access',
+     'Redis unauthenticated access / RCE', 0.75, ['net_exploit']),
+    ('mongodb', 'nosql_injection',
+     'MongoDB NoSQL injection / auth bypass', 0.70, ['nosql']),
+    ('websocket', 'ws_injection',
+     'WebSocket message injection / hijacking', 0.65, ['websocket']),
+    ('oauth', 'auth_bypass',
+     'OAuth misconfiguration / token theft', 0.75, ['jwt', 'open_redirect']),
 ]
 
 # Severity weight for priority computation
@@ -57,6 +78,11 @@ BASE_GOALS = [
     ('GOAL_8', 'Business logic endpoints', 'logic', 0.60, ['idor', 'race_condition']),
     ('GOAL_9', 'Expand scope on pivot found', 'pivot', 0.55, ['discovery']),
     ('GOAL_10', 'Exploit chain confirmation', 'exploit_chain', 0.50, ['exploit_chain']),
+    # v10.0 additions
+    ('GOAL_11', 'Cloud metadata probe', 'cloud', 0.72, ['ssrf', 'discovery']),
+    ('GOAL_12', 'WebSocket endpoint analysis', 'websocket', 0.58, ['websocket']),
+    ('GOAL_13', 'Deserialization gadget chain', 'deser', 0.62, ['deserialization']),
+    ('GOAL_14', 'Prototype pollution sinks', 'proto', 0.56, ['proto_pollution']),
 ]
 
 

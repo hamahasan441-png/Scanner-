@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ATOMIC FRAMEWORK v9.0 - Pipeline Contract
+ATOMIC FRAMEWORK v10.0 - Pipeline Contract
 Canonical phase definitions and state machine for the scan pipeline.
 
 This module is the **single source of truth** for:
@@ -34,6 +34,7 @@ class Phase(str, Enum):
     """
 
     INIT = 'init'
+    PLAN_DISPLAY = 'plan_display'
     SCOPE = 'scope'
     SHIELD_DETECT = 'shield_detect'
     REAL_IP = 'real_ip'
@@ -72,6 +73,7 @@ class Partition(str, Enum):
 # Which partition each phase belongs to.
 PHASE_PARTITION: Dict[Phase, Partition] = {
     Phase.INIT: Partition.RECON,
+    Phase.PLAN_DISPLAY: Partition.RECON,
     Phase.SCOPE: Partition.RECON,
     Phase.SHIELD_DETECT: Partition.RECON,
     Phase.REAL_IP: Partition.RECON,
