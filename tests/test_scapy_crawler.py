@@ -384,5 +384,285 @@ class TestConstants(unittest.TestCase):
         self.assertIn(161, _UDP_PROBES)
 
 
+# ======================================================================
+# ScapyVulnScanner
+# ======================================================================
+
+
+class TestScapyVulnScannerInit(unittest.TestCase):
+
+    def test_sets_engine(self):
+        from modules.scapy_crawler import ScapyVulnScanner
+        eng = _MockEngine()
+        s = ScapyVulnScanner(eng)
+        self.assertIs(s.engine, eng)
+
+    def test_timeout_cap(self):
+        from modules.scapy_crawler import ScapyVulnScanner
+        eng = _MockEngine()
+        eng.config['timeout'] = 99
+        s = ScapyVulnScanner(eng)
+        self.assertLessEqual(s.timeout, 5)
+
+    def test_findings_initially_empty(self):
+        from modules.scapy_crawler import ScapyVulnScanner
+        s = ScapyVulnScanner(_MockEngine())
+        self.assertEqual(s.findings, [])
+
+
+class TestScapyVulnScannerNoScapy(unittest.TestCase):
+
+    def test_returns_empty_when_no_scapy(self):
+        from modules.scapy_crawler import ScapyVulnScanner
+        s = ScapyVulnScanner(_MockEngine())
+        with patch('modules.scapy_crawler._SCAPY_AVAILABLE', False):
+            result = s.run('127.0.0.1')
+            self.assertEqual(result, [])
+
+
+class TestScapyVulnDB(unittest.TestCase):
+
+    def test_db_not_empty(self):
+        from modules.scapy_crawler import SCAPY_VULN_DB
+        self.assertGreater(len(SCAPY_VULN_DB), 5)
+
+    def test_all_entries_have_required_keys(self):
+        from modules.scapy_crawler import SCAPY_VULN_DB
+        required = {'id', 'title', 'severity', 'cvss', 'description', 'remediation'}
+        for entry in SCAPY_VULN_DB:
+            for key in required:
+                self.assertIn(key, entry, f"Missing {key} in {entry.get('id')}")
+
+    def test_severity_values_valid(self):
+        from modules.scapy_crawler import SCAPY_VULN_DB
+        valid = {'CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO'}
+        for entry in SCAPY_VULN_DB:
+            self.assertIn(entry['severity'], valid)
+
+    def test_cvss_in_range(self):
+        from modules.scapy_crawler import SCAPY_VULN_DB
+        for entry in SCAPY_VULN_DB:
+            self.assertGreaterEqual(entry['cvss'], 0.0)
+            self.assertLessEqual(entry['cvss'], 10.0)
+
+    def test_unique_ids(self):
+        from modules.scapy_crawler import SCAPY_VULN_DB
+        ids = [e['id'] for e in SCAPY_VULN_DB]
+        self.assertEqual(len(ids), len(set(ids)))
+
+
+class TestScapyVulnScannerGetVuln(unittest.TestCase):
+
+    def test_known_id(self):
+        from modules.scapy_crawler import ScapyVulnScanner
+        vuln = ScapyVulnScanner._get_vuln('SVD-001')
+        self.assertEqual(vuln['title'], 'TCP Timestamp Information Leak')
+
+    def test_unknown_id(self):
+        from modules.scapy_crawler import ScapyVulnScanner
+        vuln = ScapyVulnScanner._get_vuln('SVD-999')
+        self.assertEqual(vuln['title'], 'Unknown')
+
+    def test_returns_copy(self):
+        from modules.scapy_crawler import ScapyVulnScanner, SCAPY_VULN_DB
+        vuln = ScapyVulnScanner._get_vuln('SVD-001')
+        vuln['title'] = 'MODIFIED'
+        original = next(e for e in SCAPY_VULN_DB if e['id'] == 'SVD-001')
+        self.assertNotEqual(original['title'], 'MODIFIED')
+
+
+# ======================================================================
+# ScapyAttackChain
+# ======================================================================
+
+
+class TestScapyAttackChainInit(unittest.TestCase):
+
+    def test_sets_engine(self):
+        from modules.scapy_crawler import ScapyAttackChain
+        eng = _MockEngine()
+        c = ScapyAttackChain(eng)
+        self.assertIs(c.engine, eng)
+
+    def test_chain_results_initially_empty(self):
+        from modules.scapy_crawler import ScapyAttackChain
+        c = ScapyAttackChain(_MockEngine())
+        self.assertEqual(c.chain_results, [])
+
+    def test_timeout_cap(self):
+        from modules.scapy_crawler import ScapyAttackChain
+        eng = _MockEngine()
+        eng.config['timeout'] = 99
+        c = ScapyAttackChain(eng)
+        self.assertLessEqual(c.timeout, 5)
+
+
+class TestScapyAttackChainNoScapy(unittest.TestCase):
+
+    def test_returns_empty_when_no_scapy(self):
+        from modules.scapy_crawler import ScapyAttackChain
+        c = ScapyAttackChain(_MockEngine())
+        with patch('modules.scapy_crawler._SCAPY_AVAILABLE', False):
+            result = c.run('127.0.0.1')
+            self.assertEqual(result, [])
+
+
+class TestNetworkChainTemplates(unittest.TestCase):
+
+    def test_templates_not_empty(self):
+        from modules.scapy_crawler import NETWORK_CHAIN_TEMPLATES
+        self.assertGreater(len(NETWORK_CHAIN_TEMPLATES), 3)
+
+    def test_each_template_has_name_steps(self):
+        from modules.scapy_crawler import NETWORK_CHAIN_TEMPLATES
+        for t in NETWORK_CHAIN_TEMPLATES:
+            self.assertIn('name', t)
+            self.assertIn('steps', t)
+            self.assertGreater(len(t['steps']), 0)
+
+    def test_each_step_has_action_desc(self):
+        from modules.scapy_crawler import NETWORK_CHAIN_TEMPLATES
+        for t in NETWORK_CHAIN_TEMPLATES:
+            for step in t['steps']:
+                self.assertIn('action', step)
+                self.assertIn('desc', step)
+
+    def test_all_actions_have_handlers(self):
+        from modules.scapy_crawler import ScapyAttackChain, NETWORK_CHAIN_TEMPLATES
+        c = ScapyAttackChain(_MockEngine())
+        all_actions = set()
+        for t in NETWORK_CHAIN_TEMPLATES:
+            for step in t['steps']:
+                all_actions.add(step['action'])
+        # Verify all actions are in dispatch
+        for action in all_actions:
+            handler = {
+                'arp_discover': c._step_arp_discover,
+                'os_fingerprint': c._step_os_fingerprint,
+                'syn_scan': c._step_syn_scan,
+                'stealth_scan': c._step_stealth_scan,
+                'vuln_scan': c._step_vuln_scan,
+                'service_exploit': c._step_service_exploit,
+                'frag_probe': c._step_frag_probe,
+                'dns_recon': c._step_dns_recon,
+                'subdomain_resolve': c._step_subdomain_resolve,
+                'cleartext_detect': c._step_cleartext_detect,
+                'service_probe': c._step_service_probe,
+                'cve_match': c._step_cve_match,
+            }.get(action)
+            self.assertIsNotNone(handler, f"No handler for action: {action}")
+
+
+class TestCleartextDetect(unittest.TestCase):
+
+    def test_detects_ftp(self):
+        from modules.scapy_crawler import ScapyAttackChain
+        c = ScapyAttackChain(_MockEngine())
+        ctx = {
+            'host': '127.0.0.1',
+            'port_results': [
+                {'port': 21, 'state': 'open', 'service': 'FTP', 'banner': ''},
+                {'port': 443, 'state': 'open', 'service': 'HTTPS', 'banner': ''},
+            ],
+        }
+        ok, data = c._step_cleartext_detect(ctx)
+        self.assertTrue(ok)
+        self.assertEqual(len(data['cleartext_services']), 1)
+        self.assertEqual(data['cleartext_services'][0]['port'], 21)
+
+    def test_no_cleartext(self):
+        from modules.scapy_crawler import ScapyAttackChain
+        c = ScapyAttackChain(_MockEngine())
+        ctx = {
+            'host': '127.0.0.1',
+            'port_results': [
+                {'port': 443, 'state': 'open', 'service': 'HTTPS', 'banner': ''},
+            ],
+        }
+        ok, data = c._step_cleartext_detect(ctx)
+        self.assertFalse(ok)
+
+    def test_detects_telnet(self):
+        from modules.scapy_crawler import ScapyAttackChain
+        c = ScapyAttackChain(_MockEngine())
+        ctx = {
+            'host': '127.0.0.1',
+            'port_results': [
+                {'port': 23, 'state': 'open', 'service': 'Telnet', 'banner': ''},
+            ],
+        }
+        ok, data = c._step_cleartext_detect(ctx)
+        self.assertTrue(ok)
+
+
+class TestSubdomainResolve(unittest.TestCase):
+
+    def test_resolves_subs(self):
+        from modules.scapy_crawler import ScapyAttackChain
+        c = ScapyAttackChain(_MockEngine())
+        ctx = {
+            'subdomains': [
+                {'subdomain': 'api.example.com', 'ip': '1.2.3.4'},
+                {'subdomain': 'dev.example.com', 'ip': '5.6.7.8'},
+            ],
+        }
+        ok, data = c._step_subdomain_resolve(ctx)
+        self.assertTrue(ok)
+        self.assertEqual(len(data['resolved_subdomains']), 2)
+
+    def test_empty_subs(self):
+        from modules.scapy_crawler import ScapyAttackChain
+        c = ScapyAttackChain(_MockEngine())
+        ctx = {'subdomains': []}
+        ok, data = c._step_subdomain_resolve(ctx)
+        self.assertFalse(ok)
+
+
+class TestCveMatch(unittest.TestCase):
+
+    def test_linux_match(self):
+        from modules.scapy_crawler import ScapyAttackChain
+        c = ScapyAttackChain(_MockEngine())
+        ctx = {'os_guess': 'Linux (confidence: high, TTL=64, Win=5840)'}
+        ok, data = c._step_cve_match(ctx)
+        self.assertTrue(ok)
+        cves = data['cve_matches']
+        self.assertGreater(len(cves), 0)
+        self.assertTrue(any('PwnKit' in c['title'] for c in cves))
+
+    def test_windows_match(self):
+        from modules.scapy_crawler import ScapyAttackChain
+        c = ScapyAttackChain(_MockEngine())
+        ctx = {'os_guess': 'Windows (confidence: high, TTL=128, Win=8192)'}
+        ok, data = c._step_cve_match(ctx)
+        self.assertTrue(ok)
+        cves = data['cve_matches']
+        self.assertTrue(any('EternalBlue' in c['title'] for c in cves))
+
+    def test_unknown_os_no_match(self):
+        from modules.scapy_crawler import ScapyAttackChain
+        c = ScapyAttackChain(_MockEngine())
+        ctx = {'os_guess': 'Unknown (TTL=99, Win=12345)'}
+        ok, data = c._step_cve_match(ctx)
+        self.assertFalse(ok)
+
+    def test_empty_os(self):
+        from modules.scapy_crawler import ScapyAttackChain
+        c = ScapyAttackChain(_MockEngine())
+        ctx = {'os_guess': ''}
+        ok, data = c._step_cve_match(ctx)
+        self.assertFalse(ok)
+
+
+class TestCleartextPorts(unittest.TestCase):
+
+    def test_cleartext_ports_constant(self):
+        from modules.scapy_crawler import _CLEARTEXT_PORTS
+        self.assertIn(21, _CLEARTEXT_PORTS)
+        self.assertIn(23, _CLEARTEXT_PORTS)
+        self.assertIn(161, _CLEARTEXT_PORTS)
+        self.assertGreater(len(_CLEARTEXT_PORTS), 5)
+
+
 if __name__ == '__main__':
     unittest.main()

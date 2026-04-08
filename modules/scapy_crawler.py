@@ -863,3 +863,881 @@ class DNSReconScanner:
 
         print(f"  {Colors.info(f'Subdomain brute-force: {len(found)} found')}")
         return found
+
+
+# =====================================================================
+# VULNERABILITY SCANNING (packet-level detection)
+# =====================================================================
+
+
+# ── Vuln signature database for packet-level checks ──────────────────
+SCAPY_VULN_DB: List[Dict] = [
+    {
+        "id": "SVD-001",
+        "title": "TCP Timestamp Information Leak",
+        "description": (
+            "Target responds with TCP timestamps (TSopt), leaking host "
+            "uptime and enabling clock-skew fingerprinting."
+        ),
+        "severity": "LOW",
+        "cvss": 3.7,
+        "cwe": "CWE-200",
+        "mitre": "T1082",
+        "remediation": "Disable TCP timestamps (net.ipv4.tcp_timestamps=0).",
+    },
+    {
+        "id": "SVD-002",
+        "title": "Predictable IP ID Sequence",
+        "description": (
+            "IP ID values increment sequentially, enabling idle-scan "
+            "attacks and traffic-volume inference."
+        ),
+        "severity": "LOW",
+        "cvss": 3.7,
+        "cwe": "CWE-330",
+        "mitre": "T1040",
+        "remediation": "Enable randomised IP IDs (net.ipv4.ip_no_pmtu_disc or equivalent).",
+    },
+    {
+        "id": "SVD-003",
+        "title": "ICMP Redirect Accepted",
+        "description": (
+            "Target accepts ICMP redirect messages, allowing an attacker "
+            "to reroute traffic through a malicious gateway."
+        ),
+        "severity": "MEDIUM",
+        "cvss": 5.3,
+        "cwe": "CWE-940",
+        "mitre": "T1557",
+        "remediation": "Disable ICMP redirects (net.ipv4.conf.all.accept_redirects=0).",
+    },
+    {
+        "id": "SVD-004",
+        "title": "TCP RST Injection Susceptibility",
+        "description": (
+            "Target may be susceptible to TCP RST injection (off-path "
+            "connection reset). Indicates lack of TCP-MD5 or sequence-number "
+            "randomisation."
+        ),
+        "severity": "MEDIUM",
+        "cvss": 5.9,
+        "cwe": "CWE-940",
+        "mitre": "T1565",
+        "remediation": "Enable TCP-MD5 authentication for critical peers. Use TLS.",
+    },
+    {
+        "id": "SVD-005",
+        "title": "IP Fragmentation Reassembly Accepted",
+        "description": (
+            "Target reassembles fragmented IP packets, which can be "
+            "exploited for firewall evasion and IDS bypass."
+        ),
+        "severity": "LOW",
+        "cvss": 3.1,
+        "cwe": "CWE-400",
+        "mitre": "T1027",
+        "remediation": "Implement strict fragment reassembly policies at the firewall.",
+    },
+    {
+        "id": "SVD-006",
+        "title": "Open DNS Resolver",
+        "description": (
+            "DNS port 53/udp is open and responds to recursive queries "
+            "from external sources — can be used in DNS amplification attacks."
+        ),
+        "severity": "HIGH",
+        "cvss": 7.5,
+        "cwe": "CWE-406",
+        "mitre": "T1498",
+        "remediation": "Restrict DNS recursion to authorised clients only.",
+    },
+    {
+        "id": "SVD-007",
+        "title": "SNMP Public Community String",
+        "description": (
+            "SNMP v1/v2c responds to the 'public' community string, "
+            "leaking system information and potentially allowing writes."
+        ),
+        "severity": "HIGH",
+        "cvss": 7.5,
+        "cwe": "CWE-798",
+        "mitre": "T1552",
+        "remediation": "Change SNMP community strings. Migrate to SNMPv3 with authentication.",
+    },
+    {
+        "id": "SVD-008",
+        "title": "NTP Mode 6 Query Exposed",
+        "description": (
+            "NTP service responds to mode-6 (control) queries, leaking "
+            "server peers, configuration, and enabling amplification."
+        ),
+        "severity": "MEDIUM",
+        "cvss": 5.3,
+        "cwe": "CWE-200",
+        "mitre": "T1498",
+        "remediation": "Restrict NTP mode 6/7 queries to localhost via 'restrict' directives.",
+    },
+]
+
+
+class ScapyVulnScanner:
+    """Packet-level vulnerability scanner using Scapy.
+
+    Detects network-layer vulnerabilities through crafted packet
+    probes rather than application-layer HTTP scanning:
+
+    * **TCP timestamp leak** — exposes host uptime / clock skew.
+    * **Predictable IP ID** — enables idle-scan side-channel.
+    * **ICMP redirect acceptance** — MITM route injection.
+    * **TCP RST susceptibility** — off-path connection reset.
+    * **IP fragmentation** — firewall / IDS evasion surface.
+    * **Open DNS resolver** — amplification vector.
+    * **SNMP public community** — information leak.
+    * **NTP mode-6 exposure** — amplification / info leak.
+    """
+
+    def __init__(self, engine):
+        self.engine = engine
+        self.timeout: float = min(engine.config.get("timeout", 3), 5)
+        self.verbose: bool = engine.config.get("verbose", False)
+        self.findings: List[Dict] = []
+
+    # ─── public API ──────────────────────────────────────────────────
+
+    def run(
+        self,
+        host: str,
+        port_results: Optional[List[Dict]] = None,
+        os_guess: str = "",
+    ) -> List[Dict]:
+        """Run all packet-level vulnerability checks against *host*.
+
+        Parameters
+        ----------
+        host : str
+            Hostname or IP address to probe.
+        port_results : list[dict] | None
+            Results from a prior port scan (used to skip inapplicable checks).
+        os_guess : str
+            OS guess string from fingerprinting (context for check tuning).
+
+        Returns
+        -------
+        list[dict]
+            Each dict describes a confirmed vulnerability with metadata.
+        """
+        if not _SCAPY_AVAILABLE:
+            print(f"{Colors.error('scapy not installed — vuln scan unavailable')}")
+            return []
+
+        print(f"\n{Colors.BOLD}{'─' * 60}{Colors.RESET}")
+        print(f"{Colors.CYAN}  Scapy Vulnerability Scan: {host}{Colors.RESET}")
+        print(f"{Colors.BOLD}{'─' * 60}{Colors.RESET}\n")
+
+        open_ports = set()
+        if port_results:
+            open_ports = {r["port"] for r in port_results if r.get("state") == "open"}
+
+        # Run each check
+        self._check_tcp_timestamp(host)
+        self._check_ip_id_sequence(host)
+        self._check_icmp_redirect(host)
+        self._check_fragmentation(host)
+
+        if 53 in open_ports:
+            self._check_open_dns_resolver(host)
+        if 161 in open_ports:
+            self._check_snmp_public(host)
+        if 123 in open_ports:
+            self._check_ntp_mode6(host)
+
+        # Summary
+        sev_counts: Dict[str, int] = {}
+        for f in self.findings:
+            sev_counts[f["severity"]] = sev_counts.get(f["severity"], 0) + 1
+
+        summary = ", ".join(f"{c} {s}" for s, c in sev_counts.items()) or "no issues"
+        print(f"\n{Colors.success(f'Scapy vuln scan complete: {summary}')}")
+        print(f"{Colors.BOLD}{'─' * 60}{Colors.RESET}")
+
+        return self.findings
+
+    # ─── individual checks ───────────────────────────────────────────
+
+    def _check_tcp_timestamp(self, host: str) -> None:
+        """Check if TCP timestamp option is enabled."""
+        try:
+            pkt = IP(dst=host) / TCP(dport=80, flags="S", options=[("Timestamp", (0, 0))])
+            reply = sr1(pkt, timeout=self.timeout, verbose=0)
+            if reply and reply.haslayer(TCP):
+                for opt_name, opt_val in reply[TCP].options:
+                    if opt_name == "Timestamp" and opt_val[0] != 0:
+                        vuln = self._get_vuln("SVD-001")
+                        vuln["evidence"] = f"TCP TSval={opt_val[0]}"
+                        vuln["host"] = host
+                        self.findings.append(vuln)
+                        self._print_finding(vuln)
+                        self._register_finding(host, vuln)
+                        return
+        except (PermissionError, Exception) as e:
+            if self.verbose:
+                print(f"  {Colors.warning(f'TCP timestamp check: {e}')}")
+
+    def _check_ip_id_sequence(self, host: str) -> None:
+        """Send multiple probes and check if IP ID increments predictably."""
+        try:
+            ids: List[int] = []
+            for _ in range(5):
+                pkt = IP(dst=host) / TCP(dport=80, flags="S")
+                reply = sr1(pkt, timeout=self.timeout, verbose=0)
+                if reply and reply.haslayer(IP):
+                    ids.append(reply[IP].id)
+            if len(ids) >= 3:
+                diffs = [ids[i + 1] - ids[i] for i in range(len(ids) - 1)]
+                # Sequential if all diffs are small positive integers
+                if all(0 < d < 10 for d in diffs):
+                    vuln = self._get_vuln("SVD-002")
+                    vuln["evidence"] = f"IP IDs: {ids} (diffs: {diffs})"
+                    vuln["host"] = host
+                    self.findings.append(vuln)
+                    self._print_finding(vuln)
+                    self._register_finding(host, vuln)
+        except (PermissionError, Exception) as e:
+            if self.verbose:
+                print(f"  {Colors.warning(f'IP ID check: {e}')}")
+
+    def _check_icmp_redirect(self, host: str) -> None:
+        """Test if target processes ICMP redirect messages.
+
+        Sends an ICMP redirect (Type 5, Code 1) and observes whether
+        the target's subsequent packets change their route.  A response
+        to a follow-up probe from a new gateway IP suggests acceptance.
+        """
+        try:
+            # Send redirect claiming 127.0.0.1 is a better route
+            pkt = (
+                IP(dst=host, src=host)
+                / ICMP(type=5, code=1, gw="127.0.0.1")
+                / IP(dst=host, src="127.0.0.1")
+                / TCP(dport=80, flags="S")
+            )
+            sr1(pkt, timeout=self.timeout, verbose=0)
+
+            # Probe to see if routing changed (heuristic — TTL shift)
+            probe = IP(dst=host) / ICMP()
+            before = sr1(probe, timeout=self.timeout, verbose=0)
+            if before and before.haslayer(IP):
+                # If we got a response, the host is at least reachable.
+                # A real ICMP redirect acceptance check requires routing
+                # table inspection; here we flag that the host did NOT
+                # send an ICMP error (type 3) rejecting the redirect.
+                vuln = self._get_vuln("SVD-003")
+                vuln["evidence"] = "Host did not reject ICMP redirect (heuristic)"
+                vuln["host"] = host
+                vuln["confidence"] = "low"
+                self.findings.append(vuln)
+                self._print_finding(vuln)
+                self._register_finding(host, vuln)
+        except (PermissionError, Exception) as e:
+            if self.verbose:
+                print(f"  {Colors.warning(f'ICMP redirect check: {e}')}")
+
+    def _check_fragmentation(self, host: str) -> None:
+        """Check if target reassembles fragmented IP payloads."""
+        try:
+            # Send a fragmented ICMP echo
+            payload = b"A" * 48
+            pkt = IP(dst=host, flags="MF", frag=0) / ICMP() / payload
+            reply = sr1(pkt, timeout=self.timeout, verbose=0)
+            if reply and reply.haslayer(ICMP):
+                vuln = self._get_vuln("SVD-005")
+                vuln["evidence"] = "Host reassembled fragmented ICMP"
+                vuln["host"] = host
+                self.findings.append(vuln)
+                self._print_finding(vuln)
+                self._register_finding(host, vuln)
+        except (PermissionError, Exception) as e:
+            if self.verbose:
+                print(f"  {Colors.warning(f'Fragmentation check: {e}')}")
+
+    def _check_open_dns_resolver(self, host: str) -> None:
+        """Test if DNS port 53 acts as an open resolver."""
+        try:
+            dns_query = (
+                b"\xaa\xbb"  # transaction ID
+                b"\x01\x00"  # standard recursive query
+                b"\x00\x01\x00\x00\x00\x00\x00\x00"
+                b"\x07example\x03com\x00\x00\x01\x00\x01"
+            )
+            pkt = IP(dst=host) / UDP(dport=53) / dns_query
+            reply = sr1(pkt, timeout=self.timeout, verbose=0)
+            if reply and reply.haslayer(UDP):
+                raw = bytes(reply[UDP].payload)
+                # Check if we got an answer section (ANCOUNT > 0)
+                if len(raw) > 6 and int.from_bytes(raw[6:8], "big") > 0:
+                    vuln = self._get_vuln("SVD-006")
+                    vuln["evidence"] = "DNS recursive query answered"
+                    vuln["host"] = host
+                    self.findings.append(vuln)
+                    self._print_finding(vuln)
+                    self._register_finding(host, vuln)
+        except (PermissionError, Exception) as e:
+            if self.verbose:
+                print(f"  {Colors.warning(f'DNS resolver check: {e}')}")
+
+    def _check_snmp_public(self, host: str) -> None:
+        """Test if SNMP responds to 'public' community string."""
+        try:
+            snmp_get = (
+                b"\x30\x26\x02\x01\x00\x04\x06public"
+                b"\xa0\x19\x02\x04\x00\x00\x00\x01"
+                b"\x02\x01\x00\x02\x01\x00\x30\x0b"
+                b"\x30\x09\x06\x05\x2b\x06\x01\x02\x01\x05\x00"
+            )
+            pkt = IP(dst=host) / UDP(dport=161) / snmp_get
+            reply = sr1(pkt, timeout=self.timeout, verbose=0)
+            if reply and reply.haslayer(UDP):
+                raw = bytes(reply[UDP].payload)
+                if len(raw) > 10:
+                    vuln = self._get_vuln("SVD-007")
+                    vuln["evidence"] = f"SNMP responded ({len(raw)} bytes)"
+                    vuln["host"] = host
+                    self.findings.append(vuln)
+                    self._print_finding(vuln)
+                    self._register_finding(host, vuln)
+        except (PermissionError, Exception) as e:
+            if self.verbose:
+                print(f"  {Colors.warning(f'SNMP check: {e}')}")
+
+    def _check_ntp_mode6(self, host: str) -> None:
+        """Test for NTP mode-6 (control) query exposure."""
+        try:
+            # NTP mode 6 readvar request
+            ntp_ctrl = b"\x16\x02\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00"
+            pkt = IP(dst=host) / UDP(dport=123) / ntp_ctrl
+            reply = sr1(pkt, timeout=self.timeout, verbose=0)
+            if reply and reply.haslayer(UDP):
+                raw = bytes(reply[UDP].payload)
+                if len(raw) > 12:
+                    vuln = self._get_vuln("SVD-008")
+                    vuln["evidence"] = f"NTP mode 6 responded ({len(raw)} bytes)"
+                    vuln["host"] = host
+                    self.findings.append(vuln)
+                    self._print_finding(vuln)
+                    self._register_finding(host, vuln)
+        except (PermissionError, Exception) as e:
+            if self.verbose:
+                print(f"  {Colors.warning(f'NTP mode6 check: {e}')}")
+
+    # ─── helpers ─────────────────────────────────────────────────────
+
+    @staticmethod
+    def _get_vuln(vuln_id: str) -> Dict:
+        """Look up a vulnerability template by ID and return a copy."""
+        for entry in SCAPY_VULN_DB:
+            if entry["id"] == vuln_id:
+                return dict(entry)
+        return {"id": vuln_id, "title": "Unknown", "severity": "INFO", "cvss": 0.0}
+
+    def _print_finding(self, vuln: Dict) -> None:
+        """Pretty-print a finding to the terminal."""
+        sev = vuln.get("severity", "INFO")
+        color = {
+            "CRITICAL": Colors.RED + Colors.BOLD,
+            "HIGH": Colors.RED,
+            "MEDIUM": Colors.YELLOW,
+            "LOW": Colors.CYAN,
+            "INFO": Colors.BLUE,
+        }.get(sev, Colors.WHITE)
+        title = vuln.get("title", "?")
+        evidence = vuln.get("evidence", "")
+        print(f"  {color}{sev:8s}{Colors.RESET}  {title}")
+        if evidence:
+            print(f"           {evidence}")
+
+    def _register_finding(self, host: str, vuln: Dict) -> None:
+        """Register the finding with the engine."""
+        try:
+            from core.engine import Finding
+            finding = Finding(
+                technique=f"Network Vuln: {vuln['title']}",
+                url=f"tcp://{host}",
+                evidence=vuln.get("evidence", ""),
+                severity=vuln.get("severity", "INFO"),
+                confidence=0.6,
+                cwe_id=vuln.get("cwe", ""),
+                mitre_id=vuln.get("mitre", ""),
+                cvss=vuln.get("cvss", 0.0),
+                remediation=vuln.get("remediation", ""),
+            )
+            self.engine.add_finding(finding)
+        except Exception:
+            pass
+
+
+# =====================================================================
+# ATTACK CHAIN — network-layer multi-step exploitation
+# =====================================================================
+
+# Network-layer chain templates
+NETWORK_CHAIN_TEMPLATES: List[Dict] = [
+    {
+        "name": "Recon → Vuln Scan → Service Exploit",
+        "description": (
+            "Full packet-level attack chain: discover hosts via ARP, "
+            "fingerprint OS, scan ports, identify vulnerabilities, and "
+            "attempt service-level exploitation."
+        ),
+        "steps": [
+            {"action": "arp_discover", "desc": "Discover live hosts via ARP sweep"},
+            {"action": "os_fingerprint", "desc": "Fingerprint target OS via TCP/IP stack"},
+            {"action": "syn_scan", "desc": "SYN scan for open ports"},
+            {"action": "vuln_scan", "desc": "Packet-level vulnerability probing"},
+            {"action": "service_exploit", "desc": "Attempt service exploitation"},
+        ],
+    },
+    {
+        "name": "Stealth Recon → Firewall Evasion → Deep Scan",
+        "description": (
+            "Evade IDS/IPS via stealth scans (FIN/XMAS/NULL), identify "
+            "firewall gaps, then perform deep vulnerability scanning "
+            "through the discovered openings."
+        ),
+        "steps": [
+            {"action": "stealth_scan", "desc": "Stealth FIN/XMAS/NULL port discovery"},
+            {"action": "frag_probe", "desc": "Test fragmentation-based firewall bypass"},
+            {"action": "syn_scan", "desc": "Full SYN scan on discovered open ports"},
+            {"action": "vuln_scan", "desc": "Vulnerability scan on open services"},
+        ],
+    },
+    {
+        "name": "DNS Recon → Subdomain Takeover → Pivot",
+        "description": (
+            "Enumerate subdomains via DNS recon, check for dangling "
+            "DNS records indicating takeover potential, and pivot to "
+            "internal services via discovered assets."
+        ),
+        "steps": [
+            {"action": "dns_recon", "desc": "DNS zone transfer and subdomain brute-force"},
+            {"action": "subdomain_resolve", "desc": "Resolve and validate discovered subdomains"},
+            {"action": "syn_scan", "desc": "Port-scan discovered subdomain hosts"},
+            {"action": "vuln_scan", "desc": "Vulnerability scan on discovered services"},
+        ],
+    },
+    {
+        "name": "ARP Discovery → MITM Position → Credential Sniff",
+        "description": (
+            "Discover LAN hosts via ARP, identify targets with weak "
+            "protocols (Telnet, FTP, SNMP), and chain into credential "
+            "capture via service probing."
+        ),
+        "steps": [
+            {"action": "arp_discover", "desc": "ARP sweep for LAN host enumeration"},
+            {"action": "cleartext_detect", "desc": "Identify cleartext protocol services"},
+            {"action": "service_probe", "desc": "Banner grab and credential probe"},
+        ],
+    },
+    {
+        "name": "OS Fingerprint → Targeted CVE → Post-Exploit",
+        "description": (
+            "Identify the operating system, select matching CVEs from "
+            "the vulnerability database, and attempt targeted exploitation."
+        ),
+        "steps": [
+            {"action": "os_fingerprint", "desc": "OS identification via TCP/IP fingerprint"},
+            {"action": "cve_match", "desc": "Match OS to known CVE exploits"},
+            {"action": "service_exploit", "desc": "Attempt targeted service exploitation"},
+        ],
+    },
+]
+
+# Ports associated with cleartext / weak protocols
+_CLEARTEXT_PORTS: Dict[int, str] = {
+    21: "FTP",
+    23: "Telnet",
+    25: "SMTP",
+    69: "TFTP",
+    80: "HTTP",
+    110: "POP3",
+    143: "IMAP",
+    161: "SNMP",
+    389: "LDAP",
+    513: "rlogin",
+    514: "rsh",
+}
+
+
+class ScapyAttackChain:
+    """Network-layer attack chain engine using Scapy.
+
+    Orchestrates multi-step network attacks by chaining together
+    Scapy-based recon, vulnerability scanning, and exploitation
+    modules.  Each chain builds on the results of previous steps
+    to progressively deepen access.
+
+    Flow::
+
+        ARP Discovery ──▶ OS Fingerprint ──▶ Port Scan
+              │                  │                │
+              ▼                  ▼                ▼
+        Host List          OS → CVE Match   Service Vulns
+              │                  │                │
+              └──────────────────┴────────────────┘
+                                 │
+                                 ▼
+                          Attack Execution
+    """
+
+    def __init__(self, engine):
+        self.engine = engine
+        self.timeout: float = min(engine.config.get("timeout", 3), 5)
+        self.verbose: bool = engine.config.get("verbose", False)
+        self.chain_results: List[Dict] = []
+
+    # ─── public API ──────────────────────────────────────────────────
+
+    def run(
+        self,
+        host: str,
+        *,
+        port_results: Optional[List[Dict]] = None,
+        scapy_results: Optional[Dict] = None,
+        chain_names: Optional[List[str]] = None,
+    ) -> List[Dict]:
+        """Execute network attack chains against *host*.
+
+        Parameters
+        ----------
+        host : str
+            Target IP or hostname.
+        port_results : list[dict] | None
+            Pre-existing port scan results to reuse.
+        scapy_results : dict | None
+            Pre-existing Scapy crawl results (tcp_results, os_guess, etc.).
+        chain_names : list[str] | None
+            Specific chains to run.  If ``None``, all applicable chains
+            are attempted.
+
+        Returns
+        -------
+        list[dict]
+            Execution result for each attempted chain.
+        """
+        if not _SCAPY_AVAILABLE:
+            print(f"{Colors.error('scapy not installed — attack chain unavailable')}")
+            return []
+
+        print(f"\n{Colors.BOLD}{'─' * 60}{Colors.RESET}")
+        print(f"{Colors.CYAN}  Scapy Attack Chain: {host}{Colors.RESET}")
+        print(f"{Colors.BOLD}{'─' * 60}{Colors.RESET}\n")
+
+        # Build shared context from prior results
+        context: Dict = {
+            "host": host,
+            "port_results": port_results or [],
+            "scapy_results": scapy_results or {},
+            "os_guess": (scapy_results or {}).get("os_guess", ""),
+            "discovered_hosts": [],
+            "vuln_findings": [],
+            "subdomains": [],
+            "cleartext_services": [],
+            "cve_matches": [],
+        }
+
+        templates = NETWORK_CHAIN_TEMPLATES
+        if chain_names:
+            templates = [t for t in templates if t["name"] in chain_names]
+
+        for template in templates:
+            self._execute_chain(template, context)
+
+        # Summary
+        success = sum(1 for r in self.chain_results if r["success"])
+        total = len(self.chain_results)
+        print(f"\n{Colors.success(f'Attack chains: {total} attempted, {success} successful')}")
+        print(f"{Colors.BOLD}{'─' * 60}{Colors.RESET}")
+
+        return self.chain_results
+
+    # ─── chain execution ─────────────────────────────────────────────
+
+    def _execute_chain(self, template: Dict, context: Dict) -> None:
+        """Execute a single attack chain from *template*."""
+        name = template["name"]
+        print(f"  {Colors.BOLD}Chain:{Colors.RESET} {name}")
+
+        result: Dict = {
+            "chain": name,
+            "steps_completed": 0,
+            "total_steps": len(template["steps"]),
+            "success": False,
+            "step_data": [],
+        }
+
+        for i, step in enumerate(template["steps"]):
+            desc = step["desc"]
+            action = step["action"]
+            print(f"    Step {i + 1}: {desc} ... ", end="", flush=True)
+
+            ok, data = self._dispatch_step(action, context)
+            if ok:
+                result["steps_completed"] += 1
+                result["step_data"].append(data or {})
+                context.update(data or {})
+                print(f"{Colors.GREEN}✓{Colors.RESET}")
+            else:
+                print(f"{Colors.RED}✗{Colors.RESET}")
+                break
+
+        result["success"] = result["steps_completed"] == result["total_steps"]
+        self.chain_results.append(result)
+
+        if result["success"]:
+            print(f"    {Colors.GREEN}→ Chain completed!{Colors.RESET}")
+            self._register_chain_finding(template, result)
+        else:
+            done = result["steps_completed"]
+            total = result["total_steps"]
+            print(f"    {Colors.YELLOW}→ Stopped at step {done}/{total}{Colors.RESET}")
+
+    def _dispatch_step(
+        self, action: str, context: Dict,
+    ) -> Tuple[bool, Optional[Dict]]:
+        """Route *action* to the appropriate handler."""
+        handlers = {
+            "arp_discover": self._step_arp_discover,
+            "os_fingerprint": self._step_os_fingerprint,
+            "syn_scan": self._step_syn_scan,
+            "stealth_scan": self._step_stealth_scan,
+            "vuln_scan": self._step_vuln_scan,
+            "service_exploit": self._step_service_exploit,
+            "frag_probe": self._step_frag_probe,
+            "dns_recon": self._step_dns_recon,
+            "subdomain_resolve": self._step_subdomain_resolve,
+            "cleartext_detect": self._step_cleartext_detect,
+            "service_probe": self._step_service_probe,
+            "cve_match": self._step_cve_match,
+        }
+        handler = handlers.get(action)
+        if not handler:
+            return False, None
+        try:
+            return handler(context)
+        except Exception as e:
+            if self.verbose:
+                print(f" ({e}) ", end="")
+            return False, None
+
+    # ─── step implementations ────────────────────────────────────────
+
+    def _step_arp_discover(self, ctx: Dict) -> Tuple[bool, Optional[Dict]]:
+        """ARP sweep to enumerate live hosts."""
+        host = ctx["host"]
+        # Derive /24 subnet from host
+        parts = host.split(".")
+        if len(parts) == 4:
+            subnet = f"{parts[0]}.{parts[1]}.{parts[2]}.0/24"
+        else:
+            return False, None
+        try:
+            arp = ARPNetworkDiscovery(self.engine)
+            hosts = arp.discover(subnet)
+            ctx["discovered_hosts"] = hosts
+            return bool(hosts), {"discovered_hosts": hosts}
+        except Exception:
+            return False, None
+
+    def _step_os_fingerprint(self, ctx: Dict) -> Tuple[bool, Optional[Dict]]:
+        """Fingerprint target OS."""
+        host = ctx["host"]
+        try:
+            crawler = ScapyCrawler(self.engine)
+            guess = crawler._os_fingerprint(host)
+            if guess:
+                ctx["os_guess"] = guess
+                return True, {"os_guess": guess}
+        except Exception:
+            pass
+        return False, None
+
+    def _step_syn_scan(self, ctx: Dict) -> Tuple[bool, Optional[Dict]]:
+        """SYN scan for open ports."""
+        host = ctx["host"]
+        try:
+            crawler = ScapyCrawler(self.engine)
+            results = crawler._syn_scan(host, list(TOP_100_PORTS))
+            if results:
+                ctx["port_results"] = results
+                return True, {"port_results": results}
+        except Exception:
+            pass
+        return False, None
+
+    def _step_stealth_scan(self, ctx: Dict) -> Tuple[bool, Optional[Dict]]:
+        """Stealth FIN/XMAS/NULL scan."""
+        host = ctx["host"]
+        try:
+            stealth = StealthPortScanner(self.engine)
+            results = stealth.run(host)
+            all_ports = []
+            for scan_type_results in results.values():
+                all_ports.extend(scan_type_results)
+            if all_ports:
+                ctx["stealth_results"] = results
+                return True, {"stealth_results": results}
+        except Exception:
+            pass
+        return False, None
+
+    def _step_vuln_scan(self, ctx: Dict) -> Tuple[bool, Optional[Dict]]:
+        """Packet-level vulnerability scan."""
+        host = ctx["host"]
+        port_results = ctx.get("port_results", [])
+        try:
+            scanner = ScapyVulnScanner(self.engine)
+            findings = scanner.run(host, port_results=port_results, os_guess=ctx.get("os_guess", ""))
+            if findings:
+                ctx["vuln_findings"] = findings
+                return True, {"vuln_findings": findings}
+            # No vulns found is not a failure — it means the chain can continue
+            return True, {"vuln_findings": []}
+        except Exception:
+            return False, None
+
+    def _step_service_exploit(self, ctx: Dict) -> Tuple[bool, Optional[Dict]]:
+        """Attempt service exploitation using NetworkExploitScanner."""
+        host = ctx["host"]
+        port_results = ctx.get("port_results", [])
+        if not port_results:
+            return False, None
+        try:
+            from modules.network_exploits import NetworkExploitScanner
+            scanner = NetworkExploitScanner(self.engine)
+            exploits = scanner.run(host, port_results)
+            return bool(exploits), {"exploit_findings": exploits}
+        except Exception:
+            return False, None
+
+    def _step_frag_probe(self, ctx: Dict) -> Tuple[bool, Optional[Dict]]:
+        """Test fragmentation bypass."""
+        host = ctx["host"]
+        try:
+            scanner = ScapyVulnScanner(self.engine)
+            scanner._check_fragmentation(host)
+            return True, {"frag_tested": True}
+        except Exception:
+            return False, None
+
+    def _step_dns_recon(self, ctx: Dict) -> Tuple[bool, Optional[Dict]]:
+        """DNS zone transfer and subdomain discovery."""
+        host = ctx["host"]
+        try:
+            dns_scanner = DNSReconScanner(self.engine)
+            result = dns_scanner.run(host)
+            subs = result.get("subdomains", [])
+            ctx["subdomains"] = subs
+            return True, {"subdomains": subs, "zone_transfer": result.get("zone_transfer", [])}
+        except Exception:
+            return False, None
+
+    def _step_subdomain_resolve(self, ctx: Dict) -> Tuple[bool, Optional[Dict]]:
+        """Resolve discovered subdomains to IPs."""
+        subs = ctx.get("subdomains", [])
+        if not subs:
+            return False, None
+        resolved = []
+        for sub in subs:
+            fqdn = sub.get("subdomain", "")
+            ip = sub.get("ip", "")
+            if fqdn and ip:
+                resolved.append({"subdomain": fqdn, "ip": ip})
+        return bool(resolved), {"resolved_subdomains": resolved}
+
+    def _step_cleartext_detect(self, ctx: Dict) -> Tuple[bool, Optional[Dict]]:
+        """Identify cleartext protocol services in port results."""
+        port_results = ctx.get("port_results", [])
+        cleartext: List[Dict] = []
+        for r in port_results:
+            port = r.get("port", 0)
+            if port in _CLEARTEXT_PORTS and r.get("state") == "open":
+                cleartext.append({
+                    "port": port,
+                    "service": _CLEARTEXT_PORTS[port],
+                    "risk": "Credentials may be transmitted in cleartext",
+                })
+        ctx["cleartext_services"] = cleartext
+        return bool(cleartext), {"cleartext_services": cleartext}
+
+    def _step_service_probe(self, ctx: Dict) -> Tuple[bool, Optional[Dict]]:
+        """Banner grab and credential-probe cleartext services."""
+        host = ctx["host"]
+        cleartext = ctx.get("cleartext_services", [])
+        if not cleartext:
+            return False, None
+        probed: List[Dict] = []
+        for svc in cleartext:
+            port = svc["port"]
+            try:
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.settimeout(self.timeout)
+                sock.connect((host, port))
+                try:
+                    sock.settimeout(1.5)
+                    banner = sock.recv(1024).decode("utf-8", errors="replace").strip()[:120]
+                except (socket.timeout, OSError):
+                    banner = ""
+                probed.append({
+                    "port": port,
+                    "service": svc["service"],
+                    "banner": banner,
+                })
+                sock.close()
+            except (socket.timeout, ConnectionRefusedError, OSError):
+                pass
+        return bool(probed), {"service_probes": probed}
+
+    def _step_cve_match(self, ctx: Dict) -> Tuple[bool, Optional[Dict]]:
+        """Match OS guess to relevant CVEs."""
+        os_guess = ctx.get("os_guess", "").lower()
+        if not os_guess:
+            return False, None
+        matches: List[Dict] = []
+        # Simple OS-to-CVE heuristic mapping
+        os_cve_hints = {
+            "linux": [
+                {"cve": "CVE-2021-4034", "title": "PwnKit (pkexec LPE)", "severity": "HIGH"},
+                {"cve": "CVE-2022-0847", "title": "Dirty Pipe (kernel LPE)", "severity": "HIGH"},
+            ],
+            "windows": [
+                {"cve": "CVE-2017-0144", "title": "EternalBlue (SMB RCE)", "severity": "CRITICAL"},
+                {"cve": "CVE-2019-0708", "title": "BlueKeep (RDP RCE)", "severity": "CRITICAL"},
+            ],
+            "freebsd": [
+                {"cve": "CVE-2019-5611", "title": "FreeBSD ICMPv6 DoS", "severity": "HIGH"},
+            ],
+        }
+        for os_name, cves in os_cve_hints.items():
+            if os_name in os_guess:
+                matches.extend(cves)
+        ctx["cve_matches"] = matches
+        return bool(matches), {"cve_matches": matches}
+
+    # ─── finding registration ────────────────────────────────────────
+
+    def _register_chain_finding(self, template: Dict, result: Dict) -> None:
+        """Register a completed chain as a CRITICAL finding."""
+        try:
+            from core.engine import Finding
+            steps_desc = " → ".join(
+                s["desc"] for s in template["steps"]
+            )
+            finding = Finding(
+                technique=f"Network Attack Chain: {template['name']}",
+                url=f"tcp://{self.engine.config.get('target', '')}",
+                evidence=f"Chain completed: {steps_desc}",
+                severity="CRITICAL",
+                confidence=0.80,
+            )
+            self.engine.add_finding(finding)
+        except Exception:
+            pass

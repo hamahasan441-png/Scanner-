@@ -546,6 +546,42 @@ class AtomicEngine:
                     if self.config.get('verbose'):
                         print(f"{Colors.error(f'Network exploit scan error: {e}')}")
 
+            # Scapy packet-level vulnerability scan
+            if modules_config.get('scapy_vuln_scan', False) or modules_config.get('scapy', False):
+                try:
+                    from modules.scapy_crawler import ScapyVulnScanner, is_scapy_available
+                    if is_scapy_available():
+                        vuln_scanner = ScapyVulnScanner(self)
+                        hostname = urlparse(effective_target).hostname
+                        vuln_scanner.run(
+                            hostname,
+                            port_results=port_results,
+                            os_guess=scapy_results.get('os_guess', '') if scapy_results else '',
+                        )
+                    elif self.config.get('verbose'):
+                        print(f"{Colors.info('scapy not installed — vuln scan skipped')}")
+                except Exception as e:
+                    if self.config.get('verbose'):
+                        print(f"{Colors.error(f'Scapy vuln scan error: {e}')}")
+
+            # Scapy attack chain (network-layer multi-step exploitation)
+            if modules_config.get('scapy_attack_chain', False):
+                try:
+                    from modules.scapy_crawler import ScapyAttackChain, is_scapy_available
+                    if is_scapy_available():
+                        chain = ScapyAttackChain(self)
+                        hostname = urlparse(effective_target).hostname
+                        chain.run(
+                            hostname,
+                            port_results=port_results,
+                            scapy_results=scapy_results,
+                        )
+                    elif self.config.get('verbose'):
+                        print(f"{Colors.info('scapy not installed — attack chain skipped')}")
+                except Exception as e:
+                    if self.config.get('verbose'):
+                        print(f"{Colors.error(f'Scapy attack chain error: {e}')}")
+
             # Technology exploit scanning
             if modules_config.get('tech_exploit', False):
                 try:
