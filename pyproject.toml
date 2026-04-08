@@ -22,6 +22,7 @@ dependencies = [
     "tqdm==4.67.3",
     "dnspython==2.8.0",
     "PyYAML==6.0.3",
+    "scapy==2.7.0",
 ]
 
 [project.optional-dependencies]

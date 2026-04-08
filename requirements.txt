@@ -31,6 +31,9 @@ tqdm==4.67.3
 # DNS resolution
 dnspython==2.8.0
 
+# Packet-level network scanning
+scapy==2.7.0
+
 # YAML configuration
 PyYAML==6.0.3
 

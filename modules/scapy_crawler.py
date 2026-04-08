@@ -189,30 +189,31 @@ class ScapyCrawler:
         if syn_scan:
             ports = parse_port_spec(port_spec) if port_spec else list(TOP_100_PORTS)
             result["tcp_results"] = self._syn_scan(host, ports)
-            print(
-                f"{Colors.info(f'SYN scan complete: {len(result[\"tcp_results\"])} open ports')}"
-            )
+            tcp_count = len(result["tcp_results"])
+            print(Colors.info(f"SYN scan complete: {tcp_count} open ports"))
 
         # UDP scan
         if udp_scan:
             result["udp_results"] = self._udp_scan(host)
             open_udp = [r for r in result["udp_results"] if r["state"] == "open"]
+            udp_total = len(result["udp_results"])
             print(
-                f"{Colors.info(f'UDP scan complete: {len(open_udp)} open / '
-                               f'{len(result[\"udp_results\"])} probed')}"
+                Colors.info(f"UDP scan complete: {len(open_udp)} open / {udp_total} probed")
             )
 
         # OS fingerprinting (uses data from SYN scan responses)
         if os_detect:
             result["os_guess"] = self._os_fingerprint(host)
-            if result["os_guess"]:
-                print(f"{Colors.info(f'OS guess: {result[\"os_guess\"]}')}")
+            os_guess = result["os_guess"]
+            if os_guess:
+                print(Colors.info(f"OS guess: {os_guess}"))
 
         # Traceroute
         if traceroute:
             result["traceroute"] = self._traceroute(host)
-            if result["traceroute"]:
-                print(f"{Colors.info(f'Traceroute: {len(result[\"traceroute\"])} hops')}")
+            hop_count = len(result["traceroute"])
+            if hop_count:
+                print(Colors.info(f"Traceroute: {hop_count} hops"))
 
         print(f"\n{Colors.success('Scapy network crawl complete')}")
         print(f"{Colors.BOLD}{'─' * 60}{Colors.RESET}")
@@ -542,3 +543,322 @@ class ScapyCrawler:
                     }
                 )
         return converted
+
+
+# =====================================================================
+# ADVANCED OFFENSIVE RECON SCRIPTS (3 methods)
+# =====================================================================
+
+
+class StealthPortScanner:
+    """Script 1 — Stealth TCP scans using FIN, XMAS, and NULL techniques.
+
+    These scan types exploit RFC 793 behaviour: a closed port MUST
+    respond to a packet that does not contain SYN, RST, or ACK with a
+    RST.  An open port silently drops the packet.  This makes the scan
+    stealthier than SYN because many IDS/IPS only track SYN-based
+    handshakes.
+
+    Techniques:
+    * **FIN scan** — only FIN flag set.
+    * **XMAS scan** — FIN + PSH + URG (lights up the TCP header like
+      a Christmas tree).
+    * **NULL scan** — no flags set at all.
+
+    Note: Does not work against Windows hosts (they respond RST
+    regardless) — but very effective on UNIX/Linux targets.
+    """
+
+    def __init__(self, engine):
+        self.engine = engine
+        self.timeout: float = min(engine.config.get("timeout", 3), 5)
+        self.verbose: bool = engine.config.get("verbose", False)
+
+    def run(self, host: str, ports: Optional[List[int]] = None) -> Dict[str, List[Dict]]:
+        """Execute all three stealth scans and return combined results."""
+        if not _SCAPY_AVAILABLE:
+            print(f"{Colors.error('scapy not installed — stealth scans unavailable')}")
+            return {"fin": [], "xmas": [], "null": []}
+
+        ports = ports or list(TOP_100_PORTS)
+
+        print(f"\n{Colors.BOLD}{'─' * 60}{Colors.RESET}")
+        print(f"{Colors.CYAN}  Stealth Scan Suite: {host}{Colors.RESET}")
+        print(f"{Colors.BOLD}{'─' * 60}{Colors.RESET}\n")
+
+        results: Dict[str, List[Dict]] = {}
+        for scan_name, flags in [("fin", "F"), ("xmas", "FPU"), ("null", "")]:
+            results[scan_name] = self._stealth_scan(host, ports, flags, scan_name.upper())
+
+        total = sum(len(v) for v in results.values())
+        print(f"\n{Colors.success(f'Stealth scans complete — {total} open|filtered ports detected')}")
+        print(f"{Colors.BOLD}{'─' * 60}{Colors.RESET}")
+        return results
+
+    def _stealth_scan(
+        self, host: str, ports: List[int], flags: str, label: str
+    ) -> List[Dict]:
+        """Generic stealth scan: send packet with *flags* and interpret silence vs RST."""
+        open_filtered: List[Dict] = []
+        print(f"  {Colors.CYAN}[{label}]{Colors.RESET} Scanning {len(ports)} ports...")
+
+        try:
+            packets = IP(dst=host) / TCP(dport=ports, flags=flags)
+            answered, unanswered = sr(packets, timeout=self.timeout, verbose=0)
+
+            # Unanswered → open|filtered (no RST came back)
+            for sent in unanswered:
+                port = sent[TCP].dport
+                open_filtered.append({
+                    "port": port,
+                    "state": "open|filtered",
+                    "service": WELL_KNOWN_PORTS.get(port, "unknown"),
+                    "scan_type": label.lower(),
+                })
+
+            # Answered with RST → closed (skip)
+            # Answered with ICMP unreachable → filtered
+            for sent, received in answered:
+                port = sent[TCP].dport
+                if received.haslayer(ICMP):
+                    open_filtered.append({
+                        "port": port,
+                        "state": "filtered",
+                        "service": WELL_KNOWN_PORTS.get(port, "unknown"),
+                        "scan_type": label.lower(),
+                    })
+
+            if open_filtered:
+                print(
+                    f"    {Colors.GREEN}{len(open_filtered)} open|filtered{Colors.RESET}"
+                )
+
+        except PermissionError:
+            print(f"    {Colors.warning(f'{label} scan requires root — skipped')}")
+        except Exception as e:
+            if self.verbose:
+                print(f"    {Colors.error(f'{label} scan error: {e}')}")
+
+        return open_filtered
+
+
+class ARPNetworkDiscovery:
+    """Script 2 — ARP-based local network host discovery.
+
+    Sends ARP who-has requests across a subnet to discover live hosts
+    on the local network segment.  This is the fastest and most
+    reliable way to enumerate hosts on a LAN because ARP operates at
+    Layer 2 and cannot be blocked by host firewalls.
+
+    Capabilities:
+    * Subnet sweep (e.g. ``192.168.1.0/24``)
+    * MAC-address vendor identification (OUI prefix lookup)
+    * Gateway detection
+    """
+
+    # Minimal OUI → vendor mapping for common infrastructure
+    _OUI_TABLE: Dict[str, str] = {
+        "00:50:56": "VMware",
+        "00:0c:29": "VMware",
+        "08:00:27": "VirtualBox",
+        "52:54:00": "QEMU/KVM",
+        "00:15:5d": "Hyper-V",
+        "00:1a:a0": "Dell",
+        "b8:27:eb": "Raspberry Pi",
+        "dc:a6:32": "Raspberry Pi",
+        "f0:de:f1": "Google",
+        "00:17:88": "Philips Hue",
+        "ac:84:c6": "TP-Link",
+        "18:d6:c7": "TP-Link",
+        "44:d9:e7": "Ubiquiti",
+    }
+
+    def __init__(self, engine):
+        self.engine = engine
+        self.timeout: float = min(engine.config.get("timeout", 3), 5)
+        self.verbose: bool = engine.config.get("verbose", False)
+
+    def discover(self, subnet: str) -> List[Dict]:
+        """Send ARP requests to all hosts in *subnet* and collect responses.
+
+        Parameters
+        ----------
+        subnet : str
+            CIDR notation, e.g. ``192.168.1.0/24``.
+
+        Returns
+        -------
+        list[dict]
+            Each dict has keys ``ip``, ``mac``, ``vendor``.
+        """
+        if not _SCAPY_AVAILABLE:
+            print(f"{Colors.error('scapy not installed — ARP discovery unavailable')}")
+            return []
+
+        try:
+            from scapy.all import ARP, Ether, srp  # type: ignore[import-untyped]
+        except ImportError:
+            print(f"{Colors.error('scapy ARP layer unavailable')}")
+            return []
+
+        print(f"\n{Colors.BOLD}{'─' * 60}{Colors.RESET}")
+        print(f"{Colors.CYAN}  ARP Discovery: {subnet}{Colors.RESET}")
+        print(f"{Colors.BOLD}{'─' * 60}{Colors.RESET}\n")
+
+        hosts: List[Dict] = []
+        try:
+            arp_req = Ether(dst="ff:ff:ff:ff:ff:ff") / ARP(pdst=subnet)
+            answered, _ = srp(arp_req, timeout=self.timeout, verbose=0)
+
+            for _, received in answered:
+                ip_addr = received.psrc
+                mac_addr = received.hwsrc
+                vendor = self._lookup_vendor(mac_addr)
+                hosts.append({"ip": ip_addr, "mac": mac_addr, "vendor": vendor})
+                print(
+                    f"  {Colors.GREEN}ALIVE{Colors.RESET}  "
+                    f"{ip_addr:>15s}  {mac_addr}  {vendor}"
+                )
+
+        except PermissionError:
+            print(f"{Colors.warning('ARP discovery requires root — skipped')}")
+        except Exception as e:
+            if self.verbose:
+                print(f"{Colors.error(f'ARP discovery error: {e}')}")
+
+        print(f"\n{Colors.success(f'ARP discovery complete — {len(hosts)} hosts found')}")
+        print(f"{Colors.BOLD}{'─' * 60}{Colors.RESET}")
+        return hosts
+
+    @classmethod
+    def _lookup_vendor(cls, mac: str) -> str:
+        """Match MAC OUI prefix to a vendor name."""
+        prefix = mac[:8].lower()
+        return cls._OUI_TABLE.get(prefix, "Unknown")
+
+
+class DNSReconScanner:
+    """Script 3 — DNS zone transfer attempt & subdomain brute-force.
+
+    Two-phase DNS reconnaissance:
+
+    1. **Zone transfer (AXFR)** — attempts a full zone transfer
+       against every authoritative nameserver for the domain.
+       Successful transfers disclose the entire zone file.
+    2. **Subdomain brute-force** — resolves a wordlist of common
+       subdomains to discover hidden assets.
+
+    Both phases use raw DNS packets via Scapy to maintain maximum
+    control over timing and evasion.
+    """
+
+    # Common subdomain prefixes for brute-force
+    _SUBDOMAIN_WORDLIST: List[str] = [
+        "www", "mail", "ftp", "admin", "api", "dev", "staging", "test",
+        "beta", "portal", "vpn", "remote", "ns1", "ns2", "mx", "smtp",
+        "pop", "imap", "webmail", "cloud", "cdn", "static", "assets",
+        "media", "blog", "shop", "store", "app", "m", "mobile",
+        "intranet", "internal", "git", "gitlab", "jenkins", "ci", "cd",
+        "docker", "k8s", "monitor", "grafana", "kibana", "elastic",
+        "redis", "db", "database", "backup", "vault", "sso", "auth",
+        "login", "secure", "proxy", "gateway", "edge", "lb", "web",
+        "www2", "owa", "exchange", "autodiscover", "cpanel", "whm",
+        "status", "help", "support", "docs", "wiki", "jira",
+    ]
+
+    def __init__(self, engine):
+        self.engine = engine
+        self.timeout: float = min(engine.config.get("timeout", 3), 5)
+        self.verbose: bool = engine.config.get("verbose", False)
+
+    def run(self, domain: str) -> Dict:
+        """Run DNS recon against *domain*.
+
+        Returns
+        -------
+        dict
+            Keys: ``zone_transfer`` (list of records), ``subdomains``
+            (list of dicts with ``subdomain``, ``ip``).
+        """
+        print(f"\n{Colors.BOLD}{'─' * 60}{Colors.RESET}")
+        print(f"{Colors.CYAN}  DNS Recon: {domain}{Colors.RESET}")
+        print(f"{Colors.BOLD}{'─' * 60}{Colors.RESET}\n")
+
+        result: Dict = {"zone_transfer": [], "subdomains": []}
+
+        # Phase 1: Zone transfer
+        result["zone_transfer"] = self._attempt_zone_transfer(domain)
+
+        # Phase 2: Subdomain brute-force
+        result["subdomains"] = self._brute_subdomains(domain)
+
+        total = len(result["zone_transfer"]) + len(result["subdomains"])
+        print(f"\n{Colors.success(f'DNS recon complete — {total} records discovered')}")
+        print(f"{Colors.BOLD}{'─' * 60}{Colors.RESET}")
+        return result
+
+    def _attempt_zone_transfer(self, domain: str) -> List[Dict]:
+        """Attempt AXFR zone transfer against all nameservers."""
+        records: List[Dict] = []
+        try:
+            import dns.resolver
+            import dns.zone
+            import dns.query
+        except ImportError:
+            if self.verbose:
+                print(f"{Colors.info('dnspython required for zone transfer — skipped')}")
+            return records
+
+        # Get NS records
+        try:
+            ns_answers = dns.resolver.resolve(domain, "NS")
+            nameservers = [str(ns).rstrip(".") for ns in ns_answers]
+        except Exception:
+            nameservers = []
+
+        for ns in nameservers:
+            try:
+                ns_ip = socket.gethostbyname(ns)
+                print(f"  {Colors.info(f'Attempting AXFR against {ns} ({ns_ip})...')}")
+                zone = dns.zone.from_xfr(dns.query.xfr(ns_ip, domain, timeout=self.timeout))
+                for name, node in zone.nodes.items():
+                    rdatasets = node.rdatasets
+                    for rdataset in rdatasets:
+                        for rdata in rdataset:
+                            record = {
+                                "name": str(name),
+                                "type": dns.rdatatype.to_text(rdataset.rdtype),
+                                "value": str(rdata),
+                                "nameserver": ns,
+                            }
+                            records.append(record)
+                if records:
+                    print(f"    {Colors.GREEN}AXFR SUCCESS — {len(records)} records{Colors.RESET}")
+                break  # One successful transfer is enough
+            except Exception as e:
+                if self.verbose:
+                    print(f"    {Colors.warning(f'AXFR failed on {ns}: {e}')}")
+
+        if not records:
+            print(f"  {Colors.info('Zone transfer denied (expected for hardened servers)')}")
+
+        return records
+
+    def _brute_subdomains(self, domain: str) -> List[Dict]:
+        """Resolve common subdomains via standard DNS A lookups."""
+        found: List[Dict] = []
+        print(f"  {Colors.info(f'Brute-forcing {len(self._SUBDOMAIN_WORDLIST)} subdomains...')}")
+
+        for prefix in self._SUBDOMAIN_WORDLIST:
+            fqdn = f"{prefix}.{domain}"
+            try:
+                ip = socket.gethostbyname(fqdn)
+                found.append({"subdomain": fqdn, "ip": ip})
+                print(f"    {Colors.GREEN}FOUND{Colors.RESET}  {fqdn:>40s}  →  {ip}")
+            except socket.gaierror:
+                pass
+            except Exception:
+                pass
+
+        print(f"  {Colors.info(f'Subdomain brute-force: {len(found)} found')}")
+        return found
