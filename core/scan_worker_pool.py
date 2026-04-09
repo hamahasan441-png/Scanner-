@@ -237,8 +237,9 @@ class ScanWorkerPool:
         })
 
         if self.verbose:
-            print(f"{Colors.info(f'Worker pool: processed {processed}/{total}, '
-                                 f'skipped {skipped}, raw findings: {len(self._raw_findings)}')}")
+            msg = (f'Worker pool: processed {processed}/{total}, '
+                   f'skipped {skipped}, raw findings: {len(self._raw_findings)}')
+            print(Colors.info(msg))
 
         return self._raw_findings
 
@@ -302,7 +303,7 @@ class ScanWorkerPool:
         except Exception as e:
             if self.verbose:
                 name = getattr(module, 'name', 'unknown')
-                print(f"{Colors.warning(f'Worker error ({name}): {e}')}")
+                print(Colors.warning(f'Worker error ({name}): {e}'))
 
     def _run_url_module(self, module, item):
         """Run a URL-level testing module."""
@@ -312,7 +313,7 @@ class ScanWorkerPool:
         except Exception as e:
             if self.verbose:
                 name = getattr(module, 'name', 'unknown')
-                print(f"{Colors.warning(f'Worker URL error ({name}): {e}')}")
+                print(Colors.warning(f'Worker URL error ({name}): {e}'))
 
     def _check_crypto_transport(self, item, baseline: Dict):
         """Worker E: Check TLS, cookies, rate limiting."""

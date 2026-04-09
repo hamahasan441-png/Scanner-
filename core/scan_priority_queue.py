@@ -264,8 +264,12 @@ class ScanPriorityQueue:
         })
 
         if self.verbose:
-            print(f"{Colors.info(f'Scan queue: {len(items)} items, top priority: '
-                                 f'{items[0].priority:.3f}' if items else 'empty')}")
+            if items:
+                msg = (f'Scan queue: {len(items)} items, '
+                       f'top priority: {items[0].priority:.3f}')
+            else:
+                msg = 'Scan queue: empty'
+            print(Colors.info(msg))
 
         return items
 

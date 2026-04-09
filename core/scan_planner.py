@@ -65,6 +65,12 @@ MODULE_DESCRIPTIONS = {
     'dir_brute': ('Directory Brute Force', 'INFO'),
     'net_exploit': ('Network Exploit Mapping', 'HIGH'),
     'tech_exploit': ('Technology Exploit Mapping', 'HIGH'),
+    'scapy': ('Scapy Packet Crawling', 'INFO'),
+    'stealth_scan': ('Stealth SYN Port Scan', 'INFO'),
+    'arp_discovery': ('ARP Network Discovery', 'INFO'),
+    'dns_recon': ('DNS Reconnaissance', 'INFO'),
+    'scapy_vuln_scan': ('Scapy Vulnerability Scan', 'HIGH'),
+    'scapy_attack_chain': ('Network Attack Chains', 'CRITICAL'),
 }
 
 # Exploitation modules
