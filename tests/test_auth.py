@@ -93,7 +93,7 @@ class TestTokenManager(unittest.TestCase):
     """Test JWT token creation and validation."""
 
     def setUp(self):
-        self.tm = TokenManager(secret='test-secret-key-12345')
+        self.tm = TokenManager(secret='test-secret-key-1234567890-abcdef')
 
     def test_create_access_token(self):
         token = self.tm.create_access_token('alice', 'admin')
@@ -119,7 +119,7 @@ class TestTokenManager(unittest.TestCase):
 
     def test_wrong_secret_rejected(self):
         token = self.tm.create_access_token('dave', 'admin')
-        other_tm = TokenManager(secret='different-secret-key')
+        other_tm = TokenManager(secret='different-secret-key-1234567890ab')
         self.assertIsNone(other_tm.validate_token(token))
 
 
