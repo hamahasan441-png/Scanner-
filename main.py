@@ -101,6 +101,10 @@ def main():
     # Module options
     parser.add_argument('--full', action='store_true',
                        help='Enable all modules')
+    parser.add_argument('--point-to-point', action='store_true',
+                       help='Ultimate scan: enable every module, recon, exploitation, '
+                            'network scanning, and post-exploitation for complete '
+                            'point-to-point coverage')
     parser.add_argument('--sqli', action='store_true',
                        help='Enable SQL Injection module')
     parser.add_argument('--xss', action='store_true',
@@ -195,6 +199,20 @@ def main():
                        help='Enable network exploit scanning (maps open ports/services to known CVEs)')
     parser.add_argument('--tech-exploit', action='store_true',
                        help='Enable technology exploit scanning (maps detected technologies to known CVEs)')
+
+    # Packet-level network scanning (Scapy)
+    parser.add_argument('--scapy', action='store_true',
+                       help='Enable Scapy packet-level network crawling and OS fingerprinting')
+    parser.add_argument('--stealth-scan', action='store_true',
+                       help='Enable stealthy SYN port scanning via Scapy')
+    parser.add_argument('--arp-discovery', action='store_true',
+                       help='Enable ARP-based local network host discovery')
+    parser.add_argument('--dns-recon', action='store_true',
+                       help='Enable DNS reconnaissance (zone transfer, subdomain brute, record enumeration)')
+    parser.add_argument('--scapy-vuln-scan', action='store_true',
+                       help='Enable Scapy packet-level vulnerability scanning (SVD-001 to SVD-008)')
+    parser.add_argument('--scapy-attack-chain', action='store_true',
+                       help='Enable Scapy network attack chain templates')
 
     # Shield & Origin detection
     parser.add_argument('--shield-detect', action='store_true',
@@ -826,53 +844,63 @@ def main():
         'strict_scope': getattr(args, 'strict_scope', False),
     }
 
+    # --point-to-point enables absolutely everything for complete coverage
+    p2p = getattr(args, 'point_to_point', False)
+
     # Build module configuration
     modules = {
-        'sqli': args.sqli or args.full,
-        'xss': args.xss or args.full,
-        'lfi': args.lfi or args.full,
-        'cmdi': args.cmdi or args.full,
-        'ssrf': args.ssrf or args.full,
-        'ssti': args.ssti or args.full,
-        'xxe': args.xxe or args.full,
-        'idor': args.idor or args.full,
-        'nosql': args.nosql or args.full,
-        'cors': args.cors or args.full,
-        'jwt': args.jwt or args.full,
-        'upload': args.upload or args.full,
-        'open_redirect': args.open_redirect or args.full,
-        'crlf': args.crlf or args.full,
-        'hpp': args.hpp or args.full,
-        'graphql': args.graphql or args.full,
-        'proto_pollution': args.proto_pollution or args.full,
-        'race_condition': getattr(args, 'race', False) or args.full,
-        'websocket': getattr(args, 'websocket', False) or args.full,
-        'deserialization': getattr(args, 'deser', False) or args.full,
-        'osint': getattr(args, 'osint', False) or args.full,
-        'fuzzer': getattr(args, 'fuzz', False) or args.full,
-        'sqlmap': getattr(args, 'sqlmap', False),
-        'shell': args.shell,
-        'dump': args.dump,
-        'os_shell': args.os_shell,
-        'brute': args.brute,
-        'exploit_chain': args.exploit_chain,
-        'auto_exploit': args.auto_exploit,
-        'recon': args.recon or args.full,
-        'subdomains': args.subdomains or args.full,
-        'ports': args.ports,
-        'tech_detect': args.tech_detect or args.full,
-        'dir_brute': args.dir_brute or args.full,
-        'discovery': args.discovery or args.full,
-        'net_exploit': getattr(args, 'net_exploit', False) or args.full,
-        'tech_exploit': getattr(args, 'tech_exploit', False) or args.full,
-        'shield_detect': getattr(args, 'shield_detect', False) or args.full,
-        'real_ip': getattr(args, 'real_ip', False) or args.full,
-        'agent_scan': getattr(args, 'agent_scan', False),
-        'passive_recon': getattr(args, 'passive_recon', False) or args.full,
-        'enrich': getattr(args, 'enrich', False) or args.full,
-        'chain_detect': getattr(args, 'chain_detect', False) or args.full,
-        'exploit_search': getattr(args, 'exploit_search', False) or args.full,
-        'attack_map': getattr(args, 'attack_map', False) or args.full,
+        'sqli': args.sqli or args.full or p2p,
+        'xss': args.xss or args.full or p2p,
+        'lfi': args.lfi or args.full or p2p,
+        'cmdi': args.cmdi or args.full or p2p,
+        'ssrf': args.ssrf or args.full or p2p,
+        'ssti': args.ssti or args.full or p2p,
+        'xxe': args.xxe or args.full or p2p,
+        'idor': args.idor or args.full or p2p,
+        'nosql': args.nosql or args.full or p2p,
+        'cors': args.cors or args.full or p2p,
+        'jwt': args.jwt or args.full or p2p,
+        'upload': args.upload or args.full or p2p,
+        'open_redirect': args.open_redirect or args.full or p2p,
+        'crlf': args.crlf or args.full or p2p,
+        'hpp': args.hpp or args.full or p2p,
+        'graphql': args.graphql or args.full or p2p,
+        'proto_pollution': args.proto_pollution or args.full or p2p,
+        'race_condition': getattr(args, 'race', False) or args.full or p2p,
+        'websocket': getattr(args, 'websocket', False) or args.full or p2p,
+        'deserialization': getattr(args, 'deser', False) or args.full or p2p,
+        'osint': getattr(args, 'osint', False) or args.full or p2p,
+        'fuzzer': getattr(args, 'fuzz', False) or args.full or p2p,
+        'sqlmap': getattr(args, 'sqlmap', False) or p2p,
+        'shell': args.shell or p2p,
+        'dump': args.dump or p2p,
+        'os_shell': args.os_shell or p2p,
+        'brute': args.brute or p2p,
+        'exploit_chain': args.exploit_chain or p2p,
+        'auto_exploit': args.auto_exploit or p2p,
+        'recon': args.recon or args.full or p2p,
+        'subdomains': args.subdomains or args.full or p2p,
+        'ports': args.ports or ('1-65535' if p2p else None),
+        'tech_detect': args.tech_detect or args.full or p2p,
+        'dir_brute': args.dir_brute or args.full or p2p,
+        'discovery': args.discovery or args.full or p2p,
+        'net_exploit': getattr(args, 'net_exploit', False) or args.full or p2p,
+        'tech_exploit': getattr(args, 'tech_exploit', False) or args.full or p2p,
+        'shield_detect': getattr(args, 'shield_detect', False) or args.full or p2p,
+        'real_ip': getattr(args, 'real_ip', False) or args.full or p2p,
+        'agent_scan': getattr(args, 'agent_scan', False) or p2p,
+        'passive_recon': getattr(args, 'passive_recon', False) or args.full or p2p,
+        'enrich': getattr(args, 'enrich', False) or args.full or p2p,
+        'chain_detect': getattr(args, 'chain_detect', False) or args.full or p2p,
+        'exploit_search': getattr(args, 'exploit_search', False) or args.full or p2p,
+        'attack_map': getattr(args, 'attack_map', False) or args.full or p2p,
+        # Scapy packet-level network scanning
+        'scapy': getattr(args, 'scapy', False) or p2p,
+        'stealth_scan': getattr(args, 'stealth_scan', False) or p2p,
+        'arp_discovery': getattr(args, 'arp_discovery', False) or p2p,
+        'dns_recon': getattr(args, 'dns_recon', False) or p2p,
+        'scapy_vuln_scan': getattr(args, 'scapy_vuln_scan', False) or p2p,
+        'scapy_attack_chain': getattr(args, 'scapy_attack_chain', False) or p2p,
     }
 
     if args.regulated_mission:

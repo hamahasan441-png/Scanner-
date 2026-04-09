@@ -432,8 +432,9 @@ class IntelligenceEnricher:
 
         self.engine.emit_pipeline_event('phase6_complete', bundle.to_dict())
         if self.verbose:
-            print(f"{Colors.info(f'Intelligence enrichment complete: {len(bundle.cve_matches)} CVEs, '
-                                 f'{len(bundle.param_weights)} weighted params')}")
+            msg = (f'Intelligence enrichment complete: {len(bundle.cve_matches)} CVEs, '
+                   f'{len(bundle.param_weights)} weighted params')
+            print(Colors.info(msg))
 
         return bundle
 
