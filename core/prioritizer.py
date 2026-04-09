@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ATOMIC FRAMEWORK v9.0 - ULTIMATE EDITION
+ATOMIC FRAMEWORK v10.0 - ULTIMATE EDITION
 Risk-Based Prioritization Engine
 
 Scores endpoints by type and context, builds a priority queue so the
@@ -32,6 +32,13 @@ HIGH_PRIORITY_PATTERNS = [
     (r'(?i)(comment|review|feedback|contact|message)', 0.6, 'input'),
     (r'(?i)(download|export|report|pdf)', 0.55, 'download'),
     (r'(?i)(graphql|rest|v\d+/)', 0.7, 'api'),
+    # v10.0 additions
+    (r'(?i)(webhook|callback|notify|hook)', 0.75, 'webhook'),
+    (r'(?i)(reset|forgot|recover|password)', 0.85, 'password_reset'),
+    (r'(?i)(invite|register|signup|onboard)', 0.7, 'registration'),
+    (r'(?i)(config|setup|install|debug)', 0.8, 'configuration'),
+    (r'(?i)(ws|socket|realtime|stream)', 0.65, 'websocket'),
+    (r'(?i)(internal|private|staging|dev)', 0.8, 'internal'),
 ]
 
 LOW_PRIORITY_PATTERNS = [

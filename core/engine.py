@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ATOMIC FRAMEWORK v9.0 - ULTIMATE EDITION
+ATOMIC FRAMEWORK v10.0 - ULTIMATE EDITION
 Core Engine - Scan orchestration and module management
 
 CORE FLOW (regulated):
   §0 Init & Normalize →
   §1 Scope & Policy →
+  PHASE 0: Scan Plan Display (--show-plan) →
   PHASE 1: Shield Detection (CDN + WAF) →
   PHASE 2: Real IP Discovery →
   Build effective target (origin IP when available) →

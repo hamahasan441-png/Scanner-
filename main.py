@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ATOMIC FRAMEWORK v9.0 - ULTIMATE EDITION
+ATOMIC FRAMEWORK v10.0 - ULTIMATE EDITION
 Main Entry Point - Termux Optimized
 ⚠️ FOR AUTHORIZED TESTING ONLY ⚠️
 """
@@ -213,6 +213,8 @@ def main():
                        help='Enable Phase 9B exploit reference searcher (ExploitDB, Metasploit, Nuclei, CISA KEV)')
     parser.add_argument('--attack-map', action='store_true',
                        help='Enable Phase 11 exploit-aware attack map generation')
+    parser.add_argument('--show-plan', action='store_true',
+                       help='Display visual scan execution plan before scanning')
     
     # Report options
     parser.add_argument('--report', 
@@ -983,6 +985,12 @@ def main():
         for target in targets:
             print(f"\n{Colors.info(f'Target: {target}')}")
             engine = AtomicEngine(config)
+
+            # Display scan plan if requested
+            if getattr(args, 'show_plan', False):
+                from core.scan_planner import ScanPlanner
+                planner = ScanPlanner(engine)
+                planner.display_plan(target)
 
             # Wire external notification manager if configured
             if notification_mgr:

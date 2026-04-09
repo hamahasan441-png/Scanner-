@@ -12,8 +12,8 @@ class Config:
     """Main Configuration"""
     
     # Version Info
-    VERSION = "9.0-ULTIMATE"
-    CODENAME = "PHOENIX"
+    VERSION = "10.0-ULTIMATE"
+    CODENAME = "TITAN"
     AUTHOR = "Atomic Security"
     
     # Paths
