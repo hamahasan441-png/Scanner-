@@ -156,7 +156,7 @@ class SignalScorer:
             return 0.0
 
         deviation = baseline.timing_deviation(elapsed)
-        absolute_diff = elapsed - baseline.time_mean
+        absolute_diff = abs(elapsed - baseline.time_mean)
 
         # Dynamic thresholds based on observed network jitter
         network_jitter = baseline.time_stdev * 2

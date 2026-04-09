@@ -452,8 +452,13 @@ def scan_status(scan_id):
     engine (phase, events, attack routes).  The internal ``engine`` reference
     is never serialised into the JSON response.
     """
-    if scan_id in _active_scans:
-        info = dict(_active_scans[scan_id])
+    with _scans_lock:
+        scan_data = _active_scans.get(scan_id)
+        if scan_data is not None:
+            info = dict(scan_data)
+        else:
+            info = None
+    if info is not None:
         # Add live pipeline data from engine (exclude engine object from JSON)
         engine = info.pop('engine', None)
         if engine and hasattr(engine, 'get_pipeline_state'):
@@ -645,7 +650,7 @@ def shell_info(shell_id):
     try:
         shells = db.get_shells()
         for s in shells:
-            if s.get('shell_id', '') == shell_id or s.get('shell_id', '').startswith(shell_id):
+            if s.get('shell_id', '') == shell_id:
                 return jsonify({
                     'status': 'success',
                     'data': {
