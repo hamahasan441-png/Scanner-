@@ -58,6 +58,13 @@ if SOCKETIO_AVAILABLE:
 _active_scans = {}
 _scans_lock = threading.Lock()
 
+# ---------------------------------------------------------------------------
+# In-memory chat store for team collaboration on the dashboard
+# ---------------------------------------------------------------------------
+_chat_messages: list = []
+_chat_lock = threading.Lock()
+_CHAT_MAX_MESSAGES = 500  # keep last N messages in memory
+
 # Scan-ID must be a hex UUID (no slashes, dots, or traversal chars).
 _SAFE_SCAN_ID = re.compile(r'^[a-zA-Z0-9_-]+$')
 
@@ -2048,6 +2055,67 @@ def get_notification_history():
 
 
 # ---------------------------------------------------------------------------
+# Chat API — real-time team chat on the dashboard
+# ---------------------------------------------------------------------------
+
+@app.route('/api/chat/messages', methods=['GET'])
+@_require_api_key
+@_rate_limit
+def get_chat_messages():
+    """Return recent chat messages."""
+    try:
+        limit = request.args.get('limit', 50, type=int)
+        limit = max(1, min(limit, _CHAT_MAX_MESSAGES))
+        with _chat_lock:
+            messages = list(_chat_messages[-limit:])
+        return jsonify({'status': 'success', 'data': messages})
+    except Exception:
+        return jsonify({'status': 'error', 'data': 'Failed to retrieve messages'}), 500
+
+
+@app.route('/api/chat/messages', methods=['POST'])
+@_require_api_key
+@_rate_limit
+def post_chat_message():
+    """Send a new chat message. Broadcasts via WebSocket if available."""
+    body = request.get_json(silent=True)
+    if not body or not isinstance(body.get('message'), str) or not body['message'].strip():
+        return jsonify({'status': 'error', 'data': 'Missing or empty message'}), 400
+
+    sender = str(body.get('sender', 'Anonymous')).strip()[:50] or 'Anonymous'
+    text = body['message'].strip()[:2000]
+
+    msg = {
+        'id': uuid.uuid4().hex[:12],
+        'sender': sender,
+        'message': text,
+        'timestamp': datetime.now(timezone.utc).isoformat(),
+    }
+
+    with _chat_lock:
+        _chat_messages.append(msg)
+        # Trim to max size
+        while len(_chat_messages) > _CHAT_MAX_MESSAGES:
+            _chat_messages.pop(0)
+
+    # Broadcast to all connected WebSocket clients
+    _emit_ws('chat_message', msg)
+
+    return jsonify({'status': 'success', 'data': msg}), 201
+
+
+@app.route('/api/chat/messages', methods=['DELETE'])
+@_require_api_key
+@_rate_limit
+def clear_chat_messages():
+    """Clear all chat messages."""
+    with _chat_lock:
+        _chat_messages.clear()
+    _emit_ws('chat_cleared', {})
+    return jsonify({'status': 'success', 'data': 'Chat cleared'})
+
+
+# ---------------------------------------------------------------------------
 # SocketIO event handlers (real-time WebSocket updates)
 # ---------------------------------------------------------------------------
 
@@ -2105,6 +2173,27 @@ if SOCKETIO_AVAILABLE and socketio is not None:
         except Exception as exc:
             logger.error('WS shell execute error: %s', exc)
             emit('shell_output', {'error': 'Command execution failed'})
+
+    @socketio.on('chat_message')
+    def handle_chat_message(data):
+        """Receive a chat message via WebSocket and broadcast to all clients."""
+        if not isinstance(data, dict):
+            return
+        text = str(data.get('message', '')).strip()[:2000]
+        if not text:
+            return
+        sender = str(data.get('sender', 'Anonymous')).strip()[:50] or 'Anonymous'
+        msg = {
+            'id': uuid.uuid4().hex[:12],
+            'sender': sender,
+            'message': text,
+            'timestamp': datetime.now(timezone.utc).isoformat(),
+        }
+        with _chat_lock:
+            _chat_messages.append(msg)
+            while len(_chat_messages) > _CHAT_MAX_MESSAGES:
+                _chat_messages.pop(0)
+        emit('chat_message', msg, broadcast=True)
 
 
 # ---------------------------------------------------------------------------

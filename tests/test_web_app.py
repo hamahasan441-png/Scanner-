@@ -10,7 +10,7 @@ from unittest.mock import patch
 # Ensure project root on path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from web.app import app, _rate_counters
+from web.app import app, _rate_counters, _chat_messages, _chat_lock
 import web.app as web_app_module
 
 
@@ -771,3 +771,127 @@ class TestFileScanAPI(unittest.TestCase):
         """Missing JSON body should return 400."""
         resp = self.client.post('/api/scan', content_type='application/json')
         self.assertEqual(resp.status_code, 400)
+
+
+class TestChatAPI(unittest.TestCase):
+    """Tests for the /api/chat/* endpoints."""
+
+    def setUp(self):
+        app.config['TESTING'] = True
+        self.client = app.test_client()
+        _rate_counters.clear()
+        with _chat_lock:
+            _chat_messages.clear()
+
+    def tearDown(self):
+        _rate_counters.clear()
+        with _chat_lock:
+            _chat_messages.clear()
+
+    def test_get_messages_empty(self):
+        """GET /api/chat/messages returns empty list when no messages."""
+        resp = self.client.get('/api/chat/messages')
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertEqual(data['status'], 'success')
+        self.assertEqual(data['data'], [])
+
+    def test_post_message(self):
+        """POST /api/chat/messages creates a message."""
+        resp = self.client.post('/api/chat/messages', json={
+            'sender': 'TestUser',
+            'message': 'Hello team!',
+        })
+        self.assertEqual(resp.status_code, 201)
+        data = resp.get_json()
+        self.assertEqual(data['status'], 'success')
+        self.assertEqual(data['data']['sender'], 'TestUser')
+        self.assertEqual(data['data']['message'], 'Hello team!')
+        self.assertIn('id', data['data'])
+        self.assertIn('timestamp', data['data'])
+
+    def test_post_message_missing_body(self):
+        """POST /api/chat/messages with no body returns 400."""
+        resp = self.client.post('/api/chat/messages',
+                                content_type='application/json')
+        self.assertEqual(resp.status_code, 400)
+
+    def test_post_message_empty_text(self):
+        """POST /api/chat/messages with empty message returns 400."""
+        resp = self.client.post('/api/chat/messages', json={
+            'sender': 'Test',
+            'message': '   ',
+        })
+        self.assertEqual(resp.status_code, 400)
+
+    def test_post_message_default_sender(self):
+        """POST without sender defaults to 'Anonymous'."""
+        resp = self.client.post('/api/chat/messages', json={
+            'message': 'Hello',
+        })
+        self.assertEqual(resp.status_code, 201)
+        data = resp.get_json()
+        self.assertEqual(data['data']['sender'], 'Anonymous')
+
+    def test_get_messages_after_post(self):
+        """GET returns messages that were posted."""
+        self.client.post('/api/chat/messages', json={
+            'sender': 'Alice',
+            'message': 'First message',
+        })
+        self.client.post('/api/chat/messages', json={
+            'sender': 'Bob',
+            'message': 'Second message',
+        })
+        resp = self.client.get('/api/chat/messages')
+        data = resp.get_json()['data']
+        self.assertEqual(len(data), 2)
+        self.assertEqual(data[0]['sender'], 'Alice')
+        self.assertEqual(data[1]['sender'], 'Bob')
+
+    def test_get_messages_limit(self):
+        """GET with limit parameter respects the limit."""
+        for i in range(5):
+            self.client.post('/api/chat/messages', json={
+                'message': f'Message {i}',
+            })
+        resp = self.client.get('/api/chat/messages?limit=2')
+        data = resp.get_json()['data']
+        self.assertEqual(len(data), 2)
+
+    def test_delete_messages(self):
+        """DELETE /api/chat/messages clears all messages."""
+        self.client.post('/api/chat/messages', json={
+            'message': 'To be cleared',
+        })
+        resp = self.client.delete('/api/chat/messages')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.get_json()['status'], 'success')
+        # Verify empty
+        resp = self.client.get('/api/chat/messages')
+        self.assertEqual(resp.get_json()['data'], [])
+
+    def test_message_truncation(self):
+        """Long messages are truncated to 2000 chars."""
+        long_msg = 'A' * 3000
+        resp = self.client.post('/api/chat/messages', json={
+            'message': long_msg,
+        })
+        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(len(resp.get_json()['data']['message']), 2000)
+
+    def test_sender_truncation(self):
+        """Long sender names are truncated to 50 chars."""
+        long_name = 'B' * 100
+        resp = self.client.post('/api/chat/messages', json={
+            'sender': long_name,
+            'message': 'Test',
+        })
+        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(len(resp.get_json()['data']['sender']), 50)
+
+    def test_dashboard_contains_chat_tab(self):
+        """Dashboard HTML includes Chat tab."""
+        resp = self.client.get('/')
+        self.assertIn(b'Chat', resp.data)
+        self.assertIn(b'panel-chat', resp.data)
