@@ -10,7 +10,10 @@ from unittest.mock import patch
 # Ensure project root on path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from web.app import app, _rate_counters, _chat_messages, _chat_lock
+from web.app import (
+    app, _rate_counters, _chat_messages, _chat_lock,
+    _ollama_chat_history, _ollama_lock,
+)
 import web.app as web_app_module
 
 
@@ -895,3 +898,151 @@ class TestChatAPI(unittest.TestCase):
         resp = self.client.get('/')
         self.assertIn(b'Chat', resp.data)
         self.assertIn(b'panel-chat', resp.data)
+
+
+class TestAIBrainAPI(unittest.TestCase):
+    """Tests for the /api/ai/* endpoints."""
+
+    def setUp(self):
+        app.config['TESTING'] = True
+        self.client = app.test_client()
+        _rate_counters.clear()
+
+    def tearDown(self):
+        _rate_counters.clear()
+
+    def test_ai_summary_returns_200(self):
+        """GET /api/ai/summary returns AI engine summary."""
+        resp = self.client.get('/api/ai/summary')
+        self.assertIn(resp.status_code, (200, 503))
+        data = resp.get_json()
+        self.assertIn(data['status'], ('success', 'error'))
+
+    def test_ai_correlations_returns_data(self):
+        """GET /api/ai/correlations returns correlation database."""
+        resp = self.client.get('/api/ai/correlations')
+        self.assertIn(resp.status_code, (200, 503))
+        data = resp.get_json()
+        if data['status'] == 'success':
+            self.assertIn('correlations', data['data'])
+            self.assertIn('exploit_difficulty', data['data'])
+            self.assertIsInstance(data['data']['correlations'], list)
+
+    def test_ai_predictions_missing_url_returns_400(self):
+        """POST /api/ai/predictions without url returns 400."""
+        resp = self.client.post('/api/ai/predictions', json={})
+        self.assertEqual(resp.status_code, 400)
+
+    def test_ai_predictions_with_url(self):
+        """POST /api/ai/predictions with url returns predictions."""
+        resp = self.client.post('/api/ai/predictions', json={
+            'url': 'http://example.com/page?id=1',
+            'param_name': 'id',
+        })
+        self.assertIn(resp.status_code, (200, 503))
+
+    def test_dashboard_contains_ai_brain_tab(self):
+        """Dashboard HTML includes AI Brain tab."""
+        resp = self.client.get('/')
+        self.assertIn(b'AI Brain', resp.data)
+        self.assertIn(b'panel-ai-brain', resp.data)
+
+
+class TestOllamaAPI(unittest.TestCase):
+    """Tests for the /api/ollama/* endpoints."""
+
+    def setUp(self):
+        app.config['TESTING'] = True
+        self.client = app.test_client()
+        _rate_counters.clear()
+        with _ollama_lock:
+            _ollama_chat_history.clear()
+
+    def tearDown(self):
+        _rate_counters.clear()
+        with _ollama_lock:
+            _ollama_chat_history.clear()
+
+    def test_ollama_status(self):
+        """GET /api/ollama/status returns installation status."""
+        resp = self.client.get('/api/ollama/status')
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertEqual(data['status'], 'success')
+        self.assertIn('installed', data['data'])
+        self.assertIn('running', data['data'])
+        self.assertIn('models', data['data'])
+
+    def test_ollama_install_info(self):
+        """POST /api/ollama/install returns install instructions."""
+        resp = self.client.post('/api/ollama/install')
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertEqual(data['status'], 'success')
+        self.assertIn('linux', data['data'])
+        self.assertIn('docker', data['data'])
+        self.assertIn('pull_model', data['data'])
+
+    def test_ollama_pull_invalid_model(self):
+        """POST /api/ollama/pull with invalid model name returns 400."""
+        resp = self.client.post('/api/ollama/pull', json={'model': ''})
+        self.assertEqual(resp.status_code, 400)
+
+    def test_ollama_chat_missing_message(self):
+        """POST /api/ollama/chat without message returns 400."""
+        resp = self.client.post('/api/ollama/chat', json={})
+        self.assertEqual(resp.status_code, 400)
+
+    def test_ollama_chat_empty_message(self):
+        """POST /api/ollama/chat with empty message returns 400."""
+        resp = self.client.post('/api/ollama/chat', json={'message': '   '})
+        self.assertEqual(resp.status_code, 400)
+
+    @patch('web.app._ollama_request')
+    def test_ollama_chat_success(self, mock_req):
+        """POST /api/ollama/chat returns AI response when Ollama is available."""
+        mock_req.return_value = {
+            'message': {'content': 'SQL injection is a code injection technique.'},
+        }
+        resp = self.client.post('/api/ollama/chat', json={
+            'message': 'Explain SQL injection',
+            'model': 'llama3.2',
+        })
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertEqual(data['status'], 'success')
+        self.assertIn('response', data['data'])
+        self.assertEqual(data['data']['model'], 'llama3.2')
+
+    @patch('web.app._ollama_request')
+    def test_ollama_chat_stores_history(self, mock_req):
+        """Chat messages are stored in history."""
+        mock_req.return_value = {'message': {'content': 'Test response'}}
+        self.client.post('/api/ollama/chat', json={'message': 'Hello'})
+        resp = self.client.get('/api/ollama/chat/history')
+        data = resp.get_json()['data']
+        self.assertEqual(len(data), 2)  # user + assistant
+        self.assertEqual(data[0]['role'], 'user')
+        self.assertEqual(data[1]['role'], 'assistant')
+
+    @patch('web.app._ollama_request')
+    def test_ollama_chat_unavailable(self, mock_req):
+        """POST /api/ollama/chat returns 502 when Ollama is down."""
+        mock_req.return_value = None
+        resp = self.client.post('/api/ollama/chat', json={'message': 'Hello'})
+        self.assertEqual(resp.status_code, 502)
+
+    def test_ollama_clear_history(self):
+        """DELETE /api/ollama/chat/history clears chat history."""
+        with _ollama_lock:
+            _ollama_chat_history.append({'role': 'user', 'content': 'test'})
+        resp = self.client.delete('/api/ollama/chat/history')
+        self.assertEqual(resp.status_code, 200)
+        with _ollama_lock:
+            self.assertEqual(len(_ollama_chat_history), 0)
+
+    def test_ollama_chat_history_get(self):
+        """GET /api/ollama/chat/history returns history."""
+        resp = self.client.get('/api/ollama/chat/history')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.get_json()['data'], [])

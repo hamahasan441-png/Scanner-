@@ -8,6 +8,7 @@ import os
 import json
 import logging
 import re
+import subprocess
 import threading
 import time
 import uuid
@@ -192,6 +193,18 @@ try:
 except Exception:
     logger.debug('core.notification unavailable — notification endpoints disabled')
     _notification_manager = None
+
+try:
+    from core.ai_engine import AIEngine
+    _AI_ENGINE_AVAILABLE = True
+except Exception:
+    logger.debug('core.ai_engine unavailable — AI endpoints disabled')
+    _AI_ENGINE_AVAILABLE = False
+
+# Ollama conversation history (per-session, in-memory)
+_ollama_chat_history: list = []
+_ollama_lock = threading.Lock()
+_OLLAMA_MAX_HISTORY = 100
 
 
 def _get_current_user():
@@ -2114,6 +2127,265 @@ def clear_chat_messages():
         _chat_messages.clear()
     _emit_ws('chat_cleared', {})
     return jsonify({'status': 'success', 'data': 'Chat cleared'})
+
+
+# ---------------------------------------------------------------------------
+# AI Brain API — AI Engine summary, predictions, and strategy
+# ---------------------------------------------------------------------------
+
+def _get_ai_engine_for_scan(scan_id=None):
+    """Get AIEngine from an active scan, or create a standalone one."""
+    if scan_id:
+        scan_info = _active_scans.get(scan_id)
+        if scan_info and scan_info.get('engine'):
+            engine = scan_info['engine']
+            if hasattr(engine, 'ai') and engine.ai is not None:
+                return engine.ai
+    # Create a lightweight standalone AIEngine with a minimal mock engine
+    if _AI_ENGINE_AVAILABLE:
+        try:
+            class _MiniEngine:
+                config = {'verbose': False}
+            return AIEngine(_MiniEngine())
+        except Exception:
+            pass
+    return None
+
+
+@app.route('/api/ai/summary', methods=['GET'])
+@_require_api_key
+@_rate_limit
+def get_ai_summary():
+    """Return AI engine summary including pattern counts and calibration."""
+    scan_id = request.args.get('scan_id', '')
+    ai = _get_ai_engine_for_scan(scan_id)
+    if ai is None:
+        return jsonify({'status': 'error', 'data': 'AI engine unavailable'}), 503
+    try:
+        summary = ai.get_ai_summary()
+        summary['engine_available'] = True
+        if _AI_ENGINE_AVAILABLE:
+            from core.ai_engine import VULN_CORRELATIONS, EXPLOIT_DIFFICULTY
+            summary['vuln_correlations_db'] = len(VULN_CORRELATIONS)
+            summary['exploit_types_tracked'] = len(EXPLOIT_DIFFICULTY)
+        return jsonify({'status': 'success', 'data': summary})
+    except Exception:
+        return jsonify({'status': 'error', 'data': 'AI summary failed'}), 500
+
+
+@app.route('/api/ai/predictions', methods=['POST'])
+@_require_api_key
+@_rate_limit
+def get_ai_predictions():
+    """Get AI vulnerability predictions for a URL/parameter."""
+    body = request.get_json(silent=True)
+    if not body or not body.get('url'):
+        return jsonify({'status': 'error', 'data': 'Missing url'}), 400
+    ai = _get_ai_engine_for_scan(body.get('scan_id', ''))
+    if ai is None:
+        return jsonify({'status': 'error', 'data': 'AI engine unavailable'}), 503
+    try:
+        predictions = ai.predict_vulnerabilities(
+            body['url'],
+            body.get('param_name', ''),
+            body.get('param_value', ''),
+        )
+        return jsonify({'status': 'success', 'data': predictions})
+    except Exception:
+        return jsonify({'status': 'error', 'data': 'Prediction failed'}), 500
+
+
+@app.route('/api/ai/correlations', methods=['GET'])
+@_require_api_key
+@_rate_limit
+def get_ai_correlations():
+    """Return the vulnerability correlation database."""
+    if not _AI_ENGINE_AVAILABLE:
+        return jsonify({'status': 'error', 'data': 'AI engine unavailable'}), 503
+    try:
+        from core.ai_engine import VULN_CORRELATIONS, EXPLOIT_DIFFICULTY
+        corr = [
+            {'pair': list(k), 'chain': v['chain'], 'boost': v['boost'], 'label': v['label']}
+            for k, v in VULN_CORRELATIONS.items()
+        ]
+        diff = {
+            k: {'base_difficulty': v['base'], 'defense_factors': v['factors']}
+            for k, v in EXPLOIT_DIFFICULTY.items()
+        }
+        return jsonify({'status': 'success', 'data': {
+            'correlations': corr,
+            'exploit_difficulty': diff,
+        }})
+    except Exception:
+        return jsonify({'status': 'error', 'data': 'Correlations failed'}), 500
+
+
+# ---------------------------------------------------------------------------
+# Ollama API — Local LLM integration for security analysis
+# ---------------------------------------------------------------------------
+
+def _ollama_available():
+    """Check if ollama binary is available on the system."""
+    try:
+        result = subprocess.run(
+            ['ollama', '--version'],
+            capture_output=True, text=True, timeout=5,
+        )
+        return result.returncode == 0
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        return False
+
+
+def _ollama_request(path, method='GET', json_data=None, timeout=120):
+    """Make an HTTP request to the local Ollama API server."""
+    import urllib.request
+    import urllib.error
+    base = os.environ.get('OLLAMA_HOST', 'http://localhost:11434')
+    url = f'{base}{path}'
+    req_data = json.dumps(json_data).encode() if json_data else None
+    req = urllib.request.Request(
+        url, data=req_data, method=method,
+        headers={'Content-Type': 'application/json'} if req_data else {},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return json.loads(resp.read().decode())
+    except (urllib.error.URLError, urllib.error.HTTPError, OSError,
+            json.JSONDecodeError):
+        return None
+
+
+@app.route('/api/ollama/status', methods=['GET'])
+@_require_api_key
+@_rate_limit
+def ollama_status():
+    """Check Ollama installation and running status."""
+    installed = _ollama_available()
+    running = False
+    models = []
+    if installed:
+        tags = _ollama_request('/api/tags')
+        if tags is not None:
+            running = True
+            models = [
+                {
+                    'name': m.get('name', ''),
+                    'size': m.get('size', 0),
+                    'modified': m.get('modified_at', ''),
+                }
+                for m in tags.get('models', [])
+            ]
+    return jsonify({'status': 'success', 'data': {
+        'installed': installed,
+        'running': running,
+        'models': models,
+        'ollama_host': os.environ.get('OLLAMA_HOST', 'http://localhost:11434'),
+    }})
+
+
+@app.route('/api/ollama/install', methods=['POST'])
+@_require_api_key
+@_rate_limit
+def ollama_install_info():
+    """Return install instructions for Ollama (cannot auto-install on server)."""
+    return jsonify({'status': 'success', 'data': {
+        'message': 'Run the command below on your server to install Ollama',
+        'linux': 'curl -fsSL https://ollama.com/install.sh | sh',
+        'macos': 'brew install ollama',
+        'windows': 'Download from https://ollama.com/download',
+        'docker': 'docker run -d -p 11434:11434 --name ollama ollama/ollama',
+        'start_command': 'ollama serve',
+        'pull_model': 'ollama pull llama3.2',
+    }})
+
+
+@app.route('/api/ollama/pull', methods=['POST'])
+@_require_api_key
+@_rate_limit
+def ollama_pull_model():
+    """Pull/download an Ollama model."""
+    body = request.get_json(silent=True)
+    model_name = body.get('model', '') if body else ''
+    if not model_name or not re.match(r'^[a-zA-Z0-9._:/-]+$', model_name):
+        return jsonify({'status': 'error', 'data': 'Invalid model name'}), 400
+    result = _ollama_request('/api/pull', method='POST',
+                             json_data={'name': model_name, 'stream': False},
+                             timeout=600)
+    if result is not None:
+        return jsonify({'status': 'success', 'data': {
+            'model': model_name, 'message': 'Model pulled successfully',
+        }})
+    return jsonify({'status': 'error',
+                    'data': 'Failed to pull model — is Ollama running?'}), 502
+
+
+@app.route('/api/ollama/chat', methods=['POST'])
+@_require_api_key
+@_rate_limit
+def ollama_chat():
+    """Chat with an Ollama model for security analysis."""
+    body = request.get_json(silent=True)
+    if not body or not isinstance(body.get('message'), str) or not body['message'].strip():
+        return jsonify({'status': 'error', 'data': 'Missing or empty message'}), 400
+
+    model = body.get('model', 'llama3.2')
+    user_msg = body['message'].strip()[:4000]
+    system_prompt = body.get('system_prompt',
+        'You are a cybersecurity AI assistant integrated into the ATOMIC '
+        'vulnerability scanning framework. Help the user analyze '
+        'vulnerabilities, interpret scan results, suggest remediation, '
+        'and explain security concepts. Be concise and technical.'
+    )
+
+    # Build conversation messages
+    with _ollama_lock:
+        messages = [{'role': 'system', 'content': system_prompt}]
+        messages.extend(_ollama_chat_history[-20:])  # last 20 exchanges
+        messages.append({'role': 'user', 'content': user_msg})
+
+    result = _ollama_request('/api/chat', method='POST', json_data={
+        'model': model,
+        'messages': messages,
+        'stream': False,
+    }, timeout=120)
+
+    if result is None:
+        return jsonify({'status': 'error',
+                        'data': 'Ollama unavailable — is it running?'}), 502
+
+    assistant_msg = result.get('message', {}).get('content', '')
+
+    # Store in history
+    with _ollama_lock:
+        _ollama_chat_history.append({'role': 'user', 'content': user_msg})
+        _ollama_chat_history.append({'role': 'assistant', 'content': assistant_msg})
+        while len(_ollama_chat_history) > _OLLAMA_MAX_HISTORY:
+            _ollama_chat_history.pop(0)
+
+    return jsonify({'status': 'success', 'data': {
+        'response': assistant_msg,
+        'model': model,
+        'timestamp': datetime.now(timezone.utc).isoformat(),
+    }})
+
+
+@app.route('/api/ollama/chat/history', methods=['GET'])
+@_require_api_key
+@_rate_limit
+def ollama_chat_history():
+    """Return Ollama chat history."""
+    with _ollama_lock:
+        return jsonify({'status': 'success', 'data': list(_ollama_chat_history)})
+
+
+@app.route('/api/ollama/chat/history', methods=['DELETE'])
+@_require_api_key
+@_rate_limit
+def ollama_clear_history():
+    """Clear Ollama chat history."""
+    with _ollama_lock:
+        _ollama_chat_history.clear()
+    return jsonify({'status': 'success', 'data': 'Chat history cleared'})
 
 
 # ---------------------------------------------------------------------------
