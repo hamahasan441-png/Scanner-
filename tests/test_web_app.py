@@ -10,7 +10,10 @@ from unittest.mock import patch
 # Ensure project root on path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from web.app import app, _rate_counters
+from web.app import (
+    app, _rate_counters, _chat_messages, _chat_lock,
+    _ollama_chat_history, _ollama_lock,
+)
 import web.app as web_app_module
 
 
@@ -771,3 +774,275 @@ class TestFileScanAPI(unittest.TestCase):
         """Missing JSON body should return 400."""
         resp = self.client.post('/api/scan', content_type='application/json')
         self.assertEqual(resp.status_code, 400)
+
+
+class TestChatAPI(unittest.TestCase):
+    """Tests for the /api/chat/* endpoints."""
+
+    def setUp(self):
+        app.config['TESTING'] = True
+        self.client = app.test_client()
+        _rate_counters.clear()
+        with _chat_lock:
+            _chat_messages.clear()
+
+    def tearDown(self):
+        _rate_counters.clear()
+        with _chat_lock:
+            _chat_messages.clear()
+
+    def test_get_messages_empty(self):
+        """GET /api/chat/messages returns empty list when no messages."""
+        resp = self.client.get('/api/chat/messages')
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertEqual(data['status'], 'success')
+        self.assertEqual(data['data'], [])
+
+    def test_post_message(self):
+        """POST /api/chat/messages creates a message."""
+        resp = self.client.post('/api/chat/messages', json={
+            'sender': 'TestUser',
+            'message': 'Hello team!',
+        })
+        self.assertEqual(resp.status_code, 201)
+        data = resp.get_json()
+        self.assertEqual(data['status'], 'success')
+        self.assertEqual(data['data']['sender'], 'TestUser')
+        self.assertEqual(data['data']['message'], 'Hello team!')
+        self.assertIn('id', data['data'])
+        self.assertIn('timestamp', data['data'])
+
+    def test_post_message_missing_body(self):
+        """POST /api/chat/messages with no body returns 400."""
+        resp = self.client.post('/api/chat/messages',
+                                content_type='application/json')
+        self.assertEqual(resp.status_code, 400)
+
+    def test_post_message_empty_text(self):
+        """POST /api/chat/messages with empty message returns 400."""
+        resp = self.client.post('/api/chat/messages', json={
+            'sender': 'Test',
+            'message': '   ',
+        })
+        self.assertEqual(resp.status_code, 400)
+
+    def test_post_message_default_sender(self):
+        """POST without sender defaults to 'Anonymous'."""
+        resp = self.client.post('/api/chat/messages', json={
+            'message': 'Hello',
+        })
+        self.assertEqual(resp.status_code, 201)
+        data = resp.get_json()
+        self.assertEqual(data['data']['sender'], 'Anonymous')
+
+    def test_get_messages_after_post(self):
+        """GET returns messages that were posted."""
+        self.client.post('/api/chat/messages', json={
+            'sender': 'Alice',
+            'message': 'First message',
+        })
+        self.client.post('/api/chat/messages', json={
+            'sender': 'Bob',
+            'message': 'Second message',
+        })
+        resp = self.client.get('/api/chat/messages')
+        data = resp.get_json()['data']
+        self.assertEqual(len(data), 2)
+        self.assertEqual(data[0]['sender'], 'Alice')
+        self.assertEqual(data[1]['sender'], 'Bob')
+
+    def test_get_messages_limit(self):
+        """GET with limit parameter respects the limit."""
+        for i in range(5):
+            self.client.post('/api/chat/messages', json={
+                'message': f'Message {i}',
+            })
+        resp = self.client.get('/api/chat/messages?limit=2')
+        data = resp.get_json()['data']
+        self.assertEqual(len(data), 2)
+
+    def test_delete_messages(self):
+        """DELETE /api/chat/messages clears all messages."""
+        self.client.post('/api/chat/messages', json={
+            'message': 'To be cleared',
+        })
+        resp = self.client.delete('/api/chat/messages')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.get_json()['status'], 'success')
+        # Verify empty
+        resp = self.client.get('/api/chat/messages')
+        self.assertEqual(resp.get_json()['data'], [])
+
+    def test_message_truncation(self):
+        """Long messages are truncated to 2000 chars."""
+        long_msg = 'A' * 3000
+        resp = self.client.post('/api/chat/messages', json={
+            'message': long_msg,
+        })
+        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(len(resp.get_json()['data']['message']), 2000)
+
+    def test_sender_truncation(self):
+        """Long sender names are truncated to 50 chars."""
+        long_name = 'B' * 100
+        resp = self.client.post('/api/chat/messages', json={
+            'sender': long_name,
+            'message': 'Test',
+        })
+        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(len(resp.get_json()['data']['sender']), 50)
+
+    def test_dashboard_contains_chat_tab(self):
+        """Dashboard HTML includes Chat tab."""
+        resp = self.client.get('/')
+        self.assertIn(b'Chat', resp.data)
+        self.assertIn(b'panel-chat', resp.data)
+
+
+class TestAIBrainAPI(unittest.TestCase):
+    """Tests for the /api/ai/* endpoints."""
+
+    def setUp(self):
+        app.config['TESTING'] = True
+        self.client = app.test_client()
+        _rate_counters.clear()
+
+    def tearDown(self):
+        _rate_counters.clear()
+
+    def test_ai_summary_returns_200(self):
+        """GET /api/ai/summary returns AI engine summary."""
+        resp = self.client.get('/api/ai/summary')
+        self.assertIn(resp.status_code, (200, 503))
+        data = resp.get_json()
+        self.assertIn(data['status'], ('success', 'error'))
+
+    def test_ai_correlations_returns_data(self):
+        """GET /api/ai/correlations returns correlation database."""
+        resp = self.client.get('/api/ai/correlations')
+        self.assertIn(resp.status_code, (200, 503))
+        data = resp.get_json()
+        if data['status'] == 'success':
+            self.assertIn('correlations', data['data'])
+            self.assertIn('exploit_difficulty', data['data'])
+            self.assertIsInstance(data['data']['correlations'], list)
+
+    def test_ai_predictions_missing_url_returns_400(self):
+        """POST /api/ai/predictions without url returns 400."""
+        resp = self.client.post('/api/ai/predictions', json={})
+        self.assertEqual(resp.status_code, 400)
+
+    def test_ai_predictions_with_url(self):
+        """POST /api/ai/predictions with url returns predictions."""
+        resp = self.client.post('/api/ai/predictions', json={
+            'url': 'http://example.com/page?id=1',
+            'param_name': 'id',
+        })
+        self.assertIn(resp.status_code, (200, 503))
+
+    def test_dashboard_contains_ai_brain_tab(self):
+        """Dashboard HTML includes AI Brain tab."""
+        resp = self.client.get('/')
+        self.assertIn(b'AI Brain', resp.data)
+        self.assertIn(b'panel-ai-brain', resp.data)
+
+
+class TestOllamaAPI(unittest.TestCase):
+    """Tests for the /api/ollama/* endpoints."""
+
+    def setUp(self):
+        app.config['TESTING'] = True
+        self.client = app.test_client()
+        _rate_counters.clear()
+        with _ollama_lock:
+            _ollama_chat_history.clear()
+
+    def tearDown(self):
+        _rate_counters.clear()
+        with _ollama_lock:
+            _ollama_chat_history.clear()
+
+    def test_ollama_status(self):
+        """GET /api/ollama/status returns installation status."""
+        resp = self.client.get('/api/ollama/status')
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertEqual(data['status'], 'success')
+        self.assertIn('installed', data['data'])
+        self.assertIn('running', data['data'])
+        self.assertIn('models', data['data'])
+
+    def test_ollama_install_info(self):
+        """POST /api/ollama/install returns install instructions."""
+        resp = self.client.post('/api/ollama/install')
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertEqual(data['status'], 'success')
+        self.assertIn('linux', data['data'])
+        self.assertIn('docker', data['data'])
+        self.assertIn('pull_model', data['data'])
+
+    def test_ollama_pull_invalid_model(self):
+        """POST /api/ollama/pull with invalid model name returns 400."""
+        resp = self.client.post('/api/ollama/pull', json={'model': ''})
+        self.assertEqual(resp.status_code, 400)
+
+    def test_ollama_chat_missing_message(self):
+        """POST /api/ollama/chat without message returns 400."""
+        resp = self.client.post('/api/ollama/chat', json={})
+        self.assertEqual(resp.status_code, 400)
+
+    def test_ollama_chat_empty_message(self):
+        """POST /api/ollama/chat with empty message returns 400."""
+        resp = self.client.post('/api/ollama/chat', json={'message': '   '})
+        self.assertEqual(resp.status_code, 400)
+
+    @patch('web.app._ollama_request')
+    def test_ollama_chat_success(self, mock_req):
+        """POST /api/ollama/chat returns AI response when Ollama is available."""
+        mock_req.return_value = {
+            'message': {'content': 'SQL injection is a code injection technique.'},
+        }
+        resp = self.client.post('/api/ollama/chat', json={
+            'message': 'Explain SQL injection',
+            'model': 'llama3.2',
+        })
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertEqual(data['status'], 'success')
+        self.assertIn('response', data['data'])
+        self.assertEqual(data['data']['model'], 'llama3.2')
+
+    @patch('web.app._ollama_request')
+    def test_ollama_chat_stores_history(self, mock_req):
+        """Chat messages are stored in history."""
+        mock_req.return_value = {'message': {'content': 'Test response'}}
+        self.client.post('/api/ollama/chat', json={'message': 'Hello'})
+        resp = self.client.get('/api/ollama/chat/history')
+        data = resp.get_json()['data']
+        self.assertEqual(len(data), 2)  # user + assistant
+        self.assertEqual(data[0]['role'], 'user')
+        self.assertEqual(data[1]['role'], 'assistant')
+
+    @patch('web.app._ollama_request')
+    def test_ollama_chat_unavailable(self, mock_req):
+        """POST /api/ollama/chat returns 502 when Ollama is down."""
+        mock_req.return_value = None
+        resp = self.client.post('/api/ollama/chat', json={'message': 'Hello'})
+        self.assertEqual(resp.status_code, 502)
+
+    def test_ollama_clear_history(self):
+        """DELETE /api/ollama/chat/history clears chat history."""
+        with _ollama_lock:
+            _ollama_chat_history.append({'role': 'user', 'content': 'test'})
+        resp = self.client.delete('/api/ollama/chat/history')
+        self.assertEqual(resp.status_code, 200)
+        with _ollama_lock:
+            self.assertEqual(len(_ollama_chat_history), 0)
+
+    def test_ollama_chat_history_get(self):
+        """GET /api/ollama/chat/history returns history."""
+        resp = self.client.get('/api/ollama/chat/history')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.get_json()['data'], [])

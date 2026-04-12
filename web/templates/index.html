@@ -102,6 +102,35 @@
 
     .empty-msg { color: var(--text-muted); font-size: 0.85rem; padding: 1rem 0; text-align: center; }
 
+    /* Chat panel styles */
+    .chat-msg {
+        padding: 0.5rem 0.7rem;
+        border-radius: 6px;
+        margin-bottom: 0.4rem;
+        background: rgba(255,255,255,0.04);
+        border-left: 3px solid var(--accent);
+        font-size: 0.85rem;
+        word-wrap: break-word;
+        overflow-wrap: break-word;
+    }
+    .chat-msg .chat-meta {
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 0.2rem;
+        font-size: 0.75rem;
+    }
+    .chat-msg .chat-sender {
+        color: var(--accent);
+        font-weight: 600;
+    }
+    .chat-msg .chat-time {
+        color: var(--text-muted);
+    }
+    .chat-msg .chat-text {
+        color: var(--text-primary);
+        line-height: 1.4;
+    }
+
     /* Grid layouts */
     .grid { display: grid; gap: 1rem; }
     .grid-2 { grid-template-columns: repeat(2, 1fr); }
@@ -335,6 +364,8 @@
         <button class="nav-tab" onclick="switchPanel('plugins')">🔌 Plugins</button>
         <button class="nav-tab" onclick="switchPanel('notifications')">🔔 Notifications</button>
         <button class="nav-tab" onclick="switchPanel('recon-arsenal')">🎯 Recon Arsenal</button>
+        <button class="nav-tab" onclick="switchPanel('chat')">💬 Chat</button>
+        <button class="nav-tab" onclick="switchPanel('ai-brain')">🧠 AI Brain</button>
     </nav>
 
     <!-- Dashboard Panel -->
@@ -1386,6 +1417,132 @@
 </section>
 </div>
 
+<div id="panel-chat" class="nav-panel">
+<section>
+    <h2>💬 Team Chat</h2>
+    <p style="color:var(--text-muted);font-size:0.85rem;margin-bottom:1rem;">Real-time team communication. Messages are shared with all connected dashboard users.</p>
+
+    <!-- Chat Settings -->
+    <div class="glass-card" style="margin-bottom:1rem;">
+        <div style="display:flex;gap:1rem;align-items:center;flex-wrap:wrap;">
+            <div class="form-group" style="margin-bottom:0;flex:1;min-width:150px;">
+                <label>Your Name</label>
+                <input type="text" id="chat-sender-name" placeholder="Anonymous" maxlength="50" style="max-width:250px;">
+            </div>
+            <div style="display:flex;align-items:flex-end;gap:0.5rem;padding-top:1rem;">
+                <button class="btn btn-sm" style="background:var(--severity-critical);" onclick="window._chatClear()">🗑️ Clear All</button>
+                <span id="chat-status" style="font-size:0.78rem;color:var(--text-muted);"></span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Chat Messages -->
+    <div class="glass-card" style="margin-bottom:1rem;">
+        <h3>Messages</h3>
+        <div id="chat-messages" style="height:400px;overflow-y:auto;background:rgba(0,0,0,0.2);border-radius:6px;padding:0.8rem;margin-bottom:0.8rem;">
+            <p class="empty-msg" id="chat-empty-msg">No messages yet. Start the conversation!</p>
+        </div>
+        <!-- Message Input -->
+        <div style="display:flex;gap:0.5rem;">
+            <input type="text" id="chat-input" placeholder="Type a message..." maxlength="2000" style="flex:1;" onkeydown="if(event.key==='Enter')window._chatSend()">
+            <button class="btn btn-primary" onclick="window._chatSend()" id="chat-send-btn">📤 Send</button>
+        </div>
+    </div>
+</section>
+</div>
+
+<div id="panel-ai-brain" class="nav-panel">
+<section>
+    <h2>🧠 AI Brain — Intelligence Engine &amp; Ollama LLM</h2>
+    <p style="color:var(--text-muted);font-size:0.85rem;margin-bottom:1rem;">
+        AI-powered vulnerability prediction, attack strategy, exploit correlation analysis, and local LLM chat via Ollama.
+    </p>
+
+    <!-- AI Engine Stats -->
+    <div class="glass-card" style="margin-bottom:1rem;">
+        <h3>📊 AI Engine Status</h3>
+        <button class="btn btn-primary btn-sm" onclick="window._aiLoadSummary()" style="margin-bottom:0.8rem;">🔄 Refresh</button>
+        <div id="ai-summary-grid" class="grid grid-4" style="gap:0.5rem;">
+            <div class="glass-card stat-card"><h3>Patterns</h3><div class="value" id="ai-stat-patterns">-</div></div>
+            <div class="glass-card stat-card"><h3>Techniques</h3><div class="value" id="ai-stat-techniques">-</div></div>
+            <div class="glass-card stat-card"><h3>Anomalies</h3><div class="value" id="ai-stat-anomalies">-</div></div>
+            <div class="glass-card stat-card"><h3>Correlations</h3><div class="value" id="ai-stat-correlations">-</div></div>
+        </div>
+        <div id="ai-calibration" style="margin-top:0.8rem;font-size:0.85rem;color:var(--text-muted);"></div>
+    </div>
+
+    <!-- Vulnerability Correlations -->
+    <div class="glass-card" style="margin-bottom:1rem;">
+        <h3>🔗 Vulnerability Correlation Database</h3>
+        <button class="btn btn-primary btn-sm" onclick="window._aiLoadCorrelations()" style="margin-bottom:0.8rem;">📥 Load Correlations</button>
+        <div id="ai-correlations" style="max-height:300px;overflow-y:auto;">
+            <p class="empty-msg">Click Load to view vulnerability chain correlations</p>
+        </div>
+    </div>
+
+    <!-- AI Predictions -->
+    <div class="glass-card" style="margin-bottom:1rem;">
+        <h3>🔮 AI Vulnerability Prediction</h3>
+        <div class="grid grid-3" style="margin-top:0.5rem;">
+            <div class="form-group"><label>Target URL</label><input type="text" id="ai-pred-url" placeholder="https://example.com/page?id=1"></div>
+            <div class="form-group"><label>Param Name</label><input type="text" id="ai-pred-param" placeholder="id"></div>
+            <div style="display:flex;align-items:flex-end;padding-bottom:0.8rem;">
+                <button class="btn btn-primary btn-sm" onclick="window._aiPredict()">🔮 Predict</button>
+            </div>
+        </div>
+        <div id="ai-predictions" style="margin-top:0.5rem;">
+            <p class="empty-msg">Enter a URL and parameter to get AI vulnerability predictions</p>
+        </div>
+    </div>
+
+    <!-- Ollama Section -->
+    <div class="glass-card" style="margin-bottom:1rem;border-left:3px solid var(--accent);">
+        <h3>🦙 Ollama — Local LLM Integration</h3>
+        <div style="display:flex;gap:0.5rem;align-items:center;margin-bottom:0.8rem;">
+            <button class="btn btn-primary btn-sm" onclick="window._ollamaCheckStatus()">🔄 Check Status</button>
+            <button class="btn btn-sm" style="background:var(--accent-secondary);" onclick="window._ollamaShowInstall()">📦 Install Guide</button>
+            <span id="ollama-status-badge" style="font-size:0.82rem;padding:0.2rem 0.6rem;border-radius:4px;"></span>
+        </div>
+        <div id="ollama-status-info" style="font-size:0.85rem;margin-bottom:0.8rem;"></div>
+        <div id="ollama-install-guide" style="display:none;margin-bottom:1rem;background:rgba(0,0,0,0.2);padding:0.8rem;border-radius:6px;font-size:0.82rem;"></div>
+    </div>
+
+    <!-- Ollama Model Management -->
+    <div class="glass-card" style="margin-bottom:1rem;">
+        <h3>📦 Model Management</h3>
+        <div id="ollama-models" style="margin-bottom:0.8rem;">
+            <p class="empty-msg">Check Ollama status to see available models</p>
+        </div>
+        <div style="display:flex;gap:0.5rem;align-items:center;">
+            <input type="text" id="ollama-pull-model" placeholder="Model name (e.g. llama3.2)" style="flex:1;max-width:300px;">
+            <button class="btn btn-primary btn-sm" onclick="window._ollamaPullModel()">⬇️ Pull Model</button>
+        </div>
+        <div id="ollama-pull-status" style="font-size:0.85rem;margin-top:0.5rem;"></div>
+    </div>
+
+    <!-- Ollama AI Chat -->
+    <div class="glass-card">
+        <h3>💬 AI Security Chat (Ollama)</h3>
+        <div style="display:flex;gap:0.5rem;align-items:center;margin-bottom:0.8rem;">
+            <div class="form-group" style="margin-bottom:0;flex:1;max-width:250px;">
+                <label>Model</label>
+                <input type="text" id="ollama-chat-model" value="llama3.2" placeholder="llama3.2">
+            </div>
+            <div style="display:flex;align-items:flex-end;gap:0.5rem;padding-top:1rem;">
+                <button class="btn btn-sm" style="background:var(--severity-critical);" onclick="window._ollamaClearChat()">🗑️ Clear</button>
+            </div>
+        </div>
+        <div id="ollama-chat-messages" style="height:350px;overflow-y:auto;background:rgba(0,0,0,0.2);border-radius:6px;padding:0.8rem;margin-bottom:0.8rem;">
+            <p class="empty-msg" id="ollama-chat-empty">Ask the AI about vulnerabilities, scan results, or security topics...</p>
+        </div>
+        <div style="display:flex;gap:0.5rem;">
+            <input type="text" id="ollama-chat-input" placeholder="Ask about vulnerabilities, remediation, scan results..." maxlength="4000" style="flex:1;" onkeydown="if(event.key==='Enter')window._ollamaChatSend()">
+            <button class="btn btn-primary" onclick="window._ollamaChatSend()" id="ollama-chat-send-btn">🧠 Ask AI</button>
+        </div>
+    </div>
+</section>
+</div>
+
 </div>
     <p class="disclaimer">⚠️ FOR AUTHORIZED TESTING ONLY ⚠️</p>
     <p style="margin-top:0.3rem;">ATOMIC Framework v{{ version }} &copy; Atomic Security. Unauthorized use is prohibited.</p>
@@ -1417,7 +1574,7 @@
         if (panel) panel.classList.add('active');
         // Highlight correct tab
         var tabs = document.querySelectorAll('.nav-tab');
-        var tabMap = {dashboard:0, scanner:1, pipeline:2, exploits:3, 'exploit-intel':4, attackmap:5, shells:6, scans:7, history:8, findings:9, rules:10, livefeed:11, auth:12, scheduler:13, compliance:14, audit:15, tools:16, plugins:17, notifications:18};
+        var tabMap = {dashboard:0, scanner:1, pipeline:2, exploits:3, 'exploit-intel':4, attackmap:5, shells:6, scans:7, history:8, findings:9, rules:10, livefeed:11, auth:12, scheduler:13, compliance:14, audit:15, tools:16, plugins:17, notifications:18, 'recon-arsenal':19, chat:20, 'ai-brain':21};
         if (tabMap[name] !== undefined && tabs[tabMap[name]]) tabs[tabMap[name]].classList.add('active');
         // Load data for active panel
         if (name === 'history') loadHistory();
@@ -1436,6 +1593,8 @@
         if (name === 'exploit-intel') window._loadExploitIntel();
         if (name === 'attackmap') window._loadAttackMap();
         if (name === 'recon-arsenal') window._arsenalLoadTools();
+        if (name === 'chat') window._chatLoad();
+        if (name === 'ai-brain') window._aiLoadSummary();
     };
 
     /* ---- Scan mode switcher ---- */
@@ -3025,6 +3184,346 @@
         } catch(e) {}
     };
 
+    /* ---- Chat Panel ---- */
+    function _chatRenderMsg(msg) {
+        return '<div class="chat-msg">' +
+            '<div class="chat-meta">' +
+                '<span class="chat-sender">' + esc(msg.sender || 'Anonymous') + '</span>' +
+                '<span class="chat-time">' + fmtDate(msg.timestamp) + '</span>' +
+            '</div>' +
+            '<div class="chat-text">' + esc(msg.message) + '</div>' +
+        '</div>';
+    }
+
+    window._chatLoad = async function() {
+        var container = document.getElementById('chat-messages');
+        try {
+            var r = await fetch(API + '/api/chat/messages?limit=100');
+            var j = await r.json();
+            if (j.status === 'success' && j.data && j.data.length) {
+                var emptyMsg = document.getElementById('chat-empty-msg');
+                if (emptyMsg) emptyMsg.remove();
+                container.innerHTML = j.data.map(_chatRenderMsg).join('');
+                container.scrollTop = container.scrollHeight;
+            }
+        } catch(e) {
+            console.log('[ATOMIC] Chat load error', e);
+        }
+    };
+
+    window._chatSend = async function() {
+        var input = document.getElementById('chat-input');
+        var text = input.value.trim();
+        if (!text) return;
+
+        var sender = (document.getElementById('chat-sender-name').value || '').trim() || 'Anonymous';
+        var btn = document.getElementById('chat-send-btn');
+        btn.disabled = true;
+
+        // Try WebSocket first, fall back to REST
+        if (window._wsSocket && window._wsSocket.connected) {
+            window._wsSocket.emit('chat_message', { sender: sender, message: text });
+            input.value = '';
+            btn.disabled = false;
+        } else {
+            try {
+                var r = await fetch(API + '/api/chat/messages', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ sender: sender, message: text })
+                });
+                var j = await r.json();
+                if (j.status === 'success') {
+                    input.value = '';
+                    // If no WebSocket, manually append the message
+                    _chatAppendMsg(j.data);
+                }
+            } catch(e) {
+                document.getElementById('chat-status').textContent = 'Send failed';
+            }
+            btn.disabled = false;
+        }
+        input.focus();
+    };
+
+    var _chatSeenIds = {};
+
+    function _chatAppendMsg(msg) {
+        if (!msg || !msg.id) return;
+        // Deduplicate messages by id
+        if (_chatSeenIds[msg.id]) return;
+        _chatSeenIds[msg.id] = true;
+        var container = document.getElementById('chat-messages');
+        var emptyMsg = document.getElementById('chat-empty-msg');
+        if (emptyMsg) emptyMsg.remove();
+        container.insertAdjacentHTML('beforeend', _chatRenderMsg(msg));
+        container.scrollTop = container.scrollHeight;
+    }
+
+    window._chatClear = async function() {
+        if (!confirm('Clear all chat messages?')) return;
+        try {
+            await fetch(API + '/api/chat/messages', { method: 'DELETE' });
+            document.getElementById('chat-messages').innerHTML =
+                '<p class="empty-msg" id="chat-empty-msg">No messages yet. Start the conversation!</p>';
+        } catch(e) {}
+    };
+
+    // Expose for WebSocket handler
+    window._chatAppendMsg = _chatAppendMsg;
+
+    /* ---- AI Brain Panel ---- */
+    window._aiLoadSummary = async function() {
+        try {
+            var r = await fetch(API + '/api/ai/summary');
+            var j = await r.json();
+            if (j.status === 'success') {
+                var d = j.data;
+                document.getElementById('ai-stat-patterns').textContent = d.total_patterns || 0;
+                document.getElementById('ai-stat-techniques').textContent = d.successful_techniques || 0;
+                document.getElementById('ai-stat-anomalies').textContent = d.anomalies_detected || 0;
+                document.getElementById('ai-stat-correlations').textContent = d.correlations_found || 0;
+                var cal = d.calibration || {};
+                var calHtml = '<strong>Calibration:</strong> ';
+                if (cal.accuracy !== null && cal.accuracy !== undefined) {
+                    calHtml += (cal.accuracy * 100).toFixed(1) + '% accuracy (' + cal.total_predictions + ' predictions)';
+                } else {
+                    calHtml += 'Insufficient data (need 5+ predictions)';
+                }
+                if (d.vuln_correlations_db) calHtml += ' | <strong>' + d.vuln_correlations_db + '</strong> correlation chains in DB';
+                if (d.exploit_types_tracked) calHtml += ' | <strong>' + d.exploit_types_tracked + '</strong> exploit types tracked';
+                document.getElementById('ai-calibration').innerHTML = calHtml;
+            }
+        } catch(e) {
+            document.getElementById('ai-calibration').textContent = 'AI Engine status: ' + e.message;
+        }
+    };
+
+    window._aiLoadCorrelations = async function() {
+        var container = document.getElementById('ai-correlations');
+        container.innerHTML = '<p>Loading...</p>';
+        try {
+            var r = await fetch(API + '/api/ai/correlations');
+            var j = await r.json();
+            if (j.status === 'success') {
+                var corrs = j.data.correlations || [];
+                var diffs = j.data.exploit_difficulty || {};
+                var html = '<div style="margin-bottom:0.8rem;"><strong>Attack Chains (' + corrs.length + '):</strong></div>';
+                html += corrs.map(function(c) {
+                    return '<div style="padding:0.3rem 0.5rem;margin-bottom:0.3rem;background:rgba(255,255,255,0.03);border-radius:4px;font-size:0.82rem;border-left:3px solid var(--accent);">'
+                        + '<strong style="color:var(--accent);">' + esc(c.label) + '</strong>'
+                        + ' <span style="color:var(--text-muted);">(' + esc(c.pair.join(' → ')) + ')</span>'
+                        + ' — boost: <span style="color:var(--severity-high);">+' + c.boost.toFixed(2) + '</span>'
+                        + '</div>';
+                }).join('');
+                var diffKeys = Object.keys(diffs);
+                if (diffKeys.length) {
+                    html += '<div style="margin-top:1rem;margin-bottom:0.5rem;"><strong>Exploit Difficulty (' + diffKeys.length + ' types):</strong></div>';
+                    html += '<div class="grid grid-3" style="gap:0.4rem;">';
+                    diffKeys.forEach(function(k) {
+                        var d = diffs[k];
+                        var pct = (d.base_difficulty * 100).toFixed(0);
+                        var color = pct > 40 ? 'var(--severity-critical)' : pct > 25 ? 'var(--severity-medium)' : 'var(--severity-low)';
+                        html += '<div style="padding:0.3rem 0.5rem;background:rgba(255,255,255,0.03);border-radius:4px;font-size:0.8rem;">'
+                            + '<strong>' + esc(k.toUpperCase()) + '</strong> '
+                            + '<span style="color:' + color + ';">' + pct + '% base</span>'
+                            + '<br><span style="color:var(--text-muted);font-size:0.75rem;">Factors: ' + esc(d.defense_factors.join(', ')) + '</span>'
+                            + '</div>';
+                    });
+                    html += '</div>';
+                }
+                container.innerHTML = html;
+            } else {
+                container.innerHTML = '<p class="empty-msg">' + esc(j.data) + '</p>';
+            }
+        } catch(e) {
+            container.innerHTML = '<p class="empty-msg">Error: ' + esc(e.message) + '</p>';
+        }
+    };
+
+    window._aiPredict = async function() {
+        var url = document.getElementById('ai-pred-url').value.trim();
+        var param = document.getElementById('ai-pred-param').value.trim();
+        var container = document.getElementById('ai-predictions');
+        if (!url) { container.innerHTML = '<p class="empty-msg">Enter a URL</p>'; return; }
+        container.innerHTML = '<p>⏳ Predicting...</p>';
+        try {
+            var r = await fetch(API + '/api/ai/predictions', {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({url: url, param_name: param})
+            });
+            var j = await r.json();
+            if (j.status === 'success' && j.data && j.data.length) {
+                container.innerHTML = j.data.map(function(p) {
+                    var pct = (p.probability * 100).toFixed(1);
+                    var color = pct > 60 ? 'var(--severity-critical)' : pct > 30 ? 'var(--severity-high)' : 'var(--severity-medium)';
+                    return '<div style="padding:0.4rem 0.6rem;margin-bottom:0.3rem;background:rgba(255,255,255,0.03);border-radius:4px;display:flex;justify-content:space-between;align-items:center;">'
+                        + '<span style="font-weight:600;">' + esc(p.type.toUpperCase()) + '</span>'
+                        + '<span style="color:' + color + ';font-weight:600;">' + pct + '%</span>'
+                        + '</div>';
+                }).join('');
+            } else {
+                container.innerHTML = '<p class="empty-msg">No significant predictions for this input</p>';
+            }
+        } catch(e) {
+            container.innerHTML = '<p class="empty-msg">Error: ' + esc(e.message) + '</p>';
+        }
+    };
+
+    /* ---- Ollama Integration ---- */
+    window._ollamaCheckStatus = async function() {
+        var badge = document.getElementById('ollama-status-badge');
+        var info = document.getElementById('ollama-status-info');
+        var models = document.getElementById('ollama-models');
+        badge.textContent = '⏳ Checking...';
+        badge.style.background = 'var(--bg-input)';
+        try {
+            var r = await fetch(API + '/api/ollama/status');
+            var j = await r.json();
+            if (j.status === 'success') {
+                var d = j.data;
+                if (d.running) {
+                    badge.textContent = '✅ Running';
+                    badge.style.background = 'rgba(46,204,113,0.2)';
+                    badge.style.color = '#2ecc71';
+                    info.innerHTML = 'Ollama is running at <strong>' + esc(d.ollama_host) + '</strong> with <strong>' + d.models.length + '</strong> model(s)';
+                    if (d.models.length) {
+                        models.innerHTML = d.models.map(function(m) {
+                            var size = m.size ? (m.size / 1e9).toFixed(1) + ' GB' : '';
+                            return '<div style="padding:0.3rem 0.5rem;margin-bottom:0.3rem;background:rgba(255,255,255,0.03);border-radius:4px;font-size:0.82rem;display:flex;justify-content:space-between;">'
+                                + '<strong>' + esc(m.name) + '</strong>'
+                                + '<span style="color:var(--text-muted);">' + size + '</span>'
+                                + '</div>';
+                        }).join('');
+                    } else {
+                        models.innerHTML = '<p class="empty-msg">No models installed. Pull one below.</p>';
+                    }
+                } else if (d.installed) {
+                    badge.textContent = '⚠️ Installed (not running)';
+                    badge.style.background = 'rgba(241,196,15,0.2)';
+                    badge.style.color = '#f1c40f';
+                    info.innerHTML = 'Ollama is installed but not running. Start it with: <code>ollama serve</code>';
+                    models.innerHTML = '<p class="empty-msg">Start Ollama first</p>';
+                } else {
+                    badge.textContent = '❌ Not installed';
+                    badge.style.background = 'rgba(231,76,60,0.2)';
+                    badge.style.color = '#e74c3c';
+                    info.innerHTML = 'Ollama is not installed. Click "Install Guide" for instructions.';
+                    models.innerHTML = '<p class="empty-msg">Install Ollama first</p>';
+                }
+            }
+        } catch(e) {
+            badge.textContent = '❌ Error';
+            badge.style.background = 'rgba(231,76,60,0.2)';
+            info.textContent = 'Error: ' + e.message;
+        }
+    };
+
+    window._ollamaShowInstall = async function() {
+        var guide = document.getElementById('ollama-install-guide');
+        if (guide.style.display === 'block') { guide.style.display = 'none'; return; }
+        try {
+            var r = await fetch(API + '/api/ollama/install', {method: 'POST'});
+            var j = await r.json();
+            if (j.status === 'success') {
+                var d = j.data;
+                guide.innerHTML = '<h4 style="margin:0 0 0.5rem;">📦 Ollama Installation Guide</h4>'
+                    + '<div style="margin-bottom:0.5rem;"><strong>Linux:</strong> <code style="background:rgba(0,0,0,0.3);padding:0.2rem 0.4rem;border-radius:3px;">' + esc(d.linux) + '</code></div>'
+                    + '<div style="margin-bottom:0.5rem;"><strong>macOS:</strong> <code style="background:rgba(0,0,0,0.3);padding:0.2rem 0.4rem;border-radius:3px;">' + esc(d.macos) + '</code></div>'
+                    + '<div style="margin-bottom:0.5rem;"><strong>Windows:</strong> ' + esc(d.windows) + '</div>'
+                    + '<div style="margin-bottom:0.5rem;"><strong>Docker:</strong> <code style="background:rgba(0,0,0,0.3);padding:0.2rem 0.4rem;border-radius:3px;">' + esc(d.docker) + '</code></div>'
+                    + '<div style="margin-bottom:0.5rem;"><strong>Start:</strong> <code style="background:rgba(0,0,0,0.3);padding:0.2rem 0.4rem;border-radius:3px;">' + esc(d.start_command) + '</code></div>'
+                    + '<div><strong>Pull a model:</strong> <code style="background:rgba(0,0,0,0.3);padding:0.2rem 0.4rem;border-radius:3px;">' + esc(d.pull_model) + '</code></div>';
+                guide.style.display = 'block';
+            }
+        } catch(e) {}
+    };
+
+    window._ollamaPullModel = async function() {
+        var model = document.getElementById('ollama-pull-model').value.trim();
+        var status = document.getElementById('ollama-pull-status');
+        if (!model) { status.innerHTML = '<span style="color:var(--danger);">Enter a model name</span>'; return; }
+        status.innerHTML = '<span style="color:var(--accent);">⏳ Pulling ' + esc(model) + '... (this may take a few minutes)</span>';
+        try {
+            var r = await fetch(API + '/api/ollama/pull', {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({model: model})
+            });
+            var j = await r.json();
+            if (j.status === 'success') {
+                status.innerHTML = '<span style="color:#2ecc71;">✅ ' + esc(model) + ' pulled successfully!</span>';
+                window._ollamaCheckStatus();
+            } else {
+                status.innerHTML = '<span style="color:var(--danger);">' + esc(j.data) + '</span>';
+            }
+        } catch(e) {
+            status.innerHTML = '<span style="color:var(--danger);">Error: ' + esc(e.message) + '</span>';
+        }
+    };
+
+    window._ollamaChatSend = async function() {
+        var input = document.getElementById('ollama-chat-input');
+        var text = input.value.trim();
+        if (!text) return;
+
+        var model = document.getElementById('ollama-chat-model').value.trim() || 'llama3.2';
+        var container = document.getElementById('ollama-chat-messages');
+        var empty = document.getElementById('ollama-chat-empty');
+        if (empty) empty.remove();
+        var btn = document.getElementById('ollama-chat-send-btn');
+        btn.disabled = true;
+
+        // Show user message
+        container.insertAdjacentHTML('beforeend',
+            '<div style="padding:0.4rem 0.6rem;margin-bottom:0.4rem;border-radius:6px;background:rgba(99,102,241,0.1);border-left:3px solid var(--accent);font-size:0.85rem;">'
+            + '<div style="font-size:0.75rem;color:var(--accent);font-weight:600;margin-bottom:0.2rem;">You</div>'
+            + '<div>' + esc(text) + '</div></div>');
+        container.scrollTop = container.scrollHeight;
+        input.value = '';
+
+        // Show thinking indicator
+        container.insertAdjacentHTML('beforeend',
+            '<div id="ollama-thinking" style="padding:0.4rem 0.6rem;margin-bottom:0.4rem;font-size:0.85rem;color:var(--text-muted);">🧠 AI is thinking...</div>');
+        container.scrollTop = container.scrollHeight;
+
+        try {
+            var r = await fetch(API + '/api/ollama/chat', {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({message: text, model: model})
+            });
+            var j = await r.json();
+            var thinking = document.getElementById('ollama-thinking');
+            if (thinking) thinking.remove();
+
+            if (j.status === 'success') {
+                container.insertAdjacentHTML('beforeend',
+                    '<div style="padding:0.4rem 0.6rem;margin-bottom:0.4rem;border-radius:6px;background:rgba(46,204,113,0.06);border-left:3px solid #2ecc71;font-size:0.85rem;">'
+                    + '<div style="font-size:0.75rem;color:#2ecc71;font-weight:600;margin-bottom:0.2rem;">🧠 AI (' + esc(j.data.model) + ')</div>'
+                    + '<div style="white-space:pre-wrap;line-height:1.5;">' + esc(j.data.response) + '</div></div>');
+            } else {
+                container.insertAdjacentHTML('beforeend',
+                    '<div style="padding:0.4rem 0.6rem;margin-bottom:0.4rem;color:var(--severity-critical);font-size:0.85rem;">'
+                    + '❌ ' + esc(j.data) + '</div>');
+            }
+        } catch(e) {
+            var thinking = document.getElementById('ollama-thinking');
+            if (thinking) thinking.remove();
+            container.insertAdjacentHTML('beforeend',
+                '<div style="padding:0.4rem 0.6rem;margin-bottom:0.4rem;color:var(--severity-critical);font-size:0.85rem;">'
+                + '❌ Error: ' + esc(e.message) + '</div>');
+        }
+        container.scrollTop = container.scrollHeight;
+        btn.disabled = false;
+        input.focus();
+    };
+
+    window._ollamaClearChat = async function() {
+        if (!confirm('Clear AI chat history?')) return;
+        try { await fetch(API + '/api/ollama/chat/history', {method: 'DELETE'}); } catch(e) {}
+        document.getElementById('ollama-chat-messages').innerHTML =
+            '<p class="empty-msg" id="ollama-chat-empty">Ask the AI about vulnerabilities, scan results, or security topics...</p>';
+    };
+
     /* ---- WebSocket (SocketIO) integration ---- */
     window._wsSocket = null;
     (function initWebSocket() {
@@ -3121,6 +3620,19 @@
                         output.innerHTML += esc(data.output || '(empty)') + '\n';
                     }
                     output.scrollTop = output.scrollHeight;
+                });
+
+                socket.on('chat_message', function(msg) {
+                    if (msg && msg.message) {
+                        window._chatAppendMsg(msg);
+                    }
+                });
+
+                socket.on('chat_cleared', function() {
+                    var container = document.getElementById('chat-messages');
+                    if (container) {
+                        container.innerHTML = '<p class="empty-msg" id="chat-empty-msg">No messages yet. Start the conversation!</p>';
+                    }
                 });
 
                 socket.on('disconnect', function() {

@@ -127,7 +127,8 @@ class OSShellHandler:
 
     def _interactive_loop(self) -> None:
         """Drop into a pseudo-shell read-eval-print loop."""
-        print(f"\n{Colors.info('OS Shell session started (type \"exit\" to quit)')}")
+        exit_hint = 'OS Shell session started (type "exit" to quit)'
+        print(f"\n{Colors.info(exit_hint)}")
         print(f"{Colors.info('Commands: help, sysinfo, download <file>, upload <file>')}\n")
 
         while True:
