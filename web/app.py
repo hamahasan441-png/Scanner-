@@ -997,7 +997,7 @@ def get_exploit_results(scan_id):
             results['summary']['failed'] = sum(
                 1 for r in routes if r.get('status') == 'failed')
             results['summary']['families'] = list(
-                {r.get('family', '') for r in routes})
+                {r.get('family', '') for r in routes if r.get('family')})
             # Count individual actions across all routes
             for route in routes:
                 route_results = route.get('results', [])
