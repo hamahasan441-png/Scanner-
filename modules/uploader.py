@@ -207,20 +207,60 @@ class ShellUploader:
                     print(f"{Colors.error(f'Shell upload error: {e}')}")
     
     def _find_uploaded_shell(self, response, filename: str) -> str:
-        """Find URL of uploaded shell"""
-        # Common upload paths
-        patterns = [
-            r'(https?://[^"\']+/(?:uploads?|files?|images?|media|assets)/[^"\']+)',
-            r'href=["\']([^"\']*' + re.escape(filename) + r')["\']',
-            r'src=["\']([^"\']*' + re.escape(filename) + r')["\']',
-        ]
-        
-        for pattern in patterns:
-            matches = re.findall(pattern, response.text)
-            if matches:
-                return matches[0]
-        
-        return None
+        """Find URL of uploaded shell in the response.
+
+        Uses multiple strategies:
+        1. Look for any URL containing common upload directory names.
+        2. Match the exact filename in href/src attributes.
+        3. Look for a 'Location' redirect header pointing to the upload.
+        4. Look for JSON responses containing a URL or path field.
+        """
+        found_urls = []
+
+        # Strategy 1: generic upload-directory URLs in the response body
+        generic_pattern = r'(https?://[^"\'<>\s]+/(?:uploads?|files?|images?|media|assets|content|static|tmp)/[^"\'<>\s]+)'
+        found_urls.extend(re.findall(generic_pattern, response.text))
+
+        # Strategy 2: href/src with exact filename
+        name_escaped = re.escape(filename)
+        for attr in ('href', 'src', 'data-url', 'action'):
+            pattern = rf'{attr}=["\']([^"\']*{name_escaped}[^"\']*)["\']'
+            found_urls.extend(re.findall(pattern, response.text, re.IGNORECASE))
+
+        # Strategy 3: redirect Location header
+        location = response.headers.get('Location', '') if hasattr(response, 'headers') else ''
+        if location and ('upload' in location.lower() or filename in location):
+            found_urls.append(location)
+
+        # Strategy 4: JSON body with url/path/file keys
+        try:
+            body = response.json() if hasattr(response, 'json') else {}
+            for key in ('url', 'path', 'file', 'fileUrl', 'file_url',
+                        'data', 'link', 'location'):
+                val = body.get(key, '')
+                if isinstance(val, str) and val:
+                    found_urls.append(val)
+                elif isinstance(val, dict):
+                    for subkey in ('url', 'path'):
+                        subval = val.get(subkey, '')
+                        if subval:
+                            found_urls.append(subval)
+        except Exception:
+            pass
+
+        # Deduplicate while preserving order and prefer exact filename matches
+        seen = set()
+        exact = []
+        others = []
+        for u in found_urls:
+            if u not in seen:
+                seen.add(u)
+                if filename.split('.')[0] in u:
+                    exact.append(u)
+                else:
+                    others.append(u)
+        ordered = exact + others
+        return ordered[0] if ordered else None
     
     def _verify_shell(self, shell_url: str) -> bool:
         """Verify shell is working"""
