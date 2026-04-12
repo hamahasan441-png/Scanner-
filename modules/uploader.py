@@ -252,10 +252,11 @@ class ShellUploader:
         seen = set()
         exact = []
         others = []
+        base_name = filename.split('.')[0] if filename else ''
         for u in found_urls:
             if u not in seen:
                 seen.add(u)
-                if filename.split('.')[0] in u:
+                if base_name and base_name in u:
                     exact.append(u)
                 else:
                     others.append(u)
