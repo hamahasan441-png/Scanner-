@@ -205,6 +205,7 @@ except Exception:
 _ollama_chat_history: list = []
 _ollama_lock = threading.Lock()
 _OLLAMA_MAX_HISTORY = 100
+_OLLAMA_CONTEXT_MESSAGES = 20  # number of recent exchanges to include as context
 
 
 def _get_current_user():
@@ -2306,7 +2307,7 @@ def ollama_pull_model():
     """Pull/download an Ollama model."""
     body = request.get_json(silent=True)
     model_name = body.get('model', '') if body else ''
-    if not model_name or not re.match(r'^[a-zA-Z0-9._:/-]+$', model_name):
+    if not model_name or not re.match(r'^[a-zA-Z0-9][a-zA-Z0-9._:/-]*$', model_name) or '..' in model_name:
         return jsonify({'status': 'error', 'data': 'Invalid model name'}), 400
     result = _ollama_request('/api/pull', method='POST',
                              json_data={'name': model_name, 'stream': False},
@@ -2340,7 +2341,7 @@ def ollama_chat():
     # Build conversation messages
     with _ollama_lock:
         messages = [{'role': 'system', 'content': system_prompt}]
-        messages.extend(_ollama_chat_history[-20:])  # last 20 exchanges
+        messages.extend(_ollama_chat_history[-_OLLAMA_CONTEXT_MESSAGES:])
         messages.append({'role': 'user', 'content': user_msg})
 
     result = _ollama_request('/api/chat', method='POST', json_data={
