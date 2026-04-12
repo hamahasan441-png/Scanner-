@@ -72,7 +72,7 @@ class DataDumper:
         # Dynamically detect column count via ORDER BY probing
         num_cols = self._detect_column_count(url, param)
         if num_cols < 1:
-            num_cols = 5  # fallback to reasonable default
+            num_cols = self._DEFAULT_COLUMN_COUNT
 
         # Build column padding (fill extra positions with NULL-like values)
         def _pad(needed_cols, *values):
@@ -114,6 +114,13 @@ class DataDumper:
         
         return None
 
+    # Error keywords that indicate an ORDER BY column index is out of range.
+    _ORDER_BY_ERROR_KW = ('error', 'unknown column', 'order by',
+                          'sqlstate', 'syntax')
+
+    # Fallback column count when probing fails (common in simple tables).
+    _DEFAULT_COLUMN_COUNT = 5
+
     def _detect_column_count(self, url: str, param: str, max_cols: int = 20) -> int:
         """Detect the number of columns via ORDER BY probing."""
         for n in range(1, max_cols + 1):
@@ -123,9 +130,7 @@ class DataDumper:
                 response = self.requester.request(url, 'POST', data=data)
                 if response:
                     text = response.text.lower()
-                    error_kw = ['error', 'unknown column', 'order by',
-                                'sqlstate', 'syntax']
-                    if any(kw in text for kw in error_kw):
+                    if any(kw in text for kw in self._ORDER_BY_ERROR_KW):
                         return n - 1
             except Exception:
                 continue
@@ -135,7 +140,7 @@ class DataDumper:
         """Get database tables"""
         num_cols = self._detect_column_count(url, param)
         if num_cols < 1:
-            num_cols = 5
+            num_cols = self._DEFAULT_COLUMN_COUNT
 
         def _pad(needed, val):
             parts = [val]
@@ -170,7 +175,7 @@ class DataDumper:
         """Dump table data"""
         num_cols = self._detect_column_count(url, param)
         if num_cols < 1:
-            num_cols = 5
+            num_cols = self._DEFAULT_COLUMN_COUNT
 
         # Build column expression – use CONCAT/|| to merge requested
         # columns into fewer UNION positions when there are more columns
