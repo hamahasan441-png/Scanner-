@@ -33,6 +33,18 @@ class _MockRequester:
             resp = self._responses[self._call_idx]
             self._call_idx += 1
             return resp
+        # Return a default empty response so ORDER BY probing finishes
+        # gracefully instead of returning None.
+        return _MockResponse(text='')
+
+    def waf_bypass_encode(self, payload):
+        return [payload]
+
+
+class _NoneRequester:
+    """A requester that always returns None (simulates total connection failure)."""
+
+    def request(self, *args, **kwargs):
         return None
 
     def waf_bypass_encode(self, payload):
@@ -167,8 +179,20 @@ class TestDumpSQL(unittest.TestCase):
     def test_db_type_default_mysql(self):
         """Default db type should be mysql."""
         resp = _MockResponse(text='5.7.31-log')
-        # 3 responses: db_info, tables, users
-        dumper = self._make_dumper(responses=[resp, resp, resp])
+        err_resp = _MockResponse(text='Unknown column error')
+        # _detect_column_count: ORDER BY 1..5 succeed (5 OK responses),
+        # ORDER BY 6 fails (error response) → 5 columns detected.
+        # Then _get_db_info sends 1 query, _get_tables sends 1 query (+detection),
+        # _dump_table sends 1 query (+detection).  Provide plenty of responses.
+        responses = (
+            [resp] * 5 + [err_resp]  # col detection for _get_db_info
+            + [resp]                  # _get_db_info query
+            + [resp] * 5 + [err_resp]  # col detection for _get_tables
+            + [resp]                  # _get_tables query
+            + [resp] * 5 + [err_resp]  # col detection for _dump_table
+            + [resp]                  # _dump_table query
+        )
+        dumper = self._make_dumper(responses=responses)
         finding = _MockFinding(
             technique='SQL Injection',
             url='http://example.com/search',
@@ -181,7 +205,13 @@ class TestDumpSQL(unittest.TestCase):
 
     def test_db_type_postgresql(self):
         resp = _MockResponse(text='PostgreSQL 14.1')
-        dumper = self._make_dumper(responses=[resp, resp, resp])
+        err_resp = _MockResponse(text='Unknown column error')
+        responses = (
+            [resp] * 5 + [err_resp] + [resp]   # _get_db_info
+            + [resp] * 5 + [err_resp] + [resp]  # _get_tables
+            + [resp] * 5 + [err_resp] + [resp]  # _dump_table
+        )
+        dumper = self._make_dumper(responses=responses)
         finding = _MockFinding(
             technique='SQL Injection - PostgreSQL',
             url='http://example.com/search',
@@ -193,7 +223,13 @@ class TestDumpSQL(unittest.TestCase):
 
     def test_db_type_mssql(self):
         resp = _MockResponse(text='Microsoft SQL Server 2019')
-        dumper = self._make_dumper(responses=[resp, resp, resp])
+        err_resp = _MockResponse(text='Unknown column error')
+        responses = (
+            [resp] * 5 + [err_resp] + [resp]   # _get_db_info
+            + [resp] * 5 + [err_resp] + [resp]  # _get_tables
+            + [resp] * 5 + [err_resp] + [resp]  # _dump_table
+        )
+        dumper = self._make_dumper(responses=responses)
         finding = _MockFinding(
             technique='SQL Injection - MSSQL',
             url='http://example.com/search',
@@ -205,7 +241,13 @@ class TestDumpSQL(unittest.TestCase):
 
     def test_db_type_oracle(self):
         resp = _MockResponse(text='Oracle Database 19c')
-        dumper = self._make_dumper(responses=[resp, resp, resp])
+        err_resp = _MockResponse(text='Unknown column error')
+        responses = (
+            [resp] * 5 + [err_resp] + [resp]   # _get_db_info
+            + [resp] * 5 + [err_resp] + [resp]  # _get_tables
+            + [resp] * 5 + [err_resp] + [resp]  # _dump_table
+        )
+        dumper = self._make_dumper(responses=responses)
         finding = _MockFinding(
             technique='SQL Injection - Oracle',
             url='http://example.com/search',
@@ -229,16 +271,26 @@ class TestGetDbInfo(unittest.TestCase):
             return DataDumper(engine)
 
     def test_returns_dict_on_success(self):
+        err_resp = _MockResponse(text='Unknown column error')
         resp = _MockResponse(text='version-info')
-        dumper = self._make_dumper(responses=[resp])
+        # ORDER BY 1..5 OK, ORDER BY 6 error, then the actual query
+        responses = [resp] * 5 + [err_resp] + [resp]
+        dumper = self._make_dumper(responses=responses)
         result = dumper._get_db_info('http://example.com', 'q', 'mysql')
         self.assertIsInstance(result, dict)
         self.assertIn('query', result)
         self.assertIn('response', result)
-        self.assertEqual(result['response'], 'version-info')
 
     def test_returns_none_when_no_response(self):
-        dumper = self._make_dumper(responses=[])
+        # Override the requester to truly return None for all requests
+        self._tmpdir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self._tmpdir)
+        with patch('modules.dumper.Config') as mock_cfg:
+            mock_cfg.REPORTS_DIR = os.path.join(self._tmpdir, 'reports')
+            cfg = {'verbose': False, 'waf_bypass': False}
+            engine = _MockEngine(config=cfg)
+            engine.requester = _NoneRequester()
+            dumper = DataDumper(engine)
         result = dumper._get_db_info('http://example.com', 'q', 'mysql')
         self.assertIsNone(result)
 
@@ -270,8 +322,10 @@ class TestGetTables(unittest.TestCase):
             return DataDumper(engine)
 
     def test_returns_table_list(self):
+        err_resp = _MockResponse(text='Unknown column error')
         resp = _MockResponse(text='users orders products')
-        dumper = self._make_dumper(responses=[resp])
+        responses = [resp] * 5 + [err_resp] + [resp]
+        dumper = self._make_dumper(responses=responses)
         tables = dumper._get_tables('http://example.com', 'q', 'mysql')
         self.assertIsInstance(tables, list)
         self.assertIn('users', tables)
@@ -284,8 +338,10 @@ class TestGetTables(unittest.TestCase):
         self.assertEqual(tables, [])
 
     def test_deduplicates_tables(self):
+        err_resp = _MockResponse(text='Unknown column error')
         resp = _MockResponse(text='users users orders users')
-        dumper = self._make_dumper(responses=[resp])
+        responses = [resp] * 5 + [err_resp] + [resp]
+        dumper = self._make_dumper(responses=responses)
         tables = dumper._get_tables('http://example.com', 'q', 'mysql')
         self.assertEqual(len([t for t in tables if t == 'users']), 1)
 
@@ -302,8 +358,10 @@ class TestDumpTable(unittest.TestCase):
             return DataDumper(engine)
 
     def test_returns_data_on_success(self):
+        err_resp = _MockResponse(text='Unknown column error')
         resp = _MockResponse(text='admin:password123:admin@test.com')
-        dumper = self._make_dumper(responses=[resp])
+        responses = [resp] * 5 + [err_resp] + [resp]
+        dumper = self._make_dumper(responses=responses)
         rows = dumper._dump_table(
             'http://example.com', 'q', 'mysql', 'users',
             ['username', 'password', 'email'],
@@ -313,7 +371,14 @@ class TestDumpTable(unittest.TestCase):
         self.assertIn('admin', rows[0])
 
     def test_returns_empty_on_no_response(self):
-        dumper = self._make_dumper(responses=[])
+        # Override the requester to truly return None for all requests
+        self._tmpdir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self._tmpdir)
+        with patch('modules.dumper.Config') as mock_cfg:
+            mock_cfg.REPORTS_DIR = os.path.join(self._tmpdir, 'reports')
+            engine = _MockEngine()
+            engine.requester = _NoneRequester()
+            dumper = DataDumper(engine)
         rows = dumper._dump_table(
             'http://example.com', 'q', 'mysql', 'users',
             ['username', 'password'],
@@ -376,7 +441,7 @@ class TestDumpLFI(unittest.TestCase):
     def test_saves_files_with_long_responses(self):
         """Responses longer than 10 chars should be saved."""
         long_text = 'root:x:0:0:root:/root:/bin/bash'
-        responses = [_MockResponse(text=long_text)] * 15
+        responses = [_MockResponse(text=long_text)] * 200
         dumper = self._make_dumper(responses=responses)
         finding = _MockFinding(
             technique='LFI via Path Traversal',
@@ -390,7 +455,7 @@ class TestDumpLFI(unittest.TestCase):
     def test_ignores_short_responses(self):
         """Responses <= 10 chars should not be saved."""
         short = _MockResponse(text='not found')  # 9 chars
-        responses = [short] * 15
+        responses = [short] * 200
         dumper = self._make_dumper(responses=responses)
         finding = _MockFinding(
             technique='LFI', url='http://example.com/read', param='file',

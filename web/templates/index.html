@@ -631,9 +631,9 @@
         <div class="glass-card" style="margin-top:1rem;">
             <h3>🎯 Attack Routes</h3>
             <table>
-                <thead><tr><th>Vuln Type</th><th>Target</th><th>Family</th><th>Actions</th><th>Status</th></tr></thead>
+                <thead><tr><th>Vuln Type</th><th>Target</th><th>Family</th><th>Actions</th><th>Status</th><th>Results</th></tr></thead>
                 <tbody id="attack-routes-body">
-                    <tr><td colspan="5" class="empty-msg">No active pipeline — start a scan with Auto-Exploit enabled</td></tr>
+                    <tr><td colspan="6" class="empty-msg">No active pipeline — start a scan with Auto-Exploit enabled</td></tr>
                 </tbody>
             </table>
         </div>
@@ -658,10 +658,18 @@
             <div class="glass-card stat-card"><h3>Routes Planned</h3><div class="value" id="ex-routes">0</div></div>
             <div class="glass-card stat-card" style="border-top:3px solid #2ecc71;"><h3>Successful</h3><div class="value" style="color:#2ecc71;" id="ex-success">0</div></div>
             <div class="glass-card stat-card" style="border-top:3px solid var(--severity-critical);"><h3>Failed</h3><div class="value" style="color:var(--severity-critical);" id="ex-failed">0</div></div>
-            <div class="glass-card stat-card" style="border-top:3px solid var(--severity-medium);"><h3>POCs Generated</h3><div class="value" style="color:var(--severity-medium);" id="ex-pocs">0</div></div>
+            <div class="glass-card stat-card" style="border-top:3px solid var(--severity-medium);"><h3>Actions Executed</h3><div class="value" style="color:var(--severity-medium);" id="ex-actions">0</div></div>
         </div>
 
-        <!-- Exploit results list -->
+        <!-- Families breakdown -->
+        <div class="glass-card" style="margin-top:1rem;">
+            <h3>🗂️ Attack Families</h3>
+            <div id="exploit-families" style="display:flex;flex-wrap:wrap;gap:0.5rem;margin-top:0.5rem;">
+                <span class="empty-msg">No families yet</span>
+            </div>
+        </div>
+
+        <!-- Exploit results list — now shows per-action detail -->
         <div class="glass-card" style="margin-top:1rem;">
             <h3>📋 Exploitation Actions</h3>
             <div id="exploit-results-list">
@@ -1930,19 +1938,34 @@
                 }
             });
 
-            // Update attack routes
+            // Update attack routes — now with per-action result badges
             var routes = (d.attack_routes && d.attack_routes.routes) ? d.attack_routes.routes : [];
             var routesTbody = document.getElementById('attack-routes-body');
             if (routes.length === 0) {
-                routesTbody.innerHTML = '<tr><td colspan="5" class="empty-msg">No attack routes yet</td></tr>';
+                routesTbody.innerHTML = '<tr><td colspan="6" class="empty-msg">No attack routes yet</td></tr>';
             } else {
                 routesTbody.innerHTML = routes.map(function(r) {
                     var statusCls = r.status === 'completed' ? 'status-completed' : (r.status === 'running' ? 'status-running' : (r.status === 'failed' ? 'status-failed' : ''));
+                    // Build action badges with per-action success indicators
+                    var actionBadges = (r.actions || []).map(function(a) {
+                        var matched = (r.results || []).find(function(res) { return res.action === a; });
+                        var badge = '⏳';
+                        if (matched) badge = matched.success ? '✅' : '❌';
+                        return '<span style="display:inline-block;background:var(--bg-input);padding:0.1rem 0.4rem;border-radius:3px;font-size:0.75rem;margin:0.1rem;">' + badge + ' ' + a + '</span>';
+                    }).join(' ');
+                    // Show result count
+                    var resultsSummary = '';
+                    var rr = r.results || [];
+                    if (rr.length > 0) {
+                        var ok = rr.filter(function(x) { return x.success; }).length;
+                        resultsSummary = '<span style="font-size:0.78rem;">' + ok + '/' + rr.length + ' ✓</span>';
+                    }
                     return '<tr><td>' + esc(r.icon || '') + ' ' + esc(r.technique) + '</td>' +
-                        '<td>' + esc(r.url) + (r.param ? ':' + esc(r.param) : '') + '</td>' +
+                        '<td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;">' + esc(r.url) + (r.param ? ':' + esc(r.param) : '') + '</td>' +
                         '<td><span style="background:var(--bg-input);padding:0.15rem 0.5rem;border-radius:4px;font-size:0.78rem;">' + esc(r.family) + '</span></td>' +
-                        '<td>' + (r.actions || []).join(', ') + '</td>' +
-                        '<td class="' + statusCls + '">' + esc(r.status) + '</td></tr>';
+                        '<td>' + actionBadges + '</td>' +
+                        '<td class="' + statusCls + '">' + esc(r.status) + '</td>' +
+                        '<td>' + resultsSummary + '</td></tr>';
                 }).join('');
             }
         } catch (_) {}
@@ -1961,32 +1984,68 @@
             var d = j.data;
 
             var routes = d.attack_routes || [];
-            var postExploit = d.post_exploit || [];
-            var successCount = routes.filter(function(r) { return r.status === 'completed'; }).length;
-            var failedCount = routes.filter(function(r) { return r.status === 'failed'; }).length;
+            var summary = d.summary || {};
+            var successCount = summary.completed || routes.filter(function(r) { return r.status === 'completed'; }).length;
+            var failedCount = summary.failed || routes.filter(function(r) { return r.status === 'failed'; }).length;
+            var totalActions = summary.total_actions || 0;
 
             document.getElementById('ex-routes').textContent = routes.length;
             document.getElementById('ex-success').textContent = successCount;
             document.getElementById('ex-failed').textContent = failedCount;
+            document.getElementById('ex-actions').textContent = totalActions;
 
-            // Render exploit results
+            // Render family badges
+            var familiesEl = document.getElementById('exploit-families');
+            var families = summary.families || [];
+            if (families.length > 0) {
+                var familyColors = {sqli:'#e74c3c',cmdi:'#e74c3c',lfi:'#f39c12',ssrf:'#3498db',ssti:'#9b59b6',upload:'#e67e22',xss:'#2ecc71',xxe:'#1abc9c',idor:'#f1c40f',nosql:'#e91e63',deserialization:'#8e44ad',cve:'#c0392b'};
+                familiesEl.innerHTML = families.map(function(f) {
+                    var col = familyColors[f] || 'var(--text-muted)';
+                    return '<span style="display:inline-block;background:' + col + '22;color:' + col + ';border:1px solid ' + col + '44;padding:0.2rem 0.6rem;border-radius:6px;font-size:0.82rem;font-weight:600;">' + esc(f.toUpperCase()) + '</span>';
+                }).join('');
+            } else {
+                familiesEl.innerHTML = '<span class="empty-msg">No families yet</span>';
+            }
+
+            // Render exploit results — per-route with action-level detail
             var listEl = document.getElementById('exploit-results-list');
-            if (routes.length === 0 && postExploit.length === 0) {
+            if (routes.length === 0) {
                 listEl.innerHTML = '<p class="empty-msg">No exploitation results yet.</p>';
             } else {
-                var items = routes.map(function(r) {
-                    var sev = (r.severity || 'info').toLowerCase();
-                    var statusIcon = r.status === 'completed' ? '✅' : (r.status === 'failed' ? '❌' : '🔄');
+                var items = routes.map(function(route) {
+                    var sev = (route.severity || 'info').toLowerCase();
+                    var statusIcon = route.status === 'completed' ? '✅' : (route.status === 'failed' ? '❌' : '🔄');
+
+                    // Build per-action result cards
+                    var actionCards = '';
+                    var rr = route.results || [];
+                    if (rr.length > 0) {
+                        actionCards = '<div style="margin-top:0.5rem;border-top:1px solid var(--border);padding-top:0.4rem;">' +
+                            rr.map(function(ar) {
+                                if (typeof ar !== 'object') return '';
+                                var aIcon = ar.success ? '✅' : '❌';
+                                var dataSnippet = '';
+                                if (ar.data) {
+                                    var ds = typeof ar.data === 'string' ? ar.data : JSON.stringify(ar.data);
+                                    if (ds.length > 300) ds = ds.substring(0, 300) + '…';
+                                    dataSnippet = '<pre style="margin:0.3rem 0 0;font-size:0.75rem;max-height:120px;overflow:auto;background:var(--bg-input);padding:0.3rem;border-radius:4px;">' + esc(ds) + '</pre>';
+                                }
+                                return '<div style="margin:0.3rem 0;padding:0.3rem 0.5rem;background:var(--bg-input);border-radius:4px;">' +
+                                    '<span style="font-size:0.82rem;">' + aIcon + ' <strong>' + esc(ar.action || '?') + '</strong></span>' +
+                                    dataSnippet + '</div>';
+                            }).join('') + '</div>';
+                    }
+
                     return '<div class="finding-item ' + esc(sev) + '" style="margin-bottom:0.6rem;">' +
-                        '<div class="fi-header"><strong>' + esc(r.icon || '') + ' ' + esc(r.label || r.technique) + '</strong>' +
-                        '<span>' + statusIcon + ' ' + esc(r.status) + '</span></div>' +
+                        '<div class="fi-header"><strong>' + esc(route.icon || '') + ' ' + esc(route.label || route.technique) + '</strong>' +
+                        '<span>' + statusIcon + ' ' + esc(route.status) + '</span></div>' +
                         '<div class="finding-meta">' +
-                        '<span>Target: ' + esc(r.url) + '</span>' +
-                        (r.param ? '<span>Param: ' + esc(r.param) + '</span>' : '') +
-                        '<span>Family: ' + esc(r.family) + '</span>' +
+                        '<span>Target: ' + esc(route.url) + '</span>' +
+                        (route.param ? '<span>Param: ' + esc(route.param) + '</span>' : '') +
+                        '<span>Family: ' + esc(route.family) + '</span>' +
                         '</div>' +
-                        '<div style="margin-top:0.3rem;font-size:0.82rem;color:var(--text-muted);">Actions: ' + (r.actions || []).join(' → ') + '</div>' +
-                        (r.results && r.results.length ? '<pre>' + esc(JSON.stringify(r.results[0], null, 2).substring(0, 300)) + '</pre>' : '') +
+                        '<div style="margin-top:0.3rem;font-size:0.82rem;color:var(--text-muted);">Actions: ' + (route.actions || []).join(' → ') + '</div>' +
+                        actionCards +
                         '</div>';
                 });
                 listEl.innerHTML = items.join('');

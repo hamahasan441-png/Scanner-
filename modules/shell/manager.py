@@ -54,7 +54,8 @@ class ShellManager:
             print(f"{Colors.error(f'Shell not found: {shell_id}')}")
             return
         
-        print(f"\n{Colors.success(f'Connected to {shell["url"]}')}")
+        shell_url = shell["url"]
+        print(f"\n{Colors.success(f'Connected to {shell_url}')}")
         print(f"{Colors.info('Type "exit" to quit, "help" for commands')}\n")
         
         while True:

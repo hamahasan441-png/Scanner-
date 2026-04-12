@@ -958,7 +958,13 @@ def get_pipeline_events(scan_id):
 @_require_api_key
 @_rate_limit
 def get_exploit_results(scan_id):
-    """Return exploitation results from the attack router."""
+    """Return exploitation results from the attack router.
+
+    Includes per-route action-level details: each route contains a
+    ``results`` list with individual action outcomes, extracted data
+    snippets, and success/failure flags so the dashboard can display
+    granular progress.
+    """
     scan_info = _active_scans.get(scan_id)
     if scan_info is None:
         return jsonify({'status': 'error', 'data': 'Scan not found'}), 404
@@ -969,15 +975,38 @@ def get_exploit_results(scan_id):
         'post_exploit': [],
         'shells': [],
         'poc_data': [],
+        'summary': {
+            'total_routes': 0,
+            'completed': 0,
+            'failed': 0,
+            'total_actions': 0,
+            'successful_actions': 0,
+            'families': [],
+        },
     }
 
     if engine:
-        # Attack router results
+        # Attack router results — include full per-action detail
         if hasattr(engine, 'attack_router') and engine.attack_router:
             state = engine.attack_router.get_pipeline_state()
-            results['attack_routes'] = state.get('routes', [])
+            routes = state.get('routes', [])
+            results['attack_routes'] = routes
+            results['summary']['total_routes'] = len(routes)
+            results['summary']['completed'] = sum(
+                1 for r in routes if r.get('status') == 'completed')
+            results['summary']['failed'] = sum(
+                1 for r in routes if r.get('status') == 'failed')
+            results['summary']['families'] = list(
+                {r.get('family', '') for r in routes if r.get('family')})
+            # Count individual actions across all routes
+            for route in routes:
+                route_results = route.get('results', [])
+                results['summary']['total_actions'] += len(route_results)
+                results['summary']['successful_actions'] += sum(
+                    1 for r in route_results
+                    if isinstance(r, dict) and r.get('success'))
 
-        # Post-exploitation results
+        # Post-exploitation results (from direct PostExploitEngine calls)
         if hasattr(engine, 'post_exploit_results') and engine.post_exploit_results:
             if isinstance(engine.post_exploit_results, list):
                 for r in engine.post_exploit_results:

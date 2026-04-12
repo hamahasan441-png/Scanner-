@@ -948,7 +948,13 @@ class SQLiDataExtractor:
 
     def _build_union_payload(self, inner_query: str) -> str:
         """Build a full UNION SELECT payload injecting *inner_query* at the
-        injectable column position.  Other columns are filled with NULL."""
+        injectable column position.  Other columns are filled with NULL.
+
+        Returns an empty string when column count is unknown (0) to
+        prevent sending malformed queries.
+        """
+        if self.num_columns < 1:
+            return ''
         cols = []
         for i in range(self.num_columns):
             if i == self.injectable_index:
@@ -973,6 +979,8 @@ class SQLiDataExtractor:
 
     def _send(self, url: str, param: str, payload: str):
         """Fire the payload and return the response text or ''."""
+        if not payload:
+            return ''
         data = {param: payload}
         try:
             resp = self.requester.request(url, self.method, data=data)

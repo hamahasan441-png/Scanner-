@@ -183,7 +183,15 @@ class TestAttackRouterExecution(unittest.TestCase):
     @patch('core.post_exploit.PostExploitEngine')
     def test_execute_sets_status(self, mock_pe):
         mock_pe_inst = MagicMock()
-        mock_pe_inst.results = []
+        # Simulate one successful post-exploit result so the route is
+        # marked 'completed' rather than 'failed'.
+        mock_result = MagicMock()
+        mock_result.success = True
+        mock_result.finding = MagicMock()
+        mock_result.finding.url = 'http://test.com'
+        mock_result.finding.param = 'id'
+        mock_result.to_dict.return_value = {'success': True}
+        mock_pe_inst.results = [mock_result]
         mock_pe_inst._execute_action = MagicMock()
         mock_pe.return_value = mock_pe_inst
 

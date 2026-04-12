@@ -289,12 +289,16 @@ class AttackRouter:
                 for action in route.actions:
                     post_engine._execute_action(route.finding, action)
 
-                route.status = 'completed'
-                route.results = [
-                    r.to_dict() for r in post_engine.results
+                # Determine if the route truly succeeded: at least one
+                # action for this finding must have succeeded.
+                route_results = [
+                    r for r in post_engine.results
                     if r.finding.url == route.finding.url
                     and r.finding.param == route.finding.param
                 ]
+                any_success = any(r.success for r in route_results)
+                route.status = 'completed' if any_success else 'failed'
+                route.results = [r.to_dict() for r in route_results]
             except Exception as exc:
                 route.status = 'failed'
                 route.results = [{'error': str(exc)}]
