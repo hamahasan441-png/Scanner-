@@ -2073,6 +2073,23 @@ def get_chat_messages():
         return jsonify({'status': 'error', 'data': 'Failed to retrieve messages'}), 500
 
 
+def _create_chat_message(sender_raw, text_raw):
+    """Validate, create, and store a chat message. Returns the message dict."""
+    sender = str(sender_raw or 'Anonymous').strip()[:50] or 'Anonymous'
+    text = str(text_raw).strip()[:2000]
+    msg = {
+        'id': uuid.uuid4().hex[:12],
+        'sender': sender,
+        'message': text,
+        'timestamp': datetime.now(timezone.utc).isoformat(),
+    }
+    with _chat_lock:
+        _chat_messages.append(msg)
+        while len(_chat_messages) > _CHAT_MAX_MESSAGES:
+            _chat_messages.pop(0)
+    return msg
+
+
 @app.route('/api/chat/messages', methods=['POST'])
 @_require_api_key
 @_rate_limit
@@ -2082,23 +2099,7 @@ def post_chat_message():
     if not body or not isinstance(body.get('message'), str) or not body['message'].strip():
         return jsonify({'status': 'error', 'data': 'Missing or empty message'}), 400
 
-    sender = str(body.get('sender', 'Anonymous')).strip()[:50] or 'Anonymous'
-    text = body['message'].strip()[:2000]
-
-    msg = {
-        'id': uuid.uuid4().hex[:12],
-        'sender': sender,
-        'message': text,
-        'timestamp': datetime.now(timezone.utc).isoformat(),
-    }
-
-    with _chat_lock:
-        _chat_messages.append(msg)
-        # Trim to max size
-        while len(_chat_messages) > _CHAT_MAX_MESSAGES:
-            _chat_messages.pop(0)
-
-    # Broadcast to all connected WebSocket clients
+    msg = _create_chat_message(body.get('sender', 'Anonymous'), body['message'])
     _emit_ws('chat_message', msg)
 
     return jsonify({'status': 'success', 'data': msg}), 201
@@ -2179,20 +2180,10 @@ if SOCKETIO_AVAILABLE and socketio is not None:
         """Receive a chat message via WebSocket and broadcast to all clients."""
         if not isinstance(data, dict):
             return
-        text = str(data.get('message', '')).strip()[:2000]
+        text = str(data.get('message', '')).strip()
         if not text:
             return
-        sender = str(data.get('sender', 'Anonymous')).strip()[:50] or 'Anonymous'
-        msg = {
-            'id': uuid.uuid4().hex[:12],
-            'sender': sender,
-            'message': text,
-            'timestamp': datetime.now(timezone.utc).isoformat(),
-        }
-        with _chat_lock:
-            _chat_messages.append(msg)
-            while len(_chat_messages) > _CHAT_MAX_MESSAGES:
-                _chat_messages.pop(0)
+        msg = _create_chat_message(data.get('sender', 'Anonymous'), text)
         emit('chat_message', msg, broadcast=True)
 
 

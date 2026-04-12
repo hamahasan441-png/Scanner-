@@ -3152,7 +3152,13 @@
         input.focus();
     };
 
+    var _chatSeenIds = {};
+
     function _chatAppendMsg(msg) {
+        if (!msg || !msg.id) return;
+        // Deduplicate messages by id
+        if (_chatSeenIds[msg.id]) return;
+        _chatSeenIds[msg.id] = true;
         var container = document.getElementById('chat-messages');
         var emptyMsg = document.getElementById('chat-empty-msg');
         if (emptyMsg) emptyMsg.remove();
