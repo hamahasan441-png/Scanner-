@@ -32,7 +32,7 @@ full = [
     "paramiko>=4.0.0",
 ]
 dev = [
-    "pytest>=9.0.0",
+    "pytest>=9.0.3",
     "black>=26.0.0",
     "mypy>=1.20.0",
     "flake8>=7.3.0",
