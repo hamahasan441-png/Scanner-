@@ -28,7 +28,7 @@ dependencies = [
 [project.optional-dependencies]
 full = [
     "lxml>=6.0.0",
-    "cryptography>=46.0.0",
+    "cryptography>=46.0.7",
     "paramiko>=4.0.0",
 ]
 dev = [
