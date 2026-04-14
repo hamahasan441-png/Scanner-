@@ -1,0 +1,38 @@
+id: phpinfo-exposure
+info:
+  name: PHP Info Page Exposure
+  author: atomic-framework
+  severity: medium
+  description: Detects exposed phpinfo() pages that reveal server configuration, modules, environment variables, and PHP settings.
+  tags: php,exposure,info
+  classification:
+    cwe-id: CWE-200
+
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}/phpinfo.php"
+      - "{{BaseURL}}/info.php"
+      - "{{BaseURL}}/pi.php"
+      - "{{BaseURL}}/test.php"
+      - "{{BaseURL}}/php_info.php"
+      - "{{BaseURL}}/i.php"
+
+    stop-at-first-match: true
+    matchers-condition: and
+    matchers:
+      - type: word
+        words:
+          - "PHP Version"
+          - "phpinfo()"
+        condition: or
+
+      - type: word
+        words:
+          - "Configuration"
+          - "PHP Variables"
+        condition: or
+
+      - type: status
+        status:
+          - 200

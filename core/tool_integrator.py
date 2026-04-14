@@ -224,15 +224,45 @@ class NmapAdapter:
 # Nuclei Adapter
 # ---------------------------------------------------------------------------
 class NucleiAdapter:
-    """Integration with ProjectDiscovery Nuclei scanner."""
+    """Integration with ProjectDiscovery Nuclei scanner.
+
+    Supports both community templates and ATOMIC Framework's built-in
+    templates from ``nuclei_templates/`` directory.
+    """
 
     TOOL_NAME = 'nuclei'
+    # Path to ATOMIC Framework's built-in nuclei templates
+    _BUILTIN_TEMPLATES = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        'nuclei_templates',
+    )
 
     def is_available(self) -> bool:
         return shutil.which('nuclei') is not None
 
+    @classmethod
+    def builtin_templates_path(cls) -> str:
+        """Return the path to the built-in nuclei_templates/ directory."""
+        return cls._BUILTIN_TEMPLATES
+
+    @classmethod
+    def list_builtin_templates(cls) -> List[str]:
+        """List all built-in template YAML files."""
+        templates = []
+        tpl_dir = cls._BUILTIN_TEMPLATES
+        if not os.path.isdir(tpl_dir):
+            return templates
+        for root, _dirs, files in os.walk(tpl_dir):
+            for fname in sorted(files):
+                if fname.endswith(('.yaml', '.yml')):
+                    templates.append(os.path.relpath(
+                        os.path.join(root, fname), tpl_dir,
+                    ))
+        return templates
+
     def run(self, target: str, templates: str = '', severity: str = '',
-            tags: str = '', timeout: int = 600) -> ToolResult:
+            tags: str = '', timeout: int = 600,
+            use_builtin: bool = False) -> 'ToolResult':
         """Run a Nuclei scan.
 
         Args:
@@ -241,6 +271,7 @@ class NucleiAdapter:
             severity: Filter by severity (critical, high, medium, low, info).
             tags: Filter templates by tags (e.g., 'cve,owasp').
             timeout: Max seconds.
+            use_builtin: Also include ATOMIC Framework's built-in templates.
         """
         if not self.is_available():
             return ToolResult(tool=self.TOOL_NAME, target=target, success=False,
@@ -249,6 +280,8 @@ class NucleiAdapter:
         cmd = ['nuclei', '-u', target, '-jsonl', '-silent']
         if templates:
             cmd += ['-t', templates]
+        if use_builtin and os.path.isdir(self._BUILTIN_TEMPLATES):
+            cmd += ['-t', self._BUILTIN_TEMPLATES]
         if severity:
             cmd += ['-severity', severity]
         if tags:

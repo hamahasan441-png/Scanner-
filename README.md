@@ -43,7 +43,7 @@ python main.py -t https://target.com --full --evasion insane --waf-bypass
 - **File/batch scan** — Single target or multi-target file upload
 - Launch: `python main.py --web`
 
-### ⚔️ Attack Modules (27+)
+### ⚔️ Attack Modules (28+)
 - **SQL Injection** — Error-based, Union-based, Time-based, Boolean-based, Stacked queries
 - **NoSQL Injection** — MongoDB operator injection, CouchDB, JavaScript evaluation
 - **Command Injection** — RCE detection and exploitation, reverse shell generation
@@ -70,6 +70,7 @@ python main.py -t https://target.com --full --evasion insane --waf-bypass
 - **Shell Uploader** — Automatic web shell deployment
 - **Discovery** — robots.txt, sitemap, API endpoint discovery
 - **Reconnaissance** — Subdomain enumeration, technology detection, DNS lookup
+- **Cloud Security Scanner** — Cloud misconfiguration detection: public S3/GCS/Azure Blob bucket enumeration, cloud metadata exposure (AWS IMDSv1/v2, GCP, Azure, Alibaba, DigitalOcean), cloud credential leak detection, Kubernetes security checks, exposed cloud config files (.aws/credentials, terraform.tfstate, .env)
 
 ### 🧠 AI-Powered Vulnerability Engine
 - **ML-based vulnerability prediction** — Feature extraction from URLs, parameters, and responses

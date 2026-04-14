@@ -1,0 +1,41 @@
+id: graphql-introspection
+info:
+  name: GraphQL Introspection Enabled
+  author: atomic-framework
+  severity: medium
+  description: Detects GraphQL endpoints with introspection enabled, allowing schema enumeration and potential data exposure.
+  tags: graphql,misconfig,api
+  classification:
+    cwe-id: CWE-200
+
+http:
+  - method: POST
+    path:
+      - "{{BaseURL}}/graphql"
+      - "{{BaseURL}}/graphql/"
+      - "{{BaseURL}}/api/graphql"
+      - "{{BaseURL}}/v1/graphql"
+
+    headers:
+      Content-Type: "application/json"
+
+    body: '{"query":"{ __schema { types { name } } }"}'
+
+    stop-at-first-match: true
+    matchers-condition: and
+    matchers:
+      - type: word
+        words:
+          - "__schema"
+          - '"types"'
+        condition: and
+
+      - type: status
+        status:
+          - 200
+
+    extractors:
+      - type: regex
+        group: 1
+        regex:
+          - '"name"\\s*:\\s*"(\\w+)"'

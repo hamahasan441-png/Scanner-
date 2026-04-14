@@ -364,6 +364,8 @@
         <button class="nav-tab" onclick="switchPanel('plugins')">🔌 Plugins</button>
         <button class="nav-tab" onclick="switchPanel('notifications')">🔔 Notifications</button>
         <button class="nav-tab" onclick="switchPanel('recon-arsenal')">🎯 Recon Arsenal</button>
+        <button class="nav-tab" onclick="switchPanel('discovery')">📂 Discovery</button>
+        <button class="nav-tab" onclick="switchPanel('nuclei')">☢️ Nuclei</button>
         <button class="nav-tab" onclick="switchPanel('chat')">💬 Chat</button>
         <button class="nav-tab" onclick="switchPanel('ai-brain')">🧠 AI Brain</button>
     </nav>
@@ -423,6 +425,49 @@
                         <circle class="fg" cx="40" cy="40" r="34" stroke-dasharray="213.6" stroke-dashoffset="213.6" id="ring-fg"></circle>
                     </svg>
                     <div class="label" id="ring-label">0%</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Framework Info & Active Scans Overview -->
+        <div class="grid grid-2" style="margin-top:1rem;">
+            <div class="glass-card">
+                <h3>🏗️ Framework Info</h3>
+                <div style="font-size:0.85rem;line-height:1.8;">
+                    <div style="display:flex;justify-content:space-between;border-bottom:1px solid var(--border);padding:0.2rem 0;">
+                        <span style="color:var(--text-muted);">Version</span>
+                        <span style="font-weight:600;">v{{ version }}</span>
+                    </div>
+                    <div style="display:flex;justify-content:space-between;border-bottom:1px solid var(--border);padding:0.2rem 0;">
+                        <span style="color:var(--text-muted);">Codename</span>
+                        <span style="font-weight:600;">TITAN</span>
+                    </div>
+                    <div style="display:flex;justify-content:space-between;border-bottom:1px solid var(--border);padding:0.2rem 0;">
+                        <span style="color:var(--text-muted);">Modules</span>
+                        <span style="font-weight:600;">24 (SQLi, XSS, LFI, CMDi, SSRF, SSTI, XXE, IDOR, NoSQL, CORS, JWT, Upload, Redirect, CRLF, HPP, GraphQL, Prototype, Race, WebSocket, Deser, Scapy, WAF, Recon, OSINT)</span>
+                    </div>
+                    <div style="display:flex;justify-content:space-between;border-bottom:1px solid var(--border);padding:0.2rem 0;">
+                        <span style="color:var(--text-muted);">Exploit Sources</span>
+                        <span style="font-weight:600;">8 (ExploitDB, Metasploit, Nuclei, GitHub PoC, PacketStorm, NVD, CISA KEV, GHSA)</span>
+                    </div>
+                    <div style="display:flex;justify-content:space-between;border-bottom:1px solid var(--border);padding:0.2rem 0;">
+                        <span style="color:var(--text-muted);">WAF Signatures</span>
+                        <span style="font-weight:600;">38</span>
+                    </div>
+                    <div style="display:flex;justify-content:space-between;border-bottom:1px solid var(--border);padding:0.2rem 0;">
+                        <span style="color:var(--text-muted);">Evasion Techniques</span>
+                        <span style="font-weight:600;">13</span>
+                    </div>
+                    <div style="display:flex;justify-content:space-between;padding:0.2rem 0;">
+                        <span style="color:var(--text-muted);">Server Time</span>
+                        <span id="sb-time" style="font-weight:600;">-</span>
+                    </div>
+                </div>
+            </div>
+            <div class="glass-card">
+                <h3>⏳ Active Scans Overview</h3>
+                <div id="dashboard-active-scans" style="font-size:0.85rem;">
+                    <p class="empty-msg">No active scans</p>
                 </div>
             </div>
         </div>
@@ -543,6 +588,14 @@
                         <div class="toggle-row">
                             <input type="checkbox" id="opt-attack-map" checked>
                             <label for="opt-attack-map" style="cursor:pointer;font-size:0.85rem;">🗺️ Attack Map</label>
+                        </div>
+                        <div class="toggle-row">
+                            <input type="checkbox" id="opt-discovery">
+                            <label for="opt-discovery" style="cursor:pointer;font-size:0.85rem;">📂 Discovery Crawl</label>
+                        </div>
+                        <div class="toggle-row">
+                            <input type="checkbox" id="opt-nuclei-builtin">
+                            <label for="opt-nuclei-builtin" style="cursor:pointer;font-size:0.85rem;">☢️ Nuclei Templates</label>
                         </div>
                     </div>
                 </div>
@@ -1551,6 +1604,124 @@
 </section>
 </div>
 
+<!-- ═══════════════════════════════════════════════════════ -->
+<!-- Discovery Wordlist Panel                                -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<div id="panel-discovery" class="nav-panel">
+<section>
+    <h2>📂 ULTIMATE Discovery Wordlist</h2>
+    <p style="color:var(--text-muted);font-size:0.85rem;margin-bottom:1rem;">
+        Comprehensive file/directory discovery wordlist with 300+ paths and 80+ extensions covering environment files,
+        VCS artifacts, CI/CD configs, backups, admin panels, API endpoints, framework-specific paths, log files,
+        certificates, source maps, and hidden developer artifacts.
+    </p>
+
+    <div class="grid grid-2" style="margin-bottom:1rem;">
+        <button class="btn btn-primary" onclick="window._loadDiscoveryPaths()">📂 Load Discovery Paths</button>
+        <button class="btn btn-primary" onclick="window._loadDiscoveryExtensions()">📄 Load File Extensions</button>
+    </div>
+
+    <!-- Stats -->
+    <div class="grid grid-3" style="margin-bottom:1rem;">
+        <div class="glass-card stat-card">
+            <h3>Total Paths</h3>
+            <div class="value" id="disc-total-paths">—</div>
+        </div>
+        <div class="glass-card stat-card">
+            <h3>Categories</h3>
+            <div class="value" id="disc-total-categories">—</div>
+        </div>
+        <div class="glass-card stat-card">
+            <h3>Extensions</h3>
+            <div class="value" id="disc-total-extensions">—</div>
+        </div>
+    </div>
+
+    <!-- Search -->
+    <div class="form-group" style="margin-bottom:1rem;">
+        <input type="text" id="disc-search" placeholder="🔍 Search paths or extensions..." oninput="window._filterDiscovery()" style="max-width:500px;">
+    </div>
+
+    <!-- Paths by Category -->
+    <div class="glass-card" style="margin-bottom:1rem;">
+        <h3>📁 Discovery Paths by Category</h3>
+        <div id="disc-paths-content" style="max-height:600px;overflow-y:auto;">
+            <p class="empty-msg">Click "Load Discovery Paths" to browse the wordlist</p>
+        </div>
+    </div>
+
+    <!-- Extensions by Type -->
+    <div class="glass-card">
+        <h3>📄 File Extensions by Type</h3>
+        <div id="disc-ext-content" style="max-height:400px;overflow-y:auto;">
+            <p class="empty-msg">Click "Load File Extensions" to browse extensions</p>
+        </div>
+    </div>
+</section>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<!-- Nuclei Templates Panel                                  -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<div id="panel-nuclei" class="nav-panel">
+<section>
+    <h2>☢️ Nuclei Templates — Built-in Vulnerability Scanner</h2>
+    <p style="color:var(--text-muted);font-size:0.85rem;margin-bottom:1rem;">
+        ATOMIC Framework includes built-in Nuclei templates for exposure detection, misconfiguration scanning,
+        vulnerability assessment, and subdomain takeover checks. Use with <code>--nuclei-builtin</code> or select templates below.
+    </p>
+
+    <div style="display:flex;gap:0.5rem;margin-bottom:1rem;flex-wrap:wrap;">
+        <button class="btn btn-primary" onclick="window._loadNucleiTemplates()">☢️ Load Templates</button>
+        <button class="btn btn-sm" onclick="window._nucleiFilterSeverity('all')" style="background:var(--bg-input);">All</button>
+        <button class="btn btn-sm" onclick="window._nucleiFilterSeverity('critical')" style="background:var(--severity-critical);color:#fff;">Critical</button>
+        <button class="btn btn-sm" onclick="window._nucleiFilterSeverity('high')" style="background:var(--severity-high);color:#fff;">High</button>
+        <button class="btn btn-sm" onclick="window._nucleiFilterSeverity('medium')" style="background:var(--severity-medium);color:#000;">Medium</button>
+        <button class="btn btn-sm" onclick="window._nucleiFilterSeverity('low')" style="background:var(--severity-low);color:#fff;">Low</button>
+        <button class="btn btn-sm" onclick="window._nucleiFilterSeverity('info')" style="background:var(--severity-info);color:#fff;">Info</button>
+    </div>
+
+    <!-- Stats -->
+    <div class="grid grid-4" style="margin-bottom:1rem;">
+        <div class="glass-card stat-card">
+            <h3>Total Templates</h3>
+            <div class="value" id="nuclei-total">—</div>
+        </div>
+        <div class="glass-card stat-card critical">
+            <h3>Critical</h3>
+            <div class="value" id="nuclei-critical">—</div>
+        </div>
+        <div class="glass-card stat-card high">
+            <h3>High</h3>
+            <div class="value" id="nuclei-high">—</div>
+        </div>
+        <div class="glass-card stat-card medium">
+            <h3>Medium</h3>
+            <div class="value" id="nuclei-medium">—</div>
+        </div>
+    </div>
+
+    <!-- Search -->
+    <div class="form-group" style="margin-bottom:1rem;">
+        <input type="text" id="nuclei-search" placeholder="🔍 Search templates by name, tag, CWE..." oninput="window._filterNucleiTemplates()" style="max-width:500px;">
+    </div>
+
+    <!-- Templates by Category -->
+    <div id="nuclei-templates-content">
+        <p class="empty-msg">Click "Load Templates" to browse Nuclei templates</p>
+    </div>
+
+    <!-- Template Viewer Modal -->
+    <div id="nuclei-template-viewer" class="glass-card" style="display:none;margin-top:1rem;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;">
+            <h3 id="nuclei-viewer-title">Template</h3>
+            <button class="btn btn-sm btn-danger" onclick="document.getElementById('nuclei-template-viewer').style.display='none'">✕ Close</button>
+        </div>
+        <pre id="nuclei-viewer-content" style="background:#0d1117;padding:0.8rem;border-radius:6px;overflow-x:auto;font-size:0.82rem;color:#c9d1d9;max-height:500px;overflow-y:auto;"></pre>
+    </div>
+</section>
+</div>
+
 </div>
     <p class="disclaimer">⚠️ FOR AUTHORIZED TESTING ONLY ⚠️</p>
     <p style="margin-top:0.3rem;">ATOMIC Framework v{{ version }} &copy; Atomic Security. Unauthorized use is prohibited.</p>
@@ -1698,6 +1869,28 @@
                 tbody.innerHTML = '<tr><td colspan="5" class="empty-msg">No active scans</td></tr>';
             } else {
                 tbody.innerHTML = rows.join('');
+            }
+
+            /* Also update dashboard overview card */
+            var dashActive = document.getElementById('dashboard-active-scans');
+            if (dashActive) {
+                if (rows.length === 0) {
+                    dashActive.innerHTML = '<p class="empty-msg">No active scans</p>';
+                } else {
+                    var html = '';
+                    for (var j = 0; j < ids.length; j++) {
+                        var sid2 = ids[j];
+                        if (window._knownActive[sid2]) {
+                            var info = window._knownActive[sid2];
+                            var tgt = (typeof info === 'object' && info.target) ? info.target : sid2;
+                            html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:0.3rem 0;border-bottom:1px solid var(--border);">';
+                            html += '<span>🔍 ' + esc(sid2.substring(0,8)) + ' → <b>' + esc(String(tgt)) + '</b></span>';
+                            html += '<span class="status-running pulse" style="font-size:0.8rem;">● running</span>';
+                            html += '</div>';
+                        }
+                    }
+                    dashActive.innerHTML = html || '<p class="empty-msg">No active scans</p>';
+                }
             }
 
             if (needRefresh) { loadHistory(); loadStats(); }
@@ -3801,6 +3994,199 @@
         } catch(e) {
             status.innerHTML = '<span style="color:var(--danger);">Error: ' + esc(e.message) + '</span>';
         }
+    };
+
+    /* ===== Discovery Wordlist Panel ===== */
+    var _discoveryPaths = null;
+    var _discoveryExtensions = null;
+
+    window._loadDiscoveryPaths = async function() {
+        try {
+            var resp = await fetch(API + '/api/discovery/paths');
+            var json = await resp.json();
+            if (json.status !== 'success') throw new Error(json.data);
+            _discoveryPaths = json.data;
+            document.getElementById('disc-total-paths').textContent = json.data.total;
+            document.getElementById('disc-total-categories').textContent = Object.keys(json.data.categories).length;
+            _renderDiscoveryPaths(json.data.categories);
+        } catch(e) {
+            document.getElementById('disc-paths-content').innerHTML = '<p class="empty-msg" style="color:var(--severity-critical);">Error: ' + esc(e.message) + '</p>';
+        }
+    };
+
+    window._loadDiscoveryExtensions = async function() {
+        try {
+            var resp = await fetch(API + '/api/discovery/extensions');
+            var json = await resp.json();
+            if (json.status !== 'success') throw new Error(json.data);
+            _discoveryExtensions = json.data;
+            document.getElementById('disc-total-extensions').textContent = json.data.total;
+            _renderDiscoveryExtensions(json.data.groups);
+        } catch(e) {
+            document.getElementById('disc-ext-content').innerHTML = '<p class="empty-msg" style="color:var(--severity-critical);">Error: ' + esc(e.message) + '</p>';
+        }
+    };
+
+    function _renderDiscoveryPaths(categories) {
+        var html = '';
+        var catColors = {
+            'Environment / Config': '#e74c3c',
+            'Version Control / CI-CD': '#9b59b6',
+            'Dependency / Build': '#3498db',
+            'Backup / Archive': '#e67e22',
+            'Admin / Sensitive': '#e74c3c',
+            'API / Data Endpoints': '#1abc9c',
+            'Debug / Info': '#f39c12',
+            'Log Files': '#95a5a6',
+            'Upload / File Handling': '#2ecc71',
+            'Framework-Specific': '#8e44ad',
+            'Hidden Artifacts': '#7f8c8d',
+            'Certificates / Secrets': '#c0392b',
+            'Source Maps': '#2980b9',
+            'Well-Known URIs': '#27ae60',
+        };
+        Object.keys(categories).forEach(function(cat) {
+            var paths = categories[cat];
+            var color = catColors[cat] || '#6c757d';
+            html += '<div style="margin-bottom:1rem;">';
+            html += '<div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;padding:0.5rem;background:rgba(255,255,255,0.03);border-radius:6px;border-left:3px solid ' + color + ';" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display===\'none\'?\'block\':\'none\'">';
+            html += '<strong style="color:' + color + ';">' + esc(cat) + '</strong>';
+            html += '<span class="badge" style="background:' + color + ';color:#fff;">' + paths.length + '</span>';
+            html += '</div>';
+            html += '<div style="display:none;padding:0.5rem;font-size:0.82rem;font-family:monospace;">';
+            paths.forEach(function(p) {
+                html += '<div class="disc-path-item" style="padding:0.15rem 0.3rem;border-bottom:1px solid rgba(255,255,255,0.05);">' + esc(p) + '</div>';
+            });
+            html += '</div></div>';
+        });
+        document.getElementById('disc-paths-content').innerHTML = html;
+    }
+
+    function _renderDiscoveryExtensions(groups) {
+        var html = '';
+        Object.keys(groups).forEach(function(grp) {
+            var exts = groups[grp];
+            html += '<div style="margin-bottom:0.8rem;">';
+            html += '<strong style="color:var(--accent);font-size:0.9rem;">' + esc(grp) + '</strong>';
+            html += '<span style="margin-left:0.5rem;font-size:0.78rem;color:var(--text-muted);">(' + exts.length + ')</span>';
+            html += '<div style="display:flex;flex-wrap:wrap;gap:0.3rem;margin-top:0.3rem;">';
+            exts.forEach(function(ext) {
+                html += '<span style="background:var(--bg-input);padding:0.15rem 0.5rem;border-radius:4px;font-size:0.8rem;font-family:monospace;">' + esc(ext) + '</span>';
+            });
+            html += '</div></div>';
+        });
+        document.getElementById('disc-ext-content').innerHTML = html;
+    }
+
+    window._filterDiscovery = function() {
+        var query = (document.getElementById('disc-search').value || '').toLowerCase();
+        document.querySelectorAll('.disc-path-item').forEach(function(el) {
+            el.style.display = !query || el.textContent.toLowerCase().indexOf(query) >= 0 ? '' : 'none';
+        });
+    };
+
+    /* ===== Nuclei Templates Panel ===== */
+    var _nucleiTemplates = null;
+    var _nucleiSeverityFilter = 'all';
+
+    window._loadNucleiTemplates = async function() {
+        try {
+            var resp = await fetch(API + '/api/nuclei/templates');
+            var json = await resp.json();
+            if (json.status !== 'success') throw new Error(json.data);
+            _nucleiTemplates = json.data;
+            var templates = json.data.templates;
+            document.getElementById('nuclei-total').textContent = json.data.total;
+            var sev = {critical:0,high:0,medium:0,low:0,info:0};
+            templates.forEach(function(t) { if(sev[t.severity]!==undefined) sev[t.severity]++; });
+            document.getElementById('nuclei-critical').textContent = sev.critical;
+            document.getElementById('nuclei-high').textContent = sev.high;
+            document.getElementById('nuclei-medium').textContent = sev.medium;
+            _renderNucleiTemplates(json.data.by_category);
+        } catch(e) {
+            document.getElementById('nuclei-templates-content').innerHTML = '<p class="empty-msg" style="color:var(--severity-critical);">Error: ' + esc(e.message) + '</p>';
+        }
+    };
+
+    function _renderNucleiTemplates(byCategory) {
+        var html = '';
+        var catIcons = {
+            'exposure': '🔓',
+            'misconfig': '⚠️',
+            'vulnerabilities': '💥',
+            'takeover': '🏴',
+        };
+        var sevColors = {
+            'critical': 'var(--severity-critical)',
+            'high': 'var(--severity-high)',
+            'medium': 'var(--severity-medium)',
+            'low': 'var(--severity-low)',
+            'info': 'var(--severity-info)',
+        };
+        Object.keys(byCategory).sort().forEach(function(cat) {
+            var templates = byCategory[cat];
+            var icon = catIcons[cat] || '📋';
+            html += '<div class="glass-card" style="margin-bottom:1rem;">';
+            html += '<h3>' + icon + ' ' + esc(cat.charAt(0).toUpperCase() + cat.slice(1)) + ' (' + templates.length + ')</h3>';
+            html += '<div style="display:grid;gap:0.5rem;">';
+            templates.forEach(function(t) {
+                var sevStyle = 'background:' + (sevColors[t.severity] || '#6c757d') + ';color:#fff;';
+                if (t.severity === 'medium') sevStyle = 'background:' + sevColors.medium + ';color:#000;';
+                html += '<div class="nuclei-tpl-card" data-severity="' + esc(t.severity) + '" style="background:var(--bg-input);border-radius:6px;padding:0.7rem;border-left:3px solid ' + (sevColors[t.severity] || '#6c757d') + ';">';
+                html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.3rem;">';
+                html += '<strong style="font-size:0.9rem;">' + esc(t.name) + '</strong>';
+                html += '<span class="badge" style="' + sevStyle + '">' + esc(t.severity.toUpperCase()) + '</span>';
+                html += '</div>';
+                html += '<div style="font-size:0.82rem;color:var(--text-muted);margin-bottom:0.3rem;">' + esc(t.description || '').substring(0,200) + '</div>';
+                html += '<div style="display:flex;gap:0.8rem;font-size:0.78rem;color:var(--text-muted);flex-wrap:wrap;">';
+                html += '<span>ID: <code>' + esc(t.id) + '</code></span>';
+                if (t.cwe) html += '<span>CWE: ' + esc(t.cwe) + '</span>';
+                if (t.cvss_score) html += '<span>CVSS: ' + esc(String(t.cvss_score)) + '</span>';
+                if (t.tags) html += '<span>Tags: ' + esc(t.tags) + '</span>';
+                html += '</div>';
+                html += '<button class="btn btn-sm nuclei-view-btn" style="margin-top:0.4rem;background:var(--bg-card);border:1px solid var(--border);" data-tpl-path="' + esc(t.path) + '" data-tpl-name="' + esc(t.name) + '">📜 View YAML</button>';
+                html += '</div>';
+            });
+            html += '</div></div>';
+        });
+        document.getElementById('nuclei-templates-content').innerHTML = html || '<p class="empty-msg">No templates found</p>';
+    }
+
+    window._viewNucleiTemplate = async function(path, name) {
+        try {
+            var resp = await fetch(API + '/api/nuclei/template/' + encodeURIComponent(path));
+            var json = await resp.json();
+            if (json.status !== 'success') throw new Error(json.data);
+            document.getElementById('nuclei-viewer-title').textContent = name || path;
+            document.getElementById('nuclei-viewer-content').textContent = json.data.content;
+            document.getElementById('nuclei-template-viewer').style.display = 'block';
+            document.getElementById('nuclei-template-viewer').scrollIntoView({behavior:'smooth'});
+        } catch(e) {
+            alert('Error loading template: ' + e.message);
+        }
+    };
+
+    /* Delegated click handler for nuclei template view buttons */
+    document.getElementById('nuclei-templates-content').addEventListener('click', function(e) {
+        var btn = e.target.closest('.nuclei-view-btn');
+        if (btn) {
+            window._viewNucleiTemplate(btn.getAttribute('data-tpl-path'), btn.getAttribute('data-tpl-name'));
+        }
+    });
+
+    window._nucleiFilterSeverity = function(sev) {
+        _nucleiSeverityFilter = sev;
+        document.querySelectorAll('.nuclei-tpl-card').forEach(function(el) {
+            if (sev === 'all') { el.style.display = ''; return; }
+            el.style.display = el.getAttribute('data-severity') === sev ? '' : 'none';
+        });
+    };
+
+    window._filterNucleiTemplates = function() {
+        var query = (document.getElementById('nuclei-search').value || '').toLowerCase();
+        document.querySelectorAll('.nuclei-tpl-card').forEach(function(el) {
+            el.style.display = !query || el.textContent.toLowerCase().indexOf(query) >= 0 ? '' : 'none';
+        });
     };
 
     /* ---- Init ---- */

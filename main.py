@@ -105,6 +105,10 @@ def main():
                        help='Ultimate scan: enable every module, recon, exploitation, '
                             'network scanning, and post-exploitation for complete '
                             'point-to-point coverage')
+    parser.add_argument('--turbo', action='store_true',
+                       help='Maximum parallelism mode: parallel baseline capture, '
+                            'concurrent worker dispatch, and aggressive threading '
+                            'for fastest possible scan speed')
     parser.add_argument('--sqli', action='store_true',
                        help='Enable SQL Injection module')
     parser.add_argument('--xss', action='store_true',
@@ -145,6 +149,8 @@ def main():
                        help='Enable WebSocket injection detection')
     parser.add_argument('--deser', action='store_true',
                        help='Enable deserialization vulnerability detection')
+    parser.add_argument('--cloud-scan', action='store_true',
+                       help='Enable cloud security scanning (S3 buckets, metadata, IAM, Kubernetes)')
     parser.add_argument('--osint', action='store_true',
                        help='Enable OSINT reconnaissance')
     parser.add_argument('--fuzz', action='store_true',
@@ -324,6 +330,13 @@ def main():
                        help='Nuclei severity filter (critical,high,medium,low,info)')
     parser.add_argument('--nuclei-tags',
                        help='Nuclei template tags filter (e.g., cve,owasp)')
+    parser.add_argument('--nuclei-templates',
+                       help='Custom Nuclei template directory or file path')
+    parser.add_argument('--nuclei-builtin', action='store_true',
+                       help='Include ATOMIC Framework built-in Nuclei templates '
+                            '(exposure, misconfig, takeover, vulnerabilities)')
+    parser.add_argument('--nuclei-list-templates', action='store_true',
+                       help='List all built-in Nuclei templates and exit')
     parser.add_argument('--nikto', action='store_true',
                        help='Run Nikto web server scan (requires nikto installed)')
     parser.add_argument('--whatweb', action='store_true',
@@ -454,15 +467,41 @@ def main():
         if not args.nuclei and not args.nikto:
             return
 
+    # ── Nuclei template listing ──
+    if getattr(args, 'nuclei_list_templates', False):
+        from core.tool_integrator import NucleiAdapter
+        templates = NucleiAdapter.list_builtin_templates()
+        print(f"\n{Colors.CYAN}  ATOMIC Framework Built-in Nuclei Templates{Colors.RESET}")
+        print(f"  {'='*50}")
+        print(f"  Path: {NucleiAdapter.builtin_templates_path()}")
+        print(f"  Total: {len(templates)} templates\n")
+        for t in templates:
+            print(f"    {t}")
+        print()
+        return
+
     if args.nuclei and args.target:
         from core.tool_integrator import NucleiAdapter
         nuclei = NucleiAdapter()
         if not nuclei.is_available():
             print(f"{Colors.error('Nuclei not installed. Install from: https://github.com/projectdiscovery/nuclei')}")
             sys.exit(1)
-        print(f"{Colors.info(f'Running Nuclei scan on {args.target}...')}")
-        result = nuclei.run(args.target, severity=args.nuclei_severity or '',
-                           tags=args.nuclei_tags or '')
+        use_builtin = getattr(args, 'nuclei_builtin', False)
+        custom_templates = getattr(args, 'nuclei_templates', '') or ''
+        tpl_desc = []
+        if custom_templates:
+            tpl_desc.append(f'custom: {custom_templates}')
+        if use_builtin:
+            tpl_desc.append(f'builtin: {len(nuclei.list_builtin_templates())} templates')
+        tpl_info = f' ({", ".join(tpl_desc)})' if tpl_desc else ''
+        print(f"{Colors.info(f'Running Nuclei scan on {args.target}{tpl_info}...')}")
+        result = nuclei.run(
+            args.target,
+            templates=custom_templates,
+            severity=args.nuclei_severity or '',
+            tags=args.nuclei_tags or '',
+            use_builtin=use_builtin,
+        )
         if result.success:
             print(f"{Colors.success(f'Nuclei complete: {len(result.findings)} findings in {result.duration_seconds}s')}")
             for f in result.findings:
@@ -842,6 +881,7 @@ def main():
         'output_dir': args.output or Config.REPORTS_DIR,
         'rules_path': getattr(args, 'rules', None),
         'strict_scope': getattr(args, 'strict_scope', False),
+        'turbo': getattr(args, 'turbo', False),
     }
 
     # --point-to-point enables absolutely everything for complete coverage
@@ -869,6 +909,7 @@ def main():
         'race_condition': getattr(args, 'race', False) or args.full or p2p,
         'websocket': getattr(args, 'websocket', False) or args.full or p2p,
         'deserialization': getattr(args, 'deser', False) or args.full or p2p,
+        'cloud_scan': getattr(args, 'cloud_scan', False) or args.full or p2p,
         'osint': getattr(args, 'osint', False) or args.full or p2p,
         'fuzzer': getattr(args, 'fuzz', False) or args.full or p2p,
         'sqlmap': getattr(args, 'sqlmap', False) or p2p,

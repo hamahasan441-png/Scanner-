@@ -1,0 +1,39 @@
+id: env-file-exposure
+info:
+  name: Environment File Exposure
+  author: atomic-framework
+  severity: critical
+  description: Detects exposed .env files containing sensitive configuration variables such as database credentials, API keys, and secrets.
+  tags: config,env,exposure,secret
+  classification:
+    cwe-id: CWE-538
+    cvss-metrics: CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N
+    cvss-score: 9.1
+
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}/.env"
+      - "{{BaseURL}}/.env.local"
+      - "{{BaseURL}}/.env.production"
+      - "{{BaseURL}}/.env.staging"
+      - "{{BaseURL}}/.env.development"
+      - "{{BaseURL}}/.env.bak"
+      - "{{BaseURL}}/.env.old"
+
+    stop-at-first-match: true
+    matchers-condition: and
+    matchers:
+      - type: regex
+        regex:
+          - "(?i)(DB_PASSWORD|DB_HOST|SECRET_KEY|API_KEY|APP_KEY|AWS_SECRET|STRIPE_SECRET|DATABASE_URL|REDIS_URL|SMTP_PASSWORD)"
+
+      - type: status
+        status:
+          - 200
+
+    extractors:
+      - type: regex
+        group: 0
+        regex:
+          - "(?i)(DB_PASSWORD|DB_HOST|SECRET_KEY|API_KEY|APP_KEY|AWS_SECRET|STRIPE_SECRET|DATABASE_URL)=\\S+"

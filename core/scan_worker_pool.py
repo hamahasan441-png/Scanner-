@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ATOMIC FRAMEWORK v9.0 - ULTIMATE EDITION
+ATOMIC FRAMEWORK v10.0 - ULTIMATE EDITION
 Phase 8 — Vulnerability Scan Worker Pool
 
 Dispatches scan items through a multi-gate pipeline:
   Gate 0: Pre-scan triage (skip static, structural dedup)
-  Gate 1: Baseline capture (DifferentialEngine)
+  Gate 1: Baseline capture (DifferentialEngine) — parallelized
   Gate 2: Surface mapping (injection points)
   Workers A-E: Injection / Auth / BizLogic / Misconfig / Crypto
+  Concurrent dispatch: Worker categories run in parallel via ThreadPoolExecutor
 
 Usage:
     pool = ScanWorkerPool(engine)
@@ -17,6 +18,7 @@ Usage:
 
 import re
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Set
 from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
@@ -36,10 +38,11 @@ STATIC_EXTENSIONS = {
 
 # Worker categories and their module mappings
 WORKER_MODULE_MAP = {
-    'injection': ['sqli', 'xss', 'ssti', 'ssrf', 'cmdi', 'lfi', 'xxe'],
+    'injection': ['sqli', 'xss', 'ssti', 'ssrf', 'cmdi', 'lfi', 'xxe', 'nosql'],
     'auth': ['idor', 'jwt', 'brute_force'],
     'bizlogic': ['race_condition', 'upload', 'deserialization'],
-    'misconfig': ['cors', 'crlf', 'hpp', 'open_redirect', 'graphql'],
+    'misconfig': ['cors', 'crlf', 'hpp', 'open_redirect', 'graphql', 'proto_pollution', 'websocket'],
+    'cloud': ['cloud_scan', 'osint'],
     'crypto': [],  # Handled inline (TLS, cookie, rate limiting checks)
 }
 
@@ -189,14 +192,36 @@ class SurfaceMapper:
 
 # ── ScanWorkerPool ─────────────────────────────────────────────────────
 
+# Default parallel worker threads for baseline capture and worker dispatch
+_DEFAULT_BASELINE_WORKERS = 10
+_DEFAULT_DISPATCH_WORKERS = 4
+
+
 class ScanWorkerPool:
-    """Phase 8 — Dispatch scan items through gate pipeline and workers."""
+    """Phase 8 — Dispatch scan items through gate pipeline and workers.
+
+    Scalability improvements over sequential execution:
+    - Parallel baseline capture via ThreadPoolExecutor (10x Gate 1 speedup)
+    - Concurrent worker category dispatch (Workers A-E run in parallel)
+    - Batch processing with configurable concurrency
+    """
 
     def __init__(self, engine):
         self.engine = engine
         self.verbose = engine.config.get('verbose', False)
         self.differential = DifferentialEngine(engine)
         self._raw_findings = []
+        # Concurrency settings from engine config
+        self._baseline_workers = engine.config.get(
+            'baseline_workers', _DEFAULT_BASELINE_WORKERS,
+        )
+        self._dispatch_workers_count = engine.config.get(
+            'dispatch_workers', _DEFAULT_DISPATCH_WORKERS,
+        )
+        turbo = engine.config.get('turbo', False)
+        if turbo:
+            self._baseline_workers = max(self._baseline_workers, 20)
+            self._dispatch_workers_count = max(self._dispatch_workers_count, 8)
 
     def run(self, scan_queue: List) -> List:
         """Process scan queue through all gates and workers.
@@ -205,31 +230,31 @@ class ScanWorkerPool:
         """
         self.engine.emit_pipeline_event('phase8_start', {'queue_size': len(scan_queue)})
         total = len(scan_queue)
-        processed = 0
         skipped = 0
 
+        # ── GATE 0: Pre-scan triage (filter out static assets) ──
+        active_items = []
         for item in scan_queue:
-            # ── GATE 0: Pre-scan triage ──
             if self._should_skip(item):
                 skipped += 1
-                continue
+            else:
+                active_items.append(item)
 
-            # ── GATE 1: Baseline capture ──
-            baseline = self.differential.set_baseline(
-                item.url, item.method, item.param, item.value,
-            )
+        # ── GATE 1: Parallel baseline capture ──
+        baselines = self._capture_baselines_parallel(active_items)
 
-            # ── GATE 2: Surface mapping ──
+        # ── GATE 2 + Worker dispatch ──
+        for item in active_items:
+            key = f"{item.method}:{item.url}:{item.param}"
+            baseline = baselines.get(key, {})
             surfaces = SurfaceMapper.map_surfaces(item)
-
-            # ── Dispatch to workers ──
             self._dispatch_workers(item, baseline, surfaces)
-            processed += 1
 
             # Rate limit
             if hasattr(self.engine, 'scope'):
                 self.engine.scope.enforce_rate_limit()
 
+        processed = len(active_items)
         self.engine.emit_pipeline_event('phase8_complete', {
             'processed': processed,
             'skipped': skipped,
@@ -243,6 +268,46 @@ class ScanWorkerPool:
 
         return self._raw_findings
 
+    def _capture_baselines_parallel(self, items: List) -> Dict[str, Dict]:
+        """Capture baselines for all items in parallel using ThreadPoolExecutor.
+
+        Returns a dict mapping ``method:url:param`` → baseline dict.
+        """
+        baselines: Dict[str, Dict] = {}
+        if not items:
+            return baselines
+
+        # Deduplicate tasks by key (avoid redundant baseline requests)
+        tasks: Dict[str, tuple] = {}
+        for item in items:
+            key = f"{item.method}:{item.url}:{item.param}"
+            if key not in tasks:
+                tasks[key] = (item.url, item.method, item.param, item.value)
+
+        worker_count = min(self._baseline_workers, len(tasks))
+        if worker_count <= 1:
+            # Single-threaded fallback
+            for key, (url, method, param, value) in tasks.items():
+                baselines[key] = self.differential.set_baseline(url, method, param, value)
+            return baselines
+
+        with ThreadPoolExecutor(max_workers=worker_count) as executor:
+            future_to_key = {}
+            for key, (url, method, param, value) in tasks.items():
+                future = executor.submit(
+                    self.differential.set_baseline, url, method, param, value,
+                )
+                future_to_key[future] = key
+
+            for future in as_completed(future_to_key):
+                key = future_to_key[future]
+                try:
+                    baselines[key] = future.result()
+                except Exception:
+                    baselines[key] = {}
+
+        return baselines
+
     def _should_skip(self, item) -> bool:
         """Gate 0: Pre-scan triage — skip static assets."""
         if getattr(item, 'endpoint_type', '') == 'STATIC':
@@ -252,31 +317,69 @@ class ScanWorkerPool:
         return any(path.endswith(ext) for ext in STATIC_EXTENSIONS)
 
     def _dispatch_workers(self, item, baseline: Dict, surfaces: List):
-        """Run applicable worker categories against the scan item."""
+        """Run applicable worker categories against the scan item.
+
+        Worker categories are dispatched concurrently via ThreadPoolExecutor
+        when the dispatch_workers config is > 1 (or --turbo is enabled).
+        """
         modules = self.engine._modules
 
-        # Worker A: Injection modules
-        for mod_key in WORKER_MODULE_MAP['injection']:
-            if mod_key in modules:
-                self._run_module(modules[mod_key], item, baseline)
+        def _worker_a():
+            """Worker A: Injection modules."""
+            for mod_key in WORKER_MODULE_MAP['injection']:
+                if mod_key in modules:
+                    self._run_module(modules[mod_key], item, baseline)
 
-        # Worker B: Auth & Access Control
-        for mod_key in WORKER_MODULE_MAP['auth']:
-            if mod_key in modules:
-                self._run_module(modules[mod_key], item, baseline)
+        def _worker_b():
+            """Worker B: Auth & Access Control."""
+            for mod_key in WORKER_MODULE_MAP['auth']:
+                if mod_key in modules:
+                    self._run_module(modules[mod_key], item, baseline)
 
-        # Worker C: Business Logic
-        for mod_key in WORKER_MODULE_MAP['bizlogic']:
-            if mod_key in modules:
-                self._run_module(modules[mod_key], item, baseline)
+        def _worker_c():
+            """Worker C: Business Logic."""
+            for mod_key in WORKER_MODULE_MAP['bizlogic']:
+                if mod_key in modules:
+                    self._run_module(modules[mod_key], item, baseline)
 
-        # Worker D: Misconfiguration
-        for mod_key in WORKER_MODULE_MAP['misconfig']:
-            if mod_key in modules:
-                self._run_url_module(modules[mod_key], item)
+        def _worker_d():
+            """Worker D: Misconfiguration."""
+            for mod_key in WORKER_MODULE_MAP['misconfig']:
+                if mod_key in modules:
+                    self._run_url_module(modules[mod_key], item)
 
-        # Worker E: Crypto & Transport (inline checks)
-        self._check_crypto_transport(item, baseline)
+        def _worker_cloud():
+            """Worker Cloud: Cloud & OSINT modules."""
+            for mod_key in WORKER_MODULE_MAP['cloud']:
+                if mod_key in modules:
+                    self._run_module(modules[mod_key], item, baseline)
+                    self._run_url_module(modules[mod_key], item)
+
+        def _worker_e():
+            """Worker E: Crypto & Transport (inline checks)."""
+            self._check_crypto_transport(item, baseline)
+
+        workers = [_worker_a, _worker_b, _worker_c, _worker_d, _worker_cloud, _worker_e]
+
+        if self._dispatch_workers_count > 1:
+            # Concurrent dispatch — run worker categories in parallel
+            pool_size = min(self._dispatch_workers_count, len(workers))
+            with ThreadPoolExecutor(max_workers=pool_size) as executor:
+                futures = [executor.submit(w) for w in workers]
+                for future in as_completed(futures):
+                    try:
+                        future.result()
+                    except Exception as e:
+                        if self.verbose:
+                            print(Colors.warning(f'Worker dispatch error: {e}'))
+        else:
+            # Sequential fallback (safe mode)
+            for w in workers:
+                try:
+                    w()
+                except Exception as e:
+                    if self.verbose:
+                        print(Colors.warning(f'Worker dispatch error: {e}'))
 
     def _run_module(self, module, item, baseline: Dict):
         """Run a parameter-testing module against a scan item.

@@ -42,44 +42,100 @@ from config import Colors, Payloads
 # Common paths for directory brute-forcing
 # ────────────────────────────────────────────
 COMMON_PATHS = [
-    # Admin / management
-    '/admin', '/administrator', '/admin/login', '/cpanel', '/dashboard',
-    '/manage', '/manager', '/panel', '/control', '/wp-admin',
-    # Login / auth
+    # ── Admin / Management ──
+    '/admin', '/administrator', '/admin/login', '/admin/dashboard',
+    '/cpanel', '/dashboard', '/manage', '/manager', '/panel',
+    '/control', '/wp-admin', '/webadmin', '/sysadmin',
+    '/console', '/h2-console', '/monitoring', '/nagios',
+    '/system', '/webmail',
+    # ── Login / Auth ──
     '/login', '/signin', '/signup', '/register', '/auth', '/oauth',
     '/logout', '/password', '/forgot-password', '/reset-password',
-    '/account', '/profile', '/user', '/users',
-    # API endpoints
-    '/api', '/api/v1', '/api/v2', '/api/v3', '/graphql', '/graphiql',
-    '/rest', '/swagger', '/swagger-ui', '/api-docs', '/openapi.json',
-    '/api/docs', '/api/schema',
-    # Configuration / debug
+    '/account', '/profile', '/user', '/users', '/me',
+    '/sso', '/saml', '/cas', '/openid',
+    # ── API Endpoints ──
+    '/api', '/api/v1', '/api/v2', '/api/v3', '/api/latest',
+    '/graphql', '/graphiql', '/playground', '/__graphql',
+    '/rest', '/soap', '/rpc', '/jsonrpc', '/xmlrpc',
+    '/swagger', '/swagger-ui', '/swagger-ui.html',
+    '/api-docs', '/openapi.json', '/api/docs', '/api/schema',
+    '/swagger.json', '/swagger.yaml',
+    '/v1/api-docs', '/v2/api-docs', '/v3/api-docs',
+    '/webhook', '/callback', '/notify',
+    # ── Configuration / Debug ──
     '/config', '/configuration', '/settings', '/env', '/.env',
     '/debug', '/trace', '/status', '/health', '/healthcheck',
     '/info', '/server-info', '/server-status', '/phpinfo.php',
-    # Backup / development
+    '/metrics', '/stats', '/monitor',
+    '/actuator', '/actuator/env', '/actuator/health',
+    '/actuator/heapdump', '/actuator/mappings',
+    '/_debug', '/__debug__', '/debug/pprof',
+    '/_profiler', '/_wdt',
+    # ── Backup / Development ──
     '/backup', '/backups', '/bak', '/old', '/temp', '/tmp',
     '/test', '/testing', '/dev', '/development', '/staging',
-    '/.git', '/.git/config', '/.svn', '/.hg',
-    '/.DS_Store', '/web.config', '/.htaccess',
-    # Common CMS / framework paths
-    '/wp-login.php', '/wp-content', '/wp-includes', '/wp-json',
-    '/xmlrpc.php', '/wp-cron.php',
-    '/joomla', '/drupal', '/magento',
-    '/vendor', '/node_modules', '/composer.json', '/package.json',
-    # File / media / uploads
+    '/archive', '/archives', '/legacy', '/deprecated',
+    '/.git', '/.git/config', '/.git/HEAD', '/.svn', '/.hg',
+    '/.DS_Store', '/web.config', '/.htaccess', '/.htpasswd',
+    '/Thumbs.db',
+    # ── WordPress ──
+    '/wp-login.php', '/wp-content', '/wp-content/plugins',
+    '/wp-content/themes', '/wp-content/uploads',
+    '/wp-includes', '/wp-json', '/wp-json/wp/v2/users',
+    '/xmlrpc.php', '/wp-cron.php', '/wp-links-opml.php',
+    '/wp-content/debug.log', '/readme.html',
+    # ── Laravel ──
+    '/storage', '/storage/logs', '/storage/logs/laravel.log',
+    '/storage/framework', '/bootstrap/cache',
+    '/_ide_helper.php', '/artisan',
+    # ── Django ──
+    '/admin', '/static', '/media', '/__pycache__',
+    # ── Rails ──
+    '/public/assets', '/public/uploads', '/db', '/config',
+    '/config/database.yml', '/config/secrets.yml',
+    '/config/master.key',
+    # ── ASP.NET ──
+    '/App_Data', '/App_Code', '/bin', '/obj',
+    '/Global.asax', '/Default.aspx', '/elmah.axd',
+    # ── Java / Spring / Tomcat ──
+    '/WEB-INF', '/WEB-INF/web.xml', '/META-INF',
+    '/catalina.out', '/manager/html',
+    # ── Common CMS / framework paths ──
+    '/joomla', '/drupal', '/magento', '/ghost',
+    '/vendor', '/node_modules', '/bower_components',
+    '/composer.json', '/package.json',
+    # ── File / Media / Uploads ──
     '/uploads', '/upload', '/files', '/media', '/static',
     '/assets', '/images', '/img', '/css', '/js',
     '/public', '/private', '/storage', '/data',
-    # Error / fallback
-    '/404', '/500', '/error', '/errors',
-    # Database / cache
-    '/phpmyadmin', '/adminer', '/redis', '/memcached',
-    '/elasticsearch', '/solr', '/kibana',
-    # Robots / sitemap
+    '/userfiles', '/usercontent', '/user_uploads',
+    '/attachments', '/documents', '/reports',
+    '/download', '/downloads', '/export', '/import',
+    # ── Database / Cache Tools ──
+    '/phpmyadmin', '/pma', '/adminer', '/sqladmin',
+    '/redis', '/memcached', '/elasticsearch', '/solr', '/kibana',
+    '/mongo-express', '/couchdb',
+    # ── Error / Fallback ──
+    '/404', '/500', '/403', '/401', '/error', '/errors',
+    # ── CI/CD / Docker ──
+    '/Dockerfile', '/docker-compose.yml', '/Jenkinsfile',
+    '/.github', '/.gitlab-ci.yml', '/.circleci',
+    # ── Well-known / Standards ──
     '/robots.txt', '/sitemap.xml', '/sitemap_index.xml',
-    '/crossdomain.xml', '/security.txt', '/.well-known/security.txt',
-    '/humans.txt', '/ads.txt',
+    '/crossdomain.xml', '/security.txt',
+    '/.well-known/security.txt', '/.well-known/openid-configuration',
+    '/humans.txt', '/ads.txt', '/app-ads.txt',
+    '/favicon.ico', '/manifest.json', '/browserconfig.xml',
+    # ── Log Files ──
+    '/logs', '/log', '/debug.log', '/error.log', '/access.log',
+    '/application.log', '/server.log',
+    # ── Source & IDE Artifacts ──
+    '/.idea', '/.vscode', '/.project', '/.classpath',
+    '/.editorconfig', '/tsconfig.json', '/webpack.config.js',
+    # ── Terraform / Cloud Config ──
+    '/terraform.tfstate', '/terraform.tfvars',
+    '/.aws/credentials', '/.kube/config',
+    '/credentials.json', '/service-account.json',
 ]
 
 

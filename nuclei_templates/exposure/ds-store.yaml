@@ -1,0 +1,24 @@
+id: ds-store-exposure
+info:
+  name: macOS .DS_Store File Exposure
+  author: atomic-framework
+  severity: low
+  description: Detects exposed .DS_Store files that can reveal directory listing information on macOS-hosted sites.
+  tags: config,exposure,macos
+  classification:
+    cwe-id: CWE-538
+
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}/.DS_Store"
+
+    matchers-condition: and
+    matchers:
+      - type: binary
+        binary:
+          - "0000000142756431"  # Bud1 magic bytes
+
+      - type: status
+        status:
+          - 200

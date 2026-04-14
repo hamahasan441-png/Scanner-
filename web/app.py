@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ATOMIC FRAMEWORK v9.0 - ULTIMATE EDITION
+ATOMIC FRAMEWORK v10.0 - ULTIMATE EDITION
 Flask Web Dashboard
 """
 import os
@@ -58,6 +58,7 @@ if SOCKETIO_AVAILABLE:
 
 _active_scans = {}
 _scans_lock = threading.Lock()
+_MAX_COMPLETED_SCANS = 200  # Purge oldest completed scans beyond this limit
 
 # ---------------------------------------------------------------------------
 # In-memory chat store for team collaboration on the dashboard
@@ -261,6 +262,24 @@ def _run_scan(scan_id, target, config):
             _active_scans[scan_id]['error'] = str(exc)
             _active_scans[scan_id]['end_time'] = datetime.now(timezone.utc).isoformat()
         _emit_ws('scan_failed', {'scan_id': scan_id})
+    finally:
+        _purge_completed_scans()
+
+
+def _purge_completed_scans():
+    """Remove oldest completed/failed scans when the in-memory dict exceeds the limit."""
+    with _scans_lock:
+        done = [
+            (sid, s) for sid, s in _active_scans.items()
+            if s.get('status') in ('completed', 'failed')
+        ]
+        if len(done) <= _MAX_COMPLETED_SCANS:
+            return
+        # Sort by end_time ascending; remove oldest entries first
+        done.sort(key=lambda x: x[1].get('end_time') or '1970-01-01T00:00:00')
+        to_remove = len(done) - _MAX_COMPLETED_SCANS
+        for sid, _ in done[:to_remove]:
+            _active_scans.pop(sid, None)
 
 
 # ---------------------------------------------------------------------------
@@ -282,6 +301,7 @@ def list_scans():
     if db is None:
         return jsonify({'status': 'error', 'data': 'Database unavailable'}), 503
 
+    session = None
     try:
         session = db.Session()
         scans = session.query(ScanModel).order_by(ScanModel.start_time.desc()).all()
@@ -296,10 +316,13 @@ def list_scans():
                 'findings_count': s.findings_count,
                 'total_requests': s.total_requests,
             })
-        session.close()
         return jsonify({'status': 'success', 'data': data})
     except Exception as exc:
-        return jsonify({'status': 'error', 'data': str(exc)}), 500
+        logger.exception("list_scans failed")
+        return jsonify({'status': 'error', 'data': 'Database error'}), 500
+    finally:
+        if session:
+            session.close()
 
 
 @app.route('/api/scan/<scan_id>', methods=['GET'])
@@ -307,15 +330,17 @@ def list_scans():
 @_rate_limit
 def get_scan(scan_id):
     """Return details and findings for a specific scan."""
+    if not _SAFE_SCAN_ID.match(scan_id):
+        return jsonify({'status': 'error', 'data': 'Invalid scan ID'}), 400
     db = _get_db()
     if db is None:
         return jsonify({'status': 'error', 'data': 'Database unavailable'}), 503
 
+    session = None
     try:
         session = db.Session()
         scan = session.query(ScanModel).filter_by(scan_id=scan_id).first()
         if not scan:
-            session.close()
             return jsonify({'status': 'error', 'data': 'Scan not found'}), 404
 
         findings = session.query(FindingModel).filter_by(scan_id=scan_id).all()
@@ -345,10 +370,13 @@ def get_scan(scan_id):
             'total_requests': scan.total_requests,
             'findings': findings_data,
         }
-        session.close()
         return jsonify({'status': 'success', 'data': data})
     except Exception as exc:
-        return jsonify({'status': 'error', 'data': str(exc)}), 500
+        logger.exception("get_scan failed for %s", scan_id)
+        return jsonify({'status': 'error', 'data': 'Database error'}), 500
+    finally:
+        if session:
+            session.close()
 
 
 @app.route('/api/scan', methods=['POST'])
@@ -473,6 +501,8 @@ def scan_status(scan_id):
     engine (phase, events, attack routes).  The internal ``engine`` reference
     is never serialised into the JSON response.
     """
+    if not _SAFE_SCAN_ID.match(scan_id):
+        return jsonify({'status': 'error', 'data': 'Invalid scan ID'}), 400
     with _scans_lock:
         scan_data = _active_scans.get(scan_id)
         if scan_data is not None:
@@ -489,18 +519,21 @@ def scan_status(scan_id):
 
     db = _get_db()
     if db is not None:
+        session = None
         try:
             session = db.Session()
             scan = session.query(ScanModel).filter_by(scan_id=scan_id).first()
-            session.close()
             if scan:
                 return jsonify({
                     'status': 'success',
                     'data': {'status': 'completed', 'target': scan.target,
                              'findings': scan.findings_count},
                 })
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("scan_status DB lookup failed: %s", exc)
+        finally:
+            if session:
+                session.close()
 
     return jsonify({'status': 'error', 'data': 'Scan not found'}), 404
 
@@ -510,26 +543,31 @@ def scan_status(scan_id):
 @_rate_limit
 def delete_scan(scan_id):
     """Delete a scan and its findings from the database."""
+    if not _SAFE_SCAN_ID.match(scan_id):
+        return jsonify({'status': 'error', 'data': 'Invalid scan ID'}), 400
     db = _get_db()
     if db is None:
         return jsonify({'status': 'error', 'data': 'Database unavailable'}), 503
 
+    session = None
     try:
         session = db.Session()
         scan = session.query(ScanModel).filter_by(scan_id=scan_id).first()
         if not scan:
-            session.close()
             return jsonify({'status': 'error', 'data': 'Scan not found'}), 404
 
         session.query(FindingModel).filter_by(scan_id=scan_id).delete()
         session.delete(scan)
         session.commit()
-        session.close()
 
         _active_scans.pop(scan_id, None)
         return jsonify({'status': 'success', 'data': 'Scan deleted'})
     except Exception as exc:
-        return jsonify({'status': 'error', 'data': str(exc)}), 500
+        logger.exception("delete_scan failed for %s", scan_id)
+        return jsonify({'status': 'error', 'data': 'Database error'}), 500
+    finally:
+        if session:
+            session.close()
 
 
 @app.route('/api/findings/<scan_id>', methods=['GET'])
@@ -537,10 +575,13 @@ def delete_scan(scan_id):
 @_rate_limit
 def get_findings(scan_id):
     """Return all findings for a given scan."""
+    if not _SAFE_SCAN_ID.match(scan_id):
+        return jsonify({'status': 'error', 'data': 'Invalid scan ID'}), 400
     db = _get_db()
     if db is None:
         return jsonify({'status': 'error', 'data': 'Database unavailable'}), 503
 
+    session = None
     try:
         session = db.Session()
         findings = session.query(FindingModel).filter_by(scan_id=scan_id).all()
@@ -560,10 +601,13 @@ def get_findings(scan_id):
                 'cvss': f.cvss,
                 'extracted_data': f.extracted_data,
             })
-        session.close()
         return jsonify({'status': 'success', 'data': data})
     except Exception as exc:
-        return jsonify({'status': 'error', 'data': str(exc)}), 500
+        logger.exception("get_findings failed for %s", scan_id)
+        return jsonify({'status': 'error', 'data': 'Database error'}), 500
+    finally:
+        if session:
+            session.close()
 
 
 @app.route('/api/report/<scan_id>/<fmt>', methods=['GET'])
@@ -697,15 +741,17 @@ def run_post_exploit(scan_id):
     Reads findings from the database, instantiates the PostExploitEngine,
     and returns the exploitation results.
     """
+    if not _SAFE_SCAN_ID.match(scan_id):
+        return jsonify({'status': 'error', 'data': 'Invalid scan ID'}), 400
     scan_info = _active_scans.get(scan_id)
     if scan_info is None:
         return jsonify({'status': 'error',
-                        'message': 'Scan not found or not active'}), 404
+                        'data': 'Scan not found or not active'}), 404
 
     engine = scan_info.get('engine')
     if engine is None or not engine.findings:
         return jsonify({'status': 'error',
-                        'message': 'No confirmed findings to exploit'}), 400
+                        'data': 'No confirmed findings to exploit'}), 400
 
     try:
         from core.post_exploit import PostExploitEngine
@@ -716,7 +762,7 @@ def run_post_exploit(scan_id):
     except Exception as exc:
         logger.error('Post-exploitation error: %s', exc)
         return jsonify({'status': 'error',
-                        'message': 'Post-exploitation failed'}), 500
+                        'data': 'Post-exploitation failed'}), 500
 
 
 @app.route('/api/stats', methods=['GET'])
@@ -739,6 +785,7 @@ def get_stats():
     }
 
     if db is not None:
+        session = None
         try:
             session = db.Session()
             stats['total_scans'] = session.query(ScanModel).count()
@@ -750,9 +797,11 @@ def get_stats():
                     .count()
                 )
                 stats[severity.lower()] = count
-            session.close()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("get_stats DB error: %s", exc)
+        finally:
+            if session:
+                session.close()
 
     return jsonify({'status': 'success', 'data': stats})
 
@@ -2487,6 +2536,246 @@ if SOCKETIO_AVAILABLE and socketio is not None:
             return
         msg = _create_chat_message(data.get('sender', 'Anonymous'), text)
         emit('chat_message', msg, broadcast=True)
+
+
+# ---------------------------------------------------------------------------
+# Discovery Wordlist & Nuclei Templates APIs
+# ---------------------------------------------------------------------------
+
+@app.route('/api/discovery/paths', methods=['GET'])
+@_require_api_key
+def get_discovery_paths():
+    """Return the ULTIMATE discovery wordlist grouped by category."""
+    from config import Payloads
+    paths = list(Payloads.DISCOVERY_PATHS_EXTENDED)
+    # Group by category based on path patterns
+    categories = {
+        'Environment / Config': [],
+        'Version Control / CI-CD': [],
+        'Dependency / Build': [],
+        'Backup / Archive': [],
+        'Admin / Sensitive': [],
+        'API / Data Endpoints': [],
+        'Debug / Info': [],
+        'Log Files': [],
+        'Upload / File Handling': [],
+        'Framework-Specific': [],
+        'Hidden Artifacts': [],
+        'Certificates / Secrets': [],
+        'Source Maps': [],
+        'Well-Known URIs': [],
+        'Other': [],
+    }
+    for p in paths:
+        if any(k in p for k in ['.env', 'config', 'settings', 'htaccess',
+                                  'htpasswd', 'nginx', 'php.ini', 'robots.txt',
+                                  'sitemap', 'crossdomain', 'security.txt',
+                                  'application.properties', 'appsettings']):
+            categories['Environment / Config'].append(p)
+        elif any(k in p for k in ['.git', '.svn', '.hg', '.bzr', '.cvs',
+                                   'github', 'gitlab', 'jenkins', 'circleci',
+                                   'travis', 'drone', 'Dockerfile', 'docker-',
+                                   'Vagrant', 'Procfile', 'Makefile', 'bitbucket']):
+            categories['Version Control / CI-CD'].append(p)
+        elif any(k in p for k in ['package.json', 'yarn.lock', 'composer',
+                                   'Gemfile', 'requirements', 'Pipfile',
+                                   'go.mod', 'Cargo', 'pom.xml', 'gradle',
+                                   'setup.py', 'pyproject', 'mix.exs',
+                                   'CMakeLists']):
+            categories['Dependency / Build'].append(p)
+        elif any(k in p for k in ['.bak', '.zip', '.tar', '.sql', '.dump',
+                                   '.sqlite', '.7z', '.rar', 'backup',
+                                   'archive', '/old/', '/bak/', '/copy/',
+                                   '.psql', 'data.dump']):
+            categories['Backup / Archive'].append(p)
+        elif any(k in p for k in ['/admin', 'phpmyadmin', '/pma/', '/console',
+                                   'cpanel', 'webmail', 'webadmin', 'adminer',
+                                   'server-status', 'server-info', 'phpinfo',
+                                   'wp-admin', 'wp-login']):
+            categories['Admin / Sensitive'].append(p)
+        elif any(k in p for k in ['/api/', 'swagger', 'openapi', 'graphql',
+                                   'graphiql', 'webhook', 'callback',
+                                   'api-docs', '/rest/', '/rpc/', '/soap/',
+                                   'xmlrpc']):
+            categories['API / Data Endpoints'].append(p)
+        elif any(k in p for k in ['actuator', 'debug', '_debug', 'trace',
+                                   'metrics', 'status', 'health', 'monitor',
+                                   'profiler', '_wdt', 'elmah']):
+            categories['Debug / Info'].append(p)
+        elif any(k in p for k in ['.log', '/log/', '/logs/', 'laravel.log',
+                                   'catalina', 'error_log', 'access_log',
+                                   'stacktrace', 'syslog']):
+            categories['Log Files'].append(p)
+        elif any(k in p for k in ['/upload', '/files/', '/download',
+                                   '/media/', '/userfiles', '/attachments',
+                                   '/documents', '/import/', '/export/']):
+            categories['Upload / File Handling'].append(p)
+        elif any(k in p for k in ['wp-content', 'wp-json', 'wp-cron',
+                                   'wp-includes', 'wp-links', 'xmlrpc.php',
+                                   'readme.html', '/storage/', 'bootstrap/cache',
+                                   'artisan', 'ide_helper', 'public/assets',
+                                   'config/database', 'config/secrets',
+                                   'config/master', 'App_Data', 'App_Code',
+                                   'WEB-INF', 'META-INF', 'Global.asax',
+                                   '__pycache__']):
+            categories['Framework-Specific'].append(p)
+        elif any(k in p for k in ['.DS_Store', 'Thumbs.db', '.idea/',
+                                   '.vscode/', '.project', '.classpath',
+                                   '.editorconfig', '.prettierrc', '.eslintrc',
+                                   'tsconfig', 'webpack', '.npmrc']):
+            categories['Hidden Artifacts'].append(p)
+        elif any(k in p for k in ['.key', '.pem', '.crt', 'id_rsa',
+                                   'id_dsa', 'id_ecdsa', 'id_ed25519',
+                                   '.ssh/', '.aws/', 'credentials',
+                                   'service-account', 'terraform',
+                                   '.kube/', 'vault.json', 'secrets.json',
+                                   'tokens.json']):
+            categories['Certificates / Secrets'].append(p)
+        elif '.map' in p and 'sitemap' not in p:
+            categories['Source Maps'].append(p)
+        elif '.well-known' in p:
+            categories['Well-Known URIs'].append(p)
+        else:
+            categories['Other'].append(p)
+
+    # Remove empty categories
+    categories = {k: v for k, v in categories.items() if v}
+    return jsonify({
+        'status': 'success',
+        'data': {
+            'total': len(paths),
+            'categories': categories,
+        },
+    })
+
+
+@app.route('/api/discovery/extensions', methods=['GET'])
+@_require_api_key
+def get_discovery_extensions():
+    """Return the DISCOVERY_EXTENSIONS file extension list grouped by type."""
+    from config import Payloads
+    extensions = list(Payloads.DISCOVERY_EXTENSIONS)
+    groups = {
+        'Active Content': [e for e in extensions if e in (
+            '.html', '.htm', '.xhtml', '.shtml', '.php', '.php3', '.php4',
+            '.php5', '.php7', '.phtml', '.phar', '.asp', '.aspx', '.ascx',
+            '.ashx', '.asmx', '.axd', '.jsp', '.jspx', '.jhtml', '.jspf',
+            '.do', '.action', '.jsf', '.cfm', '.cfml', '.cfc', '.pl',
+            '.cgi', '.pm', '.py', '.rb', '.go', '.ts')],
+        'Client-Side': [e for e in extensions if e in (
+            '.js', '.mjs', '.cjs', '.map', '.vue', '.jsx', '.tsx',
+            '.css', '.scss', '.less')],
+        'Backup': [e for e in extensions if e in (
+            '.bak', '.backup', '.old', '.orig', '.copy', '.sav',
+            '.swp', '.swo')],
+        'Archives': [e for e in extensions if e in (
+            '.zip', '.tar', '.tar.gz', '.tgz', '.7z', '.rar', '.gz',
+            '.bz2')],
+        'Database': [e for e in extensions if e in (
+            '.sql', '.dump', '.psql', '.db', '.sqlite', '.sqlite3', '.rdb')],
+        'Config': [e for e in extensions if e in (
+            '.yml', '.yaml', '.toml', '.ini', '.cfg', '.conf',
+            '.properties', '.env', '.json', '.xml')],
+        'Log': [e for e in extensions if e in ('.log',)],
+        'Keys & Certs': [e for e in extensions if e in (
+            '.key', '.pem', '.crt', '.cer', '.pfx', '.p12', '.ppk')],
+        'Scripts': [e for e in extensions if e in (
+            '.sh', '.bash', '.ps1', '.bat', '.cmd')],
+    }
+    groups = {k: v for k, v in groups.items() if v}
+    return jsonify({
+        'status': 'success',
+        'data': {
+            'total': len(extensions),
+            'groups': groups,
+        },
+    })
+
+
+@app.route('/api/nuclei/templates', methods=['GET'])
+@_require_api_key
+def list_nuclei_templates():
+    """List all built-in Nuclei templates with metadata."""
+    import yaml
+    templates_dir = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        'nuclei_templates',
+    )
+    templates = []
+    if os.path.isdir(templates_dir):
+        for root, _dirs, files in os.walk(templates_dir):
+            for fname in sorted(files):
+                if not fname.endswith(('.yaml', '.yml')):
+                    continue
+                fpath = os.path.join(root, fname)
+                rel = os.path.relpath(fpath, templates_dir)
+                category = os.path.dirname(rel) or 'uncategorized'
+                try:
+                    with open(fpath, 'r') as fh:
+                        data = yaml.safe_load(fh)
+                    info = data.get('info', {})
+                    templates.append({
+                        'id': data.get('id', fname),
+                        'name': info.get('name', fname),
+                        'severity': info.get('severity', 'unknown'),
+                        'author': info.get('author', 'unknown'),
+                        'description': info.get('description', ''),
+                        'tags': info.get('tags', ''),
+                        'category': category,
+                        'path': rel,
+                        'cwe': info.get('classification', {}).get('cwe-id', ''),
+                        'cvss_score': info.get('classification', {}).get('cvss-score', ''),
+                    })
+                except Exception:
+                    templates.append({
+                        'id': fname, 'name': fname, 'severity': 'unknown',
+                        'author': '', 'description': '', 'tags': '',
+                        'category': category, 'path': rel,
+                        'cwe': '', 'cvss_score': '',
+                    })
+
+    # Group by category
+    by_category = {}
+    for t in templates:
+        cat = t['category']
+        if cat not in by_category:
+            by_category[cat] = []
+        by_category[cat].append(t)
+
+    return jsonify({
+        'status': 'success',
+        'data': {
+            'total': len(templates),
+            'templates': templates,
+            'by_category': by_category,
+        },
+    })
+
+
+@app.route('/api/nuclei/template/<path:template_path>', methods=['GET'])
+@_require_api_key
+def get_nuclei_template(template_path):
+    """Return raw YAML content of a specific Nuclei template."""
+    templates_dir = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        'nuclei_templates',
+    )
+    # Prevent directory traversal
+    safe_path = os.path.normpath(template_path)
+    if '..' in safe_path or safe_path.startswith('/'):
+        return jsonify({'status': 'error', 'data': 'Invalid path'}), 400
+    full_path = os.path.join(templates_dir, safe_path)
+    if not full_path.startswith(templates_dir):
+        return jsonify({'status': 'error', 'data': 'Invalid path'}), 400
+    if not os.path.isfile(full_path):
+        return jsonify({'status': 'error', 'data': 'Template not found'}), 404
+    try:
+        with open(full_path, 'r') as fh:
+            content = fh.read()
+        return jsonify({'status': 'success', 'data': {'path': safe_path, 'content': content}})
+    except Exception as e:
+        logger.error("Failed to read nuclei template %s: %s", safe_path, e)
+        return jsonify({'status': 'error', 'data': 'Failed to read template'}), 500
 
 
 # ---------------------------------------------------------------------------

@@ -1,0 +1,42 @@
+id: wordpress-xmlrpc
+info:
+  name: WordPress XML-RPC Enabled
+  author: atomic-framework
+  severity: medium
+  description: Detects enabled WordPress XML-RPC interface that can be abused for brute-force attacks and DDoS amplification.
+  tags: wordpress,xmlrpc,misconfig
+  classification:
+    cwe-id: CWE-16
+
+http:
+  - method: POST
+    path:
+      - "{{BaseURL}}/xmlrpc.php"
+
+    headers:
+      Content-Type: "text/xml"
+
+    body: |
+      <?xml version="1.0" encoding="utf-8"?>
+      <methodCall>
+        <methodName>system.listMethods</methodName>
+        <params></params>
+      </methodCall>
+
+    matchers-condition: and
+    matchers:
+      - type: word
+        words:
+          - "wp.getUsersBlogs"
+          - "system.listMethods"
+          - "pingback.ping"
+        condition: or
+
+      - type: status
+        status:
+          - 200
+
+      - type: word
+        part: header
+        words:
+          - "text/xml"

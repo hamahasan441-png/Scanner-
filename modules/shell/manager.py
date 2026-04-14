@@ -56,7 +56,8 @@ class ShellManager:
         
         shell_url = shell["url"]
         print(f"\n{Colors.success(f'Connected to {shell_url}')}")
-        print(f"{Colors.info('Type "exit" to quit, "help" for commands')}\n")
+        help_msg = 'Type "exit" to quit, "help" for commands'
+        print(f"{Colors.info(help_msg)}\n")
         
         while True:
             try:

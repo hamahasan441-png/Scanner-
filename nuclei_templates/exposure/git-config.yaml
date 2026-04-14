@@ -1,0 +1,35 @@
+id: git-config-exposure
+info:
+  name: Git Config Exposure
+  author: atomic-framework
+  severity: high
+  description: Detects exposed .git/config files that can reveal repository details, remote URLs, and potentially credentials.
+  tags: config,git,exposure
+  classification:
+    cwe-id: CWE-538
+    cvss-metrics: CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N
+    cvss-score: 7.5
+
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}/.git/config"
+
+    matchers-condition: and
+    matchers:
+      - type: word
+        words:
+          - "[core]"
+          - "[remote"
+        condition: or
+
+      - type: status
+        status:
+          - 200
+
+      - type: word
+        part: header
+        words:
+          - "text/plain"
+          - "application/octet-stream"
+        condition: or

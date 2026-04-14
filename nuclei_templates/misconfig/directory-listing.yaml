@@ -1,0 +1,38 @@
+id: directory-listing
+info:
+  name: Directory Listing Enabled
+  author: atomic-framework
+  severity: medium
+  description: Detects web servers with directory listing enabled, exposing file names and directory structure.
+  tags: misconfig,listing,exposure
+  classification:
+    cwe-id: CWE-548
+    cvss-metrics: CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N
+    cvss-score: 5.3
+
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}/images/"
+      - "{{BaseURL}}/uploads/"
+      - "{{BaseURL}}/assets/"
+      - "{{BaseURL}}/static/"
+      - "{{BaseURL}}/media/"
+      - "{{BaseURL}}/files/"
+      - "{{BaseURL}}/backup/"
+      - "{{BaseURL}}/tmp/"
+
+    stop-at-first-match: true
+    matchers-condition: and
+    matchers:
+      - type: word
+        words:
+          - "Index of /"
+          - "Directory listing for"
+          - "<title>Index of"
+          - "Parent Directory"
+        condition: or
+
+      - type: status
+        status:
+          - 200
