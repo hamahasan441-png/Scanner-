@@ -1127,6 +1127,7 @@ class AtomicEngine:
             'total_findings': len(self.findings),
             'total_requests': self.requester.total_requests,
             'exploit_results': len(self.post_exploit_results) if self.post_exploit_results else 0,
+            'metrics': self.requester.metrics.summary() if hasattr(self.requester, 'metrics') else {},
         }
         self.pipeline['phase'] = 'done'
         self.emit_pipeline_event('phase_end', {'phase': 'collect'})
@@ -1293,6 +1294,20 @@ class AtomicEngine:
             print(f"    Evasion level: {persist_summary['current_evasion']}")
             if persist_summary['exhausted'] > 0:
                 print(f"    Exhausted: {persist_summary['exhausted']}")
+
+        # Performance metrics from requester
+        if hasattr(self.requester, 'metrics'):
+            m = self.requester.metrics.summary()
+            print(f"\n  {Colors.CYAN}Performance Metrics:{Colors.RESET}")
+            print(f"    Throughput:     {m['requests_per_second']} req/s")
+            print(f"    Avg Response:   {m['avg_response_time_ms']}ms")
+            if m['cache_hits'] + m['cache_misses'] > 0:
+                print(f"    Cache Hit Rate: {m['cache_hit_rate']}%"
+                      f" ({m['cache_hits']} hits / {m['cache_misses']} misses)")
+            if m['rate_limited'] > 0:
+                print(f"    Rate Limited:   {m['rate_limited']} requests")
+            if m['failed'] > 0:
+                print(f"    Failed:         {m['failed']} requests")
 
         print(f"{Colors.BOLD}{'='*60}{Colors.RESET}")
 

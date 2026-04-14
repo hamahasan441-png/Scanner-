@@ -105,6 +105,10 @@ def main():
                        help='Ultimate scan: enable every module, recon, exploitation, '
                             'network scanning, and post-exploitation for complete '
                             'point-to-point coverage')
+    parser.add_argument('--turbo', action='store_true',
+                       help='Maximum parallelism mode: parallel baseline capture, '
+                            'concurrent worker dispatch, and aggressive threading '
+                            'for fastest possible scan speed')
     parser.add_argument('--sqli', action='store_true',
                        help='Enable SQL Injection module')
     parser.add_argument('--xss', action='store_true',
@@ -844,6 +848,7 @@ def main():
         'output_dir': args.output or Config.REPORTS_DIR,
         'rules_path': getattr(args, 'rules', None),
         'strict_scope': getattr(args, 'strict_scope', False),
+        'turbo': getattr(args, 'turbo', False),
     }
 
     # --point-to-point enables absolutely everything for complete coverage
