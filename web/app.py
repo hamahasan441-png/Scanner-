@@ -2725,7 +2725,8 @@ def get_nuclei_template(template_path):
             content = fh.read()
         return jsonify({'status': 'success', 'data': {'path': safe_path, 'content': content}})
     except Exception as e:
-        return jsonify({'status': 'error', 'data': str(e)}), 500
+        logger.error("Failed to read nuclei template %s: %s", safe_path, e)
+        return jsonify({'status': 'error', 'data': 'Failed to read template'}), 500
 
 
 # ---------------------------------------------------------------------------

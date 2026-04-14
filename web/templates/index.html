@@ -4079,7 +4079,7 @@
                 if (t.cvss_score) html += '<span>CVSS: ' + esc(String(t.cvss_score)) + '</span>';
                 if (t.tags) html += '<span>Tags: ' + esc(t.tags) + '</span>';
                 html += '</div>';
-                html += '<button class="btn btn-sm" style="margin-top:0.4rem;background:var(--bg-card);border:1px solid var(--border);" onclick="window._viewNucleiTemplate(\'' + esc(t.path).replace(/'/g,"\\'") + '\',\'' + esc(t.name).replace(/'/g,"\\'") + '\')">📜 View YAML</button>';
+                html += '<button class="btn btn-sm nuclei-view-btn" style="margin-top:0.4rem;background:var(--bg-card);border:1px solid var(--border);" data-tpl-path="' + esc(t.path) + '" data-tpl-name="' + esc(t.name) + '">📜 View YAML</button>';
                 html += '</div>';
             });
             html += '</div></div>';
@@ -4100,6 +4100,14 @@
             alert('Error loading template: ' + e.message);
         }
     };
+
+    /* Delegated click handler for nuclei template view buttons */
+    document.getElementById('nuclei-templates-content').addEventListener('click', function(e) {
+        var btn = e.target.closest('.nuclei-view-btn');
+        if (btn) {
+            window._viewNucleiTemplate(btn.getAttribute('data-tpl-path'), btn.getAttribute('data-tpl-name'));
+        }
+    });
 
     window._nucleiFilterSeverity = function(sev) {
         _nucleiSeverityFilter = sev;
