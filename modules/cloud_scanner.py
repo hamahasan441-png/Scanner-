@@ -160,7 +160,7 @@ CLOUD_SECRET_PATTERNS = {
     'gcp_api_key': r'AIza[0-9A-Za-z_-]{35}',
     'docker_auth': r'"auth"\s*:\s*"[A-Za-z0-9+/=]+"',
     'k8s_token': r'eyJhbGciOiJSUzI1NiIs[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+',
-    'private_key': r'-----BEGIN (RSA |EC |DSA )?PRIVATE KEY-----',
+    'private_key': r'-----BEGIN (RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----',
 }
 
 
@@ -346,17 +346,17 @@ class CloudScannerModule:
             evidence = ''
 
             if provider == 's3':
-                if '<ListBucketResult' in text or '<Contents>' in text:
+                if '<ListBucketResult' in text and '<Contents>' in text:
                     is_public = True
                     evidence = 'S3 bucket listing enabled (ListBucketResult)'
                 elif 'AccessDenied' in text:
                     # Bucket exists but is private — informational
                     return
             elif provider == 'gcs':
-                if '"kind": "storage#objects"' in text or '<ListBucketResult' in text:
+                if '"kind": "storage#objects"' in text or ('<ListBucketResult' in text and '<Contents>' in text):
                     is_public = True
                     evidence = 'GCS bucket listing enabled'
-                elif 'AccessDenied' in text or 'access' in text.lower():
+                elif 'AccessDenied' in text or 'access denied' in text.lower():
                     return
 
             if is_public:
@@ -380,7 +380,7 @@ class CloudScannerModule:
             if match:
                 # Mask the actual secret in evidence
                 matched_text = match.group(0)
-                masked = matched_text[:8] + '...' + matched_text[-4:] if len(matched_text) > 16 else matched_text[:4] + '...'
+                masked = matched_text[:8] + '...' + matched_text[-4:] if len(matched_text) > 16 else matched_text[:min(4, len(matched_text))] + '...'
 
                 from core.engine import Finding
                 finding = Finding(

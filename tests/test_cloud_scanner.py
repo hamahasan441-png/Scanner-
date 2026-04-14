@@ -585,6 +585,13 @@ class TestScanTextForSecrets(unittest.TestCase):
         mod._scan_text_for_secrets('-----BEGIN EC PRIVATE KEY-----\ndata', 'http://t.com/')
         self.assertEqual(len(engine.findings), 1)
 
+    def test_openssh_private_key(self):
+        from modules.cloud_scanner import CloudScannerModule
+        engine = _MockEngine()
+        mod = CloudScannerModule(engine)
+        mod._scan_text_for_secrets('-----BEGIN OPENSSH PRIVATE KEY-----\ndata', 'http://t.com/')
+        self.assertEqual(len(engine.findings), 1)
+
     def test_no_secret_no_finding(self):
         from modules.cloud_scanner import CloudScannerModule
         engine = _MockEngine()
