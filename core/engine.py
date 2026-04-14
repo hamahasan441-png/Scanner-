@@ -43,6 +43,7 @@ REMEDIATION_MAP = {
     'rfi': 'Disable remote file inclusion (allow_url_include=Off). Whitelist allowed paths.',
     'command injection': 'Avoid passing user input to OS commands. Use safe API alternatives and input validation.',
     'ssrf': 'Validate and whitelist URLs. Block internal/metadata IP ranges at the network level.',
+    'cloud': 'Restrict cloud storage bucket permissions. Disable IMDS or enforce IMDSv2. Rotate exposed credentials immediately.',
     'ssti': 'Use a sandboxed template engine. Never pass user input directly into templates.',
     'xxe': 'Disable external entity processing in XML parsers. Use JSON where possible.',
     'idor': 'Implement proper authorization checks per object. Use indirect references.',
@@ -257,6 +258,7 @@ class AtomicEngine:
             'deserialization': ('modules.deserialization', 'DeserializationModule'),
             'osint': ('modules.osint', 'OSINTModule'),
             'fuzzer': ('modules.fuzzer', 'FuzzerModule'),
+            'cloud_scan': ('modules.cloud_scanner', 'CloudScannerModule'),
         }
 
         modules_config = self.config.get('modules', {})

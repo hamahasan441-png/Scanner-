@@ -145,6 +145,8 @@ def main():
                        help='Enable WebSocket injection detection')
     parser.add_argument('--deser', action='store_true',
                        help='Enable deserialization vulnerability detection')
+    parser.add_argument('--cloud-scan', action='store_true',
+                       help='Enable cloud security scanning (S3 buckets, metadata, IAM, Kubernetes)')
     parser.add_argument('--osint', action='store_true',
                        help='Enable OSINT reconnaissance')
     parser.add_argument('--fuzz', action='store_true',
@@ -869,6 +871,7 @@ def main():
         'race_condition': getattr(args, 'race', False) or args.full or p2p,
         'websocket': getattr(args, 'websocket', False) or args.full or p2p,
         'deserialization': getattr(args, 'deser', False) or args.full or p2p,
+        'cloud_scan': getattr(args, 'cloud_scan', False) or args.full or p2p,
         'osint': getattr(args, 'osint', False) or args.full or p2p,
         'fuzzer': getattr(args, 'fuzz', False) or args.full or p2p,
         'sqlmap': getattr(args, 'sqlmap', False) or p2p,
