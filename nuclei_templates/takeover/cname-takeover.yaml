@@ -1,0 +1,83 @@
+id: cname-takeover
+info:
+  name: Subdomain Takeover via CNAME
+  author: atomic-framework
+  severity: critical
+  description: Detects potential subdomain takeover opportunities where CNAME records point to unclaimed cloud services.
+  tags: takeover,dns,subdomain
+  classification:
+    cwe-id: CWE-672
+    cvss-metrics: CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:N
+    cvss-score: 10.0
+
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}"
+
+    matchers-condition: or
+    matchers:
+      # GitHub Pages
+      - type: word
+        words:
+          - "There isn't a GitHub Pages site here."
+
+      # Heroku
+      - type: word
+        words:
+          - "No such app"
+          - "herokucdn.com/error-pages"
+        condition: and
+
+      # AWS S3
+      - type: word
+        words:
+          - "NoSuchBucket"
+
+      # Azure
+      - type: word
+        words:
+          - "404 Web Site not found"
+          - "azure"
+        condition: and
+
+      # Shopify
+      - type: word
+        words:
+          - "Sorry, this shop is currently unavailable."
+
+      # Fastly
+      - type: word
+        words:
+          - "Fastly error: unknown domain"
+
+      # Pantheon
+      - type: word
+        words:
+          - "404 error unknown site!"
+
+      # Tumblr
+      - type: word
+        words:
+          - "Whatever you were looking for doesn't currently exist at this address."
+
+      # WordPress.com
+      - type: word
+        words:
+          - "Do you want to register"
+          - "wordpress.com"
+        condition: and
+
+      # Surge.sh
+      - type: word
+        words:
+          - "project not found"
+          - "surge"
+        condition: and
+
+      # Fly.io
+      - type: word
+        words:
+          - "404 Not Found"
+          - "fly.io"
+        condition: and

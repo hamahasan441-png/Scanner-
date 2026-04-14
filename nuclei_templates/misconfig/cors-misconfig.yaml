@@ -1,0 +1,31 @@
+id: cors-misconfiguration
+info:
+  name: CORS Misconfiguration
+  author: atomic-framework
+  severity: high
+  description: Detects CORS misconfigurations that allow arbitrary origins, enabling cross-origin data theft.
+  tags: cors,misconfig,vulnerability
+  classification:
+    cwe-id: CWE-942
+    cvss-metrics: CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:H/I:H/A:N
+    cvss-score: 8.1
+
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}"
+
+    headers:
+      Origin: "https://evil.com"
+
+    matchers-condition: and
+    matchers:
+      - type: word
+        part: header
+        words:
+          - "evil.com"
+
+      - type: word
+        part: header
+        words:
+          - "Access-Control-Allow-Credentials: true"

@@ -758,72 +758,255 @@ class Payloads:
     }
 
     # --- Content Discovery Paths (from SecLists/dirsearch/gobuster) ---
+    # ULTIMATE discovery wordlist covering: environment files, config files,
+    # VCS artifacts, CI/CD, backups, admin panels, API docs, debug endpoints,
+    # framework-specific paths, log files, upload dirs, and hidden artifacts.
     DISCOVERY_PATHS_EXTENDED = [
-        # Environment / config leak
+        # ── 1. Environment / Configuration Files ──
         '/.env', '/.env.bak', '/.env.local', '/.env.production',
-        '/.env.development', '/.env.staging',
+        '/.env.development', '/.env.staging', '/.env.test',
+        '/.env.old', '/.env.save', '/.env.dist', '/.env.example',
         '/config.yml', '/config.yaml', '/config.json', '/config.xml',
-        '/config.php.bak', '/config.inc', '/configuration.php',
-        '/settings.py', '/local_settings.py',
-        '/application.properties', '/application.yml',
+        '/config.php', '/config.php.bak', '/config.php~', '/config.php.old',
+        '/config.inc', '/config.inc.php', '/configuration.php',
+        '/settings.py', '/local_settings.py', '/prod_settings.py',
+        '/application.properties', '/application.yml', '/application.yaml',
+        '/runtime.properties',
         '/appsettings.json', '/appsettings.Development.json',
+        '/appsettings.Production.json', '/appsettings.Staging.json',
         '/wp-config.php', '/wp-config.php.bak', '/wp-config.php.old',
-        # VCS leak
-        '/.git/HEAD', '/.git/config', '/.git/index',
-        '/.gitignore', '/.gitattributes',
-        '/.svn/entries', '/.svn/wc.db',
-        '/.hg/hgrc', '/.hg/store',
-        '/.bzr/branch-format',
-        # Docker / Container
+        '/wp-config.php~', '/wp-config.php.orig', '/wp-config.php.save',
+        '/web.config', '/app.config', '/application.config',
+        '/.htaccess', '/.htpasswd', '/.htgroups',
+        '/nginx.conf', '/.htrouter.php', '/php.ini', '/.user.ini',
+        '/robots.txt', '/sitemap.xml', '/sitemap.xml.gz',
+        '/crossdomain.xml', '/clientaccesspolicy.xml',
+        '/security.txt', '/.well-known/security.txt',
+
+        # ── 2. Version Control & CI/CD Artifacts ──
+        '/.git/', '/.git/HEAD', '/.git/config', '/.git/index',
+        '/.git/packed-refs', '/.git/refs/heads/main',
+        '/.git/refs/heads/master', '/.git/refs/stash',
+        '/.git/logs/HEAD', '/.git/COMMIT_EDITMSG',
+        '/.git/description', '/.git/info/exclude',
+        '/.gitignore', '/.gitattributes', '/.gitmodules',
+        '/.svn/', '/.svn/entries', '/.svn/wc.db',
+        '/.hg/', '/.hg/hgrc', '/.hg/store',
+        '/.bzr/', '/.bzr/branch-format',
+        '/.cvs/',
+        '/.github/', '/.github/workflows/',
+        '/.gitlab/', '/.gitlab-ci.yml',
+        '/.azuredevops/',
+        '/Jenkinsfile', '/.jenkins/',
+        '/.circleci/', '/.circleci/config.yml',
+        '/.travis.yml', '/.drone.yml',
+        '/bitbucket-pipelines.yml',
         '/Dockerfile', '/docker-compose.yml', '/docker-compose.yaml',
-        '/.dockerenv',
-        # CI/CD config
-        '/.github/workflows/', '/.gitlab-ci.yml',
-        '/Jenkinsfile', '/.circleci/config.yml',
-        '/.travis.yml',
-        # Dependency files
+        '/docker-compose.override.yml', '/.dockerenv', '/.dockerignore',
+        '/Vagrantfile', '/Procfile', '/Makefile',
+
+        # ── 3. Dependency / Build Files ──
         '/package.json', '/package-lock.json',
-        '/yarn.lock', '/composer.json', '/composer.lock',
+        '/yarn.lock', '/pnpm-lock.yaml',
+        '/composer.json', '/composer.lock',
         '/Gemfile', '/Gemfile.lock',
         '/requirements.txt', '/Pipfile', '/Pipfile.lock',
+        '/poetry.lock', '/pyproject.toml', '/setup.py', '/setup.cfg',
         '/go.mod', '/go.sum',
         '/Cargo.toml', '/Cargo.lock',
-        '/pom.xml', '/build.gradle',
-        # API documentation
-        '/swagger.json', '/swagger.yaml', '/swagger-ui.html',
-        '/openapi.json', '/openapi.yaml',
-        '/api-docs', '/api/docs', '/api/swagger',
+        '/pom.xml', '/build.gradle', '/build.gradle.kts',
+        '/build.xml', '/ivy.xml',
+        '/mix.exs', '/rebar.config',
+        '/Makefile', '/CMakeLists.txt',
+
+        # ── 4. Backup & Archive Files ──
+        '/backup.sql', '/backup.zip', '/backup.tar.gz', '/backup.tar',
+        '/backup.7z', '/backup.rar', '/backup.bak',
+        '/db.sql', '/database.sql', '/dump.sql', '/data.sql',
+        '/db.sqlite', '/db.sqlite3', '/database.db',
+        '/site.tar.gz', '/site.zip', '/www.zip', '/www.tar.gz',
+        '/public.zip', '/html.zip', '/html.tar.gz',
+        '/web.zip', '/app.zip', '/source.zip', '/src.zip',
+        '/old/', '/bak/', '/copy/', '/temp/',
+        '/backup/', '/backups/', '/archive/', '/archives/',
+        '/index.php.bak', '/index.php.old', '/index.php~',
+        '/index.html.bak', '/index.html.old',
+        '/.sql', '/dump.psql', '/data.dump',
+
+        # ── 5. Admin & Sensitive Directories ──
+        '/admin', '/admin/', '/admin/login', '/admin/dashboard',
+        '/administrator/', '/administrator/login',
+        '/manage/', '/manager/', '/manager/html',
+        '/console', '/console/', '/h2-console/',
+        '/dashboard/', '/cp/', '/cpanel/',
+        '/webmail/', '/webadmin/',
+        '/system/', '/monitoring/', '/nagios/',
+        '/phpmyadmin/', '/pma/', '/mysql/', '/adminer/', '/sqladmin/',
+        '/phpinfo.php', '/info.php', '/pi.php', '/test.php',
+        '/server-status', '/server-info',
+        '/wp-admin/', '/wp-login.php',
+
+        # ── 6. API & Data Endpoints ──
+        '/swagger.json', '/swagger.yaml', '/swagger-ui.html', '/swagger-ui/',
+        '/openapi.json', '/openapi.yaml', '/openapi/v3/api-docs',
+        '/api-docs', '/api-docs/', '/api/docs', '/api/swagger',
         '/v1/api-docs', '/v2/api-docs', '/v3/api-docs',
         '/graphql', '/graphiql', '/altair',
-        '/playground', '/__graphql',
-        # Debug / info endpoints
+        '/playground', '/__graphql', '/graphql/console',
+        '/api/', '/rest/', '/soap/', '/rpc/',
+        '/api/health', '/api/status', '/api/version',
+        '/api/v1/', '/api/v2/', '/api/v3/', '/api/latest/',
+        '/json', '/xml', '/rss', '/feed', '/sitemap',
+        '/webhook/', '/callback/', '/notify/', '/event/',
+        '/jsonrpc', '/xmlrpc', '/xmlrpc.php',
+
+        # ── 7. Debug / Info / Actuator Endpoints ──
         '/actuator', '/actuator/env', '/actuator/health',
         '/actuator/info', '/actuator/mappings', '/actuator/beans',
         '/actuator/configprops', '/actuator/trace', '/actuator/heapdump',
-        '/_debug', '/__debug__/', '/debug/pprof/',
-        '/trace', '/metrics', '/stats',
-        '/server-status', '/server-info',
-        '/elmah.axd', '/phpinfo.php',
-        '/info.php', '/test.php', '/pi.php',
-        # Admin & consoles
-        '/admin/', '/admin/login', '/admin/dashboard',
-        '/administrator/', '/manager/html',
-        '/console', '/console/', '/h2-console/',
-        '/system', '/monitoring', '/nagios',
-        # Backup files
-        '/backup.sql', '/backup.zip', '/backup.tar.gz',
-        '/db.sql', '/database.sql', '/dump.sql',
-        '/site.tar.gz', '/www.zip', '/public.zip',
-        '/old/', '/bak/', '/copy/',
-        # Error pages that leak info
-        '/404', '/500', '/error', '/errors/500',
-        '/cgi-bin/', '/cgi-bin/test-cgi',
-        # Well-known paths
+        '/actuator/threaddump', '/actuator/loggers', '/actuator/metrics',
+        '/actuator/scheduledtasks', '/actuator/httptrace',
+        '/actuator/jolokia', '/actuator/auditLog',
+        '/_debug', '/__debug__/', '/debug/', '/debug/pprof/',
+        '/debug/vars', '/debug/requests',
+        '/trace', '/metrics', '/stats', '/status',
+        '/health', '/healthcheck', '/health-check',
+        '/monitor', '/monitoring',
+        '/elmah.axd', '/errorlog.axd',
+        '/_profiler/', '/_wdt/',  # Symfony profiler
+
+        # ── 8. Log Files ──
+        '/logs/', '/log/', '/debug.log', '/error.log', '/access.log',
+        '/audit.log', '/application.log', '/app.log',
+        '/laravel.log', '/storage/logs/laravel.log',
+        '/wordpress.log', '/wp-content/debug.log',
+        '/django.log', '/rails.log',
+        '/server.log', '/catalina.out',
+        '/error_log', '/access_log',
+        '/stacktrace.log', '/trace.log',
+        '/syslog', '/messages',
+
+        # ── 9. Upload & File Handling Directories ──
+        '/upload/', '/uploads/', '/files/', '/download/', '/downloads/',
+        '/media/', '/images/', '/assets/', '/static/',
+        '/userfiles/', '/usercontent/', '/user_uploads/',
+        '/profile_pics/', '/avatars/',
+        '/attachments/', '/documents/', '/reports/', '/invoices/',
+        '/tmp_upload/', '/temp_upload/', '/import/', '/export/',
+
+        # ── 10. WordPress ──
+        '/wp-content/', '/wp-content/plugins/', '/wp-content/themes/',
+        '/wp-content/uploads/', '/wp-includes/',
+        '/wp-config.php.bak', '/wp-config.php~', '/wp-config.old',
+        '/xmlrpc.php', '/wp-cron.php', '/wp-links-opml.php',
+        '/wp-json/', '/wp-json/wp/v2/users',
+        '/wp-json/wp/v2/posts', '/wp-json/wp/v2/pages',
+        '/wp-content/debug.log',
+        '/readme.html', '/license.txt',
+
+        # ── 11. Laravel ──
+        '/storage/', '/storage/framework/', '/storage/logs/',
+        '/storage/logs/laravel.log',
+        '/bootstrap/cache/', '/bootstrap/cache/config.php',
+        '/_ide_helper.php', '/_ide_helper_models.php',
+        '/artisan', '/.env.backup',
+        '/vendor/autoload.php',
+
+        # ── 12. Django ──
+        '/static/', '/media/', '/admin/',
+        '/__pycache__/', '/settings.py', '/urls.py',
+        '/django/admin/', '/django/static/',
+
+        # ── 13. Ruby on Rails ──
+        '/public/assets/', '/public/uploads/',
+        '/db/', '/db/seeds.rb', '/db/schema.rb',
+        '/config/', '/config/database.yml', '/config/secrets.yml',
+        '/config/master.key', '/config/credentials.yml.enc',
+        '/config/initializers/',
+
+        # ── 14. ASP.NET ──
+        '/App_Data/', '/App_Code/', '/bin/', '/obj/',
+        '/Web.config', '/web.config.bak',
+        '/Global.asax', '/Default.aspx',
+
+        # ── 15. Java (Spring, Struts, Tomcat) ──
+        '/WEB-INF/', '/WEB-INF/web.xml', '/WEB-INF/classes/',
+        '/META-INF/', '/META-INF/MANIFEST.MF',
+        '/resources/', '/static/', '/templates/',
+        '/WEB-INF/spring/', '/WEB-INF/struts-config.xml',
+
+        # ── 16. Hidden / Developer Artifacts ──
+        '/.DS_Store', '/Thumbs.db',
+        '/.idea/', '/.vscode/', '/.project', '/.classpath',
+        '/.settings/', '/.eclipse/',
+        '/.editorconfig', '/.prettierrc', '/.eslintrc',
+        '/.babelrc', '/tsconfig.json', '/webpack.config.js',
+        '/.npmrc', '/.yarnrc', '/.nvmrc',
+
+        # ── 17. Certificates & Secrets (if exposed) ──
+        '/server.key', '/server.pem', '/server.crt',
+        '/private.key', '/private.pem',
+        '/id_rsa', '/id_dsa', '/id_ecdsa', '/id_ed25519',
+        '/.ssh/id_rsa', '/.ssh/authorized_keys',
+        '/.aws/credentials', '/.aws/config',
+        '/credentials.json', '/service-account.json',
+        '/terraform.tfstate', '/terraform.tfvars',
+        '/.kube/config',
+        '/vault.json', '/secrets.json', '/tokens.json',
+
+        # ── 18. Source Map Files ──
+        '/main.js.map', '/app.js.map', '/bundle.js.map',
+        '/vendor.js.map', '/runtime.js.map',
+        '/main.css.map', '/styles.css.map',
+
+        # ── 19. Well-Known URIs ──
         '/.well-known/openid-configuration',
-        '/.well-known/security.txt',
         '/.well-known/change-password',
         '/.well-known/apple-app-site-association',
         '/.well-known/assetlinks.json',
+        '/.well-known/jwks.json',
+        '/.well-known/oauth-authorization-server',
+        '/.well-known/nodeinfo',
+        '/.well-known/webfinger',
+
+        # ── 20. Error Pages (info leakage) ──
+        '/404', '/500', '/403', '/401',
+        '/error', '/errors/', '/errors/500',
+        '/cgi-bin/', '/cgi-bin/test-cgi',
+        '/trace.axd',
+    ]
+
+    # --- Dangerous File Extensions to Probe (for backup/source discovery) ---
+    DISCOVERY_EXTENSIONS = [
+        # Active content
+        '.html', '.htm', '.xhtml', '.shtml',
+        '.php', '.php3', '.php4', '.php5', '.php7', '.phtml', '.phar',
+        '.asp', '.aspx', '.ascx', '.ashx', '.asmx', '.axd',
+        '.jsp', '.jspx', '.jhtml', '.jspf', '.do', '.action', '.jsf',
+        '.cfm', '.cfml', '.cfc',
+        '.pl', '.cgi', '.pm',
+        '.py', '.rb', '.go', '.ts',
+        # Source maps & client-side
+        '.js', '.mjs', '.cjs', '.map',
+        '.vue', '.jsx', '.tsx',
+        '.css', '.scss', '.less',
+        # Backup variants
+        '.bak', '.backup', '.old', '.orig', '.copy', '.sav',
+        '.swp', '.swo',
+        # Archives
+        '.zip', '.tar', '.tar.gz', '.tgz', '.7z', '.rar', '.gz', '.bz2',
+        # Database
+        '.sql', '.dump', '.psql', '.db', '.sqlite', '.sqlite3', '.rdb',
+        # Config
+        '.yml', '.yaml', '.toml', '.ini', '.cfg', '.conf', '.properties',
+        '.env', '.json', '.xml',
+        # Log
+        '.log',
+        # Keys & certs
+        '.key', '.pem', '.crt', '.cer', '.pfx', '.p12',
+        '.ppk',
+        # Scripts
+        '.sh', '.bash', '.ps1', '.bat', '.cmd',
     ]
 
     # --- API Endpoint Patterns (from SecLists API wordlists) ---

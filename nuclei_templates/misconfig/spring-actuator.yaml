@@ -1,0 +1,51 @@
+id: spring-actuator-exposure
+info:
+  name: Spring Boot Actuator Exposure
+  author: atomic-framework
+  severity: high
+  description: Detects exposed Spring Boot Actuator endpoints that can reveal environment variables, heap dumps, and application internals.
+  tags: spring,actuator,misconfig,java
+  classification:
+    cwe-id: CWE-200
+    cvss-metrics: CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N
+    cvss-score: 7.5
+
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}/actuator"
+      - "{{BaseURL}}/actuator/env"
+      - "{{BaseURL}}/actuator/health"
+      - "{{BaseURL}}/actuator/heapdump"
+      - "{{BaseURL}}/actuator/mappings"
+      - "{{BaseURL}}/actuator/configprops"
+      - "{{BaseURL}}/actuator/beans"
+      - "{{BaseURL}}/actuator/trace"
+      - "{{BaseURL}}/actuator/httptrace"
+      - "{{BaseURL}}/actuator/loggers"
+      - "{{BaseURL}}/actuator/metrics"
+      - "{{BaseURL}}/actuator/jolokia"
+
+    stop-at-first-match: true
+    matchers-condition: and
+    matchers:
+      - type: word
+        words:
+          - '"status"'
+          - '"_links"'
+          - '"propertySources"'
+          - '"activeProfiles"'
+          - '"beans"'
+          - '"contexts"'
+        condition: or
+
+      - type: status
+        status:
+          - 200
+
+      - type: word
+        part: header
+        words:
+          - "application/json"
+          - "application/vnd.spring-boot.actuator"
+        condition: or

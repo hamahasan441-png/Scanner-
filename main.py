@@ -330,6 +330,13 @@ def main():
                        help='Nuclei severity filter (critical,high,medium,low,info)')
     parser.add_argument('--nuclei-tags',
                        help='Nuclei template tags filter (e.g., cve,owasp)')
+    parser.add_argument('--nuclei-templates',
+                       help='Custom Nuclei template directory or file path')
+    parser.add_argument('--nuclei-builtin', action='store_true',
+                       help='Include ATOMIC Framework built-in Nuclei templates '
+                            '(exposure, misconfig, takeover, vulnerabilities)')
+    parser.add_argument('--nuclei-list-templates', action='store_true',
+                       help='List all built-in Nuclei templates and exit')
     parser.add_argument('--nikto', action='store_true',
                        help='Run Nikto web server scan (requires nikto installed)')
     parser.add_argument('--whatweb', action='store_true',
@@ -460,15 +467,41 @@ def main():
         if not args.nuclei and not args.nikto:
             return
 
+    # ── Nuclei template listing ──
+    if getattr(args, 'nuclei_list_templates', False):
+        from core.tool_integrator import NucleiAdapter
+        templates = NucleiAdapter.list_builtin_templates()
+        print(f"\n{Colors.CYAN}  ATOMIC Framework Built-in Nuclei Templates{Colors.RESET}")
+        print(f"  {'='*50}")
+        print(f"  Path: {NucleiAdapter.builtin_templates_path()}")
+        print(f"  Total: {len(templates)} templates\n")
+        for t in templates:
+            print(f"    {t}")
+        print()
+        return
+
     if args.nuclei and args.target:
         from core.tool_integrator import NucleiAdapter
         nuclei = NucleiAdapter()
         if not nuclei.is_available():
             print(f"{Colors.error('Nuclei not installed. Install from: https://github.com/projectdiscovery/nuclei')}")
             sys.exit(1)
-        print(f"{Colors.info(f'Running Nuclei scan on {args.target}...')}")
-        result = nuclei.run(args.target, severity=args.nuclei_severity or '',
-                           tags=args.nuclei_tags or '')
+        use_builtin = getattr(args, 'nuclei_builtin', False)
+        custom_templates = getattr(args, 'nuclei_templates', '') or ''
+        tpl_desc = []
+        if custom_templates:
+            tpl_desc.append(f'custom: {custom_templates}')
+        if use_builtin:
+            tpl_desc.append(f'builtin: {len(nuclei.list_builtin_templates())} templates')
+        tpl_info = f' ({", ".join(tpl_desc)})' if tpl_desc else ''
+        print(f"{Colors.info(f'Running Nuclei scan on {args.target}{tpl_info}...')}")
+        result = nuclei.run(
+            args.target,
+            templates=custom_templates,
+            severity=args.nuclei_severity or '',
+            tags=args.nuclei_tags or '',
+            use_builtin=use_builtin,
+        )
         if result.success:
             print(f"{Colors.success(f'Nuclei complete: {len(result.findings)} findings in {result.duration_seconds}s')}")
             for f in result.findings:

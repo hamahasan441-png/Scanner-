@@ -1,0 +1,46 @@
+id: backup-files-exposure
+info:
+  name: Backup File Exposure
+  author: atomic-framework
+  severity: high
+  description: Detects exposed backup files (SQL dumps, archives, config backups) that may contain sensitive data.
+  tags: backup,exposure
+  classification:
+    cwe-id: CWE-530
+    cvss-metrics: CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N
+    cvss-score: 7.5
+
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}/backup.sql"
+      - "{{BaseURL}}/backup.zip"
+      - "{{BaseURL}}/backup.tar.gz"
+      - "{{BaseURL}}/db.sql"
+      - "{{BaseURL}}/database.sql"
+      - "{{BaseURL}}/dump.sql"
+      - "{{BaseURL}}/site.tar.gz"
+      - "{{BaseURL}}/www.zip"
+      - "{{BaseURL}}/data.sql"
+
+    stop-at-first-match: true
+    matchers-condition: and
+    matchers:
+      - type: status
+        status:
+          - 200
+
+      - type: dsl
+        dsl:
+          - "len(body) > 500"
+
+      - type: word
+        part: header
+        words:
+          - "application/zip"
+          - "application/gzip"
+          - "application/x-tar"
+          - "application/octet-stream"
+          - "application/sql"
+          - "text/plain"
+        condition: or
