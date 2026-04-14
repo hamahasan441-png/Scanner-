@@ -25,6 +25,7 @@ CORE FLOW (regulated):
 import time
 import uuid
 import json
+import logging
 from datetime import datetime, timezone
 from dataclasses import dataclass, field
 from typing import Optional
@@ -34,6 +35,8 @@ from urllib.parse import urlparse, parse_qs
 from config import Config, Colors, MITRE_CWE_MAP
 from core.rules_engine import RulesEngine
 from core.pipeline_contract import Phase, Partition, PHASE_PARTITION
+
+logger = logging.getLogger(__name__)
 
 # Remediation suggestions keyed by vulnerability family
 REMEDIATION_MAP = {
@@ -154,7 +157,8 @@ class AtomicEngine:
         try:
             from utils.evasion import EvasionEngine
             self.evasion = EvasionEngine(config.get('evasion', 'none'))
-        except Exception:
+        except Exception as exc:
+            logger.debug("Evasion engine unavailable: %s", exc)
             self.evasion = None
 
         # Initialize requester
@@ -165,7 +169,8 @@ class AtomicEngine:
         try:
             from utils.database import Database
             self.db = Database()
-        except Exception:
+        except Exception as exc:
+            logger.debug("Database unavailable: %s", exc)
             self.db = None
 
         # --- New intelligence components ---
@@ -195,38 +200,44 @@ class AtomicEngine:
         try:
             from core.audit_logger import AuditLogger
             self.audit = AuditLogger()
-        except Exception:
+        except Exception as exc:
+            logger.debug("Audit logger unavailable: %s", exc)
             self.audit = None
 
         try:
             from core.compliance import ComplianceEngine
             self.compliance = ComplianceEngine()
-        except Exception:
+        except Exception as exc:
+            logger.debug("Compliance engine unavailable: %s", exc)
             self.compliance = None
 
         try:
             from core.notification import NotificationManager
             self.notifications = NotificationManager()
-        except Exception:
+        except Exception as exc:
+            logger.debug("Notification manager unavailable: %s", exc)
             self.notifications = None
 
         try:
             from core.tool_integrator import ToolIntegrator
             self.tools = ToolIntegrator()
-        except Exception:
+        except Exception as exc:
+            logger.debug("Tool integrator unavailable: %s", exc)
             self.tools = None
 
         try:
             from core.recon_arsenal import ReconArsenal
             self.recon_arsenal = ReconArsenal()
-        except Exception:
+        except Exception as exc:
+            logger.debug("Recon arsenal unavailable: %s", exc)
             self.recon_arsenal = None
 
         try:
             from core.plugin_system import PluginManager
             self.plugins = PluginManager()
             self.plugins.load_all()
-        except Exception:
+        except Exception as exc:
+            logger.debug("Plugin system unavailable: %s", exc)
             self.plugins = None
 
         # Initialize modules
@@ -294,8 +305,8 @@ class AtomicEngine:
         if self._ws_callback:
             try:
                 self._ws_callback('pipeline_event', event)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("WebSocket callback failed: %s", exc)
 
     def get_pipeline_state(self) -> dict:
         """Return the current pipeline state for the dashboard."""

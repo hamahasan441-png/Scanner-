@@ -428,6 +428,49 @@
                 </div>
             </div>
         </div>
+
+        <!-- Framework Info & Active Scans Overview -->
+        <div class="grid grid-2" style="margin-top:1rem;">
+            <div class="glass-card">
+                <h3>🏗️ Framework Info</h3>
+                <div style="font-size:0.85rem;line-height:1.8;">
+                    <div style="display:flex;justify-content:space-between;border-bottom:1px solid var(--border);padding:0.2rem 0;">
+                        <span style="color:var(--text-muted);">Version</span>
+                        <span style="font-weight:600;">v{{ version }}</span>
+                    </div>
+                    <div style="display:flex;justify-content:space-between;border-bottom:1px solid var(--border);padding:0.2rem 0;">
+                        <span style="color:var(--text-muted);">Codename</span>
+                        <span style="font-weight:600;">TITAN</span>
+                    </div>
+                    <div style="display:flex;justify-content:space-between;border-bottom:1px solid var(--border);padding:0.2rem 0;">
+                        <span style="color:var(--text-muted);">Modules</span>
+                        <span style="font-weight:600;">24 (SQLi, XSS, LFI, CMDi, SSRF, SSTI, XXE, IDOR, NoSQL, CORS, JWT, Upload, Redirect, CRLF, HPP, GraphQL, Prototype, Race, WebSocket, Deser, Scapy, WAF, Recon, OSINT)</span>
+                    </div>
+                    <div style="display:flex;justify-content:space-between;border-bottom:1px solid var(--border);padding:0.2rem 0;">
+                        <span style="color:var(--text-muted);">Exploit Sources</span>
+                        <span style="font-weight:600;">8 (ExploitDB, Metasploit, Nuclei, GitHub PoC, PacketStorm, NVD, CISA KEV, GHSA)</span>
+                    </div>
+                    <div style="display:flex;justify-content:space-between;border-bottom:1px solid var(--border);padding:0.2rem 0;">
+                        <span style="color:var(--text-muted);">WAF Signatures</span>
+                        <span style="font-weight:600;">38</span>
+                    </div>
+                    <div style="display:flex;justify-content:space-between;border-bottom:1px solid var(--border);padding:0.2rem 0;">
+                        <span style="color:var(--text-muted);">Evasion Techniques</span>
+                        <span style="font-weight:600;">13</span>
+                    </div>
+                    <div style="display:flex;justify-content:space-between;padding:0.2rem 0;">
+                        <span style="color:var(--text-muted);">Server Time</span>
+                        <span id="sb-time" style="font-weight:600;">-</span>
+                    </div>
+                </div>
+            </div>
+            <div class="glass-card">
+                <h3>⏳ Active Scans Overview</h3>
+                <div id="dashboard-active-scans" style="font-size:0.85rem;">
+                    <p class="empty-msg">No active scans</p>
+                </div>
+            </div>
+        </div>
     </section>
     </div>
 
@@ -1826,6 +1869,28 @@
                 tbody.innerHTML = '<tr><td colspan="5" class="empty-msg">No active scans</td></tr>';
             } else {
                 tbody.innerHTML = rows.join('');
+            }
+
+            /* Also update dashboard overview card */
+            var dashActive = document.getElementById('dashboard-active-scans');
+            if (dashActive) {
+                if (rows.length === 0) {
+                    dashActive.innerHTML = '<p class="empty-msg">No active scans</p>';
+                } else {
+                    var html = '';
+                    for (var j = 0; j < ids.length; j++) {
+                        var sid2 = ids[j];
+                        if (window._knownActive[sid2]) {
+                            var info = window._knownActive[sid2];
+                            var tgt = (typeof info === 'object' && info.target) ? info.target : sid2;
+                            html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:0.3rem 0;border-bottom:1px solid var(--border);">';
+                            html += '<span>🔍 ' + esc(sid2.substring(0,8)) + ' → <b>' + esc(String(tgt)) + '</b></span>';
+                            html += '<span class="status-running pulse" style="font-size:0.8rem;">● running</span>';
+                            html += '</div>';
+                        }
+                    }
+                    dashActive.innerHTML = html || '<p class="empty-msg">No active scans</p>';
+                }
             }
 
             if (needRefresh) { loadHistory(); loadStats(); }

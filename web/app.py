@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ATOMIC FRAMEWORK v9.0 - ULTIMATE EDITION
+ATOMIC FRAMEWORK v10.0 - ULTIMATE EDITION
 Flask Web Dashboard
 """
 import os
@@ -58,6 +58,7 @@ if SOCKETIO_AVAILABLE:
 
 _active_scans = {}
 _scans_lock = threading.Lock()
+_MAX_COMPLETED_SCANS = 200  # Purge oldest completed scans beyond this limit
 
 # ---------------------------------------------------------------------------
 # In-memory chat store for team collaboration on the dashboard
@@ -261,6 +262,24 @@ def _run_scan(scan_id, target, config):
             _active_scans[scan_id]['error'] = str(exc)
             _active_scans[scan_id]['end_time'] = datetime.now(timezone.utc).isoformat()
         _emit_ws('scan_failed', {'scan_id': scan_id})
+    finally:
+        _purge_completed_scans()
+
+
+def _purge_completed_scans():
+    """Remove oldest completed/failed scans when the in-memory dict exceeds the limit."""
+    with _scans_lock:
+        done = [
+            (sid, s) for sid, s in _active_scans.items()
+            if s.get('status') in ('completed', 'failed')
+        ]
+        if len(done) <= _MAX_COMPLETED_SCANS:
+            return
+        # Sort by end_time ascending; remove oldest entries first
+        done.sort(key=lambda x: x[1].get('end_time', ''))
+        to_remove = len(done) - _MAX_COMPLETED_SCANS
+        for sid, _ in done[:to_remove]:
+            _active_scans.pop(sid, None)
 
 
 # ---------------------------------------------------------------------------
@@ -282,6 +301,7 @@ def list_scans():
     if db is None:
         return jsonify({'status': 'error', 'data': 'Database unavailable'}), 503
 
+    session = None
     try:
         session = db.Session()
         scans = session.query(ScanModel).order_by(ScanModel.start_time.desc()).all()
@@ -296,10 +316,13 @@ def list_scans():
                 'findings_count': s.findings_count,
                 'total_requests': s.total_requests,
             })
-        session.close()
         return jsonify({'status': 'success', 'data': data})
     except Exception as exc:
-        return jsonify({'status': 'error', 'data': str(exc)}), 500
+        logger.exception("list_scans failed")
+        return jsonify({'status': 'error', 'data': 'Database error'}), 500
+    finally:
+        if session:
+            session.close()
 
 
 @app.route('/api/scan/<scan_id>', methods=['GET'])
@@ -307,15 +330,17 @@ def list_scans():
 @_rate_limit
 def get_scan(scan_id):
     """Return details and findings for a specific scan."""
+    if not _SAFE_SCAN_ID.match(scan_id):
+        return jsonify({'status': 'error', 'data': 'Invalid scan ID'}), 400
     db = _get_db()
     if db is None:
         return jsonify({'status': 'error', 'data': 'Database unavailable'}), 503
 
+    session = None
     try:
         session = db.Session()
         scan = session.query(ScanModel).filter_by(scan_id=scan_id).first()
         if not scan:
-            session.close()
             return jsonify({'status': 'error', 'data': 'Scan not found'}), 404
 
         findings = session.query(FindingModel).filter_by(scan_id=scan_id).all()
@@ -345,10 +370,13 @@ def get_scan(scan_id):
             'total_requests': scan.total_requests,
             'findings': findings_data,
         }
-        session.close()
         return jsonify({'status': 'success', 'data': data})
     except Exception as exc:
-        return jsonify({'status': 'error', 'data': str(exc)}), 500
+        logger.exception("get_scan failed for %s", scan_id)
+        return jsonify({'status': 'error', 'data': 'Database error'}), 500
+    finally:
+        if session:
+            session.close()
 
 
 @app.route('/api/scan', methods=['POST'])
@@ -473,6 +501,8 @@ def scan_status(scan_id):
     engine (phase, events, attack routes).  The internal ``engine`` reference
     is never serialised into the JSON response.
     """
+    if not _SAFE_SCAN_ID.match(scan_id):
+        return jsonify({'status': 'error', 'data': 'Invalid scan ID'}), 400
     with _scans_lock:
         scan_data = _active_scans.get(scan_id)
         if scan_data is not None:
@@ -489,18 +519,21 @@ def scan_status(scan_id):
 
     db = _get_db()
     if db is not None:
+        session = None
         try:
             session = db.Session()
             scan = session.query(ScanModel).filter_by(scan_id=scan_id).first()
-            session.close()
             if scan:
                 return jsonify({
                     'status': 'success',
                     'data': {'status': 'completed', 'target': scan.target,
                              'findings': scan.findings_count},
                 })
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("scan_status DB lookup failed: %s", exc)
+        finally:
+            if session:
+                session.close()
 
     return jsonify({'status': 'error', 'data': 'Scan not found'}), 404
 
@@ -510,26 +543,31 @@ def scan_status(scan_id):
 @_rate_limit
 def delete_scan(scan_id):
     """Delete a scan and its findings from the database."""
+    if not _SAFE_SCAN_ID.match(scan_id):
+        return jsonify({'status': 'error', 'data': 'Invalid scan ID'}), 400
     db = _get_db()
     if db is None:
         return jsonify({'status': 'error', 'data': 'Database unavailable'}), 503
 
+    session = None
     try:
         session = db.Session()
         scan = session.query(ScanModel).filter_by(scan_id=scan_id).first()
         if not scan:
-            session.close()
             return jsonify({'status': 'error', 'data': 'Scan not found'}), 404
 
         session.query(FindingModel).filter_by(scan_id=scan_id).delete()
         session.delete(scan)
         session.commit()
-        session.close()
 
         _active_scans.pop(scan_id, None)
         return jsonify({'status': 'success', 'data': 'Scan deleted'})
     except Exception as exc:
-        return jsonify({'status': 'error', 'data': str(exc)}), 500
+        logger.exception("delete_scan failed for %s", scan_id)
+        return jsonify({'status': 'error', 'data': 'Database error'}), 500
+    finally:
+        if session:
+            session.close()
 
 
 @app.route('/api/findings/<scan_id>', methods=['GET'])
@@ -537,10 +575,13 @@ def delete_scan(scan_id):
 @_rate_limit
 def get_findings(scan_id):
     """Return all findings for a given scan."""
+    if not _SAFE_SCAN_ID.match(scan_id):
+        return jsonify({'status': 'error', 'data': 'Invalid scan ID'}), 400
     db = _get_db()
     if db is None:
         return jsonify({'status': 'error', 'data': 'Database unavailable'}), 503
 
+    session = None
     try:
         session = db.Session()
         findings = session.query(FindingModel).filter_by(scan_id=scan_id).all()
@@ -560,10 +601,13 @@ def get_findings(scan_id):
                 'cvss': f.cvss,
                 'extracted_data': f.extracted_data,
             })
-        session.close()
         return jsonify({'status': 'success', 'data': data})
     except Exception as exc:
-        return jsonify({'status': 'error', 'data': str(exc)}), 500
+        logger.exception("get_findings failed for %s", scan_id)
+        return jsonify({'status': 'error', 'data': 'Database error'}), 500
+    finally:
+        if session:
+            session.close()
 
 
 @app.route('/api/report/<scan_id>/<fmt>', methods=['GET'])
@@ -697,15 +741,17 @@ def run_post_exploit(scan_id):
     Reads findings from the database, instantiates the PostExploitEngine,
     and returns the exploitation results.
     """
+    if not _SAFE_SCAN_ID.match(scan_id):
+        return jsonify({'status': 'error', 'data': 'Invalid scan ID'}), 400
     scan_info = _active_scans.get(scan_id)
     if scan_info is None:
         return jsonify({'status': 'error',
-                        'message': 'Scan not found or not active'}), 404
+                        'data': 'Scan not found or not active'}), 404
 
     engine = scan_info.get('engine')
     if engine is None or not engine.findings:
         return jsonify({'status': 'error',
-                        'message': 'No confirmed findings to exploit'}), 400
+                        'data': 'No confirmed findings to exploit'}), 400
 
     try:
         from core.post_exploit import PostExploitEngine
@@ -716,7 +762,7 @@ def run_post_exploit(scan_id):
     except Exception as exc:
         logger.error('Post-exploitation error: %s', exc)
         return jsonify({'status': 'error',
-                        'message': 'Post-exploitation failed'}), 500
+                        'data': 'Post-exploitation failed'}), 500
 
 
 @app.route('/api/stats', methods=['GET'])
@@ -739,6 +785,7 @@ def get_stats():
     }
 
     if db is not None:
+        session = None
         try:
             session = db.Session()
             stats['total_scans'] = session.query(ScanModel).count()
@@ -750,9 +797,11 @@ def get_stats():
                     .count()
                 )
                 stats[severity.lower()] = count
-            session.close()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("get_stats DB error: %s", exc)
+        finally:
+            if session:
+                session.close()
 
     return jsonify({'status': 'success', 'data': stats})
 
