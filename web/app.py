@@ -276,7 +276,7 @@ def _purge_completed_scans():
         if len(done) <= _MAX_COMPLETED_SCANS:
             return
         # Sort by end_time ascending; remove oldest entries first
-        done.sort(key=lambda x: x[1].get('end_time', ''))
+        done.sort(key=lambda x: x[1].get('end_time') or '1970-01-01T00:00:00')
         to_remove = len(done) - _MAX_COMPLETED_SCANS
         for sid, _ in done[:to_remove]:
             _active_scans.pop(sid, None)
