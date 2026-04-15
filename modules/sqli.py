@@ -1037,6 +1037,9 @@ class SQLiDataExtractor:
     # Column-count discovery limits
     _MAX_COLUMNS = 20
 
+    # Maximum length for SQL identifiers (table/db/column names)
+    _MAX_IDENTIFIER_LENGTH = 128
+
     # DB-specific queries for information schema
     _INFO_QUERIES = {
         'mysql': {
@@ -1220,7 +1223,10 @@ class SQLiDataExtractor:
 
     def _sanitize_identifier(self, name: str) -> str:
         """Allow only safe SQL identifier characters (alphanumeric + underscore)."""
-        if not re.fullmatch(r'[A-Za-z_]\w{0,127}', name):
+        if not re.fullmatch(
+            r'[A-Za-z_]\w{0,' + str(self._MAX_IDENTIFIER_LENGTH - 1) + r'}',
+            name,
+        ):
             return ''
         return name
 

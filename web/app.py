@@ -155,7 +155,6 @@ def _set_security_headers(response):
     """Attach security headers to every HTTP response."""
     response.headers.setdefault('X-Content-Type-Options', 'nosniff')
     response.headers.setdefault('X-Frame-Options', 'DENY')
-    response.headers.setdefault('X-XSS-Protection', '1; mode=block')
     response.headers.setdefault('Referrer-Policy', 'strict-origin-when-cross-origin')
     response.headers.setdefault(
         'Content-Security-Policy',
@@ -163,10 +162,11 @@ def _set_security_headers(response):
         "style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
         "connect-src 'self' ws: wss:; font-src 'self';",
     )
-    # Enable HSTS when served over HTTPS (safe no-op over plain HTTP)
-    response.headers.setdefault(
-        'Strict-Transport-Security', 'max-age=31536000; includeSubDomains',
-    )
+    # Only set HSTS when served over HTTPS to avoid issues over plain HTTP
+    if request.is_secure or request.headers.get('X-Forwarded-Proto') == 'https':
+        response.headers.setdefault(
+            'Strict-Transport-Security', 'max-age=31536000; includeSubDomains',
+        )
     response.headers.setdefault('Permissions-Policy', 'camera=(), microphone=(), geolocation=()')
     return response
 
