@@ -92,6 +92,9 @@ class SSRFModule:
         
         # Test Kubernetes metadata
         self._test_kubernetes_metadata(url, method, param, value)
+        
+        # Test blind SSRF via timing
+        self._test_time_based_ssrf(url, method, param, value)
     
     def _test_dns_rebinding(self, url: str, method: str, param: str, value: str):
         """Test for DNS rebinding SSRF"""
@@ -178,6 +181,42 @@ class SSRFModule:
                         )
                         self.engine.add_finding(finding)
                         return
+            except Exception:
+                continue
+
+    def _test_time_based_ssrf(self, url: str, method: str, param: str, value: str):
+        """Test for blind SSRF via response timing differences"""
+        import time
+        # Measure baseline
+        try:
+            start = time.time()
+            self.requester.request(url, method, data={param: value})
+            baseline = time.time() - start
+        except Exception:
+            baseline = 0
+        
+        # Test with a non-routable IP that should cause timeout delay
+        timing_payloads = [
+            'http://10.255.255.1/',        # Non-routable, should timeout
+            'http://192.168.255.255/',      # Non-routable private
+            'http://172.31.255.255:65535/', # Unlikely to respond
+        ]
+        for payload in timing_payloads:
+            try:
+                start = time.time()
+                self.requester.request(url, method, data={param: payload})
+                elapsed = time.time() - start
+                # If response takes significantly longer, server may be trying to connect
+                if elapsed > baseline + 3.0 and elapsed >= 3.5:
+                    from core.engine import Finding
+                    finding = Finding(
+                        technique="SSRF (Blind / Time-based)",
+                        url=url, severity='MEDIUM', confidence=0.6, param=param,
+                        payload=payload,
+                        evidence=f"Response delayed {elapsed:.1f}s (baseline {baseline:.1f}s) — possible blind SSRF",
+                    )
+                    self.engine.add_finding(finding)
+                    return
             except Exception:
                 continue
 
