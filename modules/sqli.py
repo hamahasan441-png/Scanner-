@@ -370,18 +370,27 @@ class SQLiModule:
 
                 # Check for time-based detection (pg_sleep payloads)
                 if 'pg_sleep' in payload and elapsed >= 4.8 and elapsed > baseline_time + 4.0:
-                    from core.engine import Finding
-                    finding = Finding(
-                        technique="SQL Injection (Stacked Queries)",
-                        url=url,
-                        severity='CRITICAL',
-                        confidence=0.80,
-                        param=param,
-                        payload=payload,
-                        evidence=f"Stacked pg_sleep delayed response by {elapsed:.2f}s (baseline: {baseline_time:.2f}s)",
-                    )
-                    self.engine.add_finding(finding)
-                    return
+                    # Confirmation retry to reduce false positives
+                    try:
+                        confirm_start = time.time()
+                        self.requester.request(url, method, data=data)
+                        confirm_elapsed = time.time() - confirm_start
+                    except Exception:
+                        confirm_elapsed = 0
+
+                    if confirm_elapsed >= 4.8 and confirm_elapsed > baseline_time + 4.0:
+                        from core.engine import Finding
+                        finding = Finding(
+                            technique="SQL Injection (Stacked Queries)",
+                            url=url,
+                            severity='CRITICAL',
+                            confidence=0.80,
+                            param=param,
+                            payload=payload,
+                            evidence=f"Stacked pg_sleep delayed response by {elapsed:.2f}s, confirmed {confirm_elapsed:.2f}s (baseline: {baseline_time:.2f}s)",
+                        )
+                        self.engine.add_finding(finding)
+                        return
 
             except Exception as e:
                 if self.engine.config.get('verbose'):
