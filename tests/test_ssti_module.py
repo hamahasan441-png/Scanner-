@@ -93,7 +93,10 @@ class TestSSTIBasicDetection(unittest.TestCase):
 
     def test_curly_braces_math_detected(self):
         """{{7*7}} -> '49' without payload echo triggers detection."""
-        engine = self._run_basic([_MockResponse(text='Result: 49')])
+        engine = self._run_basic([
+            _MockResponse(text='Result: 49'),
+            _MockResponse(text='Result: 33'),  # confirmation response
+        ])
         self.assertEqual(len(engine.findings), 1)
         self.assertIn('Expression Evaluation', engine.findings[0].technique)
         self.assertEqual(engine.findings[0].payload, '{{7*7}}')
@@ -103,6 +106,7 @@ class TestSSTIBasicDetection(unittest.TestCase):
         responses = [
             _MockResponse(text='No numbers here'),  # {{7*7}} – no '49'
             _MockResponse(text='Value is 1337'),     # {{7*191}}
+            _MockResponse(text='Value is 33'),       # confirmation response
         ]
         engine = self._run_basic(responses)
         self.assertEqual(len(engine.findings), 1)
@@ -110,26 +114,26 @@ class TestSSTIBasicDetection(unittest.TestCase):
 
     def test_dollar_braces_math_detected(self):
         """${7*7} -> '49' triggers when earlier tests don't match."""
-        responses = [None, None, _MockResponse(text='Output: 49')]
+        responses = [None, None, _MockResponse(text='Output: 49'), _MockResponse(text='Output: 33')]
         engine = self._run_basic(responses)
         self.assertEqual(len(engine.findings), 1)
         self.assertEqual(engine.findings[0].payload, '${7*7}')
 
     def test_erb_math_detected(self):
         """<%= 7*7 %> -> '49' triggers detection."""
-        responses = [None, None, None, _MockResponse(text='49')]
+        responses = [None, None, None, _MockResponse(text='49'), _MockResponse(text='33')]
         engine = self._run_basic(responses)
         self.assertEqual(len(engine.findings), 1)
         self.assertEqual(engine.findings[0].payload, '<%= 7*7 %>')
 
     def test_finding_severity_critical(self):
         """Math expression detection produces CRITICAL severity."""
-        engine = self._run_basic([_MockResponse(text='49')])
+        engine = self._run_basic([_MockResponse(text='49'), _MockResponse(text='33')])
         self.assertEqual(engine.findings[0].severity, 'CRITICAL')
 
     def test_finding_confidence_high(self):
         """Math expression detection has 0.95 confidence."""
-        engine = self._run_basic([_MockResponse(text='49')])
+        engine = self._run_basic([_MockResponse(text='49'), _MockResponse(text='33')])
         self.assertEqual(engine.findings[0].confidence, 0.95)
 
 
@@ -393,7 +397,7 @@ class TestSSTIIntegration(unittest.TestCase):
     def test_full_test_detects_basic(self):
         """Full test() flow detects math expression evaluation."""
         from modules.ssti import SSTIModule
-        responses = [_MockResponse(text='49')] + [None] * 20
+        responses = [_MockResponse(text='49'), _MockResponse(text='33')] + [None] * 20
         engine = _MockEngine(responses)
         mod = SSTIModule(engine)
         mod.test('http://target.com/page', 'GET', 'q', 'test')
@@ -403,7 +407,7 @@ class TestSSTIIntegration(unittest.TestCase):
     def test_finding_records_url_and_param(self):
         """Finding captures the correct URL and parameter."""
         from modules.ssti import SSTIModule
-        engine = _MockEngine([_MockResponse(text='49')])
+        engine = _MockEngine([_MockResponse(text='49'), _MockResponse(text='33')])
         mod = SSTIModule(engine)
         mod._test_basic('http://target.com/search', 'POST', 'query', 'hello')
         self.assertEqual(engine.findings[0].url, 'http://target.com/search')
@@ -412,7 +416,7 @@ class TestSSTIIntegration(unittest.TestCase):
     def test_finding_records_evidence(self):
         """Finding includes an evidence string with the expected value."""
         from modules.ssti import SSTIModule
-        engine = _MockEngine([_MockResponse(text='49')])
+        engine = _MockEngine([_MockResponse(text='49'), _MockResponse(text='33')])
         mod = SSTIModule(engine)
         mod._test_basic('http://target.com', 'GET', 'x', 'y')
         self.assertIn('49', engine.findings[0].evidence)

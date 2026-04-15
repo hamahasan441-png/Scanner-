@@ -194,6 +194,32 @@ class SSTIModule:
                     import html
                     payload_encoded = html.escape(payload)
                     if payload not in response_text and payload_encoded not in response_text:
+                        # Dual-check: send a DIFFERENT math expression to confirm
+                        if '{{' in payload:
+                            confirm_payload = '{{3*11}}'
+                        elif '${' in payload:
+                            confirm_payload = '${3*11}'
+                        elif '<%=' in payload:
+                            confirm_payload = '<%= 3*11 %>'
+                        else:
+                            confirm_payload = None
+                        
+                        if confirm_payload:
+                            confirm_expected = '33'
+                            try:
+                                confirm_data = {param: confirm_payload}
+                                confirm_response = self.requester.request(url, method, data=confirm_data)
+                                if not confirm_response:
+                                    continue
+                                confirm_text = confirm_response.text
+                                confirm_encoded = html.escape(confirm_payload)
+                                if confirm_expected not in confirm_text:
+                                    continue
+                                if confirm_payload in confirm_text or confirm_encoded in confirm_text:
+                                    continue
+                            except Exception:
+                                continue
+                        
                         from core.engine import Finding
                         finding = Finding(
                             technique="SSTI (Expression Evaluation)",

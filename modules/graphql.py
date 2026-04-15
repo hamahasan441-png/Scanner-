@@ -98,10 +98,101 @@ class GraphQLModule:
                 if self.verbose:
                     print(f"{Colors.error(f'GraphQL URL test error: {e}')}")
 
+        # Test for batching/aliasing attacks
+        self._test_batching_attack(url)
+
+        # Test for field suggestion disclosure
+        self._test_field_suggestions(url)
+
     # ------------------------------------------------------------------
     # Detection helpers
     # ------------------------------------------------------------------
 
+    def _test_batching_attack(self, url: str):
+        """Test for GraphQL batching/aliasing attacks"""
+        batch_payload = '[{"query":"{__typename}"},{"query":"{__typename}"}]'
+        alias_payload = '{"query":"{a:__typename b:__typename c:__typename d:__typename e:__typename}"}'
+        
+        graphql_paths = [
+            url,
+            url.rstrip('/') + '/graphql',
+            url.rstrip('/') + '/api/graphql',
+        ]
+        
+        for endpoint in graphql_paths:
+            for payload, technique in [(batch_payload, 'Batching'), (alias_payload, 'Aliasing')]:
+                try:
+                    response = self.requester.request(
+                        endpoint, 'POST',
+                        headers={'Content-Type': 'application/json'},
+                        data=payload,
+                    )
+                    if not response:
+                        continue
+                    body = response.text or ''
+                    # Batching: response should be a JSON array with multiple results
+                    # Aliasing: response should contain multiple aliased results
+                    if technique == 'Batching' and '"data"' in body and body.strip().startswith('['):
+                        from core.engine import Finding
+                        finding = Finding(
+                            technique=f"GraphQL ({technique} Attack Possible)",
+                            url=endpoint, param='', payload=payload[:200],
+                            evidence=body[:200], severity='MEDIUM', confidence=0.8,
+                            mitre_id='T1190', cwe_id='CWE-799', cvss=5.3,
+                            remediation="Implement query batching limits and rate limiting for GraphQL.",
+                        )
+                        self.engine.add_finding(finding)
+                        return
+                    elif technique == 'Aliasing' and body.count('__typename') >= 3:
+                        from core.engine import Finding
+                        finding = Finding(
+                            technique=f"GraphQL ({technique} Attack Possible)",
+                            url=endpoint, param='', payload=payload[:200],
+                            evidence=body[:200], severity='MEDIUM', confidence=0.75,
+                            mitre_id='T1190', cwe_id='CWE-799', cvss=5.3,
+                            remediation="Implement query complexity limits and depth limiting for GraphQL.",
+                        )
+                        self.engine.add_finding(finding)
+                        return
+                except Exception:
+                    continue
+    
+    def _test_field_suggestions(self, url: str):
+        """Test for GraphQL field suggestion information disclosure"""
+        # Send an invalid field name to trigger field suggestions
+        suggestion_payload = '{"query":"{__schema{typo_field_xxx}}"}'
+        
+        graphql_paths = [
+            url,
+            url.rstrip('/') + '/graphql',
+            url.rstrip('/') + '/api/graphql',
+        ]
+        
+        for endpoint in graphql_paths:
+            try:
+                response = self.requester.request(
+                    endpoint, 'POST',
+                    headers={'Content-Type': 'application/json'},
+                    data=suggestion_payload,
+                )
+                if not response:
+                    continue
+                body = response.text or ''
+                # GraphQL engines often suggest valid field names in error messages
+                if 'did you mean' in body.lower() or 'suggestions' in body.lower():
+                    from core.engine import Finding
+                    finding = Finding(
+                        technique="GraphQL (Field Suggestion Disclosure)",
+                        url=endpoint, param='', payload=suggestion_payload[:200],
+                        evidence=body[:300], severity='LOW', confidence=0.85,
+                        mitre_id='T1190', cwe_id='CWE-200', cvss=3.7,
+                        remediation="Disable field suggestions in production GraphQL schemas.",
+                    )
+                    self.engine.add_finding(finding)
+                    return
+            except Exception:
+                continue
+    
     @staticmethod
     def _is_graphql_response(body: str) -> bool:
         """Return True when the response body looks like a GraphQL result."""
