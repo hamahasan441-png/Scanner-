@@ -1288,9 +1288,12 @@ class AtomicEngine:
         if self.db:
             self.db.save_finding(self.scan_id, finding)
 
-        # LLM real-time enrichment: attach AI analysis to high-severity findings
+        # LLM real-time enrichment: attach AI analysis to high-severity findings.
+        # Only runs when --local-llm is active; skipped during high-volume scans
+        # to avoid slowing down the scan loop.
         if (self.local_llm and self.local_llm.is_loaded
-                and finding.severity in ('CRITICAL', 'HIGH')):
+                and finding.severity in ('CRITICAL', 'HIGH')
+                and self.config.get('local_llm')):
             try:
                 fd = {
                     'technique': finding.technique,

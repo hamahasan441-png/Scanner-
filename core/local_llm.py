@@ -40,7 +40,7 @@ DEFAULT_MODEL_URL = (
     f"https://huggingface.co/{DEFAULT_MODEL_REPO}"
     f"/resolve/main/{DEFAULT_MODEL_FILE}"
 )
-DEFAULT_MODEL_SIZE_BYTES = 4_683_218_944  # ~4.7 GB approximate
+DEFAULT_MODEL_SIZE_BYTES = 4_700_000_000  # ~4.7 GB
 
 # Directory to store downloaded models
 MODELS_DIR = os.path.join(Config.BASE_DIR, "models")
@@ -206,7 +206,9 @@ class LocalLLM:
         import subprocess
         env = os.environ.copy()
         # Termux-specific: ensure clang is used as the C compiler
-        if 'com.termux' in os.environ.get('PREFIX', ''):
+        is_termux = ('com.termux' in os.environ.get('PREFIX', '')
+                     or os.environ.get('TERMUX_VERSION', ''))
+        if is_termux:
             env.setdefault('CC', 'clang')
             env.setdefault('CXX', 'clang++')
         try:

@@ -1,4 +1,4 @@
-#!/data/data/com.termux/files/usr/bin/bash
+#!/usr/bin/env bash
 # ──────────────────────────────────────────────────────────────────────
 # ATOMIC FRAMEWORK — One-command Termux Setup
 # Downloads dependencies, installs llama-cpp-python, and fetches
