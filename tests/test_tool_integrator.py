@@ -247,6 +247,15 @@ class TestToolIntegrator(unittest.TestCase):
     def test_integrator_has_ffuf_adapter(self):
         self.assertIsInstance(self.integrator.ffuf, FfufAdapter)
 
+    def test_run_vuln_scan_enables_builtin_nuclei_templates(self):
+        mock_nuclei_result = ToolResult(tool='nuclei', target='https://example.com', success=True)
+        with patch.object(self.integrator.nuclei, 'is_available', return_value=True), \
+             patch.object(self.integrator.nmap, 'is_available', return_value=False), \
+             patch.object(self.integrator.nuclei, 'run', return_value=mock_nuclei_result) as mock_run:
+            results = self.integrator.run_vuln_scan('https://example.com')
+        self.assertIn('nuclei', results)
+        mock_run.assert_called_once_with('https://example.com', use_builtin=True)
+
 
 class TestHttpxAdapter(unittest.TestCase):
     """Test Httpx adapter."""

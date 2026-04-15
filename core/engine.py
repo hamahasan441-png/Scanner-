@@ -332,6 +332,41 @@ class AtomicEngine:
             'attack_routes': attack_routes,
         }
 
+    def _run_external_tools_auto(self, target: str):
+        """Run integrated external tools automatically when enabled."""
+        if not self.config.get('auto_external_tools', False):
+            return
+        if not self.tools:
+            return
+
+        from urllib.parse import urlparse
+
+        domain = urlparse(target).hostname or ''
+        all_results = {}
+
+        try:
+            all_results.update(self.tools.run_recon_suite(target, domain=domain))
+        except Exception as exc:
+            if self.config.get('verbose'):
+                print(f"{Colors.warning(f'External recon suite error: {exc}')}")
+
+        try:
+            all_results.update(self.tools.run_vuln_scan(target))
+        except Exception as exc:
+            if self.config.get('verbose'):
+                print(f"{Colors.warning(f'External vuln suite error: {exc}')}")
+
+        if all_results:
+            results = [
+                res for res in all_results.values()
+                if hasattr(res, 'success')
+            ]
+            self.emit_pipeline_event('external_tools_completed', {
+                'tools': list(all_results.keys()),
+                'success_count': sum(1 for r in results if r.success),
+                'failure_count': sum(1 for r in results if not r.success),
+            })
+
     def scan(self, target: str):
         """Scan a target URL.
 
@@ -387,6 +422,7 @@ class AtomicEngine:
             )
 
         modules_config = self.config.get('modules', {})
+        self._run_external_tools_auto(target)
 
         # ── PHASE 1: SHIELD DETECTION (CDN + WAF) ────────────────────
         shield_profile = None
