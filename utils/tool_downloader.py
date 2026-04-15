@@ -18,8 +18,10 @@ Usage:
   python main.py --tools-install --tool nmap  # Install a specific tool
 """
 
+import logging
 import os
 import platform
+import shlex
 import shutil
 import subprocess
 import sys
@@ -27,6 +29,8 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
 from config import Colors
+
+_logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -399,8 +403,12 @@ def install_tool(tool_name: str, verbose: bool = True) -> bool:
         print(f"      Command: {cmd}")
 
     try:
+        # Use shlex.split to avoid shell=True and prevent command injection.
+        # Install commands come from the hard-coded TOOL_REGISTRY, not from
+        # user input, but avoiding shell=True is a defence-in-depth measure.
+        cmd_list = shlex.split(cmd)
         result = subprocess.run(
-            cmd, shell=True,
+            cmd_list,
             capture_output=True, text=True, timeout=600,
         )
         if result.returncode == 0 and _is_tool_installed(tool_name):

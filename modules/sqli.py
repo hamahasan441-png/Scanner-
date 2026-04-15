@@ -1218,11 +1218,18 @@ class SQLiDataExtractor:
         text = self._send(url, param, payload)
         return self._extract_between_markers(text)
 
+    def _sanitize_identifier(self, name: str) -> str:
+        """Allow only safe SQL identifier characters (alphanumeric + underscore)."""
+        if not re.fullmatch(r'[A-Za-z_]\w{0,127}', name):
+            return ''
+        return name
+
     def extract_tables(self, url: str, param: str, db: str = '') -> list:
         """Return table names for the given database."""
         q = self._INFO_QUERIES.get(self.db_type, {}).get('tables', '')
         if not q:
             return []
+        db = self._sanitize_identifier(db) if db else ''
         q = q.format(db=db)
         payload = self._build_union_payload(q)
         text = self._send(url, param, payload)
@@ -1234,6 +1241,10 @@ class SQLiDataExtractor:
         q = self._INFO_QUERIES.get(self.db_type, {}).get('columns', '')
         if not q:
             return []
+        table = self._sanitize_identifier(table) if table else ''
+        db = self._sanitize_identifier(db) if db else ''
+        if not table:
+            return []
         q = q.format(table=table, db=db)
         payload = self._build_union_payload(q)
         text = self._send(url, param, payload)
@@ -1243,12 +1254,21 @@ class SQLiDataExtractor:
                      columns: list, *, db: str = '',
                      limit: int = 10, offset: int = 0) -> list:
         """Return rows from the given table as a list of dicts."""
+        # Enforce integer types for limit/offset to prevent injection
+        if not isinstance(limit, int) or limit < 0:
+            limit = 10
+        if not isinstance(offset, int) or offset < 0:
+            offset = 0
+        # Sanitize table and db identifiers
+        table = self._sanitize_identifier(table) if table else ''
+        db = self._sanitize_identifier(db) if db else ''
+        if not table:
+            return []
         q = self._INFO_QUERIES.get(self.db_type, {}).get('rows', '')
         if not q or not columns:
             return []
         # Sanitise column names – only allow alphanumeric + underscore
-        import re as _re
-        safe_cols = [c for c in columns if _re.fullmatch(r'[A-Za-z_]\w*', c)]
+        safe_cols = [c for c in columns if re.fullmatch(r'[A-Za-z_]\w*', c)]
         if not safe_cols:
             return []
         # Build DB-specific row concatenation

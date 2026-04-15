@@ -5,6 +5,7 @@ ATOMIC FRAMEWORK v10.0 - ULTIMATE EDITION
 Advanced HTTP request handler with evasion, response caching, and metrics
 """
 
+import logging
 import random
 import re
 import time
@@ -13,6 +14,8 @@ import unicodedata
 import warnings
 from collections import OrderedDict
 from urllib.parse import urlencode, quote, unquote, urlparse, parse_qs, urlunparse
+
+_logger = logging.getLogger(__name__)
 
 
 try:
@@ -82,6 +85,20 @@ class ResponseCache:
             self._cache.clear()
             self.hits = 0
             self.misses = 0
+
+    def evict_expired(self) -> int:
+        """Remove all expired entries and return the count evicted."""
+        now = time.time()
+        evicted = 0
+        with self._lock:
+            expired_keys = [
+                k for k, (_, ts) in self._cache.items()
+                if now - ts > self._ttl
+            ]
+            for k in expired_keys:
+                del self._cache[k]
+                evicted += 1
+        return evicted
 
     @property
     def size(self) -> int:
@@ -195,6 +212,17 @@ class Requester:
         self.proxies = []
         self._rate_limited = False
         self._consecutive_429 = 0
+
+        # Warn once when SSL verification is disabled (the default for a
+        # scanner, but callers should be aware of the MITM risk).
+        self._ssl_warned = False
+        if not config.get('verify_ssl', False):
+            _logger.warning(
+                "SSL certificate verification is DISABLED. "
+                "Connections are vulnerable to MITM attacks. "
+                "Set verify_ssl=True or --verify-ssl flag for secure operation."
+            )
+            self._ssl_warned = True
 
         # Response cache — only caches baseline/recon GET requests
         cache_size = config.get('cache_size', 2000)

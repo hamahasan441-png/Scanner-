@@ -52,9 +52,16 @@ if FLASK_AVAILABLE:
     CORS(app)
 
 # SocketIO for real-time updates (falls back to polling if unavailable)
+# Read allowed origins from env var; fall back to same-origin-only (empty list
+# means "same origin" in Flask-SocketIO).
+_SOCKETIO_ORIGINS = os.environ.get('ATOMIC_CORS_ORIGINS', '').strip()
 socketio = None
 if SOCKETIO_AVAILABLE:
-    socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
+    socketio = SocketIO(
+        app,
+        cors_allowed_origins=_SOCKETIO_ORIGINS.split(',') if _SOCKETIO_ORIGINS else [],
+        async_mode='threading',
+    )
 
 _active_scans = {}
 _scans_lock = threading.Lock()
@@ -90,7 +97,10 @@ def _require_api_key(f):
 # Simple in-memory rate limiter
 # ---------------------------------------------------------------------------
 _RATE_WINDOW = 60          # seconds
-_RATE_MAX_REQUESTS = 60    # max requests per window per IP
+_RATE_MAX_REQUESTS = 60    # max requests per window per IP (general)
+
+# Maximum allowed request body size (16 MB) to prevent memory exhaustion.
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
 _RATE_CLEANUP_EVERY = 100  # prune stale IPs every N requests
 
 _rate_counters: dict = defaultdict(list)
@@ -134,6 +144,31 @@ def _rate_limit(f):
 def _validate_shell_id(shell_id: str) -> bool:
     """Validate shell_id format (alphanumeric, dashes, underscores only)."""
     return bool(re.match(r'^[a-zA-Z0-9_-]+$', shell_id))
+
+
+# ---------------------------------------------------------------------------
+# Security response headers
+# ---------------------------------------------------------------------------
+
+@app.after_request
+def _set_security_headers(response):
+    """Attach security headers to every HTTP response."""
+    response.headers.setdefault('X-Content-Type-Options', 'nosniff')
+    response.headers.setdefault('X-Frame-Options', 'DENY')
+    response.headers.setdefault('X-XSS-Protection', '1; mode=block')
+    response.headers.setdefault('Referrer-Policy', 'strict-origin-when-cross-origin')
+    response.headers.setdefault(
+        'Content-Security-Policy',
+        "default-src 'self'; script-src 'self' 'unsafe-inline'; "
+        "style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
+        "connect-src 'self' ws: wss:; font-src 'self';",
+    )
+    # Enable HSTS when served over HTTPS (safe no-op over plain HTTP)
+    response.headers.setdefault(
+        'Strict-Transport-Security', 'max-age=31536000; includeSubDomains',
+    )
+    response.headers.setdefault('Permissions-Policy', 'camera=(), microphone=(), geolocation=()')
+    return response
 
 
 def _get_db():
