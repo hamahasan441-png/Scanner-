@@ -27,6 +27,7 @@ class WebSocketModule:
         self._test_cswsh(url)
         self._test_ws_injection(url)
         self._test_origin_validation(url)
+        self._test_ws_protocol_abuse(url)
     
     def _test_cswsh(self, url):
         """Test for Cross-Site WebSocket Hijacking"""
@@ -106,6 +107,10 @@ class WebSocketModule:
             'null',
             'https://example.com.evil.com',
             '',
+            'https://target.com.evil.com',
+            'https://evil-target.com',
+            'https://target.com%60evil.com',
+            'https://target.com%2540evil.com',
         ]
         
         for origin in evil_origins:
@@ -130,6 +135,39 @@ class WebSocketModule:
                         url=url, severity='HIGH', confidence=0.75,
                         param='Origin', payload=origin or '(empty)',
                         evidence=f"WebSocket accepted connection with origin: {origin or '(empty)'}",
+                    )
+                    self.engine.add_finding(finding)
+                    return
+            except Exception:
+                continue
+    
+    def _test_ws_protocol_abuse(self, url):
+        """Test for WebSocket protocol abuse via subprotocol manipulation"""
+        abuse_payloads = [
+            'graphql-ws',
+            'graphql-transport-ws',
+            'soap',
+            'wamp.2.json',
+            'mqtt',
+        ]
+        for protocol in abuse_payloads:
+            try:
+                response = self.requester.request(url, 'GET', headers={
+                    'Upgrade': 'websocket',
+                    'Connection': 'Upgrade',
+                    'Sec-WebSocket-Key': 'dGhlIHNhbXBsZSBub25jZQ==',
+                    'Sec-WebSocket-Version': '13',
+                    'Sec-WebSocket-Protocol': protocol,
+                })
+                if not response:
+                    continue
+                if response.status_code == 101 and protocol.lower() in response.headers.get('Sec-WebSocket-Protocol', '').lower():
+                    from core.engine import Finding
+                    finding = Finding(
+                        technique=f"WebSocket (Protocol Accepted: {protocol})",
+                        url=url, severity='LOW', confidence=0.6,
+                        param='Sec-WebSocket-Protocol', payload=protocol,
+                        evidence=f"Server accepted subprotocol: {protocol}",
                     )
                     self.engine.add_finding(finding)
                     return

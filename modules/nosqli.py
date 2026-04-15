@@ -54,6 +54,9 @@ class NoSQLModule:
         
         # Test Redis injection
         self._test_redis_injection(url, method, param, value)
+        
+        # Test ReDoS via NoSQL $regex
+        self._test_regex_dos(url, method, param, value)
     
     def _test_blind_timing(self, url: str, method: str, param: str, value: str):
         """Test blind NoSQL injection via timing"""
@@ -71,15 +74,20 @@ class NoSQLModule:
                 self.requester.request(url, method, data={param: payload})
                 elapsed = time.time() - start
                 if elapsed > baseline + 4.0 and elapsed >= 4.5:
-                    from core.engine import Finding
-                    finding = Finding(
-                        technique="NoSQL Injection (Blind / Timing-based)",
-                        url=url, severity='HIGH', confidence=0.7, param=param,
-                        payload=payload,
-                        evidence=f"Time delay: {elapsed:.1f}s vs baseline {baseline:.1f}s",
-                    )
-                    self.engine.add_finding(finding)
-                    return
+                    # Confirmation retry to reduce false positives
+                    start2 = time.time()
+                    self.requester.request(url, method, data={param: payload})
+                    elapsed2 = time.time() - start2
+                    if elapsed2 > baseline + 4.0 and elapsed2 >= 4.5:
+                        from core.engine import Finding
+                        finding = Finding(
+                            technique="NoSQL Injection (Blind / Timing-based)",
+                            url=url, severity='HIGH', confidence=0.7, param=param,
+                            payload=payload,
+                            evidence=f"Time delay: {elapsed:.1f}s (confirmed {elapsed2:.1f}s) vs baseline {baseline:.1f}s",
+                        )
+                        self.engine.add_finding(finding)
+                        return
             except Exception:
                 continue
 
@@ -135,6 +143,40 @@ class NoSQLModule:
                         )
                         self.engine.add_finding(finding)
                         return
+            except Exception:
+                continue
+
+    def _test_regex_dos(self, url: str, method: str, param: str, value: str):
+        """Test for ReDoS via NoSQL $regex operator"""
+        import time
+        # Measure baseline
+        try:
+            start = time.time()
+            self.requester.request(url, method, data={param: value})
+            baseline = time.time() - start
+        except Exception:
+            baseline = 0
+        
+        redos_payloads = [
+            '{"$regex": "^(a+)+$", "$options": "i"}',
+            '{"$regex": "(.*a){25}"}',
+            '{"$regex": "((a*)*)*b"}',
+        ]
+        for payload in redos_payloads:
+            try:
+                start = time.time()
+                self.requester.request(url, method, data={param: payload})
+                elapsed = time.time() - start
+                if elapsed > baseline + 3.0 and elapsed >= 3.5:
+                    from core.engine import Finding
+                    finding = Finding(
+                        technique="NoSQL Injection (ReDoS via $regex)",
+                        url=url, severity='MEDIUM', confidence=0.65, param=param,
+                        payload=payload,
+                        evidence=f"ReDoS delay: {elapsed:.1f}s vs baseline {baseline:.1f}s",
+                    )
+                    self.engine.add_finding(finding)
+                    return
             except Exception:
                 continue
 
