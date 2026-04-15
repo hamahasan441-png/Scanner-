@@ -93,6 +93,9 @@ class SQLiModule:
         # Test WAF bypass payloads
         self._test_waf_bypass_payloads(url, method, param, value)
 
+        # LLM-generated adaptive payloads (if --local-llm active)
+        self._test_llm_payloads(url, method, param, value)
+
         # sqlmap deep scan (optional, requires sqlmap installed)
         if self.engine.config.get('modules', {}).get('sqlmap', False):
             self._test_sqlmap(url, method, param, value)
@@ -558,6 +561,58 @@ class SQLiModule:
             if os.path.isfile(candidate):
                 return candidate
         return ''
+
+    def _test_llm_payloads(self, url: str, method: str, param: str, value: str):
+        """Test with LLM-generated adaptive payloads.
+
+        Uses Qwen2.5-7B (when available via ``--local-llm``) to generate
+        context-aware SQL injection payloads tailored to the detected
+        technology stack and WAF.  Falls back silently when the LLM is
+        not loaded.
+        """
+        ai = getattr(self.engine, 'ai', None)
+        if ai is None:
+            return
+        llm_payloads = ai.get_llm_payloads('sqli', param)
+        if not llm_payloads:
+            return
+
+        for payload in llm_payloads:
+            try:
+                data = {param: payload}
+                response = self.requester.request(url, method, data=data)
+                if not response:
+                    continue
+
+                response_text = response.text.lower()
+
+                # Check for SQL errors (same logic as error-based)
+                detected_db = None
+                for db_type, signatures in self.error_signatures.items():
+                    for sig in signatures:
+                        if sig.lower() in response_text:
+                            detected_db = db_type
+                            break
+                    if detected_db:
+                        break
+
+                if detected_db:
+                    from core.engine import Finding
+                    finding = Finding(
+                        technique=f"SQL Injection - AI-generated ({detected_db.upper()})",
+                        url=url,
+                        severity='HIGH',
+                        confidence=0.85,
+                        param=param,
+                        payload=payload,
+                        evidence=f"AI payload triggered {detected_db} error",
+                    )
+                    self.engine.add_finding(finding)
+                    return
+
+            except Exception as e:
+                if self.engine.config.get('verbose'):
+                    print(f"{Colors.error(f'LLM SQLi test error: {e}')}")
 
     def _test_sqlmap(self, url: str, method: str, param: str, value: str):
         """Run sqlmap against a specific parameter for deep SQL injection testing.

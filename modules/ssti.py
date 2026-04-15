@@ -78,6 +78,63 @@ class SSTIModule:
         
         # Test blind SSTI
         self._test_blind_ssti(url, method, param, value)
+
+        # LLM-generated adaptive SSTI payloads
+        self._test_llm_payloads(url, method, param, value)
+
+    def _test_llm_payloads(self, url: str, method: str, param: str, value: str):
+        """Test with LLM-generated template injection payloads.
+
+        Uses Qwen2.5-7B context-aware payload generation when
+        ``--local-llm`` is active.
+        """
+        ai = getattr(self.engine, 'ai', None)
+        if ai is None:
+            return
+        llm_payloads = ai.get_llm_payloads('ssti', param)
+        if not llm_payloads:
+            return
+
+        for payload in llm_payloads:
+            try:
+                data = {param: payload}
+                response = self.requester.request(url, method, data=data)
+                if not response:
+                    continue
+                resp_text = response.text
+                # Check for math eval (common SSTI confirmation)
+                if '49' in resp_text and '{{7*7}}' not in resp_text:
+                    from core.engine import Finding
+                    finding = Finding(
+                        technique="SSTI (AI-generated)",
+                        url=url,
+                        severity='HIGH',
+                        confidence=0.80,
+                        param=param,
+                        payload=payload,
+                        evidence="AI payload triggered template expression evaluation",
+                    )
+                    self.engine.add_finding(finding)
+                    return
+                # Check for engine error messages
+                resp_lower = resp_text.lower()
+                for engine_name, signatures in self.template_engines.items():
+                    for sig in signatures:
+                        if sig in resp_lower:
+                            from core.engine import Finding
+                            finding = Finding(
+                                technique=f"SSTI - AI-generated ({engine_name})",
+                                url=url,
+                                severity='HIGH',
+                                confidence=0.75,
+                                param=param,
+                                payload=payload,
+                                evidence=f"AI payload triggered {engine_name} error",
+                            )
+                            self.engine.add_finding(finding)
+                            return
+            except Exception:
+                continue
     
     def _test_additional_engines(self, url: str, method: str, param: str, value: str):
         """Test additional template engines (Pebble, Smarty, EJS, Handlebars)"""

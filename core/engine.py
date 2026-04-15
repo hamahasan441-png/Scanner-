@@ -1288,6 +1288,27 @@ class AtomicEngine:
         if self.db:
             self.db.save_finding(self.scan_id, finding)
 
+        # LLM real-time enrichment: attach AI analysis to high-severity findings
+        if (self.local_llm and self.local_llm.is_loaded
+                and finding.severity in ('CRITICAL', 'HIGH')):
+            try:
+                fd = {
+                    'technique': finding.technique,
+                    'url': finding.url,
+                    'param': finding.param or '',
+                    'payload': finding.payload or '',
+                    'evidence': finding.evidence or '',
+                    'severity': finding.severity,
+                    'confidence': finding.confidence,
+                }
+                analysis = self.local_llm.analyze_finding(fd)
+                if analysis.get('llm_analysis'):
+                    finding.llm_analysis = analysis['llm_analysis']
+                    if not self.config.get('quiet'):
+                        print(f"    {Colors.CYAN}[AI]{Colors.RESET} {analysis['llm_analysis'][:120]}")
+            except Exception:
+                pass
+
     def _print_summary(self):
         """Print scan summary with intelligence insights"""
         duration = (self.end_time - self.start_time).total_seconds() if self.end_time and self.start_time else 0

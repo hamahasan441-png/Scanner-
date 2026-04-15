@@ -59,6 +59,9 @@ class XSSModule:
         
         # Test encoding bypass
         self._test_encoding_bypass(url, method, param, value)
+
+        # LLM-generated adaptive XSS payloads
+        self._test_llm_payloads(url, method, param, value)
     
     def _test_mxss(self, url: str, method: str, param: str, value: str):
         """Test for mutation XSS (mXSS)"""
@@ -181,6 +184,41 @@ class XSSModule:
                         technique="XSS (Encoding Bypass)", url=url,
                         severity='HIGH', confidence=0.85, param=param,
                         payload=payload, evidence="Encoding bypass payload reflected unmodified",
+                    )
+                    self.engine.add_finding(finding)
+                    return
+            except Exception:
+                continue
+
+    def _test_llm_payloads(self, url: str, method: str, param: str, value: str):
+        """Test with LLM-generated adaptive XSS payloads.
+
+        Uses Qwen2.5-7B to produce context-aware payloads when the local
+        LLM is loaded (``--local-llm``).  Gracefully skips otherwise.
+        """
+        ai = getattr(self.engine, 'ai', None)
+        if ai is None:
+            return
+        llm_payloads = ai.get_llm_payloads('xss', param)
+        if not llm_payloads:
+            return
+
+        for payload in llm_payloads:
+            try:
+                data = {param: payload}
+                response = self.requester.request(url, method, data=data)
+                if not response:
+                    continue
+                if payload in response.text:
+                    from core.engine import Finding
+                    finding = Finding(
+                        technique="XSS (AI-generated Reflected)",
+                        url=url,
+                        severity='HIGH',
+                        confidence=0.80,
+                        param=param,
+                        payload=payload,
+                        evidence="AI payload reflected unescaped in response",
                     )
                     self.engine.add_finding(finding)
                     return

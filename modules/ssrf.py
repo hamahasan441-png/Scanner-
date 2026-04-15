@@ -95,6 +95,46 @@ class SSRFModule:
         
         # Test blind SSRF via timing
         self._test_time_based_ssrf(url, method, param, value)
+
+        # LLM-generated adaptive SSRF payloads
+        self._test_llm_payloads(url, method, param, value)
+
+    def _test_llm_payloads(self, url: str, method: str, param: str, value: str):
+        """Test with LLM-generated SSRF payloads.
+
+        Leverages Qwen2.5-7B to generate context-aware SSRF payloads
+        when ``--local-llm`` is active.
+        """
+        ai = getattr(self.engine, 'ai', None)
+        if ai is None:
+            return
+        llm_payloads = ai.get_llm_payloads('ssrf', param)
+        if not llm_payloads:
+            return
+
+        for payload in llm_payloads:
+            try:
+                data = {param: payload}
+                response = self.requester.request(url, method, data=data)
+                if not response:
+                    continue
+                resp_lower = response.text.lower()
+                for ind in self.ssrf_indicators.get('strong', []):
+                    if ind.lower() in resp_lower:
+                        from core.engine import Finding
+                        finding = Finding(
+                            technique="SSRF (AI-generated)",
+                            url=url,
+                            severity='HIGH',
+                            confidence=0.80,
+                            param=param,
+                            payload=payload,
+                            evidence=f"AI payload triggered SSRF indicator: {ind}",
+                        )
+                        self.engine.add_finding(finding)
+                        return
+            except Exception:
+                continue
     
     def _test_dns_rebinding(self, url: str, method: str, param: str, value: str):
         """Test for DNS rebinding SSRF"""

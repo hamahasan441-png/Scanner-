@@ -325,5 +325,421 @@ class TestDownloadProgress(unittest.TestCase):
         _download_progress(0, 0)
 
 
+# ===========================================================================
+# Tests for new LLM methods (WAF strategy, prioritization, batch analysis)
+# ===========================================================================
+
+class TestLocalLLMWafStrategy(unittest.TestCase):
+    """Test analyze_waf_strategy method."""
+
+    def _make_llm_with_mock(self, response_text='Test response'):
+        from core.local_llm import LocalLLM
+        llm = LocalLLM()
+        mock_model = MagicMock()
+        mock_model.return_value = {
+            'choices': [{'text': response_text}],
+        }
+        llm._llm = mock_model
+        return llm
+
+    def test_waf_strategy_returns_payloads(self):
+        response = (
+            "1. <img/src=x onerror=alert(1)>\n"
+            "2. <svg/onload=alert(1)>\n"
+            "3. <details open ontoggle=alert(1)>"
+        )
+        llm = self._make_llm_with_mock(response)
+        result = llm.analyze_waf_strategy('cloudflare', 'xss', ['<script>alert(1)</script>'])
+        self.assertIn('bypass_payloads', result)
+        self.assertTrue(len(result['bypass_payloads']) > 0)
+        self.assertTrue(len(result['bypass_payloads']) <= 5)
+
+    def test_waf_strategy_empty_on_no_response(self):
+        from core.local_llm import LocalLLM
+        llm = LocalLLM()
+        llm._llm = MagicMock(return_value={'choices': [{'text': ''}]})
+        result = llm.analyze_waf_strategy('modsecurity', 'sqli', [])
+        self.assertEqual(result['bypass_payloads'], [])
+
+
+class TestLocalLLMPrioritizeNextTest(unittest.TestCase):
+    """Test prioritize_next_test method."""
+
+    def _make_llm_with_mock(self, response_text='Test response'):
+        from core.local_llm import LocalLLM
+        llm = LocalLLM()
+        mock_model = MagicMock()
+        mock_model.return_value = {
+            'choices': [{'text': response_text}],
+        }
+        llm._llm = mock_model
+        return llm
+
+    def test_prioritize_returns_all_modules(self):
+        response = "cmdi\nssti\nssrf"
+        llm = self._make_llm_with_mock(response)
+        remaining = ['ssrf', 'ssti', 'cmdi']
+        result = llm.prioritize_next_test(
+            [{'technique': 'SQL Injection'}], remaining)
+        self.assertEqual(len(result), len(remaining))
+
+    def test_prioritize_empty_remaining(self):
+        from core.local_llm import LocalLLM
+        llm = LocalLLM()
+        llm._llm = MagicMock()
+        result = llm.prioritize_next_test([], [])
+        self.assertEqual(result, [])
+
+
+class TestLocalLLMBatchAnalyze(unittest.TestCase):
+    """Test batch_analyze_findings method."""
+
+    def _make_llm_with_mock(self, response_text='Analysis complete.'):
+        from core.local_llm import LocalLLM
+        llm = LocalLLM()
+        mock_model = MagicMock()
+        mock_model.return_value = {
+            'choices': [{'text': response_text}],
+        }
+        llm._llm = mock_model
+        return llm
+
+    def test_batch_analyze_returns_text(self):
+        llm = self._make_llm_with_mock(
+            "1. Attack chain: SQLi→RCE\n2. Critical: SQLi\n3. Patch DB")
+        findings = [
+            {'technique': 'SQL Injection', 'url': 'http://x', 'param': 'id', 'severity': 'HIGH'},
+            {'technique': 'XSS', 'url': 'http://x', 'param': 'q', 'severity': 'MEDIUM'},
+        ]
+        result = llm.batch_analyze_findings(findings)
+        self.assertIn('chain', result.lower())
+
+    def test_batch_analyze_empty_findings(self):
+        llm = self._make_llm_with_mock('No findings.')
+        result = llm.batch_analyze_findings([])
+        self.assertIsInstance(result, str)
+
+
+# ===========================================================================
+# Tests for AIEngine enhanced methods
+# ===========================================================================
+
+class TestAIEngineEnhancedPayloads(unittest.TestCase):
+    """Test get_llm_enhanced_payloads method."""
+
+    def _make_engine(self):
+        engine = MagicMock()
+        engine.config = {'verbose': False}
+        engine.context = MagicMock()
+        engine.context.detected_tech = {'php', 'mysql'}
+        engine.adaptive = MagicMock()
+        engine.adaptive.waf_detected = False
+        engine.adaptive.waf_name = ''
+        engine.adaptive.signal_strength = 0.0
+        engine.local_llm = None
+        return engine
+
+    def test_enhanced_payloads_no_llm(self):
+        from core.ai_engine import AIEngine
+        engine = self._make_engine()
+        ai = AIEngine(engine)
+        ai.local_llm = None
+        standard = ["' OR 1=1 --", "' UNION SELECT NULL --"]
+        result = ai.get_llm_enhanced_payloads('sqli', standard, 'id')
+        self.assertEqual(result, standard)
+
+    def test_enhanced_payloads_with_llm(self):
+        from core.ai_engine import AIEngine
+        engine = self._make_engine()
+        ai = AIEngine(engine)
+
+        mock_llm = MagicMock()
+        mock_llm.is_loaded = True
+        mock_llm.suggest_payloads.return_value = ["' AND 1=0 --", "new payload"]
+        ai.local_llm = mock_llm
+
+        standard = ["' OR 1=1 --"]
+        result = ai.get_llm_enhanced_payloads('sqli', standard, 'id')
+        self.assertIn("' OR 1=1 --", result)
+        self.assertIn("new payload", result)
+        self.assertTrue(len(result) > len(standard))
+
+    def test_enhanced_payloads_deduplication(self):
+        from core.ai_engine import AIEngine
+        engine = self._make_engine()
+        ai = AIEngine(engine)
+
+        mock_llm = MagicMock()
+        mock_llm.is_loaded = True
+        mock_llm.suggest_payloads.return_value = ["' OR 1=1 --", "new payload"]
+        ai.local_llm = mock_llm
+
+        standard = ["' OR 1=1 --", "existing"]
+        result = ai.get_llm_enhanced_payloads('sqli', standard, 'id')
+        # Should not have duplicate of "' OR 1=1 --"
+        count = result.count("' OR 1=1 --")
+        self.assertEqual(count, 1)
+
+
+class TestAIEngineAnalyzeModuleResponse(unittest.TestCase):
+    """Test analyze_module_response method."""
+
+    def _make_engine(self):
+        engine = MagicMock()
+        engine.config = {'verbose': False}
+        engine.context = MagicMock()
+        engine.context.detected_tech = set()
+        engine.adaptive = MagicMock()
+        engine.adaptive.waf_detected = False
+        engine.adaptive.waf_name = ''
+        engine.adaptive.signal_strength = 0.0
+        engine.local_llm = None
+        return engine
+
+    def test_returns_none_without_llm(self):
+        from core.ai_engine import AIEngine
+        engine = self._make_engine()
+        ai = AIEngine(engine)
+        ai.local_llm = None
+        result = ai.analyze_module_response('sqli', 'http://x', 'id', "' OR 1=1 --", 'normal response')
+        self.assertIsNone(result)
+
+    def test_returns_analysis_with_llm(self):
+        from core.ai_engine import AIEngine
+        engine = self._make_engine()
+        ai = AIEngine(engine)
+
+        mock_llm = MagicMock()
+        mock_llm.is_loaded = True
+        mock_llm.analyze_response.return_value = {
+            'is_vulnerable': True, 'confidence': 0.9, 'reasoning': 'SQL error found'
+        }
+        ai.local_llm = mock_llm
+
+        result = ai.analyze_module_response('sqli', 'http://x', 'id', "' OR 1=1 --", 'SQL syntax error')
+        self.assertIsNotNone(result)
+        self.assertTrue(result['is_vulnerable'])
+        self.assertEqual(result['confidence'], 0.9)
+
+
+# ===========================================================================
+# Tests for module LLM payload integration
+# ===========================================================================
+
+class _MockResponse:
+    """Minimal mock HTTP response."""
+    def __init__(self, text='', status_code=200, headers=None):
+        self.text = text
+        self.status_code = status_code
+        self.headers = headers or {}
+
+
+class _MockRequester:
+    """Mock requester returning pre-configured responses."""
+    def __init__(self, responses=None):
+        self._responses = responses or []
+        self._call_idx = 0
+
+    def request(self, url, method, data=None, headers=None, allow_redirects=True):
+        if self._call_idx < len(self._responses):
+            resp = self._responses[self._call_idx]
+            self._call_idx += 1
+            return resp
+        return None
+
+    def waf_bypass_encode(self, payload):
+        return [payload]
+
+
+class _MockEngineForModule:
+    """Mock engine for module testing."""
+    def __init__(self, responses=None, config=None):
+        self.config = config or {'verbose': False, 'waf_bypass': False}
+        self.requester = _MockRequester(responses)
+        self.findings = []
+        self.ai = None  # No AI by default
+
+    def add_finding(self, finding):
+        self.findings.append(finding)
+
+
+class TestSQLiModuleLLMPayloads(unittest.TestCase):
+    """Test SQLi module's _test_llm_payloads method."""
+
+    def test_no_llm_no_findings(self):
+        """Without AI engine, _test_llm_payloads should be a no-op."""
+        from modules.sqli import SQLiModule
+        engine = _MockEngineForModule()
+        mod = SQLiModule(engine)
+        mod._test_llm_payloads('http://test.com', 'GET', 'id', '1')
+        self.assertEqual(len(engine.findings), 0)
+
+    def test_llm_payload_detects_error(self):
+        """LLM-generated payload triggers SQL error → finding."""
+        from modules.sqli import SQLiModule
+        engine = _MockEngineForModule(
+            responses=[_MockResponse('you have an error in your sql syntax')]
+        )
+        mock_ai = MagicMock()
+        mock_ai.get_llm_payloads.return_value = ["' AI-PAYLOAD --"]
+        engine.ai = mock_ai
+
+        mod = SQLiModule(engine)
+        mod._test_llm_payloads('http://test.com', 'GET', 'id', '1')
+        self.assertEqual(len(engine.findings), 1)
+        self.assertIn('AI-generated', engine.findings[0].technique)
+
+
+class TestXSSModuleLLMPayloads(unittest.TestCase):
+    """Test XSS module's _test_llm_payloads method."""
+
+    def test_no_llm_no_findings(self):
+        from modules.xss import XSSModule
+        engine = _MockEngineForModule()
+        mod = XSSModule(engine)
+        mod._test_llm_payloads('http://test.com', 'GET', 'q', 'test')
+        self.assertEqual(len(engine.findings), 0)
+
+    def test_llm_payload_reflected(self):
+        payload = '<img/src=x onerror=alert(1)>'
+        from modules.xss import XSSModule
+        engine = _MockEngineForModule(
+            responses=[_MockResponse(f'<html>{payload}</html>')]
+        )
+        mock_ai = MagicMock()
+        mock_ai.get_llm_payloads.return_value = [payload]
+        engine.ai = mock_ai
+
+        mod = XSSModule(engine)
+        mod._test_llm_payloads('http://test.com', 'GET', 'q', 'test')
+        self.assertEqual(len(engine.findings), 1)
+        self.assertIn('AI-generated', engine.findings[0].technique)
+
+
+class TestCMDiModuleLLMPayloads(unittest.TestCase):
+    """Test CMDi module's _test_llm_payloads method."""
+
+    def test_no_llm_no_findings(self):
+        from modules.cmdi import CommandInjectionModule
+        engine = _MockEngineForModule()
+        mod = CommandInjectionModule(engine)
+        mod._test_llm_payloads('http://test.com', 'GET', 'cmd', 'ls')
+        self.assertEqual(len(engine.findings), 0)
+
+    def test_llm_payload_detects_unix_output(self):
+        from modules.cmdi import CommandInjectionModule
+        engine = _MockEngineForModule(
+            responses=[_MockResponse('uid=1000(user) gid=1000')]
+        )
+        mock_ai = MagicMock()
+        mock_ai.get_llm_payloads.return_value = ['; id']
+        engine.ai = mock_ai
+
+        mod = CommandInjectionModule(engine)
+        mod._test_llm_payloads('http://test.com', 'GET', 'cmd', 'ls')
+        self.assertEqual(len(engine.findings), 1)
+        self.assertIn('AI-generated', engine.findings[0].technique)
+
+
+class TestSSRFModuleLLMPayloads(unittest.TestCase):
+    """Test SSRF module's _test_llm_payloads method."""
+
+    def test_no_llm_no_findings(self):
+        from modules.ssrf import SSRFModule
+        engine = _MockEngineForModule()
+        mod = SSRFModule(engine)
+        mod._test_llm_payloads('http://test.com', 'GET', 'url', 'http://example.com')
+        self.assertEqual(len(engine.findings), 0)
+
+
+class TestSSTIModuleLLMPayloads(unittest.TestCase):
+    """Test SSTI module's _test_llm_payloads method."""
+
+    def test_no_llm_no_findings(self):
+        from modules.ssti import SSTIModule
+        engine = _MockEngineForModule()
+        mod = SSTIModule(engine)
+        mod._test_llm_payloads('http://test.com', 'GET', 'name', 'test')
+        self.assertEqual(len(engine.findings), 0)
+
+
+class TestLFIModuleLLMPayloads(unittest.TestCase):
+    """Test LFI module's _test_llm_payloads method."""
+
+    def test_no_llm_no_findings(self):
+        from modules.lfi import LFIModule
+        engine = _MockEngineForModule()
+        mod = LFIModule(engine)
+        mod._test_llm_payloads('http://test.com', 'GET', 'file', 'page.php')
+        self.assertEqual(len(engine.findings), 0)
+
+    def test_llm_payload_detects_passwd(self):
+        from modules.lfi import LFIModule
+        engine = _MockEngineForModule(
+            responses=[_MockResponse('root:x:0:0:root:/root:/bin/bash\nbin:x:1:1')]
+        )
+        mock_ai = MagicMock()
+        mock_ai.get_llm_payloads.return_value = ['../../etc/passwd']
+        engine.ai = mock_ai
+
+        mod = LFIModule(engine)
+        mod._test_llm_payloads('http://test.com', 'GET', 'file', 'page.php')
+        self.assertEqual(len(engine.findings), 1)
+        self.assertIn('AI-generated', engine.findings[0].technique)
+
+
+# ===========================================================================
+# Tests for BaseModule LLM helpers
+# ===========================================================================
+
+class TestBaseModuleLLMHelpers(unittest.TestCase):
+    """Test _get_ai_payloads and _ai_verify_response helpers."""
+
+    def test_get_ai_payloads_no_engine_ai(self):
+        from modules.base import BaseModule
+
+        class _ConcreteModule(BaseModule):
+            name = 'test'
+            vuln_type = 'test'
+            def test(self, url, method, param, value): pass
+
+        engine = _MockEngineForModule()
+        mod = _ConcreteModule(engine)
+        standard = ['payload1', 'payload2']
+        result = mod._get_ai_payloads('sqli', standard, 'id')
+        self.assertEqual(result, standard)
+
+    def test_get_ai_payloads_with_engine_ai(self):
+        from modules.base import BaseModule
+
+        class _ConcreteModule(BaseModule):
+            name = 'test'
+            vuln_type = 'test'
+            def test(self, url, method, param, value): pass
+
+        engine = _MockEngineForModule()
+        mock_ai = MagicMock()
+        mock_ai.get_llm_enhanced_payloads.return_value = ['payload1', 'payload2', 'ai_payload']
+        engine.ai = mock_ai
+
+        mod = _ConcreteModule(engine)
+        result = mod._get_ai_payloads('sqli', ['payload1', 'payload2'], 'id')
+        self.assertEqual(len(result), 3)
+        self.assertIn('ai_payload', result)
+
+    def test_ai_verify_response_no_llm(self):
+        from modules.base import BaseModule
+
+        class _ConcreteModule(BaseModule):
+            name = 'test'
+            vuln_type = 'test'
+            def test(self, url, method, param, value): pass
+
+        engine = _MockEngineForModule()
+        mod = _ConcreteModule(engine)
+        result = mod._ai_verify_response('sqli', 'http://x', 'id', 'payload', 'response')
+        self.assertIsNone(result)
+
+
 if __name__ == '__main__':
     unittest.main()
