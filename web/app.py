@@ -472,6 +472,7 @@ def start_scan():
             'rotate_proxy': False,
             'rotate_ua': True,
             'output_dir': Config.REPORTS_DIR,
+            'auto_external_tools': True,
         }
 
         thread = threading.Thread(

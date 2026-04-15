@@ -882,6 +882,7 @@ def main():
         'rules_path': getattr(args, 'rules', None),
         'strict_scope': getattr(args, 'strict_scope', False),
         'turbo': getattr(args, 'turbo', False),
+        'auto_external_tools': True,
     }
 
     # --point-to-point enables absolutely everything for complete coverage

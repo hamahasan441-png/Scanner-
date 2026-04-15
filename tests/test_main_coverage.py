@@ -177,6 +177,8 @@ class TestMainTargetValidation(_MainTestBase):
     def test_target_with_authorized(self, mock_mkdirs, mock_engine):
         mock_engine.return_value.findings = []
         self._run_main(['-t', 'http://example.com', '--authorized'])
+        cfg = mock_engine.call_args[0][0]
+        self.assertTrue(cfg['auto_external_tools'])
         mock_engine.return_value.scan.assert_called_once()
 
     def test_invalid_url_target(self):
