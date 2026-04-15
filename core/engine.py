@@ -196,6 +196,9 @@ class AtomicEngine:
         self.ai = AIEngine(self)
         self.persistence = PersistenceEngine(self)
 
+        # Local LLM reference (set by main.py when --local-llm is active)
+        self.local_llm = None
+
         # --- Production components (audit, compliance, notifications, tools, plugins) ---
         try:
             from core.audit_logger import AuditLogger
@@ -1284,6 +1287,30 @@ class AtomicEngine:
         # Save to database
         if self.db:
             self.db.save_finding(self.scan_id, finding)
+
+        # LLM real-time enrichment: attach AI analysis to high-severity findings.
+        # Only runs when --local-llm is active; skipped during high-volume scans
+        # to avoid slowing down the scan loop.
+        if (self.local_llm and self.local_llm.is_loaded
+                and finding.severity in ('CRITICAL', 'HIGH')
+                and self.config.get('local_llm')):
+            try:
+                fd = {
+                    'technique': finding.technique,
+                    'url': finding.url,
+                    'param': finding.param or '',
+                    'payload': finding.payload or '',
+                    'evidence': finding.evidence or '',
+                    'severity': finding.severity,
+                    'confidence': finding.confidence,
+                }
+                analysis = self.local_llm.analyze_finding(fd)
+                if analysis.get('llm_analysis'):
+                    finding.llm_analysis = analysis['llm_analysis']
+                    if not self.config.get('quiet'):
+                        print(f"    {Colors.CYAN}[AI]{Colors.RESET} {analysis['llm_analysis'][:120]}")
+            except Exception:
+                pass
 
     def _print_summary(self):
         """Print scan summary with intelligence insights"""

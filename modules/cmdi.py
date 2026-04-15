@@ -78,6 +78,9 @@ class CommandInjectionModule:
         # Test environment variable injection
         self._test_env_injection(url, method, param, value)
 
+        # LLM-generated adaptive CMDi payloads
+        self._test_llm_payloads(url, method, param, value)
+
         # sqlmap OS command execution (optional, requires sqlmap installed)
         if self.engine.config.get('modules', {}).get('sqlmap', False):
             self._test_sqlmap_os(url, method, param, value)
@@ -291,6 +294,45 @@ class CommandInjectionModule:
             except Exception as e:
                 if self.engine.config.get('verbose'):
                     print(f"{Colors.error(f'Separator test error: {e}')}")
+
+    def _test_llm_payloads(self, url: str, method: str, param: str, value: str):
+        """Test with LLM-generated command injection payloads.
+
+        Uses Qwen2.5-7B context-aware payload generation when
+        ``--local-llm`` is active.  Gracefully skips otherwise.
+        """
+        ai = getattr(self.engine, 'ai', None)
+        if ai is None:
+            return
+        llm_payloads = ai.get_llm_payloads('cmdi', param)
+        if not llm_payloads:
+            return
+
+        for payload in llm_payloads:
+            try:
+                data = {param: payload}
+                response = self.requester.request(url, method, data=data)
+                if not response:
+                    continue
+                response_text = response.text
+                for os_type, patterns in self.cmd_indicators.items():
+                    for pattern in patterns:
+                        if re.search(pattern, response_text, re.IGNORECASE):
+                            from core.engine import Finding
+                            finding = Finding(
+                                technique=f"Command Injection - AI-generated ({os_type})",
+                                url=url,
+                                severity='CRITICAL',
+                                confidence=0.85,
+                                param=param,
+                                payload=payload,
+                                evidence=f"AI payload triggered {os_type} output",
+                            )
+                            self.engine.add_finding(finding)
+                            return
+            except Exception as e:
+                if self.engine.config.get('verbose'):
+                    print(f"{Colors.error(f'LLM CMDi test error: {e}')}")
     
     def exploit_execute(self, url: str, param: str, command: str, method: str = 'GET') -> str:
         """Execute command via RCE.

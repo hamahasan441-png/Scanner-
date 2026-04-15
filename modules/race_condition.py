@@ -57,7 +57,7 @@ class RaceConditionModule:
     
     def _test_concurrent_requests(self, url, method, param, value):
         """Test concurrent requests for double-spend/reuse vulnerabilities"""
-        num_concurrent = 10
+        num_concurrent = 20
         responses = []
         
         def send_request():
@@ -89,6 +89,21 @@ class RaceConditionModule:
                             evidence=f"Inconsistent responses: {dict((s, status_codes.count(s)) for s in unique_statuses)}",
                         )
                         self.engine.add_finding(finding)
+                    
+                    # Also check for response body variance
+                    body_samples = [r.text[:500] for r in responses]
+                    unique_bodies = len(set(body_samples))
+                    if unique_bodies > 1 and unique_bodies < len(body_samples):
+                        # Some responses differ - potential race condition
+                        if len(unique_statuses) <= 1:  # Only report body variance if status was consistent
+                            from core.engine import Finding
+                            finding = Finding(
+                                technique="Race Condition (Response Body Variance)",
+                                url=url, severity='MEDIUM', confidence=0.5,
+                                param=param, payload=f"{num_concurrent} concurrent requests",
+                                evidence=f"Response body variations: {unique_bodies} unique responses from {len(responses)} requests",
+                            )
+                            self.engine.add_finding(finding)
         except Exception:
             pass
     

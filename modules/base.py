@@ -44,3 +44,38 @@ class BaseModule(ABC):
         from core.engine import Finding
         finding = Finding(**kwargs)
         self.engine.add_finding(finding)
+
+    # ------------------------------------------------------------------
+    # LLM-Enhanced Payload Helpers
+    # ------------------------------------------------------------------
+
+    def _get_ai_payloads(self, vuln_type, standard_payloads, param_name=''):
+        """Augment *standard_payloads* with LLM-generated suggestions.
+
+        Calls ``AIEngine.get_llm_enhanced_payloads()`` when the local
+        LLM is loaded (``--local-llm`` flag).  Gracefully falls back to
+        the original list when the LLM is unavailable.
+        """
+        ai = getattr(self.engine, 'ai', None)
+        if ai is None:
+            return standard_payloads
+        try:
+            return ai.get_llm_enhanced_payloads(
+                vuln_type, standard_payloads, param_name=param_name)
+        except Exception:
+            return standard_payloads
+
+    def _ai_verify_response(self, vuln_type, url, param, payload, response_text):
+        """Ask the LLM to verify whether a response confirms a vulnerability.
+
+        Returns ``None`` when the LLM is unavailable (so callers should
+        treat ``None`` as "no opinion").
+        """
+        ai = getattr(self.engine, 'ai', None)
+        if ai is None:
+            return None
+        try:
+            return ai.analyze_module_response(
+                vuln_type, url, param, payload, response_text)
+        except Exception:
+            return None

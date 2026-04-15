@@ -274,6 +274,9 @@ class AIEngine:
         # Discovered vulnerability correlations in this scan
         self.discovered_correlations = []
 
+        # Local LLM reference (populated by engine if --local-llm is active)
+        self.local_llm = None
+
         self._load()
 
     # ------------------------------------------------------------------
@@ -508,6 +511,101 @@ class AIEngine:
                 if vuln_type in tech_vulns:
                     hints.extend(tech_vulns[vuln_type])
         return hints
+
+    def get_llm_enhanced_payloads(self, vuln_type, standard_payloads, param_name='', max_extra=5):
+        """Augment standard payloads with LLM-generated ones.
+
+        Called from module ``test()`` methods to enrich the payload list
+        with context-aware suggestions from Qwen2.5-7B.  If the LLM is
+        unavailable (not loaded / not installed), returns the original
+        payloads unchanged.
+
+        Parameters
+        ----------
+        vuln_type : str
+            Vulnerability identifier (``sqli``, ``xss``, ``cmdi``, …).
+        standard_payloads : list[str]
+            The module's built-in payload list.
+        param_name : str, optional
+            Target parameter name for context-aware suggestions.
+        max_extra : int
+            Maximum number of LLM-generated payloads to append (default 5).
+
+        Returns
+        -------
+        list[str]
+            Standard payloads + deduplicated LLM payloads appended.
+        """
+        llm_payloads = self.get_llm_payloads(vuln_type, param_name)
+        if not llm_payloads:
+            return standard_payloads
+        # Deduplicate: only add payloads not already in standard list
+        existing = set(standard_payloads)
+        extra = [p for p in llm_payloads[:max_extra] if p not in existing]
+        return list(standard_payloads) + extra
+
+    def analyze_module_response(self, vuln_type, url, param, payload, response_text):
+        """Real-time LLM-powered response analysis during scanning.
+
+        Invoked by modules after receiving a potentially interesting
+        response to confirm or reject the finding.
+
+        Parameters
+        ----------
+        vuln_type : str
+            Vulnerability type (``sqli``, ``xss``, ``cmdi``, …).
+        url : str
+            Tested URL.
+        param : str
+            Tested parameter.
+        payload : str
+            Payload that was sent.
+        response_text : str
+            Response body (first 500 chars for efficiency).
+
+        Returns
+        -------
+        dict
+            ``{'is_vulnerable': bool, 'confidence': float, 'reasoning': str}``
+            or ``None`` when LLM is unavailable.
+        """
+        llm = self.local_llm or getattr(self.engine, 'local_llm', None)
+        if llm is None or not llm.is_loaded:
+            return None
+        try:
+            return llm.analyze_response(url, param, payload, response_text[:500])
+        except Exception:
+            return None
+
+    def get_llm_payloads(self, vuln_type, param_name=''):
+        """Get AI-generated payloads from local LLM if available.
+
+        Returns extra payloads suggested by Qwen2.5-7B based on the
+        target's technology stack and WAF status.  Falls back to an
+        empty list when the LLM is not loaded.
+        """
+        llm = self.local_llm or getattr(self.engine, 'local_llm', None)
+        if llm is None or not llm.is_loaded:
+            return []
+
+        # Build context from engine state
+        detected_tech = getattr(self.engine, 'context', None)
+        tech_str = 'unknown'
+        if detected_tech and hasattr(detected_tech, 'detected_tech'):
+            tech_str = ', '.join(str(t) for t in detected_tech.detected_tech) or 'unknown'
+
+        waf_str = 'none'
+        if hasattr(self.engine, 'adaptive') and self.engine.adaptive.waf_detected:
+            waf_str = self.engine.adaptive.waf_name or 'unknown WAF'
+
+        try:
+            return llm.suggest_payloads(vuln_type, {
+                'technology': tech_str,
+                'waf_detected': waf_str,
+                'param_name': param_name,
+            })
+        except Exception:
+            return []
 
     # ------------------------------------------------------------------
     # Anomaly Detection

