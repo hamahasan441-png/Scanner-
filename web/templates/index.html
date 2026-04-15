@@ -1575,7 +1575,7 @@
             <p class="empty-msg">Check Ollama status to see available models</p>
         </div>
         <div style="display:flex;gap:0.5rem;align-items:center;">
-            <input type="text" id="ollama-pull-model" placeholder="Model name (e.g. llama3.2)" style="flex:1;max-width:300px;">
+            <input type="text" id="ollama-pull-model" placeholder="Model name (e.g. qwen2.5-coder:7b)" style="flex:1;max-width:300px;">
             <button class="btn btn-primary btn-sm" onclick="window._ollamaPullModel()">⬇️ Pull Model</button>
         </div>
         <div id="ollama-pull-status" style="font-size:0.85rem;margin-top:0.5rem;"></div>
@@ -1587,7 +1587,7 @@
         <div style="display:flex;gap:0.5rem;align-items:center;margin-bottom:0.8rem;">
             <div class="form-group" style="margin-bottom:0;flex:1;max-width:250px;">
                 <label>Model</label>
-                <input type="text" id="ollama-chat-model" value="llama3.2" placeholder="llama3.2">
+                <input type="text" id="ollama-chat-model" value="qwen2.5-coder:7b" placeholder="qwen2.5-coder:7b">
             </div>
             <div style="display:flex;align-items:flex-end;gap:0.5rem;padding-top:1rem;">
                 <button class="btn btn-sm" style="background:var(--severity-critical);" onclick="window._ollamaClearChat()">🗑️ Clear</button>
@@ -3679,13 +3679,23 @@
             var j = await r.json();
             if (j.status === 'success') {
                 var d = j.data;
+                var modelsHtml = '';
+                if (d.recommended_models && d.recommended_models.length) {
+                    modelsHtml = '<div style="margin-top:0.5rem;"><strong>Recommended models:</strong></div>';
+                    d.recommended_models.forEach(function(m) {
+                        modelsHtml += '<div style="margin:0.2rem 0 0.2rem 1rem;font-size:0.8rem;">'
+                            + '• <code style="background:rgba(0,0,0,0.3);padding:0.1rem 0.3rem;border-radius:3px;">' + esc(m.name) + '</code> '
+                            + '<span style="color:var(--text-muted);">' + esc(m.description) + ' (' + esc(m.size) + ')</span></div>';
+                    });
+                }
                 guide.innerHTML = '<h4 style="margin:0 0 0.5rem;">📦 Ollama Installation Guide</h4>'
                     + '<div style="margin-bottom:0.5rem;"><strong>Linux:</strong> <code style="background:rgba(0,0,0,0.3);padding:0.2rem 0.4rem;border-radius:3px;">' + esc(d.linux) + '</code></div>'
                     + '<div style="margin-bottom:0.5rem;"><strong>macOS:</strong> <code style="background:rgba(0,0,0,0.3);padding:0.2rem 0.4rem;border-radius:3px;">' + esc(d.macos) + '</code></div>'
                     + '<div style="margin-bottom:0.5rem;"><strong>Windows:</strong> ' + esc(d.windows) + '</div>'
                     + '<div style="margin-bottom:0.5rem;"><strong>Docker:</strong> <code style="background:rgba(0,0,0,0.3);padding:0.2rem 0.4rem;border-radius:3px;">' + esc(d.docker) + '</code></div>'
                     + '<div style="margin-bottom:0.5rem;"><strong>Start:</strong> <code style="background:rgba(0,0,0,0.3);padding:0.2rem 0.4rem;border-radius:3px;">' + esc(d.start_command) + '</code></div>'
-                    + '<div><strong>Pull a model:</strong> <code style="background:rgba(0,0,0,0.3);padding:0.2rem 0.4rem;border-radius:3px;">' + esc(d.pull_model) + '</code></div>';
+                    + '<div><strong>Pull a model:</strong> <code style="background:rgba(0,0,0,0.3);padding:0.2rem 0.4rem;border-radius:3px;">' + esc(d.pull_model) + '</code></div>'
+                    + modelsHtml;
                 guide.style.display = 'block';
             }
         } catch(e) {}
@@ -3718,7 +3728,7 @@
         var text = input.value.trim();
         if (!text) return;
 
-        var model = document.getElementById('ollama-chat-model').value.trim() || 'llama3.2';
+        var model = document.getElementById('ollama-chat-model').value.trim() || 'qwen2.5-coder:7b';
         var container = document.getElementById('ollama-chat-messages');
         var empty = document.getElementById('ollama-chat-empty');
         if (empty) empty.remove();

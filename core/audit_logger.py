@@ -16,13 +16,18 @@ Each entry includes: timestamp, actor, action, target, result, IP, details.
 """
 
 import hashlib
+import hmac
 import json
+import logging
 import os
+import secrets
 import threading
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
+
+_logger = logging.getLogger(__name__)
 
 
 # Audit event categories
@@ -83,7 +88,17 @@ class AuditLogger:
         self._entries: List[AuditEntry] = []
         self._lock = threading.Lock()
         self._max_entries = max_entries
-        self._secret = secret or os.environ.get('ATOMIC_AUDIT_SECRET', 'audit-integrity-key')
+        self._secret = (
+            secret
+            or os.environ.get('ATOMIC_AUDIT_SECRET', '')
+            or secrets.token_hex(32)
+        )
+        if not secret and not os.environ.get('ATOMIC_AUDIT_SECRET'):
+            _logger.warning(
+                "ATOMIC_AUDIT_SECRET not set — using random key. "
+                "Audit checksums will NOT survive restarts. "
+                "Set ATOMIC_AUDIT_SECRET env var for persistent tamper detection."
+            )
         self._counter = 0
         self._callbacks: List = []
 
@@ -128,16 +143,26 @@ class AuditLogger:
         for cb in self._callbacks:
             try:
                 cb(entry)
-            except Exception:
-                pass
+            except Exception as exc:
+                _logger.warning("Audit callback %r failed: %s", cb, exc)
 
         return entry
 
     def _compute_checksum(self, entry: AuditEntry) -> str:
-        """Compute HMAC-SHA256 checksum for tamper detection."""
-        data = f"{entry.entry_id}|{entry.timestamp}|{entry.category}|{entry.action}|{entry.actor}|{entry.target}|{entry.result}"
-        return hashlib.sha256(
-            (self._secret + data).encode()
+        """Compute HMAC-SHA256 checksum for tamper detection.
+
+        Uses proper HMAC construction (RFC 2104) instead of naive
+        ``hash(secret + data)`` which is vulnerable to length-extension
+        attacks.
+        """
+        data = (
+            f"{entry.entry_id}|{entry.timestamp}|{entry.category}"
+            f"|{entry.action}|{entry.actor}|{entry.target}|{entry.result}"
+        )
+        return hmac.new(
+            self._secret.encode(),
+            data.encode(),
+            hashlib.sha256,
         ).hexdigest()[:16]
 
     def verify_checksum(self, entry: AuditEntry) -> bool:

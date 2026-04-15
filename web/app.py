@@ -52,9 +52,16 @@ if FLASK_AVAILABLE:
     CORS(app)
 
 # SocketIO for real-time updates (falls back to polling if unavailable)
+# Read allowed origins from env var; fall back to same-origin-only (empty list
+# means "same origin" in Flask-SocketIO).
+_SOCKETIO_ORIGINS = os.environ.get('ATOMIC_CORS_ORIGINS', '').strip()
 socketio = None
 if SOCKETIO_AVAILABLE:
-    socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
+    socketio = SocketIO(
+        app,
+        cors_allowed_origins=[o.strip() for o in _SOCKETIO_ORIGINS.split(',') if o.strip()] if _SOCKETIO_ORIGINS else [],
+        async_mode='threading',
+    )
 
 _active_scans = {}
 _scans_lock = threading.Lock()
@@ -90,7 +97,10 @@ def _require_api_key(f):
 # Simple in-memory rate limiter
 # ---------------------------------------------------------------------------
 _RATE_WINDOW = 60          # seconds
-_RATE_MAX_REQUESTS = 60    # max requests per window per IP
+_RATE_MAX_REQUESTS = 60    # max requests per window per IP (general)
+
+# Maximum allowed request body size (16 MB) to prevent memory exhaustion.
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
 _RATE_CLEANUP_EVERY = 100  # prune stale IPs every N requests
 
 _rate_counters: dict = defaultdict(list)
@@ -134,6 +144,31 @@ def _rate_limit(f):
 def _validate_shell_id(shell_id: str) -> bool:
     """Validate shell_id format (alphanumeric, dashes, underscores only)."""
     return bool(re.match(r'^[a-zA-Z0-9_-]+$', shell_id))
+
+
+# ---------------------------------------------------------------------------
+# Security response headers
+# ---------------------------------------------------------------------------
+
+@app.after_request
+def _set_security_headers(response):
+    """Attach security headers to every HTTP response."""
+    response.headers.setdefault('X-Content-Type-Options', 'nosniff')
+    response.headers.setdefault('X-Frame-Options', 'DENY')
+    response.headers.setdefault('Referrer-Policy', 'strict-origin-when-cross-origin')
+    response.headers.setdefault(
+        'Content-Security-Policy',
+        "default-src 'self'; script-src 'self' 'unsafe-inline'; "
+        "style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
+        "connect-src 'self' ws: wss:; font-src 'self';",
+    )
+    # Only set HSTS when served over HTTPS to avoid issues over plain HTTP
+    if request.is_secure or request.headers.get('X-Forwarded-Proto') == 'https':
+        response.headers.setdefault(
+            'Strict-Transport-Security', 'max-age=31536000; includeSubDomains',
+        )
+    response.headers.setdefault('Permissions-Policy', 'camera=(), microphone=(), geolocation=()')
+    return response
 
 
 def _get_db():
@@ -2375,7 +2410,12 @@ def ollama_install_info():
         'windows': 'Download from https://ollama.com/download',
         'docker': 'docker run -d -p 11434:11434 --name ollama ollama/ollama',
         'start_command': 'ollama serve',
-        'pull_model': 'ollama pull llama3.2',
+        'pull_model': 'ollama pull qwen2.5-coder:7b',
+        'recommended_models': [
+            {'name': 'qwen2.5-coder:7b', 'description': 'Recommended — Qwen 2.5 Coder 7B (security & code analysis)', 'size': '~4.7 GB'},
+            {'name': 'qwen2.5-coder:1.5b', 'description': 'Lightweight — Qwen 2.5 Coder 1.5B (low-resource devices)', 'size': '~1.0 GB'},
+            {'name': 'qwen2.5-coder:32b', 'description': 'Large — Qwen 2.5 Coder 32B (best quality, needs 20+ GB RAM)', 'size': '~20 GB'},
+        ],
     }})
 
 
@@ -2408,7 +2448,7 @@ def ollama_chat():
     if not body or not isinstance(body.get('message'), str) or not body['message'].strip():
         return jsonify({'status': 'error', 'data': 'Missing or empty message'}), 400
 
-    model = body.get('model', 'llama3.2')
+    model = body.get('model', 'qwen2.5-coder:7b')
     user_msg = body['message'].strip()[:4000]
     system_prompt = body.get('system_prompt',
         'You are a cybersecurity AI assistant integrated into the ATOMIC '
