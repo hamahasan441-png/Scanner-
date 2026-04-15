@@ -59,7 +59,7 @@ socketio = None
 if SOCKETIO_AVAILABLE:
     socketio = SocketIO(
         app,
-        cors_allowed_origins=_SOCKETIO_ORIGINS.split(',') if _SOCKETIO_ORIGINS else [],
+        cors_allowed_origins=[o.strip() for o in _SOCKETIO_ORIGINS.split(',') if o.strip()] if _SOCKETIO_ORIGINS else [],
         async_mode='threading',
     )
 

@@ -1223,10 +1223,8 @@ class SQLiDataExtractor:
 
     def _sanitize_identifier(self, name: str) -> str:
         """Allow only safe SQL identifier characters (alphanumeric + underscore)."""
-        if not re.fullmatch(
-            r'[A-Za-z_]\w{0,' + str(self._MAX_IDENTIFIER_LENGTH - 1) + r'}',
-            name,
-        ):
+        max_len = self._MAX_IDENTIFIER_LENGTH - 1
+        if not re.fullmatch(rf'[A-Za-z_]\w{{0,{max_len}}}', name):
             return ''
         return name
 
