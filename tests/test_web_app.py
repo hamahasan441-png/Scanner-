@@ -982,6 +982,9 @@ class TestOllamaAPI(unittest.TestCase):
         self.assertIn('linux', data['data'])
         self.assertIn('docker', data['data'])
         self.assertIn('pull_model', data['data'])
+        self.assertIn('qwen2.5-coder', data['data']['pull_model'])
+        self.assertIn('recommended_models', data['data'])
+        self.assertGreater(len(data['data']['recommended_models']), 0)
 
     def test_ollama_pull_invalid_model(self):
         """POST /api/ollama/pull with invalid model name returns 400."""
@@ -1006,13 +1009,13 @@ class TestOllamaAPI(unittest.TestCase):
         }
         resp = self.client.post('/api/ollama/chat', json={
             'message': 'Explain SQL injection',
-            'model': 'llama3.2',
+            'model': 'qwen2.5-coder:7b',
         })
         self.assertEqual(resp.status_code, 200)
         data = resp.get_json()
         self.assertEqual(data['status'], 'success')
         self.assertIn('response', data['data'])
-        self.assertEqual(data['data']['model'], 'llama3.2')
+        self.assertEqual(data['data']['model'], 'qwen2.5-coder:7b')
 
     @patch('web.app._ollama_request')
     def test_ollama_chat_stores_history(self, mock_req):

@@ -2410,7 +2410,12 @@ def ollama_install_info():
         'windows': 'Download from https://ollama.com/download',
         'docker': 'docker run -d -p 11434:11434 --name ollama ollama/ollama',
         'start_command': 'ollama serve',
-        'pull_model': 'ollama pull llama3.2',
+        'pull_model': 'ollama pull qwen2.5-coder:7b',
+        'recommended_models': [
+            {'name': 'qwen2.5-coder:7b', 'description': 'Recommended — Qwen 2.5 Coder 7B (security & code analysis)', 'size': '~4.7 GB'},
+            {'name': 'qwen2.5-coder:1.5b', 'description': 'Lightweight — Qwen 2.5 Coder 1.5B (low-resource devices)', 'size': '~1.0 GB'},
+            {'name': 'qwen2.5-coder:32b', 'description': 'Large — Qwen 2.5 Coder 32B (best quality, needs 20+ GB RAM)', 'size': '~20 GB'},
+        ],
     }})
 
 
@@ -2443,7 +2448,7 @@ def ollama_chat():
     if not body or not isinstance(body.get('message'), str) or not body['message'].strip():
         return jsonify({'status': 'error', 'data': 'Missing or empty message'}), 400
 
-    model = body.get('model', 'llama3.2')
+    model = body.get('model', 'qwen2.5-coder:7b')
     user_msg = body['message'].strip()[:4000]
     system_prompt = body.get('system_prompt',
         'You are a cybersecurity AI assistant integrated into the ATOMIC '
