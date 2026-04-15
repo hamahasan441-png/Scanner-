@@ -357,10 +357,14 @@ class AtomicEngine:
                 print(f"{Colors.warning(f'External vuln suite error: {exc}')}")
 
         if all_results:
+            results = [
+                res for res in all_results.values()
+                if hasattr(res, 'success')
+            ]
             self.emit_pipeline_event('external_tools_completed', {
                 'tools': list(all_results.keys()),
-                'success_count': sum(1 for r in all_results.values() if r.success),
-                'failure_count': sum(1 for r in all_results.values() if not r.success),
+                'success_count': sum(1 for r in results if r.success),
+                'failure_count': sum(1 for r in results if not r.success),
             })
 
     def scan(self, target: str):

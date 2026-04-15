@@ -728,7 +728,7 @@ class ToolIntegrator:
         results = {}
 
         if self.nuclei.is_available():
-            # Always include ATOMIC built-in templates for automatic scans.
+            # Always include built-in templates for automatic scans.
             results['nuclei'] = self.nuclei.run(target, use_builtin=True)
 
         if self.nmap.is_available():
