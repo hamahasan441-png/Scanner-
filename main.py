@@ -59,10 +59,17 @@ def main():
   {Colors.GREEN}%(prog)s --sequencer < tokens.txt{Colors.RESET}              # Analyze token randomness
   {Colors.GREEN}%(prog)s --compare resp1.txt resp2.txt{Colors.RESET}         # Compare responses
 
+{Colors.CYAN}AI-Powered Analysis (Qwen2.5-7B Local LLM):{Colors.RESET}
+  {Colors.GREEN}%(prog)s --download-model{Colors.RESET}                           # Download Qwen2.5-7B model (~4.7 GB)
+  {Colors.GREEN}%(prog)s -t https://target.com --local-llm{Colors.RESET}          # Scan with AI analysis
+  {Colors.GREEN}%(prog)s -t https://target.com --local-llm --llm-model /path/to/model.gguf{Colors.RESET}
+
 {Colors.CYAN}Termux Installation:{Colors.RESET}
   pkg update && pkg upgrade -y
   pkg install python clang libffi openssl git -y
   pip install -r requirements.txt
+  pip install llama-cpp-python         # For local AI (Qwen2.5-7B)
+  python main.py --download-model      # Auto-download model
 
 {Colors.YELLOW}⚠️  FOR AUTHORIZED TESTING ONLY ⚠️{Colors.RESET}
         """
@@ -171,7 +178,22 @@ def main():
                        help='Enable exploit chaining')
     parser.add_argument('--auto-exploit', action='store_true',
                        help='AI-driven post-exploitation: auto extract data, upload shells, enumerate systems')
-    
+
+    # Local LLM options (Qwen2.5-7B)
+    parser.add_argument('--local-llm', action='store_true',
+                       help='Enable local Qwen2.5-7B LLM for AI-powered analysis '
+                            '(auto-downloads model on first use)')
+    parser.add_argument('--download-model', action='store_true',
+                       help='Download the Qwen2.5-7B GGUF model without scanning')
+    parser.add_argument('--llm-model', type=str, default=None,
+                       help='Path to custom GGUF model file (default: auto-download Qwen2.5-7B)')
+    parser.add_argument('--llm-threads', type=int, default=None,
+                       help='Number of CPU threads for LLM inference')
+    parser.add_argument('--llm-ctx', type=int, default=None,
+                       help='Context window size for LLM (default: 2048)')
+    parser.add_argument('--llm-gpu-layers', type=int, default=0,
+                       help='Number of layers to offload to GPU (default: 0, CPU-only)')
+
     # Evasion options
     parser.add_argument('-e', '--evasion', 
                        choices=['none', 'low', 'medium', 'high', 'insane', 'stealth'],
@@ -442,6 +464,15 @@ def main():
             install_tool(tool_name)
         else:
             install_all_tools()
+        return
+
+    # Download Qwen2.5-7B model (standalone)
+    if args.download_model:
+        from core.local_llm import download_model, LocalLLM
+        download_model()
+        # Also install backend if missing
+        if not LocalLLM.is_available():
+            LocalLLM.install_backend()
         return
 
     # External tool standalone runs
@@ -989,6 +1020,13 @@ def main():
     
     config['modules'] = modules
 
+    # Local LLM configuration
+    config['local_llm'] = getattr(args, 'local_llm', False) or p2p
+    config['llm_model'] = getattr(args, 'llm_model', None)
+    config['llm_threads'] = getattr(args, 'llm_threads', None)
+    config['llm_ctx'] = getattr(args, 'llm_ctx', None)
+    config['llm_gpu_layers'] = getattr(args, 'llm_gpu_layers', 0)
+
     # Notification configuration
     if getattr(args, 'notify_webhook', None):
         config['notify_webhook'] = args.notify_webhook
@@ -1056,6 +1094,30 @@ def main():
             print(f"\n{Colors.info(f'Target: {target}')}")
             engine = AtomicEngine(config)
 
+            # ── Initialize Local LLM if enabled ──────────────────────
+            local_llm = None
+            if config.get('local_llm'):
+                try:
+                    from core.local_llm import LocalLLM
+                    local_llm = LocalLLM(
+                        model_path=config.get('llm_model'),
+                        n_threads=config.get('llm_threads'),
+                        n_ctx=config.get('llm_ctx'),
+                        n_gpu_layers=config.get('llm_gpu_layers', 0),
+                        verbose=config.get('verbose', False),
+                    )
+                    if local_llm.ensure_ready():
+                        local_llm.load()
+                        engine.local_llm = local_llm
+                        if not args.quiet:
+                            print(f"{Colors.success('Local LLM (Qwen2.5-7B) ready for AI analysis')}")
+                    else:
+                        print(f"{Colors.warning('Local LLM setup incomplete — continuing without LLM')}")
+                        local_llm = None
+                except Exception as exc:
+                    print(f"{Colors.warning(f'Local LLM init error: {exc} — continuing without LLM')}")
+                    local_llm = None
+
             # Display scan plan if requested
             if getattr(args, 'show_plan', False):
                 from core.scan_planner import ScanPlanner
@@ -1101,6 +1163,46 @@ def main():
                 except Exception as exc:
                     if args.verbose:
                         print(f"{Colors.warning(f'Compliance analysis error: {exc}')}")
+
+            # ── Local LLM Scan Summary ────────────────────────────────
+            if local_llm and local_llm.is_loaded and engine.findings:
+                try:
+                    scan_duration = getattr(engine, 'scan_duration', 0.0)
+                    findings_data = []
+                    for f in engine.findings:
+                        fd = f if isinstance(f, dict) else getattr(f, '__dict__', {})
+                        findings_data.append(fd)
+                    summary = local_llm.generate_scan_summary(
+                        findings_data, target, scan_duration)
+                    if summary:
+                        print(f"\n{Colors.BOLD}{'='*60}{Colors.RESET}")
+                        print(f"{Colors.CYAN}  AI Scan Summary (Qwen2.5-7B){Colors.RESET}")
+                        print(f"{Colors.BOLD}{'='*60}{Colors.RESET}")
+                        print(f"  {summary}")
+                        print(f"{Colors.BOLD}{'='*60}{Colors.RESET}")
+
+                    # Enrich top findings with LLM analysis
+                    critical_findings = [
+                        f for f in findings_data
+                        if f.get('severity') in ('CRITICAL', 'HIGH')
+                    ][:5]
+                    if critical_findings:
+                        print(f"\n{Colors.info('AI analysis of top critical findings:')}")
+                        for cf in critical_findings:
+                            analysis = local_llm.analyze_finding(cf)
+                            llm_text = analysis.get('llm_analysis', '')
+                            if llm_text:
+                                tech = cf.get('technique', 'Unknown')
+                                print(f"\n  {Colors.RED}[{tech}]{Colors.RESET}")
+                                for line in llm_text.split('\n'):
+                                    print(f"    {line}")
+                except Exception as exc:
+                    if args.verbose:
+                        print(f"{Colors.warning(f'LLM summary error: {exc}')}")
+
+            # Unload LLM to free memory
+            if local_llm:
+                local_llm.unload()
 
             all_findings.extend(engine.findings)
 

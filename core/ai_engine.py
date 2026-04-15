@@ -274,6 +274,9 @@ class AIEngine:
         # Discovered vulnerability correlations in this scan
         self.discovered_correlations = []
 
+        # Local LLM reference (populated by engine if --local-llm is active)
+        self.local_llm = None
+
         self._load()
 
     # ------------------------------------------------------------------
@@ -508,6 +511,36 @@ class AIEngine:
                 if vuln_type in tech_vulns:
                     hints.extend(tech_vulns[vuln_type])
         return hints
+
+    def get_llm_payloads(self, vuln_type, param_name=''):
+        """Get AI-generated payloads from local LLM if available.
+
+        Returns extra payloads suggested by Qwen2.5-7B based on the
+        target's technology stack and WAF status.  Falls back to an
+        empty list when the LLM is not loaded.
+        """
+        llm = self.local_llm or getattr(self.engine, 'local_llm', None)
+        if llm is None or not llm.is_loaded:
+            return []
+
+        # Build context from engine state
+        detected_tech = getattr(self.engine, 'context', None)
+        tech_str = 'unknown'
+        if detected_tech and hasattr(detected_tech, 'detected_tech'):
+            tech_str = ', '.join(str(t) for t in detected_tech.detected_tech) or 'unknown'
+
+        waf_str = 'none'
+        if hasattr(self.engine, 'adaptive') and self.engine.adaptive.waf_detected:
+            waf_str = self.engine.adaptive.waf_name or 'unknown WAF'
+
+        try:
+            return llm.suggest_payloads(vuln_type, {
+                'technology': tech_str,
+                'waf_detected': waf_str,
+                'param_name': param_name,
+            })
+        except Exception:
+            return []
 
     # ------------------------------------------------------------------
     # Anomaly Detection

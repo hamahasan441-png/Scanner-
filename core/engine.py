@@ -196,6 +196,9 @@ class AtomicEngine:
         self.ai = AIEngine(self)
         self.persistence = PersistenceEngine(self)
 
+        # Local LLM reference (set by main.py when --local-llm is active)
+        self.local_llm = None
+
         # --- Production components (audit, compliance, notifications, tools, plugins) ---
         try:
             from core.audit_logger import AuditLogger
