@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 """Regression tests for package and README metadata."""
 
+import re
 import unittest
 from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
@@ -15,11 +16,17 @@ PACKAGE_METADATA = module_from_spec(PACKAGE_SPEC)
 PACKAGE_SPEC.loader.exec_module(PACKAGE_METADATA)
 
 
+def _major_minor(version):
+    """Extract the leading major.minor portion from release metadata."""
+    match = re.search(r"\d+\.\d+", version)
+    return match.group(0) if match else ""
+
+
 class TestPackageMetadata(unittest.TestCase):
     """Ensure package metadata reflects the current framework release."""
 
     def test_package_version_matches_release(self):
-        self.assertTrue(PACKAGE_METADATA.__version__.startswith(f"{Config.VERSION.split('-')[0]}."))
+        self.assertEqual(_major_minor(PACKAGE_METADATA.__version__), _major_minor(Config.VERSION))
 
     def test_package_codename_matches_config(self):
         self.assertEqual(PACKAGE_METADATA.__codename__, Config.CODENAME)
@@ -33,7 +40,7 @@ class TestReadmeMetadata(unittest.TestCase):
         cls.readme = (ROOT / "README.md").read_text(encoding="utf-8")
 
     def test_readme_references_current_release(self):
-        release = ".".join(PACKAGE_METADATA.__version__.split(".")[:2])
+        release = _major_minor(PACKAGE_METADATA.__version__)
         self.assertIn(f"ATOMIC FRAMEWORK v{release} — ULTIMATE EDITION", self.readme)
 
     def test_readme_references_current_codename(self):
