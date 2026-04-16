@@ -48,3 +48,10 @@ class TestReadmeMetadata(unittest.TestCase):
 
     def test_readme_requires_python_3_10(self):
         self.assertIn("Python 3.10", self.readme)
+
+    def test_readme_credits_footer_matches_release(self):
+        release = _major_minor(PACKAGE_METADATA.__version__)
+        self.assertIn(
+            f"ATOMIC Framework v{release} — ULTIMATE EDITION | Codename: {Config.CODENAME}",
+            self.readme,
+        )
