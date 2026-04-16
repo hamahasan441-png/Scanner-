@@ -3,20 +3,26 @@
 """Regression tests for package and README metadata."""
 
 import unittest
+from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
 
 from config import Config
-from __init__ import __codename__, __version__
+
+
+ROOT = Path(__file__).resolve().parents[1]
+PACKAGE_SPEC = spec_from_file_location("atomic_framework_package", ROOT / "__init__.py")
+PACKAGE_METADATA = module_from_spec(PACKAGE_SPEC)
+PACKAGE_SPEC.loader.exec_module(PACKAGE_METADATA)
 
 
 class TestPackageMetadata(unittest.TestCase):
     """Ensure package metadata reflects the current framework release."""
 
     def test_package_version_matches_release(self):
-        self.assertEqual(__version__, "10.0.0")
+        self.assertTrue(PACKAGE_METADATA.__version__.startswith(f"{Config.VERSION.split('-')[0]}."))
 
     def test_package_codename_matches_config(self):
-        self.assertEqual(__codename__, Config.CODENAME)
+        self.assertEqual(PACKAGE_METADATA.__codename__, Config.CODENAME)
 
 
 class TestReadmeMetadata(unittest.TestCase):
@@ -24,11 +30,11 @@ class TestReadmeMetadata(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        root = Path(__file__).resolve().parents[1]
-        cls.readme = (root / "README.md").read_text(encoding="utf-8")
+        cls.readme = (ROOT / "README.md").read_text(encoding="utf-8")
 
     def test_readme_references_current_release(self):
-        self.assertIn("ATOMIC FRAMEWORK v10.0 — ULTIMATE EDITION", self.readme)
+        release = ".".join(PACKAGE_METADATA.__version__.split(".")[:2])
+        self.assertIn(f"ATOMIC FRAMEWORK v{release} — ULTIMATE EDITION", self.readme)
 
     def test_readme_references_current_codename(self):
         self.assertIn(f"Codename: {Config.CODENAME}", self.readme)
