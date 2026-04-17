@@ -89,8 +89,9 @@ class TestSQLiErrorBased(unittest.TestCase):
 
     def test_mysql_error_produces_finding(self):
         """Response containing a MySQL error string should produce a HIGH finding."""
+        baseline = _MockResponse(text="Normal page content")
         resp = _MockResponse(text="You have an error in your sql syntax near '1'")
-        mod, engine = self._make_module([resp])
+        mod, engine = self._make_module([baseline, resp])
         mod._test_error_based("http://t.co", "GET", "id", "1")
         self.assertEqual(len(engine.findings), 1)
         f = engine.findings[0]
@@ -98,23 +99,26 @@ class TestSQLiErrorBased(unittest.TestCase):
         self.assertEqual(f.severity, "HIGH")
 
     def test_postgresql_error_produces_finding(self):
+        baseline = _MockResponse(text="Normal page content")
         resp = _MockResponse(text="ERROR: pg_query(): Query failed")
-        mod, engine = self._make_module([resp])
+        mod, engine = self._make_module([baseline, resp])
         mod._test_error_based("http://t.co", "GET", "id", "1")
         self.assertEqual(len(engine.findings), 1)
         self.assertIn("POSTGRESQL", engine.findings[0].technique)
 
     def test_mssql_error_produces_finding(self):
+        baseline = _MockResponse(text="Normal page content")
         resp = _MockResponse(text="Unclosed quotation mark after mssql")
-        mod, engine = self._make_module([resp])
+        mod, engine = self._make_module([baseline, resp])
         mod._test_error_based("http://t.co", "GET", "id", "1")
         self.assertEqual(len(engine.findings), 1)
         self.assertIn("MSSQL", engine.findings[0].technique)
 
     def test_normal_response_no_finding(self):
         """Benign response should not trigger a finding."""
+        baseline = _MockResponse(text="Normal page content")
         resp = _MockResponse(text="Welcome to our site. Everything is fine.")
-        mod, engine = self._make_module([resp])
+        mod, engine = self._make_module([baseline, resp])
         mod._test_error_based("http://t.co", "GET", "id", "1")
         self.assertEqual(len(engine.findings), 0)
 
@@ -336,8 +340,9 @@ class TestLFIDetection(unittest.TestCase):
             "bin:x:1:1:bin:/bin:/sbin/nologin\n"
             "daemon:x:2:2:daemon:/sbin:/bin/sh\n"
         )
+        baseline = _MockResponse(text="Normal page content")
         resp = _MockResponse(text=passwd_body)
-        mod, engine = self._make_module([resp])
+        mod, engine = self._make_module([baseline, resp])
         mod._test_lfi("http://t.co", "GET", "file", "test")
         self.assertEqual(len(engine.findings), 1)
         f = engine.findings[0]
@@ -347,31 +352,35 @@ class TestLFIDetection(unittest.TestCase):
     def test_partial_passwd_not_detected(self):
         """Response containing only 2 /etc/passwd indicators → no finding."""
         body = "root:x:0:0:root:/root:/usr/sbin/nologin\n"
+        baseline = _MockResponse(text="Normal page content")
         resp = _MockResponse(text=body)
-        mod, engine = self._make_module([resp])
+        mod, engine = self._make_module([baseline, resp])
         mod._test_lfi("http://t.co", "GET", "file", "test")
         self.assertEqual(len(engine.findings), 0)
 
     def test_normal_text_no_finding(self):
         """Benign response → no finding."""
+        baseline = _MockResponse(text="Normal page content")
         resp = _MockResponse(text="Hello World! Normal page content.")
-        mod, engine = self._make_module([resp])
+        mod, engine = self._make_module([baseline, resp])
         mod._test_lfi("http://t.co", "GET", "file", "test")
         self.assertEqual(len(engine.findings), 0)
 
     def test_passwd_exactly_three_indicators(self):
         """Response containing exactly 3 /etc/passwd indicators (boundary) → finding."""
         body = "root:x:0:0:root\nbin:x:1:1:bin\ndaemon:x:2:2:daemon\n"
+        baseline = _MockResponse(text="Normal page content")
         resp = _MockResponse(text=body)
-        mod, engine = self._make_module([resp])
+        mod, engine = self._make_module([baseline, resp])
         mod._test_lfi("http://t.co", "GET", "file", "test")
         self.assertEqual(len(engine.findings), 1)
 
     def test_win_ini_detected(self):
-        """Response containing ≥2 win.ini indicators → finding."""
-        body = "; for 16-bit app support\n[fonts]\nfoo=bar\n"
+        """Response containing ≥3 win.ini indicators → finding."""
+        body = "; for 16-bit app support\n[fonts]\n[extensions]\nfoo=bar\n"
+        baseline = _MockResponse(text="Normal page content")
         resp = _MockResponse(text=body)
-        mod, engine = self._make_module([resp])
+        mod, engine = self._make_module([baseline, resp])
         mod._test_lfi("http://t.co", "GET", "file", "test")
         self.assertEqual(len(engine.findings), 1)
 
@@ -514,8 +523,9 @@ class TestOpenRedirectIsOpenRedirect(unittest.TestCase):
         self.assertTrue(mod._is_open_redirect("https://evil.com/redir", "https://evil.com"))
 
     def test_evil_domain_in_location(self):
+        """Location with evil.com but payload has no matching domain → not detected."""
         mod = self._mod()
-        self.assertTrue(mod._is_open_redirect("https://evil.com/path", "payload"))
+        self.assertFalse(mod._is_open_redirect("https://evil.com/path", "payload"))
 
     def test_safe_location(self):
         mod = self._mod()
@@ -1243,8 +1253,8 @@ class TestSQLiBooleanBased(unittest.TestCase):
 
     def test_significant_diff_produces_finding(self):
         """TRUE vs FALSE responses with significant difference → finding."""
-        baseline = _MockResponse(text="A" * 200)
-        true_resp = _MockResponse(text="A" * 200)
+        baseline = _MockResponse(text="A" * 500)
+        true_resp = _MockResponse(text="A" * 500)
         false_resp = _MockResponse(text="A" * 50)
         mod, engine = self._make_module([baseline, true_resp, false_resp])
         mod._test_boolean_based("http://t.co", "GET", "id", "1")

@@ -51,19 +51,37 @@ class CORSModule:
 
                 # Check for misconfigurations
                 if acao == "*":
-                    from core.engine import Finding
+                    # Wildcard ACAO is only a real issue if credentials are also allowed
+                    # Public APIs intentionally use ACAO:* which is safe without credentials
+                    if acac.lower() == "true":
+                        from core.engine import Finding
 
-                    finding = Finding(
-                        technique="CORS Misconfiguration (Wildcard)",
-                        url=url,
-                        severity="MEDIUM",
-                        confidence=0.8,
-                        param="",
-                        payload="Origin: " + origin,
-                        evidence="Access-Control-Allow-Origin: *",
-                    )
-                    self.engine.add_finding(finding)
-                    return
+                        finding = Finding(
+                            technique="CORS Misconfiguration (Wildcard + Credentials)",
+                            url=url,
+                            severity="HIGH",
+                            confidence=0.9,
+                            param="",
+                            payload="Origin: " + origin,
+                            evidence="Access-Control-Allow-Origin: *\nAccess-Control-Allow-Credentials: true",
+                        )
+                        self.engine.add_finding(finding)
+                        return
+                    else:
+                        # Wildcard without credentials is informational, not a vulnerability
+                        from core.engine import Finding
+
+                        finding = Finding(
+                            technique="CORS Misconfiguration (Wildcard)",
+                            url=url,
+                            severity="INFO",
+                            confidence=0.5,
+                            param="",
+                            payload="Origin: " + origin,
+                            evidence="Access-Control-Allow-Origin: * (no credentials)",
+                        )
+                        self.engine.add_finding(finding)
+                        return
 
                 if acao == origin:
                     if acac.lower() == "true":

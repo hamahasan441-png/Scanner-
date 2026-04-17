@@ -626,18 +626,20 @@ class PostWorkerVerifier:
             return finding.payload in response.text if hasattr(response, "text") else False
 
         if "ssti" in technique:
-            # Broaden SSTI evidence: check for multiple common expression results
+            # SSTI: require exact word boundary match for math results (not substrings of larger numbers)
+            import re as ssti_re
+
             ssti_results = ["49", "7777777", "36", "343", "16", "25", "64", "81", "100", "125"]
-            return any(r in text for r in ssti_results)
+            return any(ssti_re.search(r"(?<!\d)" + ssti_re.escape(val) + r"(?!\d)", text) for val in ssti_results)
 
         if "lfi" in technique:
-            return any(kw in text for kw in ["root:x:0:0", "[extensions]", "boot loader", "root:x:", "/bin/bash"])
+            return any(kw in text for kw in ["root:x:0:0", "[extensions]", "boot loader", "for 16-bit app support"])
 
         if "command" in technique:
-            return any(kw in text for kw in ["uid=", "root:", "/bin/", "windows", "volume serial"])
+            return any(kw in text for kw in ["uid=", "root:x:", "/bin/sh", "volume serial"])
 
         if "ssrf" in technique:
-            # SSRF: check for cloud metadata indicators or status differential
+            # SSRF: check for cloud metadata indicators only (no status code fallback)
             if response is None:
                 return False
             ssrf_indicators = [
@@ -647,14 +649,8 @@ class PostWorkerVerifier:
                 "secretaccesskey",
                 "computemetadata",
                 "security-credentials",
-                "local-hostname",
-                "kubernetes",
-                "metadata",
             ]
-            if any(ind in text for ind in ssrf_indicators):
-                return True
-            # Status code differential (not 404/403 = potentially interesting)
-            return response.status_code not in (404, 403, 502, 503)
+            return any(ind in text for ind in ssrf_indicators)
 
         if "xxe" in technique:
             # XXE: check for entity resolution markers
@@ -671,41 +667,36 @@ class PostWorkerVerifier:
             return any(ind in text for ind in xxe_indicators)
 
         if "nosql" in technique or "nosqli" in technique:
-            # NoSQL: check for error patterns or data leak
+            # NoSQL: check for error patterns or data leak (no status 200 fallback)
             nosql_indicators = [
                 "mongoerror",
                 "bson",
                 "operator",
                 "$where",
                 "$gt",
-                "castError",
+                "casterror",
                 "objectid",
                 "aggregation",
-                "unauthorized",
                 "json parse error",
             ]
-            if any(ind in text for ind in nosql_indicators):
-                return True
-            # Check if response reveals data (status 200 with content)
-            return response.status_code == 200 and len(text) > 100
+            return any(ind in text for ind in nosql_indicators)
 
         if "idor" in technique:
-            # IDOR: check for cross-account data diff (not just status 200)
+            # IDOR: check for cross-account data patterns (more specific)
             if response is None or response.status_code != 200:
                 return False
-            # Look for user-identifiable data patterns
+            # Look for user-identifiable data patterns (require at least 2 indicators)
             data_indicators = [
                 "email",
                 "username",
                 "phone",
                 "address",
-                "name",
                 "account",
                 "profile",
                 "user_id",
-                "order",
             ]
-            return any(ind in text for ind in data_indicators)
+            match_count = sum(1 for ind in data_indicators if ind in text)
+            return match_count >= 2
 
         if "deserialization" in technique:
             deser_indicators = [
@@ -725,7 +716,10 @@ class PostWorkerVerifier:
             # Check if injected header appears in response
             return "x-injected" in text or "set-cookie" in text
 
-        return True  # Default: assume confirmed
+        # Default: don't blindly confirm - require finding payload in response
+        if hasattr(finding, "payload") and finding.payload:
+            return finding.payload.lower() in text
+        return False
 
     # ── Step 2: Context-Aware FP Filter ────────────────────────────────
 
@@ -751,12 +745,20 @@ class PostWorkerVerifier:
         if "xss" in technique and finding.confidence < 0.6:
             return True
 
-        # SQLi: require at least 2 signals (error + boolean, or error + time)
+        # SQLi: require at least 1 active signal with reasonable confidence
         if "sql" in technique:
             signals = finding.signals or {}
             active_count = sum(1 for v in signals.values() if isinstance(v, (int, float)) and v > 0.3)
             if active_count < 1 and finding.confidence < 0.5:
                 return True
+
+        # SSTI: low confidence SSTI findings are often false positives
+        if "ssti" in technique and finding.confidence < 0.7:
+            return True
+
+        # CORS wildcard without credentials is informational, not a vulnerability
+        if "cors" in technique and "wildcard" in technique and finding.confidence < 0.6:
+            return True
 
         return False
 

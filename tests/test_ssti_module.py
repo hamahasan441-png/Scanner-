@@ -474,8 +474,9 @@ class TestSSTIAdditionalEngines(unittest.TestCase):
     def test_ejs_detected(self):
         from modules.ssti import SSTIModule
 
-        resp = _MockResponse(text="Result: 49")
-        engine = _MockEngine([resp] * 10)
+        baseline = _MockResponse(text="Normal page content")
+        resp = _MockResponse(text="Result: 49")  # "49" present, raw payload is NOT
+        engine = _MockEngine([baseline, resp] * 10)
         mod = SSTIModule(engine)
         mod._test_additional_engines("http://target.com/", "GET", "name", "test")
         self.assertTrue(any("Ejs" in f.technique or "ejs" in f.technique.lower() for f in engine.findings))

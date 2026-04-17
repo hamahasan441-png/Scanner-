@@ -109,6 +109,13 @@ class SSRFModule:
         if not llm_payloads:
             return
 
+        # Get baseline to filter pre-existing indicators
+        try:
+            baseline_response = self.requester.request(url, method, data={param: value})
+            baseline_lower = baseline_response.text.lower() if baseline_response else ""
+        except Exception:
+            baseline_lower = ""
+
         for payload in llm_payloads:
             try:
                 data = {param: payload}
@@ -117,7 +124,8 @@ class SSRFModule:
                     continue
                 resp_lower = response.text.lower()
                 for ind in self.ssrf_indicators.get("strong", []):
-                    if ind.lower() in resp_lower:
+                    # Only flag if indicator is NEW (not in baseline)
+                    if ind.lower() in resp_lower and ind.lower() not in baseline_lower:
                         from core.engine import Finding
 
                         finding = Finding(
@@ -143,6 +151,14 @@ class SSRFModule:
             "http://127.1/",
             "http://127.0.0.1.nip.io/",
         ]
+
+        # Get baseline to filter pre-existing indicators
+        try:
+            baseline_response = self.requester.request(url, method, data={param: value})
+            baseline_lower = baseline_response.text.lower() if baseline_response else ""
+        except Exception:
+            baseline_lower = ""
+
         for payload in payloads:
             try:
                 data = {param: payload}
@@ -150,22 +166,22 @@ class SSRFModule:
                 if not response:
                     continue
                 text = response.text.lower()
-                for indicator_list in self.ssrf_indicators.values():
-                    for indicator in indicator_list:
-                        if indicator.lower() in text:
-                            from core.engine import Finding
+                # Only check strong indicators and require them to be NEW
+                for indicator in self.ssrf_indicators.get("strong", []):
+                    if indicator.lower() in text and indicator.lower() not in baseline_lower:
+                        from core.engine import Finding
 
-                            finding = Finding(
-                                technique="SSRF (DNS Rebinding)",
-                                url=url,
-                                severity="HIGH",
-                                confidence=0.8,
-                                param=param,
-                                payload=payload,
-                                evidence=f"DNS rebinding indicator: {indicator}",
-                            )
-                            self.engine.add_finding(finding)
-                            return
+                        finding = Finding(
+                            technique="SSRF (DNS Rebinding)",
+                            url=url,
+                            severity="HIGH",
+                            confidence=0.8,
+                            param=param,
+                            payload=payload,
+                            evidence=f"DNS rebinding indicator: {indicator}",
+                        )
+                        self.engine.add_finding(finding)
+                        return
             except Exception:
                 continue
 
@@ -175,6 +191,14 @@ class SSRFModule:
             '<iframe src="http://169.254.169.254/latest/meta-data/">',
             '<img src="http://169.254.169.254/latest/meta-data/">',
         ]
+
+        # Get baseline to filter pre-existing indicators
+        try:
+            baseline_response = self.requester.request(url, method, data={param: value})
+            baseline_lower = baseline_response.text.lower() if baseline_response else ""
+        except Exception:
+            baseline_lower = ""
+
         for payload in payloads:
             try:
                 data = {param: payload}
@@ -182,22 +206,22 @@ class SSRFModule:
                 if not response:
                     continue
                 text = response.text.lower()
-                for indicator_list in self.ssrf_indicators.values():
-                    for indicator in indicator_list:
-                        if indicator.lower() in text:
-                            from core.engine import Finding
+                # Only check strong indicators and require them to be NEW
+                for indicator in self.ssrf_indicators.get("strong", []):
+                    if indicator.lower() in text and indicator.lower() not in baseline_lower:
+                        from core.engine import Finding
 
-                            finding = Finding(
-                                technique="SSRF (PDF Generation)",
-                                url=url,
-                                severity="HIGH",
-                                confidence=0.8,
-                                param=param,
-                                payload=payload,
-                                evidence=f"PDF SSRF indicator: {indicator}",
-                            )
-                            self.engine.add_finding(finding)
-                            return
+                        finding = Finding(
+                            technique="SSRF (PDF Generation)",
+                            url=url,
+                            severity="HIGH",
+                            confidence=0.8,
+                            param=param,
+                            payload=payload,
+                            evidence=f"PDF SSRF indicator: {indicator}",
+                        )
+                        self.engine.add_finding(finding)
+                        return
             except Exception:
                 continue
 
@@ -209,6 +233,14 @@ class SSRFModule:
             "file:///var/run/secrets/kubernetes.io/serviceaccount/token",
         ]
         k8s_indicators = ["apiversion", "kind", "metadata", "serviceaccount", "kubernetes"]
+
+        # Get baseline to filter pre-existing indicators
+        try:
+            baseline_response = self.requester.request(url, method, data={param: value})
+            baseline_lower = baseline_response.text.lower() if baseline_response else ""
+        except Exception:
+            baseline_lower = ""
+
         for payload in k8s_payloads:
             try:
                 data = {param: payload}
@@ -216,21 +248,22 @@ class SSRFModule:
                 if not response:
                     continue
                 text = response.text.lower()
-                for indicator in k8s_indicators:
-                    if indicator in text:
-                        from core.engine import Finding
+                # Require at least 2 NEW indicators to reduce false positives
+                new_matches = sum(1 for ind in k8s_indicators if ind in text and ind not in baseline_lower)
+                if new_matches >= 2:
+                    from core.engine import Finding
 
-                        finding = Finding(
-                            technique="SSRF (Kubernetes Metadata)",
-                            url=url,
-                            severity="CRITICAL",
-                            confidence=0.9,
-                            param=param,
-                            payload=payload,
-                            evidence=f"K8s indicator: {indicator}",
-                        )
-                        self.engine.add_finding(finding)
-                        return
+                    finding = Finding(
+                        technique="SSRF (Kubernetes Metadata)",
+                        url=url,
+                        severity="CRITICAL",
+                        confidence=0.9,
+                        param=param,
+                        payload=payload,
+                        evidence=f"K8s indicators found: {new_matches} new matches",
+                    )
+                    self.engine.add_finding(finding)
+                    return
             except Exception:
                 continue
 

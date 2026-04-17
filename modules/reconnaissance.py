@@ -61,6 +61,10 @@ class ReconModule:
         self._enumerate_api_endpoints(target)
         self._certificate_transparency(domain)
         self._dns_zone_transfer(domain)
+        self._check_email_security(domain)
+        self._detect_http2_alpn(domain)
+        self._detect_cms_version(target)
+        self._cors_preflight_check(target)
 
     # ─── DNS ─────────────────────────────────────────────────────────
 
@@ -591,3 +595,272 @@ class ReconModule:
                 if display_key not in parsed:
                     parsed[display_key] = value
         return parsed
+
+    # ─── Email Security (SPF / DMARC / DKIM / BIMI) ────────────────
+
+    def _check_email_security(self, domain: str):
+        """Check SPF, DMARC, DKIM, and BIMI DNS records for email security posture."""
+        try:
+            import dns.resolver
+        except ImportError:
+            if self.verbose:
+                print(f"{Colors.info('dnspython not installed — skipping email security check')}")
+            return
+
+        records_found = {}
+
+        # SPF record (TXT on base domain)
+        try:
+            answers = dns.resolver.resolve(domain, "TXT")
+            for rdata in answers:
+                txt = str(rdata).strip('"')
+                if "v=spf1" in txt.lower():
+                    records_found["SPF"] = txt[:200]
+                    # Check for overly permissive SPF — match ' +all' or end with '+all'
+                    if " +all" in txt or txt.strip().endswith("+all"):
+                        from core.engine import Finding
+
+                        finding = Finding(
+                            technique="Recon (Weak SPF: +all)",
+                            url=f"dns://{domain}",
+                            severity="HIGH",
+                            confidence=0.95,
+                            param="SPF",
+                            payload=txt[:100],
+                            evidence=f"SPF record uses +all which allows ANY server to send email for {domain}",
+                        )
+                        self.engine.add_finding(finding)
+        except Exception:
+            pass
+
+        # DMARC record (TXT on _dmarc.domain)
+        try:
+            answers = dns.resolver.resolve(f"_dmarc.{domain}", "TXT")
+            for rdata in answers:
+                txt = str(rdata).strip('"')
+                if "v=dmarc1" in txt.lower():
+                    records_found["DMARC"] = txt[:200]
+                    if "p=none" in txt.lower():
+                        from core.engine import Finding
+
+                        finding = Finding(
+                            technique="Recon (Weak DMARC: p=none)",
+                            url=f"dns://{domain}",
+                            severity="MEDIUM",
+                            confidence=0.9,
+                            param="DMARC",
+                            payload=txt[:100],
+                            evidence=f"DMARC policy is 'none' — emails failing auth are still delivered",
+                        )
+                        self.engine.add_finding(finding)
+        except Exception:
+            pass
+
+        # BIMI record (TXT on default._bimi.domain)
+        try:
+            answers = dns.resolver.resolve(f"default._bimi.{domain}", "TXT")
+            for rdata in answers:
+                txt = str(rdata).strip('"')
+                if "v=bimi1" in txt.lower():
+                    records_found["BIMI"] = txt[:200]
+        except Exception:
+            pass
+
+        if records_found:
+            print(f"{Colors.info('Email Security Records:')}")
+            for rtype, value in records_found.items():
+                print(f"  {rtype}: {value[:120]}")
+        else:
+            if self.verbose:
+                print(f"{Colors.info('No SPF/DMARC/BIMI records found')}")
+
+        # Report if key records are missing
+        missing = []
+        if "SPF" not in records_found:
+            missing.append("SPF")
+        if "DMARC" not in records_found:
+            missing.append("DMARC")
+
+        if missing:
+            from core.engine import Finding
+
+            finding = Finding(
+                technique="Recon (Missing Email Auth Records)",
+                url=f"dns://{domain}",
+                severity="MEDIUM" if len(missing) >= 2 else "LOW",
+                confidence=0.85,
+                param="DNS",
+                payload=", ".join(missing),
+                evidence=f"Missing email authentication records: {', '.join(missing)}",
+            )
+            self.engine.add_finding(finding)
+
+    # ─── HTTP/2 and ALPN Detection ──────────────────────────────────
+
+    def _detect_http2_alpn(self, domain: str):
+        """Detect HTTP/2 and ALPN protocol support via TLS handshake."""
+        import ssl
+        import socket as _socket
+
+        try:
+            ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+            ctx.set_alpn_protocols(["h2", "http/1.1"])
+
+            with _socket.create_connection((domain, 443), timeout=5) as sock:
+                with ctx.wrap_socket(sock, server_hostname=domain) as ssock:
+                    negotiated = ssock.selected_alpn_protocol()
+                    tls_version = ssock.version()
+
+                    protocols = []
+                    if negotiated:
+                        protocols.append(f"ALPN: {negotiated}")
+                    if tls_version:
+                        protocols.append(f"TLS: {tls_version}")
+
+                    if protocols:
+                        print(f"{Colors.info(f'Protocol support: {', '.join(protocols)}')}")
+
+                    # Flag old TLS versions
+                    if tls_version and tls_version in ("TLSv1", "TLSv1.1"):
+                        from core.engine import Finding
+
+                        finding = Finding(
+                            technique="Recon (Deprecated TLS Version)",
+                            url=f"https://{domain}",
+                            severity="MEDIUM",
+                            confidence=0.95,
+                            param="TLS",
+                            payload=tls_version,
+                            evidence=f"Server negotiated deprecated {tls_version} — vulnerable to known attacks",
+                        )
+                        self.engine.add_finding(finding)
+        except Exception as e:
+            if self.verbose:
+                print(f"{Colors.warning(f'HTTP/2 / ALPN detection error: {e}')}")
+
+    # ─── CMS Version Detection ──────────────────────────────────────
+
+    def _detect_cms_version(self, url: str):
+        """Detect CMS type and version from common version-disclosure endpoints."""
+        version_checks = [
+            # WordPress
+            {
+                "path": "/wp-login.php",
+                "pattern": r'ver=([0-9]+\.[0-9]+(?:\.[0-9]+)?)',
+                "cms": "WordPress",
+            },
+            {
+                "path": "/readme.html",
+                "pattern": r'Version\s+([0-9]+\.[0-9]+(?:\.[0-9]+)?)',
+                "cms": "WordPress",
+            },
+            {
+                "path": "/wp-includes/js/wp-emoji-release.min.js",
+                "pattern": r'ver=([0-9]+\.[0-9]+(?:\.[0-9]+)?)',
+                "cms": "WordPress",
+            },
+            # Joomla
+            {
+                "path": "/administrator/manifests/files/joomla.xml",
+                "pattern": r'<version>([0-9]+\.[0-9]+(?:\.[0-9]+)?)</version>',
+                "cms": "Joomla",
+            },
+            # Drupal
+            {
+                "path": "/CHANGELOG.txt",
+                "pattern": r'Drupal\s+([0-9]+\.[0-9]+(?:\.[0-9]+)?)',
+                "cms": "Drupal",
+            },
+            {
+                "path": "/core/CHANGELOG.txt",
+                "pattern": r'Drupal\s+([0-9]+\.[0-9]+(?:\.[0-9]+)?)',
+                "cms": "Drupal",
+            },
+        ]
+
+        base_url = f"{urlparse(url).scheme}://{urlparse(url).netloc}"
+
+        for check in version_checks:
+            try:
+                test_url = f"{base_url}{check['path']}"
+                resp = self.requester.request(test_url, "GET")
+                if resp and resp.status_code == 200 and resp.text:
+                    match = re.search(check["pattern"], resp.text)
+                    if match:
+                        version = match.group(1)
+                        print(f"{Colors.info(f'CMS Detected: {check['cms']} v{version}')}")
+                        from core.engine import Finding
+
+                        finding = Finding(
+                            technique=f"Recon (CMS Version: {check['cms']})",
+                            url=test_url,
+                            severity="LOW",
+                            confidence=0.9,
+                            param="Version",
+                            payload=f"{check['cms']} {version}",
+                            evidence=f"{check['cms']} version {version} detected at {check['path']}",
+                        )
+                        self.engine.add_finding(finding)
+                        return  # One CMS detection is enough
+            except Exception:
+                continue
+
+    # ─── CORS Preflight Check ───────────────────────────────────────
+
+    def _cors_preflight_check(self, url: str):
+        """Send an OPTIONS preflight request and analyze CORS headers.
+
+        Reports findings if the server allows overly broad origins,
+        credentials, or dangerous methods via CORS.
+        """
+        try:
+            resp = self.requester.request(url, "OPTIONS")
+            if not resp:
+                return
+            headers = resp.headers
+        except Exception as e:
+            if self.verbose:
+                print(f"{Colors.warning(f'CORS preflight error: {e}')}")
+            return
+
+        acao = headers.get("Access-Control-Allow-Origin", "")
+        acac = headers.get("Access-Control-Allow-Credentials", "").lower()
+        acam = headers.get("Access-Control-Allow-Methods", "")
+        acah = headers.get("Access-Control-Allow-Headers", "")
+
+        issues = []
+
+        if acao == "*" and acac == "true":
+            issues.append("Wildcard origin with credentials allowed")
+        elif "evil-attacker.com" in acao:
+            issues.append(f"Reflects arbitrary origin: {acao}")
+
+        dangerous_methods = {"PUT", "DELETE", "PATCH"}
+        if acam:
+            allowed_set = {m.strip().upper() for m in acam.split(",")}
+            dangerous_found = allowed_set & dangerous_methods
+            if dangerous_found:
+                issues.append(f"Dangerous methods allowed: {', '.join(dangerous_found)}")
+
+        if issues:
+            from core.engine import Finding
+
+            severity = "HIGH" if "credential" in str(issues).lower() or "reflects" in str(issues).lower() else "MEDIUM"
+            finding = Finding(
+                technique="Recon (CORS Preflight Analysis)",
+                url=url,
+                severity=severity,
+                confidence=0.85,
+                param="CORS",
+                payload="OPTIONS preflight",
+                evidence=f"CORS issues: {'; '.join(issues)}. "
+                f"ACAO={acao}, ACAC={acac}, ACAM={acam[:80]}",
+            )
+            self.engine.add_finding(finding)
+
+        if acao or acam:
+            print(f"{Colors.info(f'CORS: ACAO={acao or 'none'}, Methods={acam or 'none'}')}")
+        elif self.verbose:
+            print(f"{Colors.info('CORS: no CORS headers in preflight response')}")

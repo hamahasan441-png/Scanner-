@@ -400,7 +400,19 @@ class DiscoveryModule:
         # 11. JavaScript endpoint and secret mining
         self._mine_js_endpoints(target)
 
-        # 12. Print structured report
+        # 12. XML / WSDL / SOAP service discovery
+        self._discover_xml_services(base_url)
+
+        # 13. API specification discovery (OpenAPI, AsyncAPI, RAML, etc.)
+        self._discover_api_specs(base_url)
+
+        # 14. Sensitive XML configuration file discovery
+        self._discover_sensitive_xml(base_url)
+
+        # 15. RSS / Atom feed discovery and URL extraction
+        self._discover_feeds(base_url, target)
+
+        # 16. Print structured report
         self._print_report(target)
 
     # ──────────────────────────────────────
@@ -630,7 +642,14 @@ class DiscoveryModule:
                 "/signup",
             ),
             "admin": ("/admin", "/dashboard", "/manage", "/panel", "/control", "/cpanel", "/wp-admin", "/console"),
-            "api": ("/api", "/graphql", "/rest", "/swagger", "/openapi", "/v1/", "/v2/", "/v3/", "/api-docs"),
+            "api": (
+                "/api", "/graphql", "/rest", "/swagger", "/openapi", "/v1/", "/v2/", "/v3/", "/api-docs",
+                "/grpc", "/twirp", "/jsonrpc", "/xmlrpc", "/asyncapi", "/raml",
+            ),
+            "xml_svc": (
+                "/wsdl", "?wsdl", ".wsdl", "/soap", "/axis2", "/axis/", "/cxf/",
+                "/ws/", ".xsd", ".wadl", "/service.asmx", "/service.svc",
+            ),
             "upload": ("/upload", "/file", "/media", "/attach", "/import", "/export"),
             "config": (
                 "/config",
@@ -643,9 +662,15 @@ class DiscoveryModule:
                 "/trace",
                 "/actuator",
                 "/health",
+                "/log4j.xml",
+                "/logback.xml",
+                "/hibernate.cfg.xml",
+                "/persistence.xml",
+                "/tomcat-users.xml",
             ),
             "data": ("/backup", "/dump", "/database", "/db", "/phpmyadmin", "/adminer", "/sql"),
             "scm": ("/.git", "/.svn", "/.hg", "/.DS_Store", "/web.config", "/.htaccess"),
+            "feed": ("/rss", "/atom", "/feed", ".rss", ".atom"),
         }
 
         category_counts = Counter()
@@ -674,7 +699,7 @@ class DiscoveryModule:
             risk_level = "CRITICAL"
         elif category_counts.get("admin") or category_counts.get("data"):
             risk_level = "HIGH"
-        elif category_counts.get("api") or category_counts.get("auth"):
+        elif category_counts.get("api") or category_counts.get("auth") or category_counts.get("xml_svc"):
             risk_level = "MEDIUM"
 
         self._analysis_result = {
@@ -1357,6 +1382,484 @@ class DiscoveryModule:
                 )
                 self.engine.add_finding(finding)
             print(f"{Colors.success(f'JS mining: {len(secrets_found)} secrets/keys found')}")
+
+    # ──────────────────────────────────────
+    # XML / WSDL / SOAP Service Discovery
+    # ──────────────────────────────────────
+
+    def _discover_xml_services(self, base_url: str):
+        """Discover WSDL, SOAP, and XML-RPC service endpoints.
+
+        Probes common WSDL/SOAP URL patterns and, when a WSDL document
+        is found, parses it to extract additional service endpoints,
+        operations, and port bindings.
+        """
+        print(f"{Colors.info('Probing for WSDL / SOAP / XML-RPC services...')}")
+
+        wsdl_paths = [
+            "/?wsdl",
+            "/service.wsdl",
+            "/services.wsdl",
+            "/ws/service.wsdl",
+            "/Service?wsdl",
+            "/Service?WSDL",
+            "/services/Service?wsdl",
+            "/soap/Service?wsdl",
+            "/ws/Service?wsdl",
+            "/service.asmx?WSDL",
+            "/service.svc?wsdl",
+            "/service.svc?singleWsdl",
+            "/wsdl",
+            "/axis2/services/listServices",
+            "/axis/services/",
+            "/cxf/",
+        ]
+
+        # Build baseline for custom 404 detection
+        baseline_len = 0
+        try:
+            canary_resp = self.requester.request(
+                urljoin(base_url, "/atomic_wsdl_nonexist_probe_9f.wsdl"), "GET"
+            )
+            if canary_resp:
+                baseline_len = len(canary_resp.text)
+        except Exception:
+            pass
+
+        found = 0
+        wsdl_content_list = []  # (url, text) pairs to parse later
+
+        for path in wsdl_paths:
+            full_url = urljoin(base_url, path)
+            if full_url in self.endpoints:
+                continue
+            try:
+                resp = self.requester.request(full_url, "GET")
+                if resp and resp.status_code == 200 and resp.text.strip():
+                    # Skip custom 404 pages
+                    if baseline_len and abs(len(resp.text) - baseline_len) < 100:
+                        continue
+                    text = resp.text
+                    content_type = resp.headers.get("Content-Type", "").lower()
+                    is_xml = "xml" in content_type or text.strip().startswith("<?xml") or "<definitions" in text
+                    is_wsdl = "<definitions" in text or "<wsdl:" in text or "schemas.xmlsoap.org" in text
+                    is_service_list = "axis" in path and ("<service" in text.lower() or "available services" in text.lower())
+
+                    if is_xml or is_wsdl or is_service_list or "xml" in content_type:
+                        self.endpoints.add(full_url)
+                        found += 1
+                        if is_wsdl:
+                            wsdl_content_list.append((full_url, text))
+
+                        severity = "MEDIUM" if is_wsdl else "INFO"
+                        from core.engine import Finding
+
+                        finding = Finding(
+                            technique="Discovery (WSDL/SOAP Service)",
+                            url=full_url,
+                            severity=severity,
+                            confidence=0.85,
+                            param="N/A",
+                            payload=path,
+                            evidence=f"XML service endpoint accessible: {path} "
+                            f"({len(text)} bytes, Content-Type: {content_type[:50]})",
+                        )
+                        self.engine.add_finding(finding)
+            except Exception:
+                continue
+
+        # Parse discovered WSDL documents for additional endpoints
+        for wsdl_url, wsdl_text in wsdl_content_list:
+            self._parse_wsdl_endpoints(wsdl_url, wsdl_text, base_url)
+
+        if found:
+            print(f"{Colors.success(f'WSDL/SOAP discovery: {found} service endpoints found')}")
+        else:
+            if self.engine.config.get("verbose"):
+                print(f"{Colors.info('WSDL/SOAP discovery: no services found')}")
+
+    def _parse_wsdl_endpoints(self, wsdl_url: str, wsdl_text: str, base_url: str):
+        """Parse a WSDL document to extract service endpoints, ports, and operations."""
+        try:
+            root = ET.fromstring(wsdl_text)
+        except ET.ParseError:
+            return
+
+        # Extract service locations from <soap:address location="...">
+        soap_ns = {
+            "soap": "http://schemas.xmlsoap.org/wsdl/soap/",
+            "soap12": "http://schemas.xmlsoap.org/wsdl/soap12/",
+            "wsdl": "http://schemas.xmlsoap.org/wsdl/",
+            "http": "http://schemas.xmlsoap.org/wsdl/http/",
+        }
+
+        for ns_prefix in ("soap", "soap12"):
+            ns = soap_ns.get(ns_prefix, "")
+            for addr in root.iter(f"{{{ns}}}address"):
+                loc = addr.get("location", "")
+                if loc:
+                    self.endpoints.add(loc)
+
+        # Also try without namespace (some WSDLs lack proper namespace)
+        for elem in root.iter():
+            if "address" in elem.tag.lower():
+                loc = elem.get("location", "")
+                if loc and loc.startswith("http"):
+                    self.endpoints.add(loc)
+
+        # Extract operation names from <wsdl:operation name="...">
+        operations = set()
+        for elem in root.iter():
+            if "operation" in elem.tag.lower():
+                op_name = elem.get("name", "")
+                if op_name:
+                    operations.add(op_name)
+
+        if operations and self.engine.config.get("verbose"):
+            print(f"{Colors.info(f'  WSDL operations: {', '.join(sorted(operations)[:10])}')}")
+
+        # Extract schema imports (XSD URLs)
+        for elem in root.iter():
+            tag_local = elem.tag.split("}")[-1] if "}" in elem.tag else elem.tag
+            if tag_local in ("import", "include", "schemaLocation"):
+                for attr in ("schemaLocation", "location"):
+                    val = elem.get(attr, "")
+                    if val:
+                        schema_url = urljoin(wsdl_url, val)
+                        self.endpoints.add(schema_url)
+
+    # ──────────────────────────────────────
+    # API Specification Discovery
+    # ──────────────────────────────────────
+
+    def _discover_api_specs(self, base_url: str):
+        """Discover API specification files: OpenAPI, AsyncAPI, RAML, API Blueprint, Postman, HAR."""
+        print(f"{Colors.info('Probing for API specification files...')}")
+
+        spec_paths = [
+            # OpenAPI / Swagger
+            ("/swagger.json", "OpenAPI/Swagger"),
+            ("/swagger.yaml", "OpenAPI/Swagger"),
+            ("/openapi.json", "OpenAPI"),
+            ("/openapi.yaml", "OpenAPI"),
+            ("/openapi.yml", "OpenAPI"),
+            ("/openapi/v3/api-docs", "OpenAPI 3"),
+            ("/openapi/v3/api-docs.yaml", "OpenAPI 3"),
+            ("/v2/api-docs", "Swagger 2"),
+            ("/v3/api-docs", "OpenAPI 3"),
+            ("/api-docs", "API Docs"),
+            ("/api-docs/swagger.json", "Swagger"),
+            ("/swagger-resources", "Swagger Resources"),
+            ("/swagger-ui/swagger.json", "Swagger UI"),
+            # AsyncAPI
+            ("/asyncapi.json", "AsyncAPI"),
+            ("/asyncapi.yaml", "AsyncAPI"),
+            # RAML
+            ("/api.raml", "RAML"),
+            # API Blueprint
+            ("/apiary.apib", "API Blueprint"),
+            # Postman / Insomnia collections
+            ("/collection.json", "Postman Collection"),
+            ("/postman_collection.json", "Postman Collection"),
+            ("/insomnia.json", "Insomnia Collection"),
+            # HAR files
+            ("/api.har", "HAR Archive"),
+            # WADL
+            ("/application.wadl", "WADL"),
+            ("/api/application.wadl", "WADL"),
+            ("/rest/application.wadl", "WADL"),
+        ]
+
+        # Build baseline for custom 404 detection
+        baseline_len = 0
+        try:
+            canary_resp = self.requester.request(
+                urljoin(base_url, "/atomic_apispec_nonexist_9f.json"), "GET"
+            )
+            if canary_resp:
+                baseline_len = len(canary_resp.text)
+        except Exception:
+            pass
+
+        found = 0
+
+        for path, spec_type in spec_paths:
+            full_url = urljoin(base_url, path)
+            if full_url in self.endpoints:
+                continue
+            try:
+                resp = self.requester.request(full_url, "GET")
+                if resp and resp.status_code == 200 and resp.text.strip():
+                    if baseline_len and abs(len(resp.text) - baseline_len) < 100:
+                        continue
+                    text = resp.text
+                    content_type = resp.headers.get("Content-Type", "").lower()
+                    # Validate it looks like a real spec, not a generic page
+                    is_json_like = text.strip().startswith("{") and any(
+                        kw in text[:2000] for kw in ['"openapi"', '"swagger"', '"asyncapi"', '"info"', '"paths"']
+                    )
+                    is_yaml_like = any(
+                        kw in text[:2000] for kw in ["openapi:", "swagger:", "asyncapi:", "title:", "#%RAML"]
+                    )
+                    is_xml_like = "xml" in content_type or text.strip().startswith("<?xml")
+                    is_spec = is_json_like or is_yaml_like or is_xml_like or "apib" in path
+
+                    if is_spec or len(text) > 500:
+                        self.endpoints.add(full_url)
+                        found += 1
+
+                        # Parse OpenAPI/Swagger for API endpoints
+                        if is_json_like and any(kw in text[:2000] for kw in ['"paths"', '"openapi"', '"swagger"']):
+                            self._extract_openapi_endpoints(full_url, text, base_url)
+
+                        from core.engine import Finding
+
+                        finding = Finding(
+                            technique=f"Discovery (API Spec: {spec_type})",
+                            url=full_url,
+                            severity="MEDIUM",
+                            confidence=0.85 if is_spec else 0.6,
+                            param="N/A",
+                            payload=path,
+                            evidence=f"{spec_type} spec accessible: {path} "
+                            f"({len(text)} bytes, Content-Type: {content_type[:50]})",
+                        )
+                        self.engine.add_finding(finding)
+            except Exception:
+                continue
+
+        if found:
+            print(f"{Colors.success(f'API spec discovery: {found} specification files found')}")
+        else:
+            if self.engine.config.get("verbose"):
+                print(f"{Colors.info('API spec discovery: no spec files found')}")
+
+    def _extract_openapi_endpoints(self, spec_url: str, spec_text: str, base_url: str):
+        """Extract API endpoints from an OpenAPI/Swagger JSON specification."""
+        try:
+            import json as _json
+            spec = _json.loads(spec_text)
+        except (ValueError, TypeError):
+            return
+
+        # Extract paths
+        paths = spec.get("paths", {})
+        for path_key in paths:
+            full_url = urljoin(base_url, path_key)
+            self.endpoints.add(full_url)
+
+        # Extract server URLs (OpenAPI 3.x)
+        for server in spec.get("servers", []):
+            server_url = server.get("url", "")
+            if server_url and server_url.startswith("http"):
+                self.endpoints.add(server_url)
+
+        # Extract basePath (Swagger 2.x)
+        base_path = spec.get("basePath", "")
+        if base_path:
+            self.endpoints.add(urljoin(base_url, base_path))
+
+        if paths and self.engine.config.get("verbose"):
+            print(f"{Colors.info(f'  OpenAPI: {len(paths)} path(s) extracted from spec')}")
+
+    # ──────────────────────────────────────
+    # Sensitive XML Configuration Discovery
+    # ──────────────────────────────────────
+
+    def _discover_sensitive_xml(self, base_url: str):
+        """Discover exposed XML configuration files that may leak sensitive information."""
+        print(f"{Colors.info('Probing for sensitive XML configuration files...')}")
+
+        xml_paths = [
+            # Java/J2EE
+            ("/WEB-INF/web.xml", "Java Web Descriptor", "HIGH"),
+            ("/WEB-INF/struts-config.xml", "Struts Configuration", "HIGH"),
+            ("/META-INF/context.xml", "Tomcat Context", "MEDIUM"),
+            ("/META-INF/MANIFEST.MF", "Java Manifest", "INFO"),
+            # XML config files commonly exposed
+            ("/crossdomain.xml", "Flash Cross-Domain Policy", "MEDIUM"),
+            ("/clientaccesspolicy.xml", "Silverlight Cross-Domain", "MEDIUM"),
+            ("/browserconfig.xml", "Browser Config", "INFO"),
+            # Build / CI configs with potential secrets
+            ("/pom.xml", "Maven POM", "MEDIUM"),
+            ("/build.xml", "Ant Build", "MEDIUM"),
+            ("/ivy.xml", "Ivy Dependencies", "INFO"),
+            # Logging configs (may reveal paths/infrastructure)
+            ("/log4j.xml", "Log4j Config", "MEDIUM"),
+            ("/log4j2.xml", "Log4j2 Config", "MEDIUM"),
+            ("/logback.xml", "Logback Config", "MEDIUM"),
+            # ORM / persistence
+            ("/hibernate.cfg.xml", "Hibernate Config", "HIGH"),
+            ("/persistence.xml", "JPA Persistence", "HIGH"),
+            # App server configs
+            ("/server.xml", "Server Config", "HIGH"),
+            ("/tomcat-users.xml", "Tomcat Users (credentials!)", "CRITICAL"),
+            ("/context.xml", "Context Config", "MEDIUM"),
+            ("/beans.xml", "CDI Beans Config", "INFO"),
+            # Framework-specific
+            ("/faces-config.xml", "JSF Config", "MEDIUM"),
+            ("/tiles.xml", "Tiles Config", "INFO"),
+            ("/struts.xml", "Struts2 Config", "MEDIUM"),
+            ("/resin.xml", "Resin Config", "MEDIUM"),
+            # .NET configs
+            ("/Web.config", ".NET Web Config", "HIGH"),
+            ("/web.config", ".NET Web Config", "HIGH"),
+            ("/app.config", ".NET App Config", "MEDIUM"),
+            # IIS
+            ("/applicationHost.config", "IIS App Host", "HIGH"),
+        ]
+
+        # Build baseline for custom 404 detection
+        baseline_len = 0
+        try:
+            canary_resp = self.requester.request(
+                urljoin(base_url, "/atomic_xmlconf_nonexist_9f.xml"), "GET"
+            )
+            if canary_resp:
+                baseline_len = len(canary_resp.text)
+        except Exception:
+            pass
+
+        found = 0
+
+        for path, desc, severity in xml_paths:
+            full_url = urljoin(base_url, path)
+            if full_url in self.endpoints:
+                continue
+            try:
+                resp = self.requester.request(full_url, "GET")
+                if resp and resp.status_code == 200 and resp.text.strip():
+                    if baseline_len and abs(len(resp.text) - baseline_len) < 100:
+                        continue
+                    text = resp.text
+                    content_type = resp.headers.get("Content-Type", "").lower()
+                    # Verify it's actually XML content
+                    is_xml = (
+                        "xml" in content_type
+                        or text.strip().startswith("<?xml")
+                        or text.strip().startswith("<")
+                    )
+                    if is_xml and len(text) > 50:
+                        self.endpoints.add(full_url)
+                        found += 1
+                        from core.engine import Finding
+
+                        finding = Finding(
+                            technique=f"Discovery (Sensitive XML: {desc})",
+                            url=full_url,
+                            severity=severity,
+                            confidence=0.85,
+                            param="N/A",
+                            payload=path,
+                            evidence=f"{desc} accessible: {path} ({len(text)} bytes)",
+                        )
+                        self.engine.add_finding(finding)
+            except Exception:
+                continue
+
+        if found:
+            print(f"{Colors.success(f'Sensitive XML discovery: {found} config files found')}")
+        else:
+            if self.engine.config.get("verbose"):
+                print(f"{Colors.info('Sensitive XML discovery: no config files found')}")
+
+    # ──────────────────────────────────────
+    # RSS / Atom Feed Discovery
+    # ──────────────────────────────────────
+
+    def _discover_feeds(self, base_url: str, target: str):
+        """Discover RSS/Atom feeds and extract URLs from feed entries."""
+        print(f"{Colors.info('Probing for RSS/Atom feeds...')}")
+
+        feed_paths = [
+            "/rss", "/rss.xml", "/atom.xml", "/feed", "/feed.xml",
+            "/feed/atom", "/feed/rss", "/feeds", "/blog/feed",
+            "/blog/rss", "/news/feed", "/index.rss", "/index.atom",
+            "/feed/posts/default", "/feeds/posts/default",
+        ]
+
+        # Also check <link> tags in the main page for feed auto-discovery
+        feed_urls = set()
+        try:
+            resp = self.requester.request(target, "GET")
+            if resp and resp.text:
+                # Look for <link rel="alternate" type="application/rss+xml" ...>
+                for match in re.finditer(
+                    r'<link[^>]+type=["\']application/(?:rss|atom)\+xml["\'][^>]*href=["\']([^"\']+)["\']',
+                    resp.text, re.IGNORECASE
+                ):
+                    feed_urls.add(urljoin(target, match.group(1)))
+                # Also reversed attribute order
+                for match in re.finditer(
+                    r'<link[^>]+href=["\']([^"\']+)["\'][^>]*type=["\']application/(?:rss|atom)\+xml["\']',
+                    resp.text, re.IGNORECASE
+                ):
+                    feed_urls.add(urljoin(target, match.group(1)))
+        except Exception:
+            pass
+
+        # Combine auto-discovered + common paths
+        for path in feed_paths:
+            feed_urls.add(urljoin(base_url, path))
+
+        found = 0
+        for feed_url in feed_urls:
+            if feed_url in self.endpoints:
+                continue
+            try:
+                resp = self.requester.request(feed_url, "GET")
+                if resp and resp.status_code == 200 and resp.text.strip():
+                    text = resp.text
+                    content_type = resp.headers.get("Content-Type", "").lower()
+                    is_feed = (
+                        "xml" in content_type
+                        or "rss" in content_type
+                        or "atom" in content_type
+                        or "<rss" in text[:500]
+                        or "<feed" in text[:500]
+                        or "<channel" in text[:1000]
+                    )
+                    if is_feed:
+                        self.endpoints.add(feed_url)
+                        found += 1
+                        # Extract URLs from feed entries
+                        self._extract_feed_urls(text, feed_url)
+            except Exception:
+                continue
+
+        if found:
+            print(f"{Colors.success(f'Feed discovery: {found} RSS/Atom feeds found')}")
+        else:
+            if self.engine.config.get("verbose"):
+                print(f"{Colors.info('Feed discovery: no feeds found')}")
+
+    def _extract_feed_urls(self, feed_text: str, feed_url: str):
+        """Extract URLs from RSS/Atom feed entries and add to endpoints."""
+        try:
+            root = ET.fromstring(feed_text)
+        except ET.ParseError:
+            # Fall back to regex extraction
+            for match in re.finditer(r'<link[^>]*>([^<]+)</link>', feed_text):
+                url = match.group(1).strip()
+                if url.startswith("http"):
+                    self.endpoints.add(url)
+            return
+
+        target_domain = urlparse(feed_url).netloc
+
+        # RSS <item><link>...</link></item>
+        for elem in root.iter():
+            tag_local = elem.tag.split("}")[-1] if "}" in elem.tag else elem.tag
+            if tag_local == "link":
+                # Atom uses href attribute, RSS uses text content
+                url = elem.get("href", "") or (elem.text or "").strip()
+                if url and url.startswith("http"):
+                    if urlparse(url).netloc == target_domain:
+                        self.endpoints.add(url)
+            elif tag_local == "guid" and elem.text:
+                url = elem.text.strip()
+                if url.startswith("http") and urlparse(url).netloc == target_domain:
+                    self.endpoints.add(url)
 
     # ──────────────────────────────────────
     # Reporting

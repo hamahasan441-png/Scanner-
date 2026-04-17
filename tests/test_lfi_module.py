@@ -72,7 +72,7 @@ class TestLFIModuleInit(unittest.TestCase):
         from modules.lfi import LFIModule
 
         mod = LFIModule(_MockEngine())
-        expected_keys = {"/etc/passwd", "win.ini", "phpinfo", "access.log"}
+        expected_keys = {"/etc/passwd", "win.ini", "phpinfo"}
         self.assertEqual(set(mod.file_indicators.keys()), expected_keys)
 
     def test_file_indicators_are_non_empty_lists(self):
@@ -87,7 +87,7 @@ class TestLFIModuleInit(unittest.TestCase):
         from modules.lfi import LFIModule
 
         mod = LFIModule(_MockEngine())
-        self.assertIn("root:x:", mod.file_indicators["/etc/passwd"])
+        self.assertIn("root:x:0:0:", mod.file_indicators["/etc/passwd"])
 
     def test_win_ini_indicators(self):
         from modules.lfi import LFIModule
@@ -106,8 +106,9 @@ class TestLFIPathTraversal(unittest.TestCase):
     def _run_lfi(self, response_text, config=None):
         from modules.lfi import LFIModule
 
+        baseline = _MockResponse(text="Normal page content")
         resp = _MockResponse(text=response_text)
-        engine = _MockEngine([resp], config=config)
+        engine = _MockEngine([baseline, resp], config=config)
         mod = LFIModule(engine)
         mod._test_lfi("http://target.com/page", "GET", "file", "index.php")
         return engine
@@ -127,13 +128,13 @@ class TestLFIPathTraversal(unittest.TestCase):
         self.assertEqual(len(engine.findings), 0)
 
     def test_passwd_detected_with_four_indicators(self):
-        text = "root:x:0:0:root\nbin:x:1:1:bin\ndaemon:x:2:2\n/bin/bash"
+        text = "root:x:0:0:root\nbin:x:1:1:bin\ndaemon:x:2:2:daemon\n/bin/bash"
         engine = self._run_lfi(text)
         self.assertEqual(len(engine.findings), 1)
 
     def test_win_ini_detected_with_two_indicators(self):
-        """win.ini needs only 2 indicators."""
-        text = "for 16-bit app support\n[extensions]\nsomething"
+        """win.ini needs 3 indicators now."""
+        text = "for 16-bit app support\n[extensions]\n[fonts]\nsomething"
         engine = self._run_lfi(text)
         self.assertEqual(len(engine.findings), 1)
         self.assertIn("File content detected: win.ini", engine.findings[0].evidence)
@@ -144,7 +145,7 @@ class TestLFIPathTraversal(unittest.TestCase):
         self.assertEqual(len(engine.findings), 0)
 
     def test_phpinfo_detected(self):
-        text = "phpinfo()\nPHP Version 8.1\nBuild Date extra"
+        text = "phpinfo()\nPHP Version 8.1\nConfiguration File (php.ini) Path /etc/php"
         engine = self._run_lfi(text)
         self.assertEqual(len(engine.findings), 1)
 
@@ -386,16 +387,16 @@ class TestLFIEdgeCases(unittest.TestCase):
         self.assertEqual(len(engine.findings), 0)
 
     def test_access_log_detected_with_two_indicators(self):
+        """access.log indicators were removed (too generic). No finding expected."""
         from modules.lfi import LFIModule
 
         text = "GET /something HTTP/1.1\nSome other content\nMozilla/5.0"
+        baseline = _MockResponse(text="Normal page")
         resp = _MockResponse(text=text)
-        engine = _MockEngine([resp])
+        engine = _MockEngine([baseline, resp])
         mod = LFIModule(engine)
         mod._test_lfi("http://target.com", "GET", "file", "index.php")
-        # access.log needs 2 indicators (non-passwd threshold)
-        # 'GET /' matches, 'HTTP/1.1' matches, 'Mozilla/' matches → 3 matches ≥ 2
-        self.assertEqual(len(engine.findings), 1)
+        self.assertEqual(len(engine.findings), 0)
 
     def test_single_indicator_not_enough_for_non_passwd(self):
         from modules.lfi import LFIModule

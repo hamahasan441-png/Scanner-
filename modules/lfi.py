@@ -22,11 +22,12 @@ class LFIModule:
         # File content indicators
         self.file_indicators = {
             "/etc/passwd": [
-                "root:x:",
-                "bin:x:",
-                "daemon:x:",
+                "root:x:0:0:",
+                "bin:x:1:1:",
+                "daemon:x:2:2:",
                 "/bin/bash",
                 "/bin/sh",
+                "nobody:x:",
             ],
             "win.ini": [
                 "for 16-bit app support",
@@ -37,14 +38,8 @@ class LFIModule:
             "phpinfo": [
                 "phpinfo()",
                 "PHP Version",
-                "System",
-                "Build Date",
-            ],
-            "access.log": [
-                "GET /",
-                "POST /",
-                "HTTP/1.1",
-                "Mozilla/",
+                "Configuration File (php.ini) Path",
+                "PHP API",
             ],
         }
 
@@ -90,6 +85,13 @@ class LFIModule:
         if not llm_payloads:
             return
 
+        # Get baseline for comparison
+        try:
+            baseline_response = self.requester.request(url, method, data={param: value})
+            baseline_text = baseline_response.text if baseline_response else ""
+        except Exception:
+            baseline_text = ""
+
         for payload in llm_payloads:
             try:
                 data = {param: payload}
@@ -98,8 +100,9 @@ class LFIModule:
                     continue
                 resp_text = response.text
                 for file_type, indicators in self.file_indicators.items():
-                    indicator_count = sum(1 for ind in indicators if ind in resp_text)
-                    if indicator_count >= 2:
+                    # Only count NEW indicators not in baseline
+                    indicator_count = sum(1 for ind in indicators if ind in resp_text and ind not in baseline_text)
+                    if indicator_count >= 3:
                         from core.engine import Finding
 
                         finding = Finding(
@@ -168,6 +171,14 @@ class LFIModule:
             "boot.ini": ["boot loader", "operating systems"],
             "hosts": ["localhost", "127.0.0.1"],
         }
+
+        # Get baseline response to filter pre-existing content
+        try:
+            baseline_response = self.requester.request(url, method, data={param: value})
+            baseline_text = baseline_response.text.lower() if baseline_response else ""
+        except Exception:
+            baseline_text = ""
+
         for payload in payloads:
             try:
                 data = {param: payload}
@@ -175,22 +186,23 @@ class LFIModule:
                 if not response:
                     continue
                 text = response.text.lower()
-                for inds in indicators.values():
-                    for ind in inds:
-                        if ind.lower() in text:
-                            from core.engine import Finding
+                for file_name, inds in indicators.items():
+                    # Require ALL indicators for the file type AND they must be new
+                    new_matches = sum(1 for ind in inds if ind.lower() in text and ind.lower() not in baseline_text)
+                    if new_matches >= len(inds):
+                        from core.engine import Finding
 
-                            finding = Finding(
-                                technique="LFI (Windows Path)",
-                                url=url,
-                                severity="HIGH",
-                                confidence=0.85,
-                                param=param,
-                                payload=payload,
-                                evidence=f"Windows file content: {ind}",
-                            )
-                            self.engine.add_finding(finding)
-                            return
+                        finding = Finding(
+                            technique="LFI (Windows Path)",
+                            url=url,
+                            severity="HIGH",
+                            confidence=0.85,
+                            param=param,
+                            payload=payload,
+                            evidence=f"Windows file content: {file_name}",
+                        )
+                        self.engine.add_finding(finding)
+                        return
             except Exception:
                 continue
 
@@ -267,6 +279,13 @@ class LFIModule:
         """Test for Local File Inclusion"""
         payloads = Payloads.LFI_PAYLOADS
 
+        # Get baseline response to filter pre-existing content
+        try:
+            baseline_response = self.requester.request(url, method, data={param: value})
+            baseline_text = baseline_response.text if baseline_response else ""
+        except Exception:
+            baseline_text = ""
+
         for payload in payloads:
             try:
                 data = {param: payload}
@@ -279,15 +298,14 @@ class LFIModule:
 
                 # Check for file content indicators
                 for file_type, indicators in self.file_indicators.items():
+                    # Only count indicators that are NEW (not in baseline)
                     match_count = 0
                     for indicator in indicators:
-                        if indicator in response_text:
+                        if indicator in response_text and indicator not in baseline_text:
                             match_count += 1
 
-                    # Require 3+ indicators for /etc/passwd (more specific),
-                    # 2+ for other file types
-                    min_matches = 3 if file_type == "/etc/passwd" else 2
-                    if match_count >= min_matches:
+                    # Require 3+ new indicators for all file types
+                    if match_count >= 3:
                         from core.engine import Finding
 
                         finding = Finding(

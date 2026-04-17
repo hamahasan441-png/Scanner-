@@ -708,7 +708,10 @@ class TestLFIModuleLLMPayloads(unittest.TestCase):
     def test_llm_payload_detects_passwd(self):
         from modules.lfi import LFIModule
 
-        engine = _MockEngineForModule(responses=[_MockResponse("root:x:0:0:root:/root:/bin/bash\nbin:x:1:1")])
+        baseline = _MockResponse("Normal page content")
+        passwd_text = "root:x:0:0:root:/root:/bin/bash\nbin:x:1:1:bin\ndaemon:x:2:2:daemon"
+        resp = _MockResponse(passwd_text)
+        engine = _MockEngineForModule(responses=[baseline, resp])
         mock_ai = MagicMock()
         mock_ai.get_llm_payloads.return_value = ["../../etc/passwd"]
         engine.ai = mock_ai

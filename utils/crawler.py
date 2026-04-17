@@ -11,6 +11,9 @@ from urllib.parse import urljoin, urlparse, parse_qs
 
 from config import Colors
 
+# File extensions that indicate XML-related resources (WSDL, XSD, WADL, feeds, SVG)
+_XML_EXTENSIONS = (".wsdl", ".xsd", ".wadl", ".xml", ".svg", ".rss", ".atom", ".soap")
+
 
 class Crawler:
     """Web Crawler with endpoint graph tracking"""
@@ -102,6 +105,12 @@ class Crawler:
 
                 # Extract parameter names from JavaScript
                 self._extract_js_params(soup, url)
+
+                # Extract XML/WSDL/SOAP/feed links from page
+                self._extract_xml_links(soup, url, base_domain, to_visit, current_depth, depth)
+
+                # Extract source map URLs from scripts and headers
+                self._extract_source_maps(soup, url, response)
 
                 # Build graph entry for this URL
                 self._update_graph(url, response, soup)
@@ -494,3 +503,91 @@ class Crawler:
             related = " → ".join(sorted(data["related"])[:5]) if data["related"] else "none"
             lines.append(f"  [{methods}] {path} (params: {params}, auth: {data['auth_state']}) → {related}")
         return "\n".join(lines)
+
+    # ------------------------------------------------------------------
+    # XML / WSDL / SOAP / Feed link extraction
+    # ------------------------------------------------------------------
+
+    def _extract_xml_links(self, soup, url: str, base_domain: str, to_visit: list, current_depth: int, max_depth: int):
+        """Extract XML-related links: WSDL, XSD, SOAP endpoints, RSS/Atom feeds, SVG files.
+
+        Covers:
+        - <link> tags with type="application/rss+xml" or "application/atom+xml"
+        - <link> or <a> references to .wsdl, .xsd, .wadl, .xml files
+        - Inline references to WSDL/SOAP service URLs
+        - SVG file references (potential XXE/XSS vector)
+        """
+        found_urls = set()
+
+        # Feed auto-discovery links
+        for link in soup.find_all("link", type=True):
+            link_type = link.get("type", "").lower()
+            href = link.get("href", "")
+            if href and any(ft in link_type for ft in ("rss", "atom", "xml")):
+                found_urls.add(urljoin(url, href))
+
+        # Any link ending in common XML-related extensions
+        for tag in soup.find_all(["a", "link", "script", "embed", "object"], href=True):
+            href = tag.get("href", "") or tag.get("src", "") or tag.get("data", "")
+            if href and any(href.lower().endswith(ext) for ext in _XML_EXTENSIONS):
+                found_urls.add(urljoin(url, href))
+
+        for tag in soup.find_all(["a", "link", "script", "embed", "object", "img"], src=True):
+            src = tag.get("src", "")
+            if src and any(src.lower().endswith(ext) for ext in _XML_EXTENSIONS):
+                found_urls.add(urljoin(url, src))
+
+        # Extract WSDL references from inline JavaScript
+        for script in soup.find_all("script"):
+            if script.string:
+                for match in re.findall(r'["\']([^"\']*\.(?:wsdl|xsd|wadl))["\']', script.string, re.IGNORECASE):
+                    found_urls.add(urljoin(url, match))
+                # SOAP endpoint patterns
+                for match in re.findall(r'["\']([^"\']+\?wsdl)["\']', script.string, re.IGNORECASE):
+                    found_urls.add(urljoin(url, match))
+
+        # Enqueue same-domain XML links for crawling
+        for found in found_urls:
+            parsed = urlparse(found)
+            if parsed.netloc == base_domain and parsed.scheme in ("http", "https"):
+                self.parameters.append((found, "get", "", "", "xml_link"))
+                if current_depth < max_depth and found not in self.visited:
+                    to_visit.append((found, current_depth + 1))
+
+    # ------------------------------------------------------------------
+    # Source Map extraction
+    # ------------------------------------------------------------------
+
+    def _extract_source_maps(self, soup, url: str, response):
+        """Extract JavaScript source map URLs from script tags and SourceMap headers.
+
+        Source maps can reveal original source code, internal paths,
+        API endpoints, and configuration details.
+        """
+        found_maps = set()
+
+        # Check SourceMap / X-SourceMap response headers
+        if response and hasattr(response, "headers"):
+            for header_name in ("SourceMap", "X-SourceMap"):
+                map_url = response.headers.get(header_name, "")
+                if map_url:
+                    found_maps.add(urljoin(url, map_url))
+
+        # Check for //# sourceMappingURL= in inline scripts
+        for script in soup.find_all("script"):
+            if script.string:
+                for match in re.findall(r'//[#@]\s*sourceMappingURL\s*=\s*(\S+)', script.string):
+                    found_maps.add(urljoin(url, match))
+
+        # Check for sourceMappingURL in external script src (.js files)
+        for script in soup.find_all("script", src=True):
+            src = script.get("src", "")
+            if src:
+                # Try the conventional .js.map extension
+                map_url = urljoin(url, src + ".map")
+                found_maps.add(map_url)
+
+        # Add discovered source maps as resources
+        for map_url in found_maps:
+            self.resources["scripts"].add(map_url)
+            self.parameters.append((map_url, "get", "", "", "source_map"))
