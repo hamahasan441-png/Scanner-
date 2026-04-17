@@ -105,17 +105,22 @@ PERMISSIONS = {
 
 
 # ---------------------------------------------------------------------------
-# Password hashing (PBKDF2-SHA256 — no C dependencies)
+# Password hashing (scrypt — computationally expensive, no C dependencies)
 # ---------------------------------------------------------------------------
-_PBKDF2_ITERATIONS = 260_000
+_SCRYPT_N = 16384   # CPU/memory cost parameter (2^14)
+_SCRYPT_R = 8       # Block size parameter
+_SCRYPT_P = 1       # Parallelization parameter
+_SCRYPT_DKLEN = 64  # Derived key length in bytes
 _SALT_LENGTH = 32
 
 
 def hash_password(password: str) -> str:
-    """Hash a password using PBKDF2-SHA256."""
+    """Hash a password using scrypt."""
     salt = os.urandom(_SALT_LENGTH)
-    dk = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, _PBKDF2_ITERATIONS)
-    return f"pbkdf2:sha256:{_PBKDF2_ITERATIONS}${salt.hex()}${dk.hex()}"
+    dk = hashlib.scrypt(
+        password.encode(), salt=salt, n=_SCRYPT_N, r=_SCRYPT_R, p=_SCRYPT_P, dklen=_SCRYPT_DKLEN
+    )
+    return f"scrypt:{_SCRYPT_N}:{_SCRYPT_R}:{_SCRYPT_P}${salt.hex()}${dk.hex()}"
 
 
 def verify_password(password: str, password_hash: str) -> bool:
@@ -125,9 +130,14 @@ def verify_password(password: str, password_hash: str) -> bool:
         if len(parts) != 3:
             return False
         header, salt_hex, dk_hex = parts
-        iterations = int(header.split(":")[2])
+        header_parts = header.split(":")
+        n = int(header_parts[1])
+        r = int(header_parts[2])
+        p = int(header_parts[3])
         salt = bytes.fromhex(salt_hex)
-        dk = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, iterations)
+        dk = hashlib.scrypt(
+            password.encode(), salt=salt, n=n, r=r, p=p, dklen=len(bytes.fromhex(dk_hex))
+        )
         return hmac.compare_digest(dk.hex(), dk_hex)
     except (ValueError, IndexError):
         return False

@@ -23,7 +23,7 @@ from core.auth import (
 
 
 class TestPasswordHashing(unittest.TestCase):
-    """Test PBKDF2-SHA256 password hashing."""
+    """Test scrypt password hashing."""
 
     def test_hash_and_verify(self):
         pw = "StrongPass1!"
@@ -36,7 +36,7 @@ class TestPasswordHashing(unittest.TestCase):
 
     def test_hash_format(self):
         h = hash_password("Test1234")
-        self.assertTrue(h.startswith("pbkdf2:sha256:"))
+        self.assertTrue(h.startswith("scrypt:"))
         self.assertEqual(len(h.split("$")), 3)
 
     def test_different_hashes_for_same_password(self):
