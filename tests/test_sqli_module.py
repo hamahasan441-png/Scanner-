@@ -107,8 +107,9 @@ class TestSQLiErrorBased(unittest.TestCase):
     def _run_error(self, response_text, config=None):
         from modules.sqli import SQLiModule
 
+        baseline = _MockResponse(text="Normal page content")
         resp = _MockResponse(text=response_text)
-        engine = _MockEngine([resp], config=config)
+        engine = _MockEngine([baseline, resp], config=config)
         mod = SQLiModule(engine)
         mod._test_error_based("http://target.com/page", "GET", "id", "1")
         return engine
@@ -155,8 +156,9 @@ class TestSQLiErrorBased(unittest.TestCase):
     def test_waf_bypass_payloads_used(self):
         from modules.sqli import SQLiModule
 
+        baseline = _MockResponse(text="Normal page content")
         resp = _MockResponse(text="you have an error in your sql syntax")
-        engine = _MockEngine([resp], config={"verbose": False, "waf_bypass": True})
+        engine = _MockEngine([baseline] + [resp] * 10, config={"verbose": False, "waf_bypass": True})
         mod = SQLiModule(engine)
         mod._test_error_based("http://target.com", "GET", "id", "1")
         self.assertEqual(len(engine.findings), 1)
@@ -337,9 +339,9 @@ class TestSQLiBooleanBased(unittest.TestCase):
     def test_boolean_diff_triggers_finding(self):
         from modules.sqli import SQLiModule
 
-        baseline = _MockResponse(text="A" * 200)
-        true_resp = _MockResponse(text="A" * 200)
-        false_resp = _MockResponse(text="B" * 50)
+        baseline = _MockResponse(text="A" * 500)
+        true_resp = _MockResponse(text="A" * 500)
+        false_resp = _MockResponse(text="B" * 50)  # diff = 450 > 200
         engine = _MockEngine([baseline, true_resp, false_resp])
         mod = SQLiModule(engine)
         mod._test_boolean_based("http://target.com", "GET", "id", "1")
@@ -380,9 +382,9 @@ class TestSQLiBooleanBased(unittest.TestCase):
     def test_boolean_confidence(self):
         from modules.sqli import SQLiModule
 
-        baseline = _MockResponse(text="A" * 200)
-        true_resp = _MockResponse(text="A" * 200)
-        false_resp = _MockResponse(text="B" * 50)
+        baseline = _MockResponse(text="A" * 500)
+        true_resp = _MockResponse(text="A" * 500)
+        false_resp = _MockResponse(text="B" * 50)  # diff = 450 > 200
         engine = _MockEngine([baseline, true_resp, false_resp])
         mod = SQLiModule(engine)
         mod._test_boolean_based("http://target.com", "GET", "id", "1")
@@ -397,21 +399,16 @@ class TestSQLiBooleanBased(unittest.TestCase):
 class TestSQLiFalsePositives(unittest.TestCase):
 
     def test_doc_page_with_sql_keywords_no_finding(self):
-        """A documentation page mentioning 'syntax error' in prose should NOT
-        trigger a finding if baseline already contains the keyword."""
+        """A documentation page with SQL keywords in both baseline and response
+        should NOT trigger a finding because baseline comparison filters it."""
         from modules.sqli import SQLiModule
 
         doc_text = "SQL tutorials: fix syntax error near unexpected token"
         resp = _MockResponse(text=doc_text)
-        engine = _MockEngine([resp])
+        engine = _MockEngine([resp, resp])  # same content in baseline and payload
         mod = SQLiModule(engine)
-        # The actual detection looks for keywords in the response to the
-        # *payload* request.  If the page normally returns error-like text,
-        # the module still flags it — confirming that error-based detection
-        # matches on response text alone (no baseline comparison).
         mod._test_error_based("http://target.com/docs", "GET", "q", "test")
-        # The module DOES flag this — verifying the detection fires.
-        self.assertGreaterEqual(len(engine.findings), 1)
+        self.assertEqual(len(engine.findings), 0)
 
     def test_boolean_baseline_true_false_same_length(self):
         """If TRUE and FALSE responses are almost identical, no finding."""

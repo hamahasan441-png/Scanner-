@@ -116,8 +116,9 @@ class TestCMDiBasicDetection(unittest.TestCase):
     def _run_basic(self, response_text, config=None):
         from modules.cmdi import CommandInjectionModule
 
+        baseline = _MockResponse(text="Normal page content")
         resp = _MockResponse(text=response_text)
-        engine = _MockEngine([resp], config=config)
+        engine = _MockEngine([baseline, resp], config=config)
         mod = CommandInjectionModule(engine)
         mod._test_basic("http://target.com/page", "GET", "cmd", "value")
         return engine
@@ -175,8 +176,9 @@ class TestCMDiBasicDetection(unittest.TestCase):
         from modules.cmdi import CommandInjectionModule
 
         # Response matches multiple indicators
+        baseline = _MockResponse(text="Normal page content")
         resp = _MockResponse(text="uid=0(root) gid=0(root) /bin/bash root:x:0:0:")
-        engine = _MockEngine([resp])
+        engine = _MockEngine([baseline, resp])
         mod = CommandInjectionModule(engine)
         mod._test_basic("http://target.com", "GET", "cmd", "value")
         self.assertEqual(len(engine.findings), 1)
@@ -423,24 +425,24 @@ class TestCMDiFalsePositives(unittest.TestCase):
         self.assertGreaterEqual(len(engine.findings), 1)
 
     def test_harmless_page_mentioning_linux(self):
-        """A normal page mentioning '/bin/bash' in documentation text will
-        trigger the basic detector since the module does not compare to a
-        baseline. Confirms current behaviour."""
+        """A normal page mentioning '/bin/bash' in documentation text should
+        NOT trigger a finding because baseline comparison filters it."""
         from modules.cmdi import CommandInjectionModule
 
-        resp = _MockResponse(text="Use /bin/bash to run shell scripts.")
-        engine = _MockEngine([resp])
+        doc_text = "Use /bin/bash to run shell scripts."
+        resp = _MockResponse(text=doc_text)
+        engine = _MockEngine([resp, resp])  # same text in baseline and payload
         mod = CommandInjectionModule(engine)
         mod._test_basic("http://target.com/docs", "GET", "q", "test")
-        # Module flags this because it matches indicator pattern
-        self.assertGreaterEqual(len(engine.findings), 1)
+        self.assertEqual(len(engine.findings), 0)
 
     def test_clean_page_no_false_positive(self):
         """A completely clean page should produce no findings."""
         from modules.cmdi import CommandInjectionModule
 
+        baseline = _MockResponse(text="Normal page content")
         resp = _MockResponse(text="Hello world. This is a safe page.")
-        engine = _MockEngine([resp])
+        engine = _MockEngine([baseline, resp])
         mod = CommandInjectionModule(engine)
         mod._test_basic("http://target.com/", "GET", "q", "test")
         self.assertEqual(len(engine.findings), 0)
@@ -609,8 +611,9 @@ class TestCMDiEdgeCases(unittest.TestCase):
     def test_empty_response_text_no_finding(self):
         from modules.cmdi import CommandInjectionModule
 
+        baseline = _MockResponse(text="Normal page content")
         resp = _MockResponse(text="")
-        engine = _MockEngine([resp])
+        engine = _MockEngine([baseline, resp])
         mod = CommandInjectionModule(engine)
         mod._test_basic("http://target.com", "GET", "cmd", "value")
         self.assertEqual(len(engine.findings), 0)
@@ -619,8 +622,9 @@ class TestCMDiEdgeCases(unittest.TestCase):
         from modules.cmdi import CommandInjectionModule
 
         big_text = "A" * 100000 + " uid=0(root) gid=0(root) " + "B" * 100000
+        baseline = _MockResponse(text="Normal page content")
         resp = _MockResponse(text=big_text)
-        engine = _MockEngine([resp])
+        engine = _MockEngine([baseline, resp])
         mod = CommandInjectionModule(engine)
         mod._test_basic("http://target.com", "GET", "cmd", "value")
         self.assertEqual(len(engine.findings), 1)
@@ -628,8 +632,9 @@ class TestCMDiEdgeCases(unittest.TestCase):
     def test_post_method_works(self):
         from modules.cmdi import CommandInjectionModule
 
+        baseline = _MockResponse(text="Normal page content")
         resp = _MockResponse(text="uid=1000(www) gid=1000(www)")
-        engine = _MockEngine([resp])
+        engine = _MockEngine([baseline, resp])
         mod = CommandInjectionModule(engine)
         mod._test_basic("http://target.com", "POST", "cmd", "value")
         self.assertEqual(len(engine.findings), 1)
@@ -638,8 +643,9 @@ class TestCMDiEdgeCases(unittest.TestCase):
         """Generic indicator uid=N(user) should also fire."""
         from modules.cmdi import CommandInjectionModule
 
+        baseline = _MockResponse(text="Normal page content")
         resp = _MockResponse(text="uid=33 (nobody)")
-        engine = _MockEngine([resp])
+        engine = _MockEngine([baseline, resp])
         mod = CommandInjectionModule(engine)
         mod._test_basic("http://target.com", "GET", "cmd", "value")
         self.assertEqual(len(engine.findings), 1)
@@ -647,8 +653,9 @@ class TestCMDiEdgeCases(unittest.TestCase):
     def test_symlink_indicator_detected(self):
         from modules.cmdi import CommandInjectionModule
 
+        baseline = _MockResponse(text="Normal page content")
         resp = _MockResponse(text="lrwxrwxrwx 1 root root 4 Jan  1 00:00 sh -> bash")
-        engine = _MockEngine([resp])
+        engine = _MockEngine([baseline, resp])
         mod = CommandInjectionModule(engine)
         mod._test_basic("http://target.com", "GET", "cmd", "value")
         self.assertEqual(len(engine.findings), 1)
@@ -656,8 +663,9 @@ class TestCMDiEdgeCases(unittest.TestCase):
     def test_finding_param_is_set(self):
         from modules.cmdi import CommandInjectionModule
 
+        baseline = _MockResponse(text="Normal page content")
         resp = _MockResponse(text="uid=0(root) gid=0(root)")
-        engine = _MockEngine([resp])
+        engine = _MockEngine([baseline, resp])
         mod = CommandInjectionModule(engine)
         mod._test_basic("http://target.com", "GET", "input", "val")
         self.assertEqual(engine.findings[0].param, "input")
@@ -665,8 +673,9 @@ class TestCMDiEdgeCases(unittest.TestCase):
     def test_finding_url_is_set(self):
         from modules.cmdi import CommandInjectionModule
 
+        baseline = _MockResponse(text="Normal page content")
         resp = _MockResponse(text="uid=0(root) gid=0(root)")
-        engine = _MockEngine([resp])
+        engine = _MockEngine([baseline, resp])
         mod = CommandInjectionModule(engine)
         mod._test_basic("http://example.com/vuln", "GET", "cmd", "val")
         self.assertEqual(engine.findings[0].url, "http://example.com/vuln")

@@ -149,7 +149,7 @@ class TestOpenRedirectLocationHeader(unittest.TestCase):
                 "Location": "https://attacker.com/phish",
             },
         )
-        engine = _MockEngine(responses=[resp])
+        engine = _MockEngine(responses=[resp] * 15)
         mod = OpenRedirectModule(engine)
         mod.test("http://target.com", "GET", "goto", "/")
         self.assertEqual(len(engine.findings), 1)

@@ -102,7 +102,7 @@ class TestCORSWildcard(unittest.TestCase):
         engine = _MockEngine(responses=self._make_wildcard_responses(8))
         mod = CORSModule(engine)
         mod.test_url("http://target.com/api")
-        self.assertEqual(engine.findings[0].severity, "MEDIUM")
+        self.assertEqual(engine.findings[0].severity, "INFO")
 
     def test_wildcard_confidence(self):
         from modules.cors import CORSModule
@@ -110,7 +110,7 @@ class TestCORSWildcard(unittest.TestCase):
         engine = _MockEngine(responses=self._make_wildcard_responses(8))
         mod = CORSModule(engine)
         mod.test_url("http://target.com/api")
-        self.assertEqual(engine.findings[0].confidence, 0.8)
+        self.assertEqual(engine.findings[0].confidence, 0.5)
 
 
 # ===========================================================================

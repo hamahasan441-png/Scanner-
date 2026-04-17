@@ -403,8 +403,9 @@ class TestSSRFDNSRebinding(unittest.TestCase):
     def test_dns_rebinding_detected(self):
         from modules.ssrf import SSRFModule
 
+        baseline = _MockResponse(text="Normal page content")
         resp = _MockResponse(text="ami-id: abc123 instance-id: i-0123")
-        engine = _MockEngine([resp] * 10)
+        engine = _MockEngine([baseline] + [resp] * 10)
         mod = SSRFModule(engine)
         mod._test_dns_rebinding("http://target.com/", "GET", "url", "http://example.com")
         self.assertTrue(any("DNS Rebinding" in f.technique for f in engine.findings))
@@ -414,8 +415,9 @@ class TestSSRFKubernetes(unittest.TestCase):
     def test_k8s_metadata_detected(self):
         from modules.ssrf import SSRFModule
 
-        resp = _MockResponse(text='{"apiVersion": "v1", "kind": "PodList"}')
-        engine = _MockEngine([resp] * 10)
+        baseline = _MockResponse(text="Normal page content")
+        resp = _MockResponse(text='{"apiVersion": "v1", "kind": "PodList", "metadata": {"name": "test"}}')
+        engine = _MockEngine([baseline] + [resp] * 10)
         mod = SSRFModule(engine)
         mod._test_kubernetes_metadata("http://target.com/", "GET", "url", "http://example.com")
         self.assertTrue(any("Kubernetes" in f.technique for f in engine.findings))

@@ -545,13 +545,15 @@ class TestXSSPolyglot(unittest.TestCase):
 
 class TestXSSmXSS(unittest.TestCase):
     def test_mxss_onerror_reflected(self):
+        """Keyword 'onerror' alone no longer triggers mXSS; full payload required."""
         from modules.xss import XSSModule
 
+        baseline = _MockResponse(text="Normal page content")
         resp = _MockResponse(text="<div>test onerror= content</div>")
-        engine = _MockEngine([resp] * 10)
+        engine = _MockEngine([baseline, resp] * 10)
         mod = XSSModule(engine)
         mod._test_mxss("http://target.com/", "GET", "q", "test")
-        self.assertTrue(any("mXSS" in f.technique for f in engine.findings))
+        self.assertFalse(any("mXSS" in f.technique for f in engine.findings))
 
 
 if __name__ == "__main__":
