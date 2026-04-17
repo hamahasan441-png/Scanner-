@@ -36,7 +36,7 @@ CONFIDENCE_HIGH = 0.75
 CONFIDENCE_MEDIUM = 0.45
 
 # Minimum number of consistent signals required to label HIGH
-MIN_SIGNALS_FOR_HIGH = 2
+MIN_SIGNALS_FOR_HIGH = 3
 
 
 class SignalSet:
@@ -44,10 +44,10 @@ class SignalSet:
 
     __slots__ = (
         'timing_signal', 'error_signal', 'reflection_signal', 'diff_signal',
-        'behavior_signal', 'raw_scores', '_weights',
+        'behavior_signal', 'raw_scores', '_weights', '_rules_engine',
     )
 
-    def __init__(self, weights=None):
+    def __init__(self, weights=None, rules_engine=None):
         self.timing_signal = 0.0     # 0.0 - 1.0
         self.error_signal = 0.0      # 0.0 - 1.0
         self.reflection_signal = 0.0  # 0.0 - 1.0
@@ -61,6 +61,7 @@ class SignalSet:
             'diff': DEFAULT_WEIGHT_DIFF,
             'behavior': DEFAULT_WEIGHT_BEHAVIOR,
         }
+        self._rules_engine = rules_engine
 
     @property
     def combined_score(self):
@@ -96,7 +97,24 @@ class SignalSet:
     def confidence_label(self):
         score = self.combined_score
         active = self.active_signal_count
-        # Require at least MIN_SIGNALS_FOR_HIGH active signals for HIGH label
+        # Delegate to rules engine when available for unified labeling
+        if self._rules_engine is not None:
+            # Convert 0-1 score to 0-100 scale for the rules engine
+            score_100 = int(score * 100)
+            rules_label = self._rules_engine.get_scoring_label(score_100)
+            # Map rules engine labels to unified output labels
+            label_map = {
+                'confirmed': 'HIGH',
+                'high': 'HIGH',
+                'likely': 'MEDIUM',
+                'suspected': 'LOW',
+            }
+            label = label_map.get(rules_label, 'LOW')
+            # Still enforce minimum active signals for HIGH
+            if label == 'HIGH' and active < MIN_SIGNALS_FOR_HIGH:
+                return 'MEDIUM'
+            return label
+        # Fallback when no rules engine: use hardcoded thresholds
         if score >= CONFIDENCE_HIGH and active >= MIN_SIGNALS_FOR_HIGH:
             return 'HIGH'
         elif score >= CONFIDENCE_MEDIUM:
@@ -305,7 +323,7 @@ class SignalScorer:
                 status_code=None, headers=None):
         """Run all signal checks and return a :class:`SignalSet`."""
         weights = self._get_weights()
-        signals = SignalSet(weights=weights)
+        signals = SignalSet(weights=weights, rules_engine=self._rules)
         signals.timing_signal = self.score_timing(baseline, elapsed)
         signals.error_signal = self.score_error(
             baseline_text, response_text, error_patterns or [],

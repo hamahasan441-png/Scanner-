@@ -151,18 +151,6 @@ class LearningStore:
 
         return sorted(all_payloads, key=sort_key)
 
-    def get_signal_weights(self):
-        """Return learned signal weights for the scorer.
-
-        Defaults are returned if no learned weights are available yet.
-        """
-        return self.thresholds.get('signal_weights', {
-            'timing': 3,
-            'error': 2,
-            'reflection': 2,
-            'diff': 1,
-        })
-
     def update_thresholds(self, findings):
         """Adjust dynamic thresholds based on scan results.
 
@@ -255,6 +243,7 @@ class LearningStore:
             'error': 2,
             'reflection': 2,
             'diff': 1,
+            'behavior': 2,
         }
 
         # Check if we have enough data to adjust
