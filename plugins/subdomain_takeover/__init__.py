@@ -10,11 +10,11 @@ Usage:
 """
 
 plugin_info = {
-    'name': 'subdomain_takeover',
-    'version': '1.0.0',
-    'author': 'ATOMIC Security',
-    'description': 'Detects potential subdomain takeover vulnerabilities via dangling DNS records',
-    'category': 'recon',
+    "name": "subdomain_takeover",
+    "version": "1.0.0",
+    "author": "ATOMIC Security",
+    "description": "Detects potential subdomain takeover vulnerabilities via dangling DNS records",
+    "category": "recon",
 }
 
 
@@ -30,104 +30,104 @@ class PluginScanner:
     # Each entry maps a CNAME pattern to a tuple of
     # (service_name, http_fingerprint, is_edge_case).
     FINGERPRINTS = {
-        '.s3.amazonaws.com': (
-            'AWS S3',
-            'NoSuchBucket',
+        ".s3.amazonaws.com": (
+            "AWS S3",
+            "NoSuchBucket",
             False,
         ),
-        '.s3-website': (
-            'AWS S3 Website',
-            'NoSuchBucket',
+        ".s3-website": (
+            "AWS S3 Website",
+            "NoSuchBucket",
             False,
         ),
-        'herokuapp.com': (
-            'Heroku',
-            'no-such-app.html',
+        "herokuapp.com": (
+            "Heroku",
+            "no-such-app.html",
             False,
         ),
-        '.ghost.io': (
-            'Ghost',
-            'The thing you were looking for is no longer here',
+        ".ghost.io": (
+            "Ghost",
+            "The thing you were looking for is no longer here",
             False,
         ),
-        'github.io': (
-            'GitHub Pages',
+        "github.io": (
+            "GitHub Pages",
             "There isn't a GitHub Pages site here",
             False,
         ),
-        '.azurewebsites.net': (
-            'Azure',
-            'Web App - Pair Networks',
+        ".azurewebsites.net": (
+            "Azure",
+            "Web App - Pair Networks",
             False,
         ),
-        '.cloudfront.net': (
-            'AWS CloudFront',
-            'Bad request',
+        ".cloudfront.net": (
+            "AWS CloudFront",
+            "Bad request",
             True,
         ),
-        '.zendesk.com': (
-            'Zendesk',
-            'Help Center Closed',
+        ".zendesk.com": (
+            "Zendesk",
+            "Help Center Closed",
             False,
         ),
-        '.teamwork.com': (
-            'Teamwork',
-            'Oops - We didn\'t find your site',
+        ".teamwork.com": (
+            "Teamwork",
+            "Oops - We didn't find your site",
             False,
         ),
-        '.unbounce.com': (
-            'Unbounce',
-            'The requested URL was not found on this server',
+        ".unbounce.com": (
+            "Unbounce",
+            "The requested URL was not found on this server",
             False,
         ),
-        '.helpjuice.com': (
-            'HelpJuice',
-            'We could not find what you\'re looking for',
+        ".helpjuice.com": (
+            "HelpJuice",
+            "We could not find what you're looking for",
             False,
         ),
-        '.helpscoutdocs.com': (
-            'HelpScout',
-            'No settings were found for this company',
+        ".helpscoutdocs.com": (
+            "HelpScout",
+            "No settings were found for this company",
             False,
         ),
-        '.feedpress.me': (
-            'FeedPress',
-            'The feed has not been found',
+        ".feedpress.me": (
+            "FeedPress",
+            "The feed has not been found",
             False,
         ),
-        '.freshdesk.com': (
-            'Freshdesk',
-            'May be this is still fresh',
+        ".freshdesk.com": (
+            "Freshdesk",
+            "May be this is still fresh",
             False,
         ),
-        '.pantheonsite.io': (
-            'Pantheon',
-            '404 error unknown site',
+        ".pantheonsite.io": (
+            "Pantheon",
+            "404 error unknown site",
             False,
         ),
-        '.bitbucket.io': (
-            'Bitbucket',
-            'Repository not found',
+        ".bitbucket.io": (
+            "Bitbucket",
+            "Repository not found",
             False,
         ),
-        '.shopify.com': (
-            'Shopify',
-            'Sorry, this shop is currently unavailable',
+        ".shopify.com": (
+            "Shopify",
+            "Sorry, this shop is currently unavailable",
             False,
         ),
-        '.surge.sh': (
-            'Surge.sh',
-            'project not found',
+        ".surge.sh": (
+            "Surge.sh",
+            "project not found",
             False,
         ),
-        '.netlify.app': (
-            'Netlify',
-            'Not Found - Request ID',
+        ".netlify.app": (
+            "Netlify",
+            "Not Found - Request ID",
             False,
         ),
-        '.fly.dev': (
-            'Fly.io',
-            'not found',
+        ".fly.dev": (
+            "Fly.io",
+            "not found",
             True,
         ),
     }
@@ -156,14 +156,13 @@ class PluginScanner:
             - ``fingerprint``: the HTTP body fingerprint matched
             - ``confidence``: ``'high'`` or ``'medium'``
         """
-        import socket
         subdomains = list(params or [])
         if not subdomains:
             subdomains = self._enumerate_common(target)
 
         findings = []
         for sub in subdomains:
-            fqdn = f'{sub}.{target}' if '.' not in sub else sub
+            fqdn = f"{sub}.{target}" if "." not in sub else sub
             result = self._check_subdomain(fqdn)
             if result:
                 findings.append(result)
@@ -181,9 +180,26 @@ class PluginScanner:
     def _enumerate_common(domain):
         """Return a small default list of common subdomains to probe."""
         return [
-            'www', 'mail', 'blog', 'shop', 'dev', 'staging', 'beta',
-            'app', 'api', 'docs', 'status', 'cdn', 'support', 'help',
-            'portal', 'admin', 'test', 'demo', 'landing', 'go',
+            "www",
+            "mail",
+            "blog",
+            "shop",
+            "dev",
+            "staging",
+            "beta",
+            "app",
+            "api",
+            "docs",
+            "status",
+            "cdn",
+            "support",
+            "help",
+            "portal",
+            "admin",
+            "test",
+            "demo",
+            "landing",
+            "go",
         ]
 
     def _check_subdomain(self, fqdn):
@@ -197,12 +213,12 @@ class PluginScanner:
                 body = self._fetch_body(fqdn)
                 if body is not None and fingerprint.lower() in body.lower():
                     return {
-                        'type': 'subdomain_takeover',
-                        'subdomain': fqdn,
-                        'cname': cname,
-                        'service': service,
-                        'fingerprint': fingerprint,
-                        'confidence': 'medium' if is_edge else 'high',
+                        "type": "subdomain_takeover",
+                        "subdomain": fqdn,
+                        "cname": cname,
+                        "service": service,
+                        "fingerprint": fingerprint,
+                        "confidence": "medium" if is_edge else "high",
                     }
         return None
 
@@ -214,9 +230,10 @@ class PluginScanner:
         """
         try:
             import dns.resolver
-            answers = dns.resolver.resolve(fqdn, 'CNAME')
+
+            answers = dns.resolver.resolve(fqdn, "CNAME")
             for rdata in answers:
-                return str(rdata.target).rstrip('.')
+                return str(rdata.target).rstrip(".")
         except Exception:
             pass
         return None
@@ -226,17 +243,18 @@ class PluginScanner:
         """Perform a simple HTTP GET and return the response body text."""
         try:
             import requests
-            for scheme in ('https', 'http'):
+
+            for scheme in ("https", "http"):
                 try:
                     # SSL verification is intentionally disabled because
                     # subdomain takeover targets often have invalid or
                     # expired certificates on the dangling endpoint.
                     resp = requests.get(
-                        f'{scheme}://{fqdn}',
+                        f"{scheme}://{fqdn}",
                         timeout=10,
                         allow_redirects=True,
                         verify=False,
-                        headers={'User-Agent': 'Mozilla/5.0'},
+                        headers={"User-Agent": "Mozilla/5.0"},
                     )
                     return resp.text
                 except Exception:

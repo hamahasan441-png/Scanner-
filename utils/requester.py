@@ -13,7 +13,7 @@ import threading
 import unicodedata
 import warnings
 from collections import OrderedDict
-from urllib.parse import urlencode, quote, unquote, urlparse, parse_qs, urlunparse
+from urllib.parse import urlencode, quote, urlparse, parse_qs, urlunparse
 
 _logger = logging.getLogger(__name__)
 
@@ -22,6 +22,7 @@ try:
     import requests
     from requests.adapters import HTTPAdapter
     from requests.packages.urllib3.util.retry import Retry
+
     REQUESTS_AVAILABLE = True
 except ImportError:
     REQUESTS_AVAILABLE = False
@@ -29,10 +30,11 @@ except ImportError:
 
 from config import Config, Payloads, Colors
 
-warnings.filterwarnings('ignore')
+warnings.filterwarnings("ignore")
 
 
 # ── Response Cache ─────────────────────────────────────────────────────
+
 
 class ResponseCache:
     """Thread-safe LRU response cache with TTL expiry.
@@ -91,10 +93,7 @@ class ResponseCache:
         now = time.time()
         evicted = 0
         with self._lock:
-            expired_keys = [
-                k for k, (_, ts) in self._cache.items()
-                if now - ts > self._ttl
-            ]
+            expired_keys = [k for k, (_, ts) in self._cache.items() if now - ts > self._ttl]
             for k in expired_keys:
                 del self._cache[k]
                 evicted += 1
@@ -111,6 +110,7 @@ class ResponseCache:
 
 
 # ── Scan Metrics Tracker ──────────────────────────────────────────────
+
 
 class ScanMetrics:
     """Thread-safe real-time scan performance metrics.
@@ -132,8 +132,9 @@ class ScanMetrics:
         self._request_times: list = []
         self._max_history = 1000
 
-    def record_request(self, success: bool, response_time: float = 0.0,
-                       response_bytes: int = 0, rate_limited: bool = False):
+    def record_request(
+        self, success: bool, response_time: float = 0.0, response_bytes: int = 0, rate_limited: bool = False
+    ):
         """Record a completed request."""
         with self._lock:
             self.total_requests += 1
@@ -146,7 +147,7 @@ class ScanMetrics:
             self.total_bytes += response_bytes
             self._request_times.append(response_time)
             if len(self._request_times) > self._max_history:
-                self._request_times = self._request_times[-self._max_history:]
+                self._request_times = self._request_times[-self._max_history :]
 
     def record_cache(self, hit: bool):
         """Record a cache hit or miss."""
@@ -177,37 +178,37 @@ class ScanMetrics:
         """Return a metrics summary dict."""
         elapsed = time.time() - self._start_time
         return {
-            'total_requests': self.total_requests,
-            'successful': self.successful_requests,
-            'failed': self.failed_requests,
-            'rate_limited': self.rate_limited,
-            'requests_per_second': round(self.requests_per_second, 2),
-            'avg_response_time_ms': round(self.avg_response_time * 1000, 1),
-            'cache_hits': self.cache_hits,
-            'cache_misses': self.cache_misses,
-            'cache_hit_rate': round(self.cache_hit_rate * 100, 1),
-            'total_bytes': self.total_bytes,
-            'elapsed_seconds': round(elapsed, 1),
+            "total_requests": self.total_requests,
+            "successful": self.successful_requests,
+            "failed": self.failed_requests,
+            "rate_limited": self.rate_limited,
+            "requests_per_second": round(self.requests_per_second, 2),
+            "avg_response_time_ms": round(self.avg_response_time * 1000, 1),
+            "cache_hits": self.cache_hits,
+            "cache_misses": self.cache_misses,
+            "cache_hit_rate": round(self.cache_hit_rate * 100, 1),
+            "total_bytes": self.total_bytes,
+            "elapsed_seconds": round(elapsed, 1),
         }
 
 
 class Requester:
     """Advanced HTTP Request Handler with response caching and metrics."""
 
-    _PATH_PARAM_RE = re.compile(r'^path\[(\d+)\]$')
-    
+    _PATH_PARAM_RE = re.compile(r"^path\[(\d+)\]$")
+
     def __init__(self, config: dict):
         self.config = config
         self.session = requests.Session() if REQUESTS_AVAILABLE else None
-        self.timeout = config.get('timeout', 15)
-        self.delay = config.get('delay', 0.1)
-        self.proxy = config.get('proxy')
-        self.rotate_proxy = config.get('rotate_proxy', False)
-        self.rotate_ua = config.get('rotate_ua', True)
-        self.evasion = config.get('evasion', 'none')
-        self.waf_bypass = config.get('waf_bypass', False)
-        self.tor = config.get('tor', False)
-        
+        self.timeout = config.get("timeout", 15)
+        self.delay = config.get("delay", 0.1)
+        self.proxy = config.get("proxy")
+        self.rotate_proxy = config.get("rotate_proxy", False)
+        self.rotate_ua = config.get("rotate_ua", True)
+        self.evasion = config.get("evasion", "none")
+        self.waf_bypass = config.get("waf_bypass", False)
+        self.tor = config.get("tor", False)
+
         self.total_requests = 0
         self.proxies = []
         self._rate_limited = False
@@ -216,7 +217,7 @@ class Requester:
         # Warn once when SSL verification is disabled (the default for a
         # scanner, but callers should be aware of the MITM risk).
         self._ssl_warned = False
-        if not config.get('verify_ssl', False):
+        if not config.get("verify_ssl", False):
             _logger.warning(
                 "SSL certificate verification is DISABLED. "
                 "Connections are vulnerable to MITM attacks. "
@@ -225,24 +226,25 @@ class Requester:
             self._ssl_warned = True
 
         # Response cache — only caches baseline/recon GET requests
-        cache_size = config.get('cache_size', 2000)
-        cache_ttl = config.get('cache_ttl', 300.0)
+        cache_size = config.get("cache_size", 2000)
+        cache_ttl = config.get("cache_ttl", 300.0)
         self._cache = ResponseCache(max_size=cache_size, ttl=cache_ttl)
-        self._cache_enabled = config.get('response_cache', True)
+        self._cache_enabled = config.get("response_cache", True)
 
         # Scan metrics
         self.metrics = ScanMetrics()
-        
+
         # Initialize evasion engine
         try:
             from utils.evasion import EvasionEngine
+
             self._evasion_engine = EvasionEngine(self.evasion)
         except Exception:
             self._evasion_engine = None
-        
+
         if self.session:
             self._setup_session()
-    
+
     def _setup_session(self):
         """Configure session with connection pooling"""
         # Retry strategy with exponential backoff
@@ -253,7 +255,7 @@ class Requester:
             allowed_methods=["HEAD", "GET", "OPTIONS", "POST", "PUT", "DELETE"],
         )
         # Connection pooling
-        pool_connections = min(self.config.get('threads', 50), 100)
+        pool_connections = min(self.config.get("threads", 50), 100)
         adapter = HTTPAdapter(
             max_retries=retry_strategy,
             pool_connections=pool_connections,
@@ -261,48 +263,42 @@ class Requester:
         )
         self.session.mount("http://", adapter)
         self.session.mount("https://", adapter)
-        
+
         # Tor proxy
         if self.tor:
-            self.proxies = {
-                'http': 'socks5h://127.0.0.1:9050',
-                'https': 'socks5h://127.0.0.1:9050'
-            }
+            self.proxies = {"http": "socks5h://127.0.0.1:9050", "https": "socks5h://127.0.0.1:9050"}
             self.session.proxies.update(self.proxies)
         elif self.proxy:
-            self.proxies = {
-                'http': self.proxy,
-                'https': self.proxy
-            }
+            self.proxies = {"http": self.proxy, "https": self.proxy}
             self.session.proxies.update(self.proxies)
-    
+
     def get_headers(self, target_url=None) -> dict:
         """Get randomized headers with fingerprint spoofing"""
         if self._evasion_engine:
             req_config = self._evasion_engine.get_request_config(target_url)
-            headers = req_config.get('headers', {})
+            headers = req_config.get("headers", {})
             if headers:
                 return headers
-        
+
         headers = Config.get_random_headers()
-        
+
         if self.rotate_ua:
-            headers['User-Agent'] = Config.get_random_ua()
-        
+            headers["User-Agent"] = Config.get_random_ua()
+
         return headers
-    
-    def evade_payload(self, payload: str, context: str = 'generic') -> str:
+
+    def evade_payload(self, payload: str, context: str = "generic") -> str:
         """Apply evasion techniques via the evasion engine"""
         if self._evasion_engine:
             return self._evasion_engine.evade(payload, context)
-        
-        if self.evasion == 'none':
+
+        if self.evasion == "none":
             return payload
-        elif self.evasion == 'low':
-            return quote(payload, safe='')
-        elif self.evasion == 'medium':
-            return quote(quote(payload, safe=''), safe='')
-        elif self.evasion == 'high':
+        elif self.evasion == "low":
+            return quote(payload, safe="")
+        elif self.evasion == "medium":
+            return quote(quote(payload, safe=""), safe="")
+        elif self.evasion == "high":
             result = ""
             for char in payload:
                 if random.choice([True, False]):
@@ -310,90 +306,92 @@ class Requester:
                 else:
                     result += char
             return result
-        elif self.evasion == 'insane':
-            encoded = quote(quote(payload, safe=''), safe='')
-            return ''.join(c.upper() if random.choice([True, False]) else c.lower() for c in encoded)
-        elif self.evasion == 'stealth':
+        elif self.evasion == "insane":
+            encoded = quote(quote(payload, safe=""), safe="")
+            return "".join(c.upper() if random.choice([True, False]) else c.lower() for c in encoded)
+        elif self.evasion == "stealth":
             time.sleep(random.uniform(1, 3))
             return payload
-        
+
         return payload
-    
-    def waf_bypass_encode(self, payload: str, technique: str = 'all') -> list:
+
+    def waf_bypass_encode(self, payload: str, technique: str = "all") -> list:
         """Generate WAF bypass variants"""
         variants = [payload]
-        
-        if technique in ['all', 'url']:
-            variants.append(Payloads.ENCODINGS['url_single'](payload))
-        if technique in ['all', 'double']:
-            variants.append(Payloads.ENCODINGS['url_double'](payload))
-        if technique in ['all', 'unicode']:
-            variants.append(Payloads.ENCODINGS['unicode'](payload))
-        if technique in ['all', 'html']:
-            variants.append(Payloads.ENCODINGS['html_entities'](payload))
-        
+
+        if technique in ["all", "url"]:
+            variants.append(Payloads.ENCODINGS["url_single"](payload))
+        if technique in ["all", "double"]:
+            variants.append(Payloads.ENCODINGS["url_double"](payload))
+        if technique in ["all", "unicode"]:
+            variants.append(Payloads.ENCODINGS["unicode"](payload))
+        if technique in ["all", "html"]:
+            variants.append(Payloads.ENCODINGS["html_entities"](payload))
+
         # Case randomization
-        variants.append(''.join(c.upper() if i % 2 == 0 else c.lower() for i, c in enumerate(payload)))
-        
+        variants.append("".join(c.upper() if i % 2 == 0 else c.lower() for i, c in enumerate(payload)))
+
         # Comment injection for SQL
-        if 'UNION' in payload.upper():
-            variants.append(payload.replace('UNION', 'UN/**/ION'))
-            variants.append(payload.replace('SELECT', 'SEL/**/ECT'))
-        
+        if "UNION" in payload.upper():
+            variants.append(payload.replace("UNION", "UN/**/ION"))
+            variants.append(payload.replace("SELECT", "SEL/**/ECT"))
+
         # Unicode normalization forms
-        if technique in ['all', 'unicode_norm']:
-            for form in ['NFD', 'NFC', 'NFKC', 'NFKD']:
+        if technique in ["all", "unicode_norm"]:
+            for form in ["NFD", "NFC", "NFKC", "NFKD"]:
                 variants.append(unicodedata.normalize(form, payload))
-        
+
         # Overlong UTF-8 sequences for key characters
-        if technique in ['all', 'overlong_utf8']:
+        if technique in ["all", "overlong_utf8"]:
             overlong_map = {
-                '<': '%c0%bc', '>': '%c0%be', "'": '%c0%a7',
-                '"': '%c0%a2', '/': '%c0%af',
+                "<": "%c0%bc",
+                ">": "%c0%be",
+                "'": "%c0%a7",
+                '"': "%c0%a2",
+                "/": "%c0%af",
             }
-            overlong = ''.join(overlong_map.get(c, c) for c in payload)
+            overlong = "".join(overlong_map.get(c, c) for c in payload)
             variants.append(overlong)
-        
+
         # Mixed encoding — alternate URL, Unicode, and HTML entity per character
-        if technique in ['all', 'mixed']:
-            mixed = ''
+        if technique in ["all", "mixed"]:
+            mixed = ""
             for i, c in enumerate(payload):
                 mod = i % 3
                 if mod == 0:
-                    mixed += f'%{ord(c):02x}'
+                    mixed += f"%{ord(c):02x}"
                 elif mod == 1:
-                    mixed += f'\\u{ord(c):04x}'
+                    mixed += f"\\u{ord(c):04x}"
                 else:
-                    mixed += f'&#{ord(c)};'
+                    mixed += f"&#{ord(c)};"
             variants.append(mixed)
-        
+
         # SQL inline comments — MySQL versioned comments for SQL keywords
-        if technique in ['all', 'sql_comments']:
-            sql_keywords = ['UNION', 'SELECT', 'INSERT', 'UPDATE', 'DELETE',
-                            'FROM', 'WHERE', 'AND', 'OR', 'DROP']
+        if technique in ["all", "sql_comments"]:
+            sql_keywords = ["UNION", "SELECT", "INSERT", "UPDATE", "DELETE", "FROM", "WHERE", "AND", "OR", "DROP"]
             sql_variant = payload
             for kw in sql_keywords:
                 sql_variant = re.sub(
                     re.escape(kw),
-                    f'/*!{kw}*/',
+                    f"/*!{kw}*/",
                     sql_variant,
                     flags=re.IGNORECASE,
                 )
             if sql_variant != payload:
                 variants.append(sql_variant)
-        
+
         # Whitespace alternatives — tab, newline, CR, vertical tab as space replacements
-        if technique in ['all', 'whitespace']:
-            for ws in ['\t', '\n', '\r', '\x0b']:
-                variants.append(payload.replace(' ', ws))
-        
+        if technique in ["all", "whitespace"]:
+            for ws in ["\t", "\n", "\r", "\x0b"]:
+                variants.append(payload.replace(" ", ws))
+
         return list(set(variants))
-    
+
     def _validate_url(self, url: str) -> bool:
         """Validate that a URL has a proper scheme and network location."""
         try:
             result = urlparse(url)
-            return all([result.scheme in ('http', 'https'), result.netloc])
+            return all([result.scheme in ("http", "https"), result.netloc])
         except Exception:
             return False
 
@@ -418,11 +416,17 @@ class Requester:
         if remaining:
             new_query = urlencode(remaining, doseq=True)
         else:
-            new_query = ''
-        return urlunparse((
-            parsed.scheme, parsed.netloc, parsed.path,
-            parsed.params, new_query, parsed.fragment,
-        ))
+            new_query = ""
+        return urlunparse(
+            (
+                parsed.scheme,
+                parsed.netloc,
+                parsed.path,
+                parsed.params,
+                new_query,
+                parsed.fragment,
+            )
+        )
 
     @staticmethod
     def _inject_path_params(url: str, path_params: dict) -> str:
@@ -434,7 +438,7 @@ class Requester:
             → "http://site.com/users/PAYLOAD/profile"
         """
         parsed = urlparse(url)
-        segments = parsed.path.split('/')
+        segments = parsed.path.split("/")
         for key, value in path_params.items():
             m = Requester._PATH_PARAM_RE.match(key)
             if m:
@@ -445,11 +449,17 @@ class Requester:
                 seg_idx = idx + 1
                 if seg_idx < len(segments):
                     segments[seg_idx] = str(value)
-        new_path = '/'.join(segments)
-        return urlunparse((
-            parsed.scheme, parsed.netloc, new_path,
-            parsed.params, parsed.query, parsed.fragment,
-        ))
+        new_path = "/".join(segments)
+        return urlunparse(
+            (
+                parsed.scheme,
+                parsed.netloc,
+                new_path,
+                parsed.params,
+                parsed.query,
+                parsed.fragment,
+            )
+        )
 
     def _make_cache_key(self, url: str, method: str, data: dict) -> str:
         """Build a deterministic cache key for a request.
@@ -457,20 +467,26 @@ class Requester:
         Only GET requests with dict data are cacheable (baseline/recon probes).
         Returns empty string for non-cacheable requests.
         """
-        if method.upper() != 'GET':
-            return ''
+        if method.upper() != "GET":
+            return ""
         parts = [url]
         if data and isinstance(data, dict):
             parts.append(str(sorted(data.items())))
-        return '|'.join(parts)
+        return "|".join(parts)
 
-    def request(self, url: str, method: str = 'GET', 
-                data: dict = None, headers: dict = None,
-                files: dict = None, timeout: int = None,
-                allow_redirects: bool = True) -> object:
+    def request(
+        self,
+        url: str,
+        method: str = "GET",
+        data: dict = None,
+        headers: dict = None,
+        files: dict = None,
+        timeout: int = None,
+        allow_redirects: bool = True,
+    ) -> object:
         """Make HTTP request with advanced evasion, caching, and metrics."""
         if not self._validate_url(url):
-            if self.config.get('verbose'):
+            if self.config.get("verbose"):
                 print(f"{Colors.error(f'Invalid URL: {url}')}")
             return None
 
@@ -478,8 +494,8 @@ class Requester:
             return None
 
         # ── Cache lookup (GET requests with dict data only) ──
-        cache_key = ''
-        if self._cache_enabled and method.upper() == 'GET' and not files:
+        cache_key = ""
+        if self._cache_enabled and method.upper() == "GET" and not files:
             cache_key = self._make_cache_key(url, method, data)
             if cache_key:
                 cached = self._cache.get(cache_key)
@@ -487,7 +503,7 @@ class Requester:
                     self.metrics.record_cache(hit=True)
                     return cached
                 self.metrics.record_cache(hit=False)
-        
+
         # Apply evasion timing if available
         if self._evasion_engine and self._evasion_engine.timing:
             delay = self._evasion_engine.timing.get_delay()
@@ -495,12 +511,12 @@ class Requester:
                 time.sleep(delay)
         elif self.delay > 0:
             time.sleep(self.delay)
-        
+
         # Prepare headers with fingerprint randomization
         req_headers = self.get_headers(url)
         if headers:
             req_headers.update(headers)
-        
+
         # Apply evasion to data (only for dict data)
         if data and isinstance(data, dict):
             evaded_data = {}
@@ -521,9 +537,9 @@ class Requester:
 
         req_start = time.time()
         try:
-            verify_ssl = self.config.get('verify_ssl', False)
+            verify_ssl = self.config.get("verify_ssl", False)
 
-            if method.upper() == 'GET':
+            if method.upper() == "GET":
                 # Strip tested parameters from URL query string to avoid
                 # duplicates (e.g. ?id=1&id=PAYLOAD).  Keep other params.
                 clean_url = self._strip_params_from_url(url, data) if data and isinstance(data, dict) else url
@@ -533,9 +549,9 @@ class Requester:
                     headers=req_headers,
                     timeout=timeout or self.timeout,
                     allow_redirects=allow_redirects,
-                    verify=verify_ssl
+                    verify=verify_ssl,
                 )
-            elif method.upper() == 'POST':
+            elif method.upper() == "POST":
                 if files:
                     response = self.session.post(
                         url,
@@ -544,7 +560,7 @@ class Requester:
                         headers=req_headers,
                         timeout=timeout or self.timeout,
                         allow_redirects=allow_redirects,
-                        verify=verify_ssl
+                        verify=verify_ssl,
                     )
                 elif isinstance(data, (bytes, str)):
                     # Raw body (e.g., XML payloads)
@@ -554,7 +570,7 @@ class Requester:
                         headers=req_headers,
                         timeout=timeout or self.timeout,
                         allow_redirects=allow_redirects,
-                        verify=verify_ssl
+                        verify=verify_ssl,
                     )
                 else:
                     response = self.session.post(
@@ -563,16 +579,16 @@ class Requester:
                         headers=req_headers,
                         timeout=timeout or self.timeout,
                         allow_redirects=allow_redirects,
-                        verify=verify_ssl
+                        verify=verify_ssl,
                     )
-            elif method.upper() == 'PUT':
+            elif method.upper() == "PUT":
                 response = self.session.put(
                     url,
                     data=data,
                     headers=req_headers,
                     timeout=timeout or self.timeout,
                     allow_redirects=allow_redirects,
-                    verify=verify_ssl
+                    verify=verify_ssl,
                 )
             else:
                 response = self.session.request(
@@ -582,19 +598,19 @@ class Requester:
                     headers=req_headers,
                     timeout=timeout or self.timeout,
                     allow_redirects=allow_redirects,
-                    verify=verify_ssl
+                    verify=verify_ssl,
                 )
-            
+
             self.total_requests += 1
             elapsed = time.time() - req_start
-            resp_bytes = len(response.content) if hasattr(response, 'content') else 0
-            
+            resp_bytes = len(response.content) if hasattr(response, "content") else 0
+
             # Rate limit detection and exponential backoff
             is_rate_limited = response.status_code == 429
             if is_rate_limited:
                 self._rate_limited = True
                 self._consecutive_429 += 1
-                backoff = min(60, 2 ** self._consecutive_429 + random.uniform(0, 1))
+                backoff = min(60, 2**self._consecutive_429 + random.uniform(0, 1))
                 time.sleep(backoff)
                 if self._evasion_engine and self._evasion_engine.timing:
                     self._evasion_engine.timing.signal_rate_limit()
@@ -615,33 +631,33 @@ class Requester:
             # Store in cache (GET only, non-error responses)
             if cache_key and response.status_code < 400:
                 self._cache.put(cache_key, response)
-            
+
             return response
-            
+
         except requests.exceptions.ProxyError as e:
             self.metrics.record_request(success=False, response_time=time.time() - req_start)
-            if self.config.get('verbose'):
+            if self.config.get("verbose"):
                 print(f"{Colors.error(f'Proxy error: {e}')}")
             return None
         except requests.exceptions.Timeout:
             self.metrics.record_request(success=False, response_time=time.time() - req_start)
-            if self.config.get('verbose'):
+            if self.config.get("verbose"):
                 print(f"{Colors.error('Request timeout')}")
             return None
         except requests.exceptions.RequestException as e:
             self.metrics.record_request(success=False, response_time=time.time() - req_start)
-            if self.config.get('verbose'):
+            if self.config.get("verbose"):
                 print(f"{Colors.error(f'Request error: {e}')}")
             return None
-    
+
     def get(self, url: str, **kwargs) -> object:
         """GET request"""
-        return self.request(url, 'GET', **kwargs)
-    
+        return self.request(url, "GET", **kwargs)
+
     def post(self, url: str, **kwargs) -> object:
         """POST request"""
-        return self.request(url, 'POST', **kwargs)
-    
+        return self.request(url, "POST", **kwargs)
+
     def test_connection(self, url: str) -> bool:
         """Test connection to target"""
         try:

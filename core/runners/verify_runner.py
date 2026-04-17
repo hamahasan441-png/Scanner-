@@ -15,7 +15,7 @@ Returns a ``VerifyResult`` consumed by downstream runners.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, Optional
 from urllib.parse import parse_qs, urlparse
 
 from config import Colors
@@ -39,10 +39,10 @@ class VerifyRunner:
     into a focused, testable unit.
     """
 
-    def __init__(self, engine: 'AtomicEngine'):
+    def __init__(self, engine: "AtomicEngine"):
         self.engine = engine
         self.config = engine.config
-        self.modules_config = self.config.get('modules', {})
+        self.modules_config = self.config.get("modules", {})
 
     # ------------------------------------------------------------------
 
@@ -66,7 +66,7 @@ class VerifyRunner:
 
         # PHASE 9: Post-worker verification
         result.verification_result = self._post_worker_verify(shield_profile)
-        if result.verification_result and hasattr(result.verification_result, 'exploit_chains'):
+        if result.verification_result and hasattr(result.verification_result, "exploit_chains"):
             result.exploit_chains = result.verification_result.exploit_chains
 
         # PHASE 9B: Exploit reference searcher
@@ -82,9 +82,7 @@ class VerifyRunner:
         MAX_ROUNDS = 3
         count = 0
         mc = self.modules_config
-        while (self.engine.adaptive.should_rediscover()
-               and mc.get('discovery', False)
-               and count < MAX_ROUNDS):
+        while self.engine.adaptive.should_rediscover() and mc.get("discovery", False) and count < MAX_ROUNDS:
             count += 1
             try:
                 new_params: list = []
@@ -95,7 +93,7 @@ class VerifyRunner:
                     if ep_parsed.query:
                         for name, values in parse_qs(ep_parsed.query).items():
                             for val in values:
-                                new_params.append((ep_url, 'get', name, val, 'adaptive'))
+                                new_params.append((ep_url, "get", name, val, "adaptive"))
                 self.engine.adaptive.new_endpoints.clear()
                 if new_params:
                     enriched = self.engine.context.analyze_parameters(new_params)
@@ -103,47 +101,52 @@ class VerifyRunner:
                     for _key, mod in self.engine._modules.items():
                         for ep in enriched:
                             try:
-                                if hasattr(mod, 'test'):
-                                    mod.test(ep['url'], ep['method'], ep['param'], ep['value'])
+                                if hasattr(mod, "test"):
+                                    mod.test(ep["url"], ep["method"], ep["param"], ep["value"])
                             except Exception:
                                 pass
             except Exception as e:
-                if self.config.get('verbose'):
+                if self.config.get("verbose"):
                     print(f"{Colors.error(f'Adaptive re-scan error: {e}')}")
                 break
 
     def _post_worker_verify(self, shield_profile):
-        if not (self.modules_config.get('chain_detect', False) and self.engine.findings):
+        if not (self.modules_config.get("chain_detect", False) and self.engine.findings):
             return None
         try:
             from core.post_worker_verifier import PostWorkerVerifier
+
             pwv = PostWorkerVerifier(self.engine)
             self.engine._shield_profile = shield_profile
             vr = pwv.run(self.engine.findings)
             self.engine.findings = vr.verified_findings
 
             if vr.exploit_chains:
-                self.engine.emit_pipeline_event('exploit_chains_detected', {
-                    'chain_count': len(vr.exploit_chains),
-                    'chains': [c.to_dict() for c in vr.exploit_chains],
-                })
+                self.engine.emit_pipeline_event(
+                    "exploit_chains_detected",
+                    {
+                        "chain_count": len(vr.exploit_chains),
+                        "chains": [c.to_dict() for c in vr.exploit_chains],
+                    },
+                )
                 for chain in vr.exploit_chains:
                     print(f"\n  {Colors.RED}{Colors.BOLD}[CHAIN] {chain.name}{Colors.RESET}")
                     print(f"    CVSS: {chain.combined_cvss}  Severity: {chain.combined_severity}")
                     print(f"    Steps: {' → '.join(chain.steps)}")
             return vr
         except Exception as e:
-            if self.config.get('verbose'):
+            if self.config.get("verbose"):
                 print(f"{Colors.error(f'Phase 9 verification error: {e}')}")
             return None
 
     def _exploit_search(self):
-        if not (self.modules_config.get('exploit_search', False) and self.engine.findings):
+        if not (self.modules_config.get("exploit_search", False) and self.engine.findings):
             return
         try:
             from core.exploit_searcher import ExploitSearcher
+
             searcher = ExploitSearcher(self.engine)
             self.engine.findings = searcher.run(self.engine.findings)
         except Exception as e:
-            if self.config.get('verbose'):
+            if self.config.get("verbose"):
                 print(f"{Colors.error(f'Phase 9B exploit search error: {e}')}")

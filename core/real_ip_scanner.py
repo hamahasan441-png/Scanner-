@@ -17,7 +17,6 @@ import ipaddress
 import re
 import socket
 import ssl
-import struct
 from urllib.parse import urlparse
 
 from config import Colors
@@ -25,14 +24,16 @@ from core.engine import Finding
 
 # ── CDN CIDRs (re-used for triage) ────────────────────────────────────
 CDN_CIDRS = {
-    'Cloudflare': [
-        '103.21.244.0/22', '104.16.0.0/13', '172.64.0.0/13',
-        '198.41.128.0/17',
+    "Cloudflare": [
+        "103.21.244.0/22",
+        "104.16.0.0/13",
+        "172.64.0.0/13",
+        "198.41.128.0/17",
     ],
-    'Akamai': ['23.32.0.0/11', '2.16.0.0/13'],
-    'Fastly': ['151.101.0.0/16', '199.27.72.0/21'],
-    'CloudFront': ['13.32.0.0/15', '54.182.0.0/16'],
-    'Sucuri': ['192.88.134.0/23', '185.93.228.0/22'],
+    "Akamai": ["23.32.0.0/11", "2.16.0.0/13"],
+    "Fastly": ["151.101.0.0/16", "199.27.72.0/21"],
+    "CloudFront": ["13.32.0.0/15", "54.182.0.0/16"],
+    "Sucuri": ["192.88.134.0/23", "185.93.228.0/22"],
 }
 
 
@@ -67,11 +68,38 @@ def _mmh3_hash(data: bytes) -> int:
 
 # Subdomain wordlist for brute-force
 SUBDOMAIN_WORDLIST = [
-    'direct', 'origin', 'origin-www', 'mail', 'ftp', 'vpn',
-    'dev', 'staging', 'api', 'admin', 'old', 'beta', 'test',
-    'internal', 'backend', 'gateway', 'proxy', 'ns1', 'ns2',
-    'mx', 'smtp', 'pop', 'imap', 'webmail', 'cpanel', 'whm',
-    'ssh', 'git', 'ci', 'jenkins', 'monitor', 'grafana',
+    "direct",
+    "origin",
+    "origin-www",
+    "mail",
+    "ftp",
+    "vpn",
+    "dev",
+    "staging",
+    "api",
+    "admin",
+    "old",
+    "beta",
+    "test",
+    "internal",
+    "backend",
+    "gateway",
+    "proxy",
+    "ns1",
+    "ns2",
+    "mx",
+    "smtp",
+    "pop",
+    "imap",
+    "webmail",
+    "cpanel",
+    "whm",
+    "ssh",
+    "git",
+    "ci",
+    "jenkins",
+    "monitor",
+    "grafana",
 ]
 
 
@@ -81,7 +109,7 @@ class RealIPScanner:
     def __init__(self, engine):
         self.engine = engine
         self.requester = engine.requester
-        self.verbose = engine.config.get('verbose', False)
+        self.verbose = engine.config.get("verbose", False)
         self._target_fingerprint = None  # (title, body_hash)
 
     # ── public API ────────────────────────────────────────────────────
@@ -89,7 +117,7 @@ class RealIPScanner:
     def run(self, target: str, shield_profile=None) -> dict:
         """Execute all tracks, rank, verify, and return RealIPResult."""
         print(f"\n{Colors.info('Phase 2: Real IP / Origin Discovery...')}")
-        self.engine.emit_pipeline_event('realip_start', {'target': target})
+        self.engine.emit_pipeline_event("realip_start", {"target": target})
 
         domain = self._extract_domain(target)
         if not domain:
@@ -120,8 +148,8 @@ class RealIPScanner:
         seen = set()
         unique = []
         for c in candidates:
-            if c['ip'] not in seen:
-                seen.add(c['ip'])
+            if c["ip"] not in seen:
+                seen.add(c["ip"])
                 unique.append(c)
         candidates = unique
 
@@ -130,42 +158,45 @@ class RealIPScanner:
 
         # Track C — verify top candidates
         origin_ip = None
-        confidence = 'LOW'
-        method = ''
+        confidence = "LOW"
+        method = ""
         verified = False
 
         for cand in ranked[:10]:
-            ok = self._verify_origin(cand['ip'], domain)
+            ok = self._verify_origin(cand["ip"], domain)
             if ok:
-                origin_ip = cand['ip']
-                method = cand.get('source', 'unknown')
+                origin_ip = cand["ip"]
+                method = cand.get("source", "unknown")
                 verified = True
-                if cand['score'] >= 50:
-                    confidence = 'HIGH'
-                elif cand['score'] >= 30:
-                    confidence = 'MEDIUM'
+                if cand["score"] >= 50:
+                    confidence = "HIGH"
+                elif cand["score"] >= 30:
+                    confidence = "MEDIUM"
                 break
 
         if not verified and ranked:
             # Best guess
-            origin_ip = ranked[0]['ip']
-            method = ranked[0].get('source', 'unknown')
-            confidence = 'LOW'
+            origin_ip = ranked[0]["ip"]
+            method = ranked[0].get("source", "unknown")
+            confidence = "LOW"
 
         result = {
-            'origin_ip': origin_ip,
-            'confidence': confidence,
-            'method': method,
-            'verified': verified,
-            'all_candidates': ranked[:20],
+            "origin_ip": origin_ip,
+            "confidence": confidence,
+            "method": method,
+            "verified": verified,
+            "all_candidates": ranked[:20],
         }
 
         self._print_summary(result)
         self._emit_findings(target, result)
-        self.engine.emit_pipeline_event('realip_done', {
-            'origin_ip': origin_ip,
-            'confidence': confidence,
-        })
+        self.engine.emit_pipeline_event(
+            "realip_done",
+            {
+                "origin_ip": origin_ip,
+                "confidence": confidence,
+            },
+        )
         return result
 
     # ── Track A — passive intel ───────────────────────────────────────
@@ -175,24 +206,28 @@ class RealIPScanner:
         candidates = []
         try:
             resp = self.requester.request(
-                f'https://crt.sh/?q=%.{domain}&output=json', 'GET',
+                f"https://crt.sh/?q=%.{domain}&output=json",
+                "GET",
                 timeout=10,
             )
             if resp and resp.status_code == 200:
                 data = resp.json()
                 for entry in data[:100]:
-                    name = entry.get('common_name', '') or entry.get('name_value', '')
+                    name = entry.get("common_name", "") or entry.get("name_value", "")
                     # crt.sh doesn't give IPs directly, but we can track
                     # unique names for subdomain enumeration
-                    if name and '*' not in name:
+                    if name and "*" not in name:
                         try:
                             ips = socket.gethostbyname_ex(name)[2]
                             for ip in ips:
                                 if not _is_cdn_ip(ip):
-                                    candidates.append({
-                                        'ip': ip, 'score': 30,
-                                        'source': 'historical_dns',
-                                    })
+                                    candidates.append(
+                                        {
+                                            "ip": ip,
+                                            "score": 30,
+                                            "source": "historical_dns",
+                                        }
+                                    )
                         except (socket.gaierror, OSError):
                             pass
         except Exception as e:
@@ -214,14 +249,17 @@ class RealIPScanner:
                     cert = ssock.getpeercert(binary_form=False)
                     if cert:
                         # Check SANs for IP addresses
-                        sans = cert.get('subjectAltName', ())
+                        sans = cert.get("subjectAltName", ())
                         for san_type, san_val in sans:
-                            if san_type == 'IP Address':
+                            if san_type == "IP Address":
                                 if not _is_cdn_ip(san_val):
-                                    candidates.append({
-                                        'ip': san_val, 'score': 50,
-                                        'source': 'cert_match',
-                                    })
+                                    candidates.append(
+                                        {
+                                            "ip": san_val,
+                                            "score": 50,
+                                            "source": "cert_match",
+                                        }
+                                    )
         except Exception as e:
             if self.verbose:
                 print(f"  {Colors.warning(f'Cert intel error: {e}')}")
@@ -229,11 +267,11 @@ class RealIPScanner:
 
     def _check_favicon_hash(self, target_url):
         """Fetch /favicon.ico and compute hash for matching."""
-        result = {'hash': None, 'candidates': []}
+        result = {"hash": None, "candidates": []}
         try:
-            resp = self.requester.request(f"{target_url}/favicon.ico", 'GET', timeout=10)
+            resp = self.requester.request(f"{target_url}/favicon.ico", "GET", timeout=10)
             if resp and resp.status_code == 200 and resp.content:
-                result['hash'] = _mmh3_hash(resp.content)
+                result["hash"] = _mmh3_hash(resp.content)
         except Exception:
             pass
         return result
@@ -245,35 +283,42 @@ class RealIPScanner:
         # SPF records
         try:
             import dns.resolver
+
             try:
-                answers = dns.resolver.resolve(domain, 'TXT')
+                answers = dns.resolver.resolve(domain, "TXT")
                 for rdata in answers:
                     txt = str(rdata).strip('"')
-                    if 'v=spf1' in txt:
+                    if "v=spf1" in txt:
                         for part in txt.split():
-                            if part.startswith('ip4:'):
-                                ip_str = part[4:].split('/')[0]
+                            if part.startswith("ip4:"):
+                                ip_str = part[4:].split("/")[0]
                                 if not _is_cdn_ip(ip_str):
-                                    candidates.append({
-                                        'ip': ip_str, 'score': 25,
-                                        'source': 'spf_record',
-                                    })
+                                    candidates.append(
+                                        {
+                                            "ip": ip_str,
+                                            "score": 25,
+                                            "source": "spf_record",
+                                        }
+                                    )
             except Exception:
                 pass
 
             # MX records → resolve to IPs
             try:
-                mx_answers = dns.resolver.resolve(domain, 'MX')
+                mx_answers = dns.resolver.resolve(domain, "MX")
                 for rdata in mx_answers:
-                    mx_host = str(rdata.exchange).rstrip('.')
+                    mx_host = str(rdata.exchange).rstrip(".")
                     try:
                         ips = socket.gethostbyname_ex(mx_host)[2]
                         for ip in ips:
                             if not _is_cdn_ip(ip):
-                                candidates.append({
-                                    'ip': ip, 'score': 25,
-                                    'source': 'mx_record',
-                                })
+                                candidates.append(
+                                    {
+                                        "ip": ip,
+                                        "score": 25,
+                                        "source": "mx_record",
+                                    }
+                                )
                     except (socket.gaierror, OSError):
                         pass
             except Exception:
@@ -290,10 +335,13 @@ class RealIPScanner:
             ips = socket.gethostbyname_ex(domain)[2]
             for ip in ips:
                 if not _is_cdn_ip(ip):
-                    candidates.append({
-                        'ip': ip, 'score': 20,
-                        'source': 'asn_correlation',
-                    })
+                    candidates.append(
+                        {
+                            "ip": ip,
+                            "score": 20,
+                            "source": "asn_correlation",
+                        }
+                    )
         except (socket.gaierror, OSError):
             pass
         return candidates
@@ -305,14 +353,15 @@ class RealIPScanner:
         subs = set()
         try:
             resp = self.requester.request(
-                f'https://crt.sh/?q=%.{domain}&output=json', 'GET',
+                f"https://crt.sh/?q=%.{domain}&output=json",
+                "GET",
                 timeout=10,
             )
             if resp and resp.status_code == 200:
                 for entry in resp.json()[:200]:
-                    name = entry.get('name_value', '')
-                    for line in name.split('\n'):
-                        line = line.strip().lstrip('*.')
+                    name = entry.get("name_value", "")
+                    for line in name.split("\n"):
+                        line = line.strip().lstrip("*.")
                         if line.endswith(domain) and line != domain:
                             subs.add(line)
         except Exception:
@@ -325,12 +374,12 @@ class RealIPScanner:
         # Wildcard detection
         wildcard_ip = None
         try:
-            wildcard_ip = socket.gethostbyname(f'randomxyz123notexist.{domain}')
+            wildcard_ip = socket.gethostbyname(f"randomxyz123notexist.{domain}")
         except (socket.gaierror, OSError):
             pass
 
         for word in SUBDOMAIN_WORDLIST:
-            sub = f'{word}.{domain}'
+            sub = f"{word}.{domain}"
             try:
                 ip = socket.gethostbyname(sub)
                 if ip != wildcard_ip:
@@ -346,15 +395,14 @@ class RealIPScanner:
             import dns.resolver
             import dns.zone
             import dns.query
-            ns_answers = dns.resolver.resolve(domain, 'NS')
+
+            ns_answers = dns.resolver.resolve(domain, "NS")
             for ns in ns_answers:
-                ns_host = str(ns.target).rstrip('.')
+                ns_host = str(ns.target).rstrip(".")
                 try:
-                    zone = dns.zone.from_xfr(
-                        dns.query.xfr(ns_host, domain, timeout=10)
-                    )
+                    zone = dns.zone.from_xfr(dns.query.xfr(ns_host, domain, timeout=10))
                     for name, node in zone.nodes.items():
-                        fqdn = f'{name}.{domain}'.rstrip('.')
+                        fqdn = f"{name}.{domain}".rstrip(".")
                         if fqdn != domain:
                             results.append(fqdn)
                     if results and self.verbose:
@@ -369,18 +417,21 @@ class RealIPScanner:
     def _triage_subdomain_ips(self, subdomains):
         """Resolve subdomains → IPs, discard CDN IPs."""
         candidates = []
-        HIGH_VALUE = {'mail', 'ftp', 'vpn', 'ssh', 'direct', 'origin', 'backend'}
+        HIGH_VALUE = {"mail", "ftp", "vpn", "ssh", "direct", "origin", "backend"}
         for sub in subdomains:
             try:
                 ips = socket.gethostbyname_ex(sub)[2]
                 for ip in ips:
                     if not _is_cdn_ip(ip):
-                        prefix = sub.split('.')[0]
+                        prefix = sub.split(".")[0]
                         score = 30 if prefix in HIGH_VALUE else 20
-                        candidates.append({
-                            'ip': ip, 'score': score,
-                            'source': f'subdomain:{sub}',
-                        })
+                        candidates.append(
+                            {
+                                "ip": ip,
+                                "score": score,
+                                "source": f"subdomain:{sub}",
+                            }
+                        )
             except (socket.gaierror, OSError):
                 pass
         return candidates
@@ -391,11 +442,12 @@ class RealIPScanner:
         """HTTP probe candidate IP with Host header matching."""
         for port in (443, 80, 8443, 8080):
             try:
-                scheme = 'https' if port in (443, 8443) else 'http'
-                url = f'{scheme}://{ip}:{port}/'
+                scheme = "https" if port in (443, 8443) else "http"
+                url = f"{scheme}://{ip}:{port}/"
                 resp = self.requester.request(
-                    url, 'GET',
-                    headers={'Host': domain},
+                    url,
+                    "GET",
+                    headers={"Host": domain},
                     timeout=8,
                     allow_redirects=False,
                 )
@@ -403,10 +455,14 @@ class RealIPScanner:
                     # Check body fingerprint
                     if self._target_fingerprint:
                         title, body_hash = self._target_fingerprint
-                        resp_title = self._extract_title(resp.text) if hasattr(resp, 'text') else ''
+                        resp_title = self._extract_title(resp.text) if hasattr(resp, "text") else ""
                         if title and resp_title and title.lower() == resp_title.lower():
                             return True
-                        resp_hash = hashlib.md5(resp.text.encode('utf-8', 'ignore')).hexdigest() if hasattr(resp, 'text') else ''
+                        resp_hash = (
+                            hashlib.md5(resp.text.encode("utf-8", "ignore")).hexdigest()
+                            if hasattr(resp, "text")
+                            else ""
+                        )
                         if body_hash and resp_hash == body_hash:
                             return True
                     # Fallback: 2xx or 3xx is a positive signal
@@ -427,7 +483,7 @@ class RealIPScanner:
                     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                     s.settimeout(3)
                     if s.connect_ex((ip, port)) == 0:
-                        open_ips.append({'ip': ip, 'port': port})
+                        open_ips.append({"ip": ip, "port": port})
                     s.close()
                 except Exception:
                     pass
@@ -439,59 +495,65 @@ class RealIPScanner:
         """Aggregate scores per IP and sort descending."""
         scores = {}
         for c in candidates:
-            ip = c['ip']
+            ip = c["ip"]
             if ip not in scores:
-                scores[ip] = {'ip': ip, 'score': 0, 'sources': []}
-            scores[ip]['score'] += c.get('score', 0)
-            scores[ip]['sources'].append(c.get('source', ''))
-        ranked = sorted(scores.values(), key=lambda x: x['score'], reverse=True)
+                scores[ip] = {"ip": ip, "score": 0, "sources": []}
+            scores[ip]["score"] += c.get("score", 0)
+            scores[ip]["sources"].append(c.get("source", ""))
+        ranked = sorted(scores.values(), key=lambda x: x["score"], reverse=True)
         return ranked
 
     # ── helpers ────────────────────────────────────────────────────────
 
     def _fingerprint_target(self, target_url):
         try:
-            resp = self.requester.request(target_url, 'GET', timeout=10)
-            if resp and hasattr(resp, 'text'):
+            resp = self.requester.request(target_url, "GET", timeout=10)
+            if resp and hasattr(resp, "text"):
                 title = self._extract_title(resp.text)
-                body_hash = hashlib.md5(resp.text.encode('utf-8', 'ignore')).hexdigest()
+                body_hash = hashlib.md5(resp.text.encode("utf-8", "ignore")).hexdigest()
                 self._target_fingerprint = (title, body_hash)
         except Exception:
             self._target_fingerprint = None
 
     @staticmethod
     def _extract_title(html):
-        match = re.search(r'<title[^>]*>(.*?)</title>', html or '', re.IGNORECASE | re.DOTALL)
-        return match.group(1).strip() if match else ''
+        match = re.search(r"<title[^>]*>(.*?)</title>", html or "", re.IGNORECASE | re.DOTALL)
+        return match.group(1).strip() if match else ""
 
     @staticmethod
     def _extract_domain(target):
-        return urlparse(target).hostname or ''
+        return urlparse(target).hostname or ""
 
     def _empty_result(self):
         return {
-            'origin_ip': None, 'confidence': 'LOW',
-            'method': '', 'verified': False, 'all_candidates': [],
+            "origin_ip": None,
+            "confidence": "LOW",
+            "method": "",
+            "verified": False,
+            "all_candidates": [],
         }
 
     def _print_summary(self, result):
         print(f"\n  {Colors.BOLD}Real IP Discovery Summary:{Colors.RESET}")
-        if result['origin_ip']:
-            v = '✓ verified' if result['verified'] else '? unverified'
-            print(f"    Origin IP: {Colors.GREEN}{result['origin_ip']}{Colors.RESET}"
-                  f"  [{result['confidence']}] ({v})")
+        if result["origin_ip"]:
+            v = "✓ verified" if result["verified"] else "? unverified"
+            print(
+                f"    Origin IP: {Colors.GREEN}{result['origin_ip']}{Colors.RESET}" f"  [{result['confidence']}] ({v})"
+            )
             print(f"    Method: {result['method']}")
         else:
             print(f"    Origin IP: {Colors.YELLOW}Not found{Colors.RESET}")
         print(f"    Candidates evaluated: {len(result['all_candidates'])}")
 
     def _emit_findings(self, target, result):
-        if result['origin_ip'] and result['verified']:
-            self.engine.add_finding(Finding(
-                technique='Origin IP Discovered',
-                url=target,
-                severity='HIGH',
-                confidence=0.85 if result['confidence'] == 'HIGH' else 0.6,
-                evidence=f"Origin: {result['origin_ip']} via {result['method']}",
-                remediation='Restrict origin server to only accept traffic from CDN IPs. Use firewall ACLs.',
-            ))
+        if result["origin_ip"] and result["verified"]:
+            self.engine.add_finding(
+                Finding(
+                    technique="Origin IP Discovered",
+                    url=target,
+                    severity="HIGH",
+                    confidence=0.85 if result["confidence"] == "HIGH" else 0.6,
+                    evidence=f"Origin: {result['origin_ip']} via {result['method']}",
+                    remediation="Restrict origin server to only accept traffic from CDN IPs. Use firewall ACLs.",
+                )
+            )

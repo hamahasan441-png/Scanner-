@@ -22,29 +22,29 @@ from config import Colors
 
 # Static patterns → priority boost
 HIGH_PRIORITY_PATTERNS = [
-    (r'(?i)(login|signin|auth|oauth|sso|token|session)', 0.9, 'auth'),
-    (r'(?i)(admin|dashboard|manage|control|panel|settings)', 0.85, 'admin'),
-    (r'(?i)/api/', 0.8, 'api'),
-    (r'(?i)(upload|import|file|attach|media)', 0.8, 'upload'),
-    (r'(?i)(payment|checkout|billing|order|cart|purchase)', 0.75, 'payment'),
-    (r'(?i)(user|profile|account|member)', 0.7, 'user'),
-    (r'(?i)(search|query|filter|find)', 0.65, 'search'),
-    (r'(?i)(comment|review|feedback|contact|message)', 0.6, 'input'),
-    (r'(?i)(download|export|report|pdf)', 0.55, 'download'),
-    (r'(?i)(graphql|rest|v\d+/)', 0.7, 'api'),
+    (r"(?i)(login|signin|auth|oauth|sso|token|session)", 0.9, "auth"),
+    (r"(?i)(admin|dashboard|manage|control|panel|settings)", 0.85, "admin"),
+    (r"(?i)/api/", 0.8, "api"),
+    (r"(?i)(upload|import|file|attach|media)", 0.8, "upload"),
+    (r"(?i)(payment|checkout|billing|order|cart|purchase)", 0.75, "payment"),
+    (r"(?i)(user|profile|account|member)", 0.7, "user"),
+    (r"(?i)(search|query|filter|find)", 0.65, "search"),
+    (r"(?i)(comment|review|feedback|contact|message)", 0.6, "input"),
+    (r"(?i)(download|export|report|pdf)", 0.55, "download"),
+    (r"(?i)(graphql|rest|v\d+/)", 0.7, "api"),
     # v10.0 additions
-    (r'(?i)(webhook|callback|notify|hook)', 0.75, 'webhook'),
-    (r'(?i)(reset|forgot|recover|password)', 0.85, 'password_reset'),
-    (r'(?i)(invite|register|signup|onboard)', 0.7, 'registration'),
-    (r'(?i)(config|setup|install|debug)', 0.8, 'configuration'),
-    (r'(?i)(ws|socket|realtime|stream)', 0.65, 'websocket'),
-    (r'(?i)(internal|private|staging|dev)', 0.8, 'internal'),
+    (r"(?i)(webhook|callback|notify|hook)", 0.75, "webhook"),
+    (r"(?i)(reset|forgot|recover|password)", 0.85, "password_reset"),
+    (r"(?i)(invite|register|signup|onboard)", 0.7, "registration"),
+    (r"(?i)(config|setup|install|debug)", 0.8, "configuration"),
+    (r"(?i)(ws|socket|realtime|stream)", 0.65, "websocket"),
+    (r"(?i)(internal|private|staging|dev)", 0.8, "internal"),
 ]
 
 LOW_PRIORITY_PATTERNS = [
-    (r'(?i)\.(css|js|png|jpg|jpeg|gif|svg|ico|woff|ttf|eot)(\?|$)', -0.5, 'static_asset'),
-    (r'(?i)(static|assets|images|fonts|vendor|lib)', -0.4, 'static_dir'),
-    (r'(?i)(about|privacy|terms|faq|help|sitemap|robots)', -0.3, 'informational'),
+    (r"(?i)\.(css|js|png|jpg|jpeg|gif|svg|ico|woff|ttf|eot)(\?|$)", -0.5, "static_asset"),
+    (r"(?i)(static|assets|images|fonts|vendor|lib)", -0.4, "static_dir"),
+    (r"(?i)(about|privacy|terms|faq|help|sitemap|robots)", -0.3, "informational"),
 ]
 
 # Minimum score below which endpoints are skipped entirely
@@ -56,25 +56,25 @@ class EndpointPrioritizer:
 
     def __init__(self, engine):
         self.engine = engine
-        self.verbose = engine.config.get('verbose', False)
+        self.verbose = engine.config.get("verbose", False)
 
         # Load keyword buckets from rules engine when available
-        rules = getattr(engine, 'rules', None)
+        rules = getattr(engine, "rules", None)
         self._keyword_buckets = {}
         self._priority_order = []
         if rules:
             self._keyword_buckets = rules.get_keyword_buckets()
             self._priority_order = rules.get_priority_order()
 
-    def score_endpoint(self, url, method='GET', param='', source=''):
+    def score_endpoint(self, url, method="GET", param="", source=""):
         """Compute priority score for a single endpoint (0.0-1.0)."""
         score = 0.5  # neutral base
-        path = urlparse(url).path + '?' + (urlparse(url).query or '')
+        path = urlparse(url).path + "?" + (urlparse(url).query or "")
 
         # Rules-engine keyword buckets (YAML-defined priorities)
         if self._keyword_buckets and self._priority_order:
             path_lower = path.lower()
-            param_lower = param.lower() if param else ''
+            param_lower = param.lower() if param else ""
             for bucket_idx, bucket_name in enumerate(self._priority_order):
                 keywords = self._keyword_buckets.get(bucket_name, [])
                 for keyword in keywords:
@@ -95,28 +95,28 @@ class EndpointPrioritizer:
                 score += penalty
 
         # Boost for POST method
-        if method.upper() == 'POST':
+        if method.upper() == "POST":
             score += 0.1
 
         # Boost for parameters from forms/API discovery
         source_boost = {
-            'form': 0.1,
-            'api': 0.15,
-            'js_extracted': 0.1,
-            'hidden_input': 0.1,
-            'discovery': 0.05,
+            "form": 0.1,
+            "api": 0.15,
+            "js_extracted": 0.1,
+            "hidden_input": 0.1,
+            "discovery": 0.05,
         }
         score += source_boost.get(source, 0.0)
 
         # Additional boost for authenticated context (param hints)
         auth_params = re.compile(
-            r'(?i)(token|session|auth|bearer|cookie|jwt|api_?key)',
+            r"(?i)(token|session|auth|bearer|cookie|jwt|api_?key)",
         )
         if param and auth_params.search(param):
             score = max(score, 0.85)
 
         # Additional boost for file-upload context
-        upload_params = re.compile(r'(?i)(file|upload|attachment|document|image)')
+        upload_params = re.compile(r"(?i)(file|upload|attachment|document|image)")
         if param and upload_params.search(param):
             score = max(score, 0.8)
 
@@ -134,24 +134,27 @@ class EndpointPrioritizer:
 
         for ep in enriched_params:
             base_score = self.score_endpoint(
-                ep['url'], ep['method'], ep['param'], ep['source'],
+                ep["url"],
+                ep["method"],
+                ep["param"],
+                ep["source"],
             )
             # Combine with context prediction strength
-            max_prediction = max(ep.get('predictions', {}).values(), default=0)
+            max_prediction = max(ep.get("predictions", {}).values(), default=0)
             combined = 0.6 * base_score + 0.4 * max_prediction
-            ep['priority'] = round(combined, 3)
+            ep["priority"] = round(combined, 3)
 
-            if ep['priority'] >= SKIP_THRESHOLD:
+            if ep["priority"] >= SKIP_THRESHOLD:
                 scored.append(ep)
             else:
                 skipped += 1
 
-        scored.sort(key=lambda x: x['priority'], reverse=True)
+        scored.sort(key=lambda x: x["priority"], reverse=True)
 
         if self.verbose:
-            high = sum(1 for p in scored if p['priority'] >= 0.7)
-            med = sum(1 for p in scored if 0.4 <= p['priority'] < 0.7)
-            low = sum(1 for p in scored if p['priority'] < 0.4)
+            high = sum(1 for p in scored if p["priority"] >= 0.7)
+            med = sum(1 for p in scored if 0.4 <= p["priority"] < 0.7)
+            low = sum(1 for p in scored if p["priority"] < 0.4)
             print(f"{Colors.info(f'Priority queue: {high} HIGH, {med} MEDIUM, {low} LOW (skipped {skipped})')}")
 
         return scored

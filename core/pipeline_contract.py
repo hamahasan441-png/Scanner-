@@ -22,7 +22,7 @@ Usage:
 """
 
 from enum import Enum, unique
-from typing import Dict, FrozenSet, List, Optional, Set
+from typing import Dict, FrozenSet, List, Set
 
 
 @unique
@@ -33,27 +33,27 @@ class Phase(str, Enum):
     pipeline state dicts, and log messages.
     """
 
-    INIT = 'init'
-    PLAN_DISPLAY = 'plan_display'
-    SCOPE = 'scope'
-    SHIELD_DETECT = 'shield_detect'
-    REAL_IP = 'real_ip'
-    PASSIVE_RECON = 'passive_recon'
-    DISCOVERY = 'discovery'
-    INPUT_EXTRACTION = 'input_extraction'
-    CONTEXT_INTEL = 'context_intel'
-    ENRICHMENT = 'enrichment'
-    PRIORITIZATION = 'prioritization'
-    BASELINE = 'baseline'
-    ADAPTIVE_TESTING = 'adaptive_testing'
-    SCAN_WORKERS = 'scan_workers'
-    VERIFICATION = 'verification'
-    EXPLOIT_SEARCH = 'exploit_search'
-    AGENT_SCAN = 'agent_scan'
-    EXPLOIT = 'exploit'
-    REPORT = 'report'
-    ATTACK_MAP = 'attack_map'
-    DONE = 'done'
+    INIT = "init"
+    PLAN_DISPLAY = "plan_display"
+    SCOPE = "scope"
+    SHIELD_DETECT = "shield_detect"
+    REAL_IP = "real_ip"
+    PASSIVE_RECON = "passive_recon"
+    DISCOVERY = "discovery"
+    INPUT_EXTRACTION = "input_extraction"
+    CONTEXT_INTEL = "context_intel"
+    ENRICHMENT = "enrichment"
+    PRIORITIZATION = "prioritization"
+    BASELINE = "baseline"
+    ADAPTIVE_TESTING = "adaptive_testing"
+    SCAN_WORKERS = "scan_workers"
+    VERIFICATION = "verification"
+    EXPLOIT_SEARCH = "exploit_search"
+    AGENT_SCAN = "agent_scan"
+    EXPLOIT = "exploit"
+    REPORT = "report"
+    ATTACK_MAP = "attack_map"
+    DONE = "done"
 
 
 # Ordered list reflecting the canonical execution sequence.
@@ -64,10 +64,10 @@ PHASE_ORDER: List[Phase] = list(Phase)
 class Partition(str, Enum):
     """High-level pipeline partitions used by the dashboard."""
 
-    RECON = 'recon'
-    SCAN = 'scan'
-    EXPLOIT = 'exploit'
-    COLLECT = 'collect'
+    RECON = "recon"
+    SCAN = "scan"
+    EXPLOIT = "exploit"
+    COLLECT = "collect"
 
 
 # Which partition each phase belongs to.
@@ -107,7 +107,7 @@ def _build_allowed_transitions() -> Dict[Phase, FrozenSet[Phase]]:
     transitions: Dict[Phase, Set[Phase]] = {p: set() for p in Phase}
     for idx, phase in enumerate(PHASE_ORDER[:-1]):
         # Allow advancing to any later phase (skip optional phases)
-        for later in PHASE_ORDER[idx + 1:]:
+        for later in PHASE_ORDER[idx + 1 :]:
             transitions[phase].add(later)
     return {k: frozenset(v) for k, v in transitions.items()}
 
@@ -170,9 +170,7 @@ class PipelineStateMachine:
         idx = PHASE_ORDER.index(self._current)
         if idx >= len(PHASE_ORDER) - 1:
             if self._strict:
-                raise InvalidTransitionError(
-                    f'Cannot advance past {self._current.value}'
-                )
+                raise InvalidTransitionError(f"Cannot advance past {self._current.value}")
             return self._current
         return self._transition_to(PHASE_ORDER[idx + 1])
 
@@ -185,9 +183,7 @@ class PipelineStateMachine:
             self._transition_to(target)
             return True
         if self._strict:
-            raise InvalidTransitionError(
-                f'Transition {self._current.value} → {target.value} is not allowed'
-            )
+            raise InvalidTransitionError(f"Transition {self._current.value} → {target.value} is not allowed")
         return False
 
     def reset(self) -> None:
@@ -205,4 +201,4 @@ class PipelineStateMachine:
     # -- dunder --------------------------------------------------------------
 
     def __repr__(self) -> str:
-        return f'PipelineStateMachine(current={self._current.value!r})'
+        return f"PipelineStateMachine(current={self._current.value!r})"

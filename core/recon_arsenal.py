@@ -39,7 +39,7 @@ import os
 import shutil
 import tempfile
 from datetime import datetime, timezone
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 from core.tool_integrator import ToolResult, _run_command
 
@@ -55,13 +55,12 @@ class AmassAdapter:
     ASN discovery, certificate transparency, and network mapping.
     """
 
-    TOOL_NAME = 'amass'
+    TOOL_NAME = "amass"
 
     def is_available(self) -> bool:
-        return shutil.which('amass') is not None
+        return shutil.which("amass") is not None
 
-    def run(self, domain: str, mode: str = 'passive',
-            timeout: int = 600) -> ToolResult:
+    def run(self, domain: str, mode: str = "passive", timeout: int = 600) -> ToolResult:
         """Run Amass subdomain enumeration.
 
         Args:
@@ -70,18 +69,16 @@ class AmassAdapter:
             timeout: Max seconds (default 600 for thorough enum).
         """
         if not self.is_available():
-            return ToolResult(tool=self.TOOL_NAME, target=domain, success=False,
-                              error='amass not installed')
+            return ToolResult(tool=self.TOOL_NAME, target=domain, success=False, error="amass not installed")
 
-        with tempfile.NamedTemporaryFile(suffix='.json', delete=False,
-                                         mode='w') as tmp:
+        with tempfile.NamedTemporaryFile(suffix=".json", delete=False, mode="w") as tmp:
             json_path = tmp.name
 
-        cmd = ['amass', 'enum', '-d', domain, '-json', json_path]
-        if mode == 'passive':
-            cmd.append('-passive')
-        elif mode == 'active':
-            cmd.append('-active')
+        cmd = ["amass", "enum", "-d", domain, "-json", json_path]
+        if mode == "passive":
+            cmd.append("-passive")
+        elif mode == "active":
+            cmd.append("-active")
 
         exit_code, stdout, stderr, duration = _run_command(cmd, timeout=timeout)
 
@@ -93,7 +90,7 @@ class AmassAdapter:
             raw_output=stdout,
             duration_seconds=round(duration, 2),
             timestamp=datetime.now(timezone.utc).isoformat(),
-            error=stderr if exit_code != 0 else '',
+            error=stderr if exit_code != 0 else "",
         )
 
         try:
@@ -112,37 +109,39 @@ class AmassAdapter:
         findings = []
 
         try:
-            with open(json_path, 'r') as f:
+            with open(json_path, "r") as f:
                 for line in f:
                     line = line.strip()
                     if not line:
                         continue
                     try:
                         entry = json.loads(line)
-                        name = entry.get('name', '')
+                        name = entry.get("name", "")
                         if name:
                             subdomains.add(name)
-                        for addr in entry.get('addresses', []):
-                            ip = addr.get('ip', '')
+                        for addr in entry.get("addresses", []):
+                            ip = addr.get("ip", "")
                             if ip:
                                 addresses.add(ip)
-                            findings.append({
-                                'subdomain': name,
-                                'ip': ip,
-                                'cidr': addr.get('cidr', ''),
-                                'asn': addr.get('asn', 0),
-                                'desc': addr.get('desc', ''),
-                            })
+                            findings.append(
+                                {
+                                    "subdomain": name,
+                                    "ip": ip,
+                                    "cidr": addr.get("cidr", ""),
+                                    "asn": addr.get("asn", 0),
+                                    "desc": addr.get("desc", ""),
+                                }
+                            )
                     except json.JSONDecodeError:
                         continue
         except (IOError, OSError):
             pass
 
         parsed = {
-            'total_subdomains': len(subdomains),
-            'total_addresses': len(addresses),
-            'subdomains': sorted(subdomains),
-            'addresses': sorted(addresses),
+            "total_subdomains": len(subdomains),
+            "total_addresses": len(addresses),
+            "subdomains": sorted(subdomains),
+            "addresses": sorted(addresses),
         }
         return parsed, findings
 
@@ -158,13 +157,12 @@ class HttpxAdapter:
     status codes, technologies, content length, and more.
     """
 
-    TOOL_NAME = 'httpx'
+    TOOL_NAME = "httpx"
 
     def is_available(self) -> bool:
-        return shutil.which('httpx') is not None
+        return shutil.which("httpx") is not None
 
-    def run(self, target: str, input_list: str = '',
-            tech_detect: bool = True, timeout: int = 300) -> ToolResult:
+    def run(self, target: str, input_list: str = "", tech_detect: bool = True, timeout: int = 300) -> ToolResult:
         """Run httpx HTTP probing.
 
         Args:
@@ -174,20 +172,26 @@ class HttpxAdapter:
             timeout: Max seconds.
         """
         if not self.is_available():
-            return ToolResult(tool=self.TOOL_NAME, target=target, success=False,
-                              error='httpx not installed')
+            return ToolResult(tool=self.TOOL_NAME, target=target, success=False, error="httpx not installed")
 
-        cmd = ['httpx', '-silent', '-json',
-               '-status-code', '-title', '-content-length',
-               '-web-server', '-follow-redirects']
+        cmd = [
+            "httpx",
+            "-silent",
+            "-json",
+            "-status-code",
+            "-title",
+            "-content-length",
+            "-web-server",
+            "-follow-redirects",
+        ]
 
         if tech_detect:
-            cmd.append('-tech-detect')
+            cmd.append("-tech-detect")
 
         if input_list and os.path.isfile(input_list):
-            cmd += ['-l', input_list]
+            cmd += ["-l", input_list]
         else:
-            cmd += ['-u', target]
+            cmd += ["-u", target]
 
         exit_code, stdout, stderr, duration = _run_command(cmd, timeout=timeout)
 
@@ -199,35 +203,37 @@ class HttpxAdapter:
             raw_output=stdout,
             duration_seconds=round(duration, 2),
             timestamp=datetime.now(timezone.utc).isoformat(),
-            error=stderr if exit_code != 0 else '',
+            error=stderr if exit_code != 0 else "",
         )
 
         result.findings = self._parse_jsonl(stdout)
         result.parsed_data = {
-            'total_hosts': len(result.findings),
-            'live_hosts': [f.get('url', '') for f in result.findings],
+            "total_hosts": len(result.findings),
+            "live_hosts": [f.get("url", "") for f in result.findings],
         }
         return result
 
     def _parse_jsonl(self, output: str) -> List[dict]:
         """Parse httpx JSON Lines output."""
         findings = []
-        for line in output.strip().split('\n'):
+        for line in output.strip().split("\n"):
             if not line.strip():
                 continue
             try:
                 data = json.loads(line)
-                findings.append({
-                    'url': data.get('url', ''),
-                    'status_code': data.get('status_code', 0),
-                    'title': data.get('title', ''),
-                    'content_length': data.get('content_length', 0),
-                    'web_server': data.get('webserver', ''),
-                    'technologies': data.get('tech', []),
-                    'host': data.get('host', ''),
-                    'scheme': data.get('scheme', ''),
-                    'content_type': data.get('content_type', ''),
-                })
+                findings.append(
+                    {
+                        "url": data.get("url", ""),
+                        "status_code": data.get("status_code", 0),
+                        "title": data.get("title", ""),
+                        "content_length": data.get("content_length", 0),
+                        "web_server": data.get("webserver", ""),
+                        "technologies": data.get("tech", []),
+                        "host": data.get("host", ""),
+                        "scheme": data.get("scheme", ""),
+                        "content_type": data.get("content_type", ""),
+                    }
+                )
             except (json.JSONDecodeError, AttributeError):
                 continue
         return findings
@@ -244,13 +250,12 @@ class KatanaAdapter:
     scope control, and JavaScript rendering support.
     """
 
-    TOOL_NAME = 'katana'
+    TOOL_NAME = "katana"
 
     def is_available(self) -> bool:
-        return shutil.which('katana') is not None
+        return shutil.which("katana") is not None
 
-    def run(self, target: str, depth: int = 3, js_crawl: bool = False,
-            timeout: int = 300) -> ToolResult:
+    def run(self, target: str, depth: int = 3, js_crawl: bool = False, timeout: int = 300) -> ToolResult:
         """Run Katana web crawler.
 
         Args:
@@ -260,13 +265,11 @@ class KatanaAdapter:
             timeout: Max seconds.
         """
         if not self.is_available():
-            return ToolResult(tool=self.TOOL_NAME, target=target, success=False,
-                              error='katana not installed')
+            return ToolResult(tool=self.TOOL_NAME, target=target, success=False, error="katana not installed")
 
-        cmd = ['katana', '-u', target, '-silent', '-jsonl',
-               '-d', str(depth)]
+        cmd = ["katana", "-u", target, "-silent", "-jsonl", "-d", str(depth)]
         if js_crawl:
-            cmd += ['-headless']
+            cmd += ["-headless"]
 
         exit_code, stdout, stderr, duration = _run_command(cmd, timeout=timeout)
 
@@ -278,38 +281,39 @@ class KatanaAdapter:
             raw_output=stdout,
             duration_seconds=round(duration, 2),
             timestamp=datetime.now(timezone.utc).isoformat(),
-            error=stderr if exit_code != 0 else '',
+            error=stderr if exit_code != 0 else "",
         )
 
         result.findings = self._parse_output(stdout)
-        urls = [f.get('url', '') for f in result.findings]
+        urls = [f.get("url", "") for f in result.findings]
         result.parsed_data = {
-            'total_urls': len(urls),
-            'urls': urls,
-            'endpoints': [u for u in urls if '?' in u],
+            "total_urls": len(urls),
+            "urls": urls,
+            "endpoints": [u for u in urls if "?" in u],
         }
         return result
 
     def _parse_output(self, output: str) -> List[dict]:
         """Parse Katana JSONL or plain output."""
         findings = []
-        for line in output.strip().split('\n'):
+        for line in output.strip().split("\n"):
             if not line.strip():
                 continue
             try:
                 data = json.loads(line)
-                findings.append({
-                    'url': data.get('request', {}).get('endpoint', line.strip()),
-                    'method': data.get('request', {}).get('method', 'GET'),
-                    'source': data.get('request', {}).get('source', ''),
-                    'tag': data.get('request', {}).get('tag', ''),
-                    'attribute': data.get('request', {}).get('attribute', ''),
-                })
+                findings.append(
+                    {
+                        "url": data.get("request", {}).get("endpoint", line.strip()),
+                        "method": data.get("request", {}).get("method", "GET"),
+                        "source": data.get("request", {}).get("source", ""),
+                        "tag": data.get("request", {}).get("tag", ""),
+                        "attribute": data.get("request", {}).get("attribute", ""),
+                    }
+                )
             except (json.JSONDecodeError, AttributeError):
                 url = line.strip()
-                if url.startswith('http'):
-                    findings.append({'url': url, 'method': 'GET',
-                                     'source': '', 'tag': '', 'attribute': ''})
+                if url.startswith("http"):
+                    findings.append({"url": url, "method": "GET", "source": "", "tag": "", "attribute": ""})
         return findings
 
 
@@ -324,13 +328,14 @@ class DnsxAdapter:
     wildcard filtering, and bulk resolution.
     """
 
-    TOOL_NAME = 'dnsx'
+    TOOL_NAME = "dnsx"
 
     def is_available(self) -> bool:
-        return shutil.which('dnsx') is not None
+        return shutil.which("dnsx") is not None
 
-    def run(self, domain: str, wordlist: str = '', record_types: str = 'a,aaaa,cname,mx,ns,txt',
-            timeout: int = 120) -> ToolResult:
+    def run(
+        self, domain: str, wordlist: str = "", record_types: str = "a,aaaa,cname,mx,ns,txt", timeout: int = 120
+    ) -> ToolResult:
         """Run dnsx DNS resolution/bruteforce.
 
         Args:
@@ -340,20 +345,19 @@ class DnsxAdapter:
             timeout: Max seconds.
         """
         if not self.is_available():
-            return ToolResult(tool=self.TOOL_NAME, target=domain, success=False,
-                              error='dnsx not installed')
+            return ToolResult(tool=self.TOOL_NAME, target=domain, success=False, error="dnsx not installed")
 
-        cmd = ['dnsx', '-silent', '-json', '-resp']
+        cmd = ["dnsx", "-silent", "-json", "-resp"]
 
-        for rtype in record_types.split(','):
+        for rtype in record_types.split(","):
             rtype = rtype.strip().lower()
-            if rtype in ('a', 'aaaa', 'cname', 'mx', 'ns', 'txt', 'soa', 'ptr'):
-                cmd.append(f'-{rtype}')
+            if rtype in ("a", "aaaa", "cname", "mx", "ns", "txt", "soa", "ptr"):
+                cmd.append(f"-{rtype}")
 
         if wordlist and os.path.isfile(wordlist):
-            cmd += ['-w', wordlist, '-d', domain]
+            cmd += ["-w", wordlist, "-d", domain]
         else:
-            cmd += ['-d', domain]
+            cmd += ["-d", domain]
 
         exit_code, stdout, stderr, duration = _run_command(cmd, timeout=timeout)
 
@@ -365,33 +369,35 @@ class DnsxAdapter:
             raw_output=stdout,
             duration_seconds=round(duration, 2),
             timestamp=datetime.now(timezone.utc).isoformat(),
-            error=stderr if exit_code != 0 else '',
+            error=stderr if exit_code != 0 else "",
         )
 
         result.findings = self._parse_jsonl(stdout)
-        result.parsed_data = {'total_records': len(result.findings)}
+        result.parsed_data = {"total_records": len(result.findings)}
         return result
 
     def _parse_jsonl(self, output: str) -> List[dict]:
         """Parse dnsx JSON output."""
         findings = []
-        for line in output.strip().split('\n'):
+        for line in output.strip().split("\n"):
             if not line.strip():
                 continue
             try:
                 data = json.loads(line)
-                findings.append({
-                    'host': data.get('host', ''),
-                    'resolver': data.get('resolver', []),
-                    'a': data.get('a', []),
-                    'aaaa': data.get('aaaa', []),
-                    'cname': data.get('cname', []),
-                    'mx': data.get('mx', []),
-                    'ns': data.get('ns', []),
-                    'txt': data.get('txt', []),
-                    'soa': data.get('soa', []),
-                    'status_code': data.get('status_code', ''),
-                })
+                findings.append(
+                    {
+                        "host": data.get("host", ""),
+                        "resolver": data.get("resolver", []),
+                        "a": data.get("a", []),
+                        "aaaa": data.get("aaaa", []),
+                        "cname": data.get("cname", []),
+                        "mx": data.get("mx", []),
+                        "ns": data.get("ns", []),
+                        "txt": data.get("txt", []),
+                        "soa": data.get("soa", []),
+                        "status_code": data.get("status_code", ""),
+                    }
+                )
             except (json.JSONDecodeError, AttributeError):
                 continue
         return findings
@@ -408,14 +414,20 @@ class FfufAdapter:
     parameter fuzzing with flexible filtering.
     """
 
-    TOOL_NAME = 'ffuf'
+    TOOL_NAME = "ffuf"
 
     def is_available(self) -> bool:
-        return shutil.which('ffuf') is not None
+        return shutil.which("ffuf") is not None
 
-    def run(self, target: str, wordlist: str = '', mode: str = 'dir',
-            extensions: str = '', filter_code: str = '404',
-            timeout: int = 300) -> ToolResult:
+    def run(
+        self,
+        target: str,
+        wordlist: str = "",
+        mode: str = "dir",
+        extensions: str = "",
+        filter_code: str = "404",
+        timeout: int = 300,
+    ) -> ToolResult:
         """Run ffuf fuzzer.
 
         Args:
@@ -427,31 +439,30 @@ class FfufAdapter:
             timeout: Max seconds.
         """
         if not self.is_available():
-            return ToolResult(tool=self.TOOL_NAME, target=target, success=False,
-                              error='ffuf not installed')
+            return ToolResult(tool=self.TOOL_NAME, target=target, success=False, error="ffuf not installed")
 
         # Auto-add FUZZ keyword for directory mode
         url = target
-        if mode == 'dir' and 'FUZZ' not in target:
-            url = target.rstrip('/') + '/FUZZ'
-        elif mode == 'vhost' and 'FUZZ' not in target:
+        if mode == "dir" and "FUZZ" not in target:
+            url = target.rstrip("/") + "/FUZZ"
+        elif mode == "vhost" and "FUZZ" not in target:
             url = target
 
-        cmd = ['ffuf', '-u', url, '-o', '/dev/stdout', '-of', 'json', '-silent']
+        cmd = ["ffuf", "-u", url, "-o", "/dev/stdout", "-of", "json", "-silent"]
 
         if wordlist and os.path.isfile(wordlist):
-            cmd += ['-w', wordlist]
+            cmd += ["-w", wordlist]
         else:
-            cmd += ['-w', '-']  # stdin
+            cmd += ["-w", "-"]  # stdin
 
-        if extensions and mode == 'dir':
-            cmd += ['-e', extensions]
+        if extensions and mode == "dir":
+            cmd += ["-e", extensions]
 
         if filter_code:
-            cmd += ['-fc', filter_code]
+            cmd += ["-fc", filter_code]
 
-        if mode == 'vhost':
-            cmd += ['-H', 'Host: FUZZ.' + target.split('//')[1].split('/')[0] if '//' in target else target]
+        if mode == "vhost":
+            cmd += ["-H", "Host: FUZZ." + target.split("//")[1].split("/")[0] if "//" in target else target]
 
         exit_code, stdout, stderr, duration = _run_command(cmd, timeout=timeout)
 
@@ -463,13 +474,13 @@ class FfufAdapter:
             raw_output=stdout,
             duration_seconds=round(duration, 2),
             timestamp=datetime.now(timezone.utc).isoformat(),
-            error=stderr if exit_code not in (0, 1) else '',
+            error=stderr if exit_code not in (0, 1) else "",
         )
 
         result.findings = self._parse_json(stdout)
         result.parsed_data = {
-            'total_results': len(result.findings),
-            'mode': mode,
+            "total_results": len(result.findings),
+            "mode": mode,
         }
         return result
 
@@ -478,17 +489,19 @@ class FfufAdapter:
         findings = []
         try:
             data = json.loads(output)
-            for entry in data.get('results', []):
-                findings.append({
-                    'url': entry.get('url', ''),
-                    'status': entry.get('status', 0),
-                    'length': entry.get('length', 0),
-                    'words': entry.get('words', 0),
-                    'lines': entry.get('lines', 0),
-                    'input': entry.get('input', {}).get('FUZZ', ''),
-                    'content_type': entry.get('content-type', ''),
-                    'redirect_location': entry.get('redirectlocation', ''),
-                })
+            for entry in data.get("results", []):
+                findings.append(
+                    {
+                        "url": entry.get("url", ""),
+                        "status": entry.get("status", 0),
+                        "length": entry.get("length", 0),
+                        "words": entry.get("words", 0),
+                        "lines": entry.get("lines", 0),
+                        "input": entry.get("input", {}).get("FUZZ", ""),
+                        "content_type": entry.get("content-type", ""),
+                        "redirect_location": entry.get("redirectlocation", ""),
+                    }
+                )
         except (json.JSONDecodeError, TypeError):
             pass
         return findings
@@ -505,14 +518,14 @@ class GauAdapter:
     Common Crawl, and URLScan.
     """
 
-    TOOL_NAME = 'gau'
+    TOOL_NAME = "gau"
 
     def is_available(self) -> bool:
-        return shutil.which('gau') is not None
+        return shutil.which("gau") is not None
 
-    def run(self, domain: str, providers: str = '',
-            blacklist: str = 'png,jpg,gif,css,woff,svg,ico',
-            timeout: int = 120) -> ToolResult:
+    def run(
+        self, domain: str, providers: str = "", blacklist: str = "png,jpg,gif,css,woff,svg,ico", timeout: int = 120
+    ) -> ToolResult:
         """Run gau URL harvesting.
 
         Args:
@@ -522,14 +535,13 @@ class GauAdapter:
             timeout: Max seconds.
         """
         if not self.is_available():
-            return ToolResult(tool=self.TOOL_NAME, target=domain, success=False,
-                              error='gau not installed')
+            return ToolResult(tool=self.TOOL_NAME, target=domain, success=False, error="gau not installed")
 
-        cmd = ['gau', '--subs', domain]
+        cmd = ["gau", "--subs", domain]
         if providers:
-            cmd += ['--providers', providers]
+            cmd += ["--providers", providers]
         if blacklist:
-            cmd += ['--blacklist', blacklist]
+            cmd += ["--blacklist", blacklist]
 
         exit_code, stdout, stderr, duration = _run_command(cmd, timeout=timeout)
 
@@ -541,16 +553,16 @@ class GauAdapter:
             raw_output=stdout,
             duration_seconds=round(duration, 2),
             timestamp=datetime.now(timezone.utc).isoformat(),
-            error=stderr if exit_code != 0 else '',
+            error=stderr if exit_code != 0 else "",
         )
 
-        urls = sorted(set(u.strip() for u in stdout.strip().split('\n') if u.strip()))
-        param_urls = [u for u in urls if '?' in u]
-        result.findings = [{'url': u, 'has_params': '?' in u} for u in urls]
+        urls = sorted(set(u.strip() for u in stdout.strip().split("\n") if u.strip()))
+        param_urls = [u for u in urls if "?" in u]
+        result.findings = [{"url": u, "has_params": "?" in u} for u in urls]
         result.parsed_data = {
-            'total_urls': len(urls),
-            'urls_with_params': len(param_urls),
-            'unique_params': self._extract_params(param_urls),
+            "total_urls": len(urls),
+            "urls_with_params": len(param_urls),
+            "unique_params": self._extract_params(param_urls),
         }
         return result
 
@@ -558,10 +570,10 @@ class GauAdapter:
         """Extract unique parameter names from URLs."""
         params = set()
         for url in urls:
-            if '?' in url:
-                query = url.split('?', 1)[1]
-                for pair in query.split('&'):
-                    name = pair.split('=', 1)[0]
+            if "?" in url:
+                query = url.split("?", 1)[1]
+                for pair in query.split("&"):
+                    name = pair.split("=", 1)[0]
                     if name:
                         params.add(name)
         return sorted(params)
@@ -577,13 +589,12 @@ class WaybackurlsAdapter:
     Fetches all known URLs for a domain from the Wayback Machine.
     """
 
-    TOOL_NAME = 'waybackurls'
+    TOOL_NAME = "waybackurls"
 
     def is_available(self) -> bool:
-        return shutil.which('waybackurls') is not None
+        return shutil.which("waybackurls") is not None
 
-    def run(self, domain: str, no_subs: bool = False,
-            timeout: int = 120) -> ToolResult:
+    def run(self, domain: str, no_subs: bool = False, timeout: int = 120) -> ToolResult:
         """Run waybackurls.
 
         Args:
@@ -592,12 +603,11 @@ class WaybackurlsAdapter:
             timeout: Max seconds.
         """
         if not self.is_available():
-            return ToolResult(tool=self.TOOL_NAME, target=domain, success=False,
-                              error='waybackurls not installed')
+            return ToolResult(tool=self.TOOL_NAME, target=domain, success=False, error="waybackurls not installed")
 
-        cmd = ['waybackurls', domain]
+        cmd = ["waybackurls", domain]
         if no_subs:
-            cmd.append('-no-subs')
+            cmd.append("-no-subs")
 
         exit_code, stdout, stderr, duration = _run_command(cmd, timeout=timeout)
 
@@ -609,14 +619,14 @@ class WaybackurlsAdapter:
             raw_output=stdout,
             duration_seconds=round(duration, 2),
             timestamp=datetime.now(timezone.utc).isoformat(),
-            error=stderr if exit_code != 0 else '',
+            error=stderr if exit_code != 0 else "",
         )
 
-        urls = sorted(set(u.strip() for u in stdout.strip().split('\n') if u.strip()))
-        result.findings = [{'url': u} for u in urls]
+        urls = sorted(set(u.strip() for u in stdout.strip().split("\n") if u.strip()))
+        result.findings = [{"url": u} for u in urls]
         result.parsed_data = {
-            'total_urls': len(urls),
-            'urls_with_params': len([u for u in urls if '?' in u]),
+            "total_urls": len(urls),
+            "urls_with_params": len([u for u in urls if "?" in u]),
         }
         return result
 
@@ -632,13 +642,14 @@ class GobusterAdapter:
     virtual hosts, S3 buckets, and TFTP servers.
     """
 
-    TOOL_NAME = 'gobuster'
+    TOOL_NAME = "gobuster"
 
     def is_available(self) -> bool:
-        return shutil.which('gobuster') is not None
+        return shutil.which("gobuster") is not None
 
-    def run(self, target: str, mode: str = 'dir', wordlist: str = '',
-            extensions: str = '', timeout: int = 300) -> ToolResult:
+    def run(
+        self, target: str, mode: str = "dir", wordlist: str = "", extensions: str = "", timeout: int = 300
+    ) -> ToolResult:
         """Run Gobuster.
 
         Args:
@@ -649,23 +660,22 @@ class GobusterAdapter:
             timeout: Max seconds.
         """
         if not self.is_available():
-            return ToolResult(tool=self.TOOL_NAME, target=target, success=False,
-                              error='gobuster not installed')
+            return ToolResult(tool=self.TOOL_NAME, target=target, success=False, error="gobuster not installed")
 
-        cmd = ['gobuster', mode, '-q', '--no-color']
+        cmd = ["gobuster", mode, "-q", "--no-color"]
 
-        if mode == 'dir':
-            cmd += ['-u', target]
-        elif mode == 'dns':
-            cmd += ['-d', target]
-        elif mode == 'vhost':
-            cmd += ['-u', target]
+        if mode == "dir":
+            cmd += ["-u", target]
+        elif mode == "dns":
+            cmd += ["-d", target]
+        elif mode == "vhost":
+            cmd += ["-u", target]
 
         if wordlist and os.path.isfile(wordlist):
-            cmd += ['-w', wordlist]
+            cmd += ["-w", wordlist]
 
-        if extensions and mode == 'dir':
-            cmd += ['-x', extensions]
+        if extensions and mode == "dir":
+            cmd += ["-x", extensions]
 
         exit_code, stdout, stderr, duration = _run_command(cmd, timeout=timeout)
 
@@ -677,51 +687,51 @@ class GobusterAdapter:
             raw_output=stdout,
             duration_seconds=round(duration, 2),
             timestamp=datetime.now(timezone.utc).isoformat(),
-            error=stderr if exit_code != 0 else '',
+            error=stderr if exit_code != 0 else "",
         )
 
         result.findings = self._parse_output(stdout, mode)
         result.parsed_data = {
-            'total_results': len(result.findings),
-            'mode': mode,
+            "total_results": len(result.findings),
+            "mode": mode,
         }
         return result
 
     def _parse_output(self, output: str, mode: str) -> List[dict]:
         """Parse Gobuster output."""
         findings = []
-        for line in output.strip().split('\n'):
+        for line in output.strip().split("\n"):
             line = line.strip()
-            if not line or line.startswith('='):
+            if not line or line.startswith("="):
                 continue
-            if mode == 'dir':
+            if mode == "dir":
                 # Format: /path (Status: 200) [Size: 1234]
                 parts = line.split()
                 if parts:
-                    finding = {'path': parts[0], 'status': 0, 'size': 0}
+                    finding = {"path": parts[0], "status": 0, "size": 0}
                     for i, p in enumerate(parts):
-                        if p == '(Status:' and i + 1 < len(parts):
+                        if p == "(Status:" and i + 1 < len(parts):
                             try:
-                                finding['status'] = int(parts[i + 1].rstrip(')'))
+                                finding["status"] = int(parts[i + 1].rstrip(")"))
                             except ValueError:
                                 pass
-                        if p == '[Size:' and i + 1 < len(parts):
+                        if p == "[Size:" and i + 1 < len(parts):
                             try:
-                                finding['size'] = int(parts[i + 1].rstrip(']'))
+                                finding["size"] = int(parts[i + 1].rstrip("]"))
                             except ValueError:
                                 pass
                     findings.append(finding)
-            elif mode == 'dns':
+            elif mode == "dns":
                 # Format: Found: subdomain.example.com
-                if line.startswith('Found:'):
-                    sub = line.replace('Found:', '').strip()
-                    findings.append({'subdomain': sub})
-                elif '.' in line:
-                    findings.append({'subdomain': line})
-            elif mode == 'vhost':
-                if 'Found:' in line:
-                    vhost = line.split('Found:')[1].strip().split()[0]
-                    findings.append({'vhost': vhost})
+                if line.startswith("Found:"):
+                    sub = line.replace("Found:", "").strip()
+                    findings.append({"subdomain": sub})
+                elif "." in line:
+                    findings.append({"subdomain": line})
+            elif mode == "vhost":
+                if "Found:" in line:
+                    vhost = line.split("Found:")[1].strip().split()[0]
+                    findings.append({"vhost": vhost})
         return findings
 
 
@@ -736,14 +746,20 @@ class FeroxbusterAdapter:
     auto-filtering, smart recursion, and JSON output.
     """
 
-    TOOL_NAME = 'feroxbuster'
+    TOOL_NAME = "feroxbuster"
 
     def is_available(self) -> bool:
-        return shutil.which('feroxbuster') is not None
+        return shutil.which("feroxbuster") is not None
 
-    def run(self, target: str, wordlist: str = '', depth: int = 2,
-            extensions: str = '', filter_code: str = '404',
-            timeout: int = 300) -> ToolResult:
+    def run(
+        self,
+        target: str,
+        wordlist: str = "",
+        depth: int = 2,
+        extensions: str = "",
+        filter_code: str = "404",
+        timeout: int = 300,
+    ) -> ToolResult:
         """Run Feroxbuster recursive discovery.
 
         Args:
@@ -755,21 +771,19 @@ class FeroxbusterAdapter:
             timeout: Max seconds.
         """
         if not self.is_available():
-            return ToolResult(tool=self.TOOL_NAME, target=target, success=False,
-                              error='feroxbuster not installed')
+            return ToolResult(tool=self.TOOL_NAME, target=target, success=False, error="feroxbuster not installed")
 
-        cmd = ['feroxbuster', '-u', target, '--silent', '--json',
-               '-d', str(depth), '--no-state']
+        cmd = ["feroxbuster", "-u", target, "--silent", "--json", "-d", str(depth), "--no-state"]
 
         if wordlist and os.path.isfile(wordlist):
-            cmd += ['-w', wordlist]
+            cmd += ["-w", wordlist]
 
         if extensions:
-            cmd += ['-x', extensions]
+            cmd += ["-x", extensions]
 
         if filter_code:
-            for code in filter_code.split(','):
-                cmd += ['-C', code.strip()]
+            for code in filter_code.split(","):
+                cmd += ["-C", code.strip()]
 
         exit_code, stdout, stderr, duration = _run_command(cmd, timeout=timeout)
 
@@ -781,30 +795,32 @@ class FeroxbusterAdapter:
             raw_output=stdout,
             duration_seconds=round(duration, 2),
             timestamp=datetime.now(timezone.utc).isoformat(),
-            error=stderr if exit_code != 0 else '',
+            error=stderr if exit_code != 0 else "",
         )
 
         result.findings = self._parse_jsonl(stdout)
-        result.parsed_data = {'total_results': len(result.findings)}
+        result.parsed_data = {"total_results": len(result.findings)}
         return result
 
     def _parse_jsonl(self, output: str) -> List[dict]:
         """Parse Feroxbuster JSON Lines output."""
         findings = []
-        for line in output.strip().split('\n'):
+        for line in output.strip().split("\n"):
             if not line.strip():
                 continue
             try:
                 data = json.loads(line)
-                if data.get('type') == 'response':
-                    findings.append({
-                        'url': data.get('url', ''),
-                        'status': data.get('status', 0),
-                        'content_length': data.get('content_length', 0),
-                        'lines': data.get('line_count', 0),
-                        'words': data.get('word_count', 0),
-                        'method': data.get('method', 'GET'),
-                    })
+                if data.get("type") == "response":
+                    findings.append(
+                        {
+                            "url": data.get("url", ""),
+                            "status": data.get("status", 0),
+                            "content_length": data.get("content_length", 0),
+                            "lines": data.get("line_count", 0),
+                            "words": data.get("word_count", 0),
+                            "method": data.get("method", "GET"),
+                        }
+                    )
             except (json.JSONDecodeError, AttributeError):
                 continue
         return findings
@@ -821,13 +837,12 @@ class MasscanAdapter:
     in under 6 minutes at 10M pps. Uses custom TCP/IP stack.
     """
 
-    TOOL_NAME = 'masscan'
+    TOOL_NAME = "masscan"
 
     def is_available(self) -> bool:
-        return shutil.which('masscan') is not None
+        return shutil.which("masscan") is not None
 
-    def run(self, target: str, ports: str = '1-65535',
-            rate: int = 1000, timeout: int = 300) -> ToolResult:
+    def run(self, target: str, ports: str = "1-65535", rate: int = 1000, timeout: int = 300) -> ToolResult:
         """Run Masscan port scanning.
 
         Args:
@@ -837,15 +852,12 @@ class MasscanAdapter:
             timeout: Max seconds.
         """
         if not self.is_available():
-            return ToolResult(tool=self.TOOL_NAME, target=target, success=False,
-                              error='masscan not installed')
+            return ToolResult(tool=self.TOOL_NAME, target=target, success=False, error="masscan not installed")
 
-        with tempfile.NamedTemporaryFile(suffix='.json', delete=False,
-                                         mode='w') as tmp:
+        with tempfile.NamedTemporaryFile(suffix=".json", delete=False, mode="w") as tmp:
             json_path = tmp.name
 
-        cmd = ['masscan', target, '-p', ports,
-               '--rate', str(rate), '-oJ', json_path]
+        cmd = ["masscan", target, "-p", ports, "--rate", str(rate), "-oJ", json_path]
 
         exit_code, stdout, stderr, duration = _run_command(cmd, timeout=timeout)
 
@@ -857,15 +869,15 @@ class MasscanAdapter:
             raw_output=stdout,
             duration_seconds=round(duration, 2),
             timestamp=datetime.now(timezone.utc).isoformat(),
-            error=stderr if exit_code != 0 else '',
+            error=stderr if exit_code != 0 else "",
         )
 
         try:
             if os.path.isfile(json_path):
                 result.findings = self._parse_json(json_path)
                 result.parsed_data = {
-                    'total_open_ports': len(result.findings),
-                    'unique_ips': list(set(f.get('ip', '') for f in result.findings)),
+                    "total_open_ports": len(result.findings),
+                    "unique_ips": list(set(f.get("ip", "") for f in result.findings)),
                 }
         finally:
             if os.path.isfile(json_path):
@@ -877,26 +889,28 @@ class MasscanAdapter:
         """Parse Masscan JSON output."""
         findings = []
         try:
-            with open(json_path, 'r') as f:
+            with open(json_path, "r") as f:
                 content = f.read().strip()
                 # Masscan JSON can have trailing comma issues
-                if content.endswith(','):
+                if content.endswith(","):
                     content = content[:-1]
-                if not content.startswith('['):
-                    content = '[' + content
-                if not content.endswith(']'):
-                    content = content + ']'
+                if not content.startswith("["):
+                    content = "[" + content
+                if not content.endswith("]"):
+                    content = content + "]"
                 data = json.loads(content)
                 for entry in data:
-                    ip = entry.get('ip', '')
-                    for port_info in entry.get('ports', []):
-                        findings.append({
-                            'ip': ip,
-                            'port': port_info.get('port', 0),
-                            'protocol': port_info.get('proto', 'tcp'),
-                            'status': port_info.get('status', 'open'),
-                            'ttl': port_info.get('ttl', 0),
-                        })
+                    ip = entry.get("ip", "")
+                    for port_info in entry.get("ports", []):
+                        findings.append(
+                            {
+                                "ip": ip,
+                                "port": port_info.get("port", 0),
+                                "protocol": port_info.get("proto", "tcp"),
+                                "status": port_info.get("status", "open"),
+                                "ttl": port_info.get("ttl", 0),
+                            }
+                        )
         except (json.JSONDecodeError, IOError, OSError):
             pass
         return findings
@@ -913,13 +927,12 @@ class RustscanAdapter:
     seconds, then pipes results to Nmap for service detection.
     """
 
-    TOOL_NAME = 'rustscan'
+    TOOL_NAME = "rustscan"
 
     def is_available(self) -> bool:
-        return shutil.which('rustscan') is not None
+        return shutil.which("rustscan") is not None
 
-    def run(self, target: str, ports: str = '',
-            batch_size: int = 4500, timeout: int = 300) -> ToolResult:
+    def run(self, target: str, ports: str = "", batch_size: int = 4500, timeout: int = 300) -> ToolResult:
         """Run RustScan port scanning.
 
         Args:
@@ -929,12 +942,11 @@ class RustscanAdapter:
             timeout: Max seconds.
         """
         if not self.is_available():
-            return ToolResult(tool=self.TOOL_NAME, target=target, success=False,
-                              error='rustscan not installed')
+            return ToolResult(tool=self.TOOL_NAME, target=target, success=False, error="rustscan not installed")
 
-        cmd = ['rustscan', '-a', target, '-b', str(batch_size), '--greppable']
+        cmd = ["rustscan", "-a", target, "-b", str(batch_size), "--greppable"]
         if ports:
-            cmd += ['-p', ports]
+            cmd += ["-p", ports]
 
         exit_code, stdout, stderr, duration = _run_command(cmd, timeout=timeout)
 
@@ -946,45 +958,50 @@ class RustscanAdapter:
             raw_output=stdout,
             duration_seconds=round(duration, 2),
             timestamp=datetime.now(timezone.utc).isoformat(),
-            error=stderr if exit_code != 0 else '',
+            error=stderr if exit_code != 0 else "",
         )
 
         result.findings = self._parse_output(stdout, target)
         result.parsed_data = {
-            'total_open_ports': len(result.findings),
-            'open_ports': [f['port'] for f in result.findings],
+            "total_open_ports": len(result.findings),
+            "open_ports": [f["port"] for f in result.findings],
         }
         return result
 
     def _parse_output(self, output: str, target: str) -> List[dict]:
         """Parse RustScan greppable output."""
         import re
+
         findings = []
-        for line in output.strip().split('\n'):
+        for line in output.strip().split("\n"):
             line = line.strip()
             if not line:
                 continue
             # RustScan greppable: "Open <ip>:<port>"
-            match = re.match(r'Open\s+(\S+):(\d+)', line)
+            match = re.match(r"Open\s+(\S+):(\d+)", line)
             if match:
-                findings.append({
-                    'ip': match.group(1),
-                    'port': int(match.group(2)),
-                    'protocol': 'tcp',
-                    'status': 'open',
-                })
+                findings.append(
+                    {
+                        "ip": match.group(1),
+                        "port": int(match.group(2)),
+                        "protocol": "tcp",
+                        "status": "open",
+                    }
+                )
             # Also try: port numbers after "->  "
-            if '->' in line:
-                port_part = line.split('->')[-1].strip()
-                for port_str in port_part.split(','):
+            if "->" in line:
+                port_part = line.split("->")[-1].strip()
+                for port_str in port_part.split(","):
                     port_str = port_str.strip()
                     if port_str.isdigit():
-                        findings.append({
-                            'ip': target,
-                            'port': int(port_str),
-                            'protocol': 'tcp',
-                            'status': 'open',
-                        })
+                        findings.append(
+                            {
+                                "ip": target,
+                                "port": int(port_str),
+                                "protocol": "tcp",
+                                "status": "open",
+                            }
+                        )
         return findings
 
 
@@ -999,13 +1016,12 @@ class HakrawlerAdapter:
     and form action endpoints from web pages.
     """
 
-    TOOL_NAME = 'hakrawler'
+    TOOL_NAME = "hakrawler"
 
     def is_available(self) -> bool:
-        return shutil.which('hakrawler') is not None
+        return shutil.which("hakrawler") is not None
 
-    def run(self, target: str, depth: int = 2, scope: str = 'subs',
-            timeout: int = 120) -> ToolResult:
+    def run(self, target: str, depth: int = 2, scope: str = "subs", timeout: int = 120) -> ToolResult:
         """Run Hakrawler.
 
         Args:
@@ -1015,11 +1031,9 @@ class HakrawlerAdapter:
             timeout: Max seconds.
         """
         if not self.is_available():
-            return ToolResult(tool=self.TOOL_NAME, target=target, success=False,
-                              error='hakrawler not installed')
+            return ToolResult(tool=self.TOOL_NAME, target=target, success=False, error="hakrawler not installed")
 
-        cmd = ['hakrawler', '-url', target, '-depth', str(depth),
-               '-scope', scope, '-plain']
+        cmd = ["hakrawler", "-url", target, "-depth", str(depth), "-scope", scope, "-plain"]
 
         exit_code, stdout, stderr, duration = _run_command(cmd, timeout=timeout)
 
@@ -1031,17 +1045,16 @@ class HakrawlerAdapter:
             raw_output=stdout,
             duration_seconds=round(duration, 2),
             timestamp=datetime.now(timezone.utc).isoformat(),
-            error=stderr if exit_code != 0 else '',
+            error=stderr if exit_code != 0 else "",
         )
 
-        urls = sorted(set(u.strip() for u in stdout.strip().split('\n')
-                          if u.strip() and u.strip().startswith('http')))
-        js_files = [u for u in urls if u.endswith('.js')]
-        result.findings = [{'url': u, 'is_js': u.endswith('.js')} for u in urls]
+        urls = sorted(set(u.strip() for u in stdout.strip().split("\n") if u.strip() and u.strip().startswith("http")))
+        js_files = [u for u in urls if u.endswith(".js")]
+        result.findings = [{"url": u, "is_js": u.endswith(".js")} for u in urls]
         result.parsed_data = {
-            'total_urls': len(urls),
-            'js_files': len(js_files),
-            'urls': urls,
+            "total_urls": len(urls),
+            "js_files": len(js_files),
+            "urls": urls,
         }
         return result
 
@@ -1057,13 +1070,12 @@ class ArjunAdapter:
     and heuristic analysis. Supports GET, POST, JSON, and XML.
     """
 
-    TOOL_NAME = 'arjun'
+    TOOL_NAME = "arjun"
 
     def is_available(self) -> bool:
-        return shutil.which('arjun') is not None
+        return shutil.which("arjun") is not None
 
-    def run(self, target: str, method: str = 'GET',
-            timeout: int = 300) -> ToolResult:
+    def run(self, target: str, method: str = "GET", timeout: int = 300) -> ToolResult:
         """Run Arjun parameter discovery.
 
         Args:
@@ -1072,15 +1084,12 @@ class ArjunAdapter:
             timeout: Max seconds.
         """
         if not self.is_available():
-            return ToolResult(tool=self.TOOL_NAME, target=target, success=False,
-                              error='arjun not installed')
+            return ToolResult(tool=self.TOOL_NAME, target=target, success=False, error="arjun not installed")
 
-        with tempfile.NamedTemporaryFile(suffix='.json', delete=False,
-                                         mode='w') as tmp:
+        with tempfile.NamedTemporaryFile(suffix=".json", delete=False, mode="w") as tmp:
             json_path = tmp.name
 
-        cmd = ['arjun', '-u', target, '-m', method.upper(),
-               '-oJ', json_path]
+        cmd = ["arjun", "-u", target, "-m", method.upper(), "-oJ", json_path]
 
         exit_code, stdout, stderr, duration = _run_command(cmd, timeout=timeout)
 
@@ -1092,16 +1101,16 @@ class ArjunAdapter:
             raw_output=stdout,
             duration_seconds=round(duration, 2),
             timestamp=datetime.now(timezone.utc).isoformat(),
-            error=stderr if exit_code != 0 else '',
+            error=stderr if exit_code != 0 else "",
         )
 
         try:
             if os.path.isfile(json_path):
                 result.findings = self._parse_json(json_path)
                 result.parsed_data = {
-                    'total_params': len(result.findings),
-                    'params': [f['name'] for f in result.findings],
-                    'method': method.upper(),
+                    "total_params": len(result.findings),
+                    "params": [f["name"] for f in result.findings],
+                    "method": method.upper(),
                 }
         finally:
             if os.path.isfile(json_path):
@@ -1113,27 +1122,28 @@ class ArjunAdapter:
         """Parse Arjun JSON output."""
         findings = []
         try:
-            with open(json_path, 'r') as f:
+            with open(json_path, "r") as f:
                 data = json.load(f)
                 if isinstance(data, dict):
                     for url, params in data.items():
                         if isinstance(params, list):
                             for param in params:
-                                findings.append({
-                                    'url': url,
-                                    'name': param if isinstance(param, str)
-                                           else param.get('name', ''),
-                                    'method': param.get('method', 'GET')
-                                             if isinstance(param, dict) else 'GET',
-                                })
+                                findings.append(
+                                    {
+                                        "url": url,
+                                        "name": param if isinstance(param, str) else param.get("name", ""),
+                                        "method": param.get("method", "GET") if isinstance(param, dict) else "GET",
+                                    }
+                                )
                         elif isinstance(params, dict):
                             for name, info in params.items():
-                                findings.append({
-                                    'url': url,
-                                    'name': name,
-                                    'method': info.get('method', 'GET')
-                                             if isinstance(info, dict) else 'GET',
-                                })
+                                findings.append(
+                                    {
+                                        "url": url,
+                                        "name": name,
+                                        "method": info.get("method", "GET") if isinstance(info, dict) else "GET",
+                                    }
+                                )
         except (json.JSONDecodeError, IOError, OSError):
             pass
         return findings
@@ -1150,13 +1160,12 @@ class ParamSpiderAdapter:
     useful for finding hidden/undocumented parameters.
     """
 
-    TOOL_NAME = 'paramspider'
+    TOOL_NAME = "paramspider"
 
     def is_available(self) -> bool:
-        return shutil.which('paramspider') is not None
+        return shutil.which("paramspider") is not None
 
-    def run(self, domain: str, exclude: str = 'png,jpg,gif,css,js,woff,svg',
-            timeout: int = 120) -> ToolResult:
+    def run(self, domain: str, exclude: str = "png,jpg,gif,css,js,woff,svg", timeout: int = 120) -> ToolResult:
         """Run ParamSpider.
 
         Args:
@@ -1165,12 +1174,11 @@ class ParamSpiderAdapter:
             timeout: Max seconds.
         """
         if not self.is_available():
-            return ToolResult(tool=self.TOOL_NAME, target=domain, success=False,
-                              error='paramspider not installed')
+            return ToolResult(tool=self.TOOL_NAME, target=domain, success=False, error="paramspider not installed")
 
-        cmd = ['paramspider', '-d', domain]
+        cmd = ["paramspider", "-d", domain]
         if exclude:
-            cmd += ['--exclude', exclude]
+            cmd += ["--exclude", exclude]
 
         exit_code, stdout, stderr, duration = _run_command(cmd, timeout=timeout)
 
@@ -1182,25 +1190,24 @@ class ParamSpiderAdapter:
             raw_output=stdout,
             duration_seconds=round(duration, 2),
             timestamp=datetime.now(timezone.utc).isoformat(),
-            error=stderr if exit_code != 0 else '',
+            error=stderr if exit_code != 0 else "",
         )
 
-        urls = sorted(set(u.strip() for u in stdout.strip().split('\n')
-                          if u.strip() and ('http' in u or 'FUZZ' in u)))
+        urls = sorted(set(u.strip() for u in stdout.strip().split("\n") if u.strip() and ("http" in u or "FUZZ" in u)))
         params = set()
         for u in urls:
-            if '?' in u:
-                query = u.split('?', 1)[1]
-                for pair in query.split('&'):
-                    name = pair.split('=', 1)[0]
-                    if name and name != 'FUZZ':
+            if "?" in u:
+                query = u.split("?", 1)[1]
+                for pair in query.split("&"):
+                    name = pair.split("=", 1)[0]
+                    if name and name != "FUZZ":
                         params.add(name)
 
-        result.findings = [{'url': u} for u in urls]
+        result.findings = [{"url": u} for u in urls]
         result.parsed_data = {
-            'total_urls': len(urls),
-            'unique_params': sorted(params),
-            'total_params': len(params),
+            "total_urls": len(urls),
+            "unique_params": sorted(params),
+            "total_params": len(params),
         }
         return result
 
@@ -1216,14 +1223,19 @@ class DirsearchAdapter:
     and various output formats.
     """
 
-    TOOL_NAME = 'dirsearch'
+    TOOL_NAME = "dirsearch"
 
     def is_available(self) -> bool:
-        return shutil.which('dirsearch') is not None
+        return shutil.which("dirsearch") is not None
 
-    def run(self, target: str, extensions: str = 'php,html,js,txt',
-            wordlist: str = '', threads: int = 30,
-            timeout: int = 300) -> ToolResult:
+    def run(
+        self,
+        target: str,
+        extensions: str = "php,html,js,txt",
+        wordlist: str = "",
+        threads: int = 30,
+        timeout: int = 300,
+    ) -> ToolResult:
         """Run Dirsearch path scanner.
 
         Args:
@@ -1234,19 +1246,28 @@ class DirsearchAdapter:
             timeout: Max seconds.
         """
         if not self.is_available():
-            return ToolResult(tool=self.TOOL_NAME, target=target, success=False,
-                              error='dirsearch not installed')
+            return ToolResult(tool=self.TOOL_NAME, target=target, success=False, error="dirsearch not installed")
 
-        with tempfile.NamedTemporaryFile(suffix='.json', delete=False,
-                                         mode='w') as tmp:
+        with tempfile.NamedTemporaryFile(suffix=".json", delete=False, mode="w") as tmp:
             json_path = tmp.name
 
-        cmd = ['dirsearch', '-u', target, '-e', extensions,
-               '-t', str(threads), '--format', 'json',
-               '-o', json_path, '-q']
+        cmd = [
+            "dirsearch",
+            "-u",
+            target,
+            "-e",
+            extensions,
+            "-t",
+            str(threads),
+            "--format",
+            "json",
+            "-o",
+            json_path,
+            "-q",
+        ]
 
         if wordlist and os.path.isfile(wordlist):
-            cmd += ['-w', wordlist]
+            cmd += ["-w", wordlist]
 
         exit_code, stdout, stderr, duration = _run_command(cmd, timeout=timeout)
 
@@ -1258,13 +1279,13 @@ class DirsearchAdapter:
             raw_output=stdout,
             duration_seconds=round(duration, 2),
             timestamp=datetime.now(timezone.utc).isoformat(),
-            error=stderr if exit_code != 0 else '',
+            error=stderr if exit_code != 0 else "",
         )
 
         try:
             if os.path.isfile(json_path):
                 result.findings = self._parse_json(json_path)
-                result.parsed_data = {'total_results': len(result.findings)}
+                result.parsed_data = {"total_results": len(result.findings)}
         finally:
             if os.path.isfile(json_path):
                 os.unlink(json_path)
@@ -1275,26 +1296,30 @@ class DirsearchAdapter:
         """Parse Dirsearch JSON output."""
         findings = []
         try:
-            with open(json_path, 'r') as f:
+            with open(json_path, "r") as f:
                 data = json.load(f)
                 if isinstance(data, dict):
                     for _url, entries in data.items():
                         if isinstance(entries, list):
                             for entry in entries:
-                                findings.append({
-                                    'url': entry.get('url', ''),
-                                    'status': entry.get('status', 0),
-                                    'content_length': entry.get('content-length', 0),
-                                    'content_type': entry.get('content-type', ''),
-                                    'redirect': entry.get('redirect', ''),
-                                })
+                                findings.append(
+                                    {
+                                        "url": entry.get("url", ""),
+                                        "status": entry.get("status", 0),
+                                        "content_length": entry.get("content-length", 0),
+                                        "content_type": entry.get("content-type", ""),
+                                        "redirect": entry.get("redirect", ""),
+                                    }
+                                )
                 elif isinstance(data, list):
                     for entry in data:
-                        findings.append({
-                            'url': entry.get('url', ''),
-                            'status': entry.get('status', 0),
-                            'content_length': entry.get('content-length', 0),
-                        })
+                        findings.append(
+                            {
+                                "url": entry.get("url", ""),
+                                "status": entry.get("status", 0),
+                                "content_length": entry.get("content-length", 0),
+                            }
+                        )
         except (json.JSONDecodeError, IOError, OSError):
             pass
         return findings
@@ -1313,13 +1338,13 @@ class ReconArsenal:
 
     # Tool categories for organized execution
     CATEGORIES = {
-        'subdomain': ['amass', 'dnsx'],
-        'http_probe': ['httpx'],
-        'crawler': ['katana', 'hakrawler'],
-        'url_harvest': ['gau', 'waybackurls', 'paramspider'],
-        'param_discovery': ['arjun'],
-        'dir_bruteforce': ['ffuf', 'gobuster', 'feroxbuster', 'dirsearch'],
-        'port_scan': ['masscan', 'rustscan'],
+        "subdomain": ["amass", "dnsx"],
+        "http_probe": ["httpx"],
+        "crawler": ["katana", "hakrawler"],
+        "url_harvest": ["gau", "waybackurls", "paramspider"],
+        "param_discovery": ["arjun"],
+        "dir_bruteforce": ["ffuf", "gobuster", "feroxbuster", "dirsearch"],
+        "port_scan": ["masscan", "rustscan"],
     }
 
     def __init__(self):
@@ -1340,27 +1365,26 @@ class ReconArsenal:
         self.dirsearch = DirsearchAdapter()
 
         self._adapters: Dict[str, object] = {
-            'amass': self.amass,
-            'httpx': self.httpx,
-            'katana': self.katana,
-            'dnsx': self.dnsx,
-            'ffuf': self.ffuf,
-            'gau': self.gau,
-            'waybackurls': self.waybackurls,
-            'gobuster': self.gobuster,
-            'feroxbuster': self.feroxbuster,
-            'masscan': self.masscan,
-            'rustscan': self.rustscan,
-            'hakrawler': self.hakrawler,
-            'arjun': self.arjun,
-            'paramspider': self.paramspider,
-            'dirsearch': self.dirsearch,
+            "amass": self.amass,
+            "httpx": self.httpx,
+            "katana": self.katana,
+            "dnsx": self.dnsx,
+            "ffuf": self.ffuf,
+            "gau": self.gau,
+            "waybackurls": self.waybackurls,
+            "gobuster": self.gobuster,
+            "feroxbuster": self.feroxbuster,
+            "masscan": self.masscan,
+            "rustscan": self.rustscan,
+            "hakrawler": self.hakrawler,
+            "arjun": self.arjun,
+            "paramspider": self.paramspider,
+            "dirsearch": self.dirsearch,
         }
 
     def get_available_tools(self) -> Dict[str, bool]:
         """Return availability status of all recon arsenal tools."""
-        return {name: adapter.is_available()
-                for name, adapter in self._adapters.items()}
+        return {name: adapter.is_available() for name, adapter in self._adapters.items()}
 
     def get_tools_by_category(self) -> Dict[str, Dict[str, bool]]:
         """Return tool availability organized by category."""
@@ -1375,8 +1399,10 @@ class ReconArsenal:
         adapter = self._adapters.get(tool_name)
         if not adapter:
             return ToolResult(
-                tool=tool_name, target=target, success=False,
-                error=f'Unknown tool: {tool_name}',
+                tool=tool_name,
+                target=target,
+                success=False,
+                error=f"Unknown tool: {tool_name}",
             )
         return adapter.run(target, **kwargs)
 
@@ -1384,55 +1410,55 @@ class ReconArsenal:
         """Run all available subdomain enumeration tools."""
         results = {}
         if self.amass.is_available():
-            results['amass'] = self.amass.run(domain)
+            results["amass"] = self.amass.run(domain)
         if self.dnsx.is_available():
-            results['dnsx'] = self.dnsx.run(domain)
+            results["dnsx"] = self.dnsx.run(domain)
         return results
 
     def run_url_harvest(self, domain: str) -> Dict[str, ToolResult]:
         """Run all available URL harvesting tools."""
         results = {}
         if self.gau.is_available():
-            results['gau'] = self.gau.run(domain)
+            results["gau"] = self.gau.run(domain)
         if self.waybackurls.is_available():
-            results['waybackurls'] = self.waybackurls.run(domain)
+            results["waybackurls"] = self.waybackurls.run(domain)
         if self.paramspider.is_available():
-            results['paramspider'] = self.paramspider.run(domain)
+            results["paramspider"] = self.paramspider.run(domain)
         return results
 
-    def run_content_discovery(self, target: str, wordlist: str = '') -> Dict[str, ToolResult]:
+    def run_content_discovery(self, target: str, wordlist: str = "") -> Dict[str, ToolResult]:
         """Run all available content/directory discovery tools."""
         results = {}
         kwargs = {}
         if wordlist:
-            kwargs['wordlist'] = wordlist
+            kwargs["wordlist"] = wordlist
         if self.ffuf.is_available():
-            results['ffuf'] = self.ffuf.run(target, **kwargs)
+            results["ffuf"] = self.ffuf.run(target, **kwargs)
         if self.gobuster.is_available():
-            results['gobuster'] = self.gobuster.run(target, **kwargs)
+            results["gobuster"] = self.gobuster.run(target, **kwargs)
         if self.feroxbuster.is_available():
-            results['feroxbuster'] = self.feroxbuster.run(target, **kwargs)
+            results["feroxbuster"] = self.feroxbuster.run(target, **kwargs)
         if self.dirsearch.is_available():
-            results['dirsearch'] = self.dirsearch.run(target)
+            results["dirsearch"] = self.dirsearch.run(target)
         return results
 
     def run_http_probe(self, target: str) -> Dict[str, ToolResult]:
         """Run HTTP probing tools."""
         results = {}
         if self.httpx.is_available():
-            results['httpx'] = self.httpx.run(target)
+            results["httpx"] = self.httpx.run(target)
         return results
 
-    def run_port_scan(self, target: str, ports: str = '1-65535') -> Dict[str, ToolResult]:
+    def run_port_scan(self, target: str, ports: str = "1-65535") -> Dict[str, ToolResult]:
         """Run all available fast port scanners."""
         results = {}
         if self.masscan.is_available():
-            results['masscan'] = self.masscan.run(target, ports=ports)
+            results["masscan"] = self.masscan.run(target, ports=ports)
         if self.rustscan.is_available():
-            results['rustscan'] = self.rustscan.run(target)
+            results["rustscan"] = self.rustscan.run(target)
         return results
 
-    def run_full_recon(self, target: str, domain: str = '') -> Dict[str, ToolResult]:
+    def run_full_recon(self, target: str, domain: str = "") -> Dict[str, ToolResult]:
         """Run comprehensive reconnaissance using all available tools.
 
         This orchestrates tools in logical order:
@@ -1463,13 +1489,13 @@ class ReconArsenal:
 
         # Phase 4: Web crawling
         if self.katana.is_available():
-            results['katana'] = self.katana.run(target)
+            results["katana"] = self.katana.run(target)
         if self.hakrawler.is_available():
-            results['hakrawler'] = self.hakrawler.run(target)
+            results["hakrawler"] = self.hakrawler.run(target)
 
         # Phase 5: Parameter discovery
         if self.arjun.is_available():
-            results['arjun'] = self.arjun.run(target)
+            results["arjun"] = self.arjun.run(target)
 
         # Phase 6: Port scanning
         if domain:
@@ -1481,99 +1507,114 @@ class ReconArsenal:
         """Return metadata about all arsenal tools."""
         tool_info = [
             {
-                'name': 'amass', 'category': 'subdomain',
-                'description': 'OWASP advanced subdomain enumeration & network mapping',
-                'github': 'https://github.com/owasp-amass/amass',
-                'install': 'go install -v github.com/owasp-amass/amass/v4/...@master',
+                "name": "amass",
+                "category": "subdomain",
+                "description": "OWASP advanced subdomain enumeration & network mapping",
+                "github": "https://github.com/owasp-amass/amass",
+                "install": "go install -v github.com/owasp-amass/amass/v4/...@master",
             },
             {
-                'name': 'httpx', 'category': 'http_probe',
-                'description': 'Fast HTTP probing with tech detection',
-                'github': 'https://github.com/projectdiscovery/httpx',
-                'install': 'go install -v github.com/projectdiscovery/httpx/cmd/httpx@latest',
+                "name": "httpx",
+                "category": "http_probe",
+                "description": "Fast HTTP probing with tech detection",
+                "github": "https://github.com/projectdiscovery/httpx",
+                "install": "go install -v github.com/projectdiscovery/httpx/cmd/httpx@latest",
             },
             {
-                'name': 'katana', 'category': 'crawler',
-                'description': 'Next-gen web crawler with JS rendering',
-                'github': 'https://github.com/projectdiscovery/katana',
-                'install': 'go install github.com/projectdiscovery/katana/cmd/katana@latest',
+                "name": "katana",
+                "category": "crawler",
+                "description": "Next-gen web crawler with JS rendering",
+                "github": "https://github.com/projectdiscovery/katana",
+                "install": "go install github.com/projectdiscovery/katana/cmd/katana@latest",
             },
             {
-                'name': 'dnsx', 'category': 'subdomain',
-                'description': 'Fast multi-purpose DNS toolkit',
-                'github': 'https://github.com/projectdiscovery/dnsx',
-                'install': 'go install -v github.com/projectdiscovery/dnsx/cmd/dnsx@latest',
+                "name": "dnsx",
+                "category": "subdomain",
+                "description": "Fast multi-purpose DNS toolkit",
+                "github": "https://github.com/projectdiscovery/dnsx",
+                "install": "go install -v github.com/projectdiscovery/dnsx/cmd/dnsx@latest",
             },
             {
-                'name': 'ffuf', 'category': 'dir_bruteforce',
-                'description': 'Fast web fuzzer for directory/vhost/param discovery',
-                'github': 'https://github.com/ffuf/ffuf',
-                'install': 'go install github.com/ffuf/ffuf/v2@latest',
+                "name": "ffuf",
+                "category": "dir_bruteforce",
+                "description": "Fast web fuzzer for directory/vhost/param discovery",
+                "github": "https://github.com/ffuf/ffuf",
+                "install": "go install github.com/ffuf/ffuf/v2@latest",
             },
             {
-                'name': 'gau', 'category': 'url_harvest',
-                'description': 'Get All URLs from Wayback, CommonCrawl, OTX, URLScan',
-                'github': 'https://github.com/lc/gau',
-                'install': 'go install github.com/lc/gau/v2/cmd/gau@latest',
+                "name": "gau",
+                "category": "url_harvest",
+                "description": "Get All URLs from Wayback, CommonCrawl, OTX, URLScan",
+                "github": "https://github.com/lc/gau",
+                "install": "go install github.com/lc/gau/v2/cmd/gau@latest",
             },
             {
-                'name': 'waybackurls', 'category': 'url_harvest',
-                'description': 'Fetch known URLs from Wayback Machine',
-                'github': 'https://github.com/tomnomnom/waybackurls',
-                'install': 'go install github.com/tomnomnom/waybackurls@latest',
+                "name": "waybackurls",
+                "category": "url_harvest",
+                "description": "Fetch known URLs from Wayback Machine",
+                "github": "https://github.com/tomnomnom/waybackurls",
+                "install": "go install github.com/tomnomnom/waybackurls@latest",
             },
             {
-                'name': 'gobuster', 'category': 'dir_bruteforce',
-                'description': 'Directory/DNS/vhost brute-forcing tool',
-                'github': 'https://github.com/OJ/gobuster',
-                'install': 'go install github.com/OJ/gobuster/v3@latest',
+                "name": "gobuster",
+                "category": "dir_bruteforce",
+                "description": "Directory/DNS/vhost brute-forcing tool",
+                "github": "https://github.com/OJ/gobuster",
+                "install": "go install github.com/OJ/gobuster/v3@latest",
             },
             {
-                'name': 'feroxbuster', 'category': 'dir_bruteforce',
-                'description': 'Recursive content discovery written in Rust',
-                'github': 'https://github.com/epi052/feroxbuster',
-                'install': 'cargo install feroxbuster',
+                "name": "feroxbuster",
+                "category": "dir_bruteforce",
+                "description": "Recursive content discovery written in Rust",
+                "github": "https://github.com/epi052/feroxbuster",
+                "install": "cargo install feroxbuster",
             },
             {
-                'name': 'masscan', 'category': 'port_scan',
-                'description': 'Fastest Internet port scanner (10M pps)',
-                'github': 'https://github.com/robertdavidgraham/masscan',
-                'install': 'apt install masscan',
+                "name": "masscan",
+                "category": "port_scan",
+                "description": "Fastest Internet port scanner (10M pps)",
+                "github": "https://github.com/robertdavidgraham/masscan",
+                "install": "apt install masscan",
             },
             {
-                'name': 'rustscan', 'category': 'port_scan',
-                'description': 'Ultra-fast port scanner with Nmap integration',
-                'github': 'https://github.com/RustScan/RustScan',
-                'install': 'cargo install rustscan',
+                "name": "rustscan",
+                "category": "port_scan",
+                "description": "Ultra-fast port scanner with Nmap integration",
+                "github": "https://github.com/RustScan/RustScan",
+                "install": "cargo install rustscan",
             },
             {
-                'name': 'hakrawler', 'category': 'crawler',
-                'description': 'Fast web crawler for URL/JS endpoint discovery',
-                'github': 'https://github.com/hakluke/hakrawler',
-                'install': 'go install github.com/hakluke/hakrawler@latest',
+                "name": "hakrawler",
+                "category": "crawler",
+                "description": "Fast web crawler for URL/JS endpoint discovery",
+                "github": "https://github.com/hakluke/hakrawler",
+                "install": "go install github.com/hakluke/hakrawler@latest",
             },
             {
-                'name': 'arjun', 'category': 'param_discovery',
-                'description': 'HTTP parameter discovery suite',
-                'github': 'https://github.com/s0md3v/Arjun',
-                'install': 'pip3 install arjun',
+                "name": "arjun",
+                "category": "param_discovery",
+                "description": "HTTP parameter discovery suite",
+                "github": "https://github.com/s0md3v/Arjun",
+                "install": "pip3 install arjun",
             },
             {
-                'name': 'paramspider', 'category': 'url_harvest',
-                'description': 'Mining parameters from web archives',
-                'github': 'https://github.com/devanshbatham/ParamSpider',
-                'install': 'pip3 install paramspider',
+                "name": "paramspider",
+                "category": "url_harvest",
+                "description": "Mining parameters from web archives",
+                "github": "https://github.com/devanshbatham/ParamSpider",
+                "install": "pip3 install paramspider",
             },
             {
-                'name': 'dirsearch', 'category': 'dir_bruteforce',
-                'description': 'Web path scanner with smart wordlist',
-                'github': 'https://github.com/maurosoria/dirsearch',
-                'install': 'pip3 install dirsearch',
+                "name": "dirsearch",
+                "category": "dir_bruteforce",
+                "description": "Web path scanner with smart wordlist",
+                "github": "https://github.com/maurosoria/dirsearch",
+                "install": "pip3 install dirsearch",
             },
         ]
 
         avail = self.get_available_tools()
         for info in tool_info:
-            info['available'] = avail.get(info['name'], False)
+            info["available"] = avail.get(info["name"], False)
 
         return tool_info

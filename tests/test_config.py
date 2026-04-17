@@ -23,13 +23,13 @@ class TestConfigPaths(unittest.TestCase):
         self.assertTrue(Config.BASE_DIR)
 
     def test_reports_dir(self):
-        self.assertIn('reports', Config.REPORTS_DIR)
+        self.assertIn("reports", Config.REPORTS_DIR)
 
     def test_shells_dir(self):
-        self.assertIn('shells', Config.SHELLS_DIR)
+        self.assertIn("shells", Config.SHELLS_DIR)
 
     def test_wordlists_dir(self):
-        self.assertIn('wordlists', Config.WORDLISTS_DIR)
+        self.assertIn("wordlists", Config.WORDLISTS_DIR)
 
 
 class TestConfigConstants(unittest.TestCase):
@@ -45,7 +45,7 @@ class TestConfigConstants(unittest.TestCase):
         self.assertGreater(Config.MAX_DEPTH, 0)
 
     def test_evasion_levels(self):
-        expected = {'none', 'low', 'medium', 'high', 'insane', 'stealth'}
+        expected = {"none", "low", "medium", "high", "insane", "stealth"}
         self.assertEqual(set(Config.EVASION_LEVELS), expected)
 
     def test_user_agents_non_empty(self):
@@ -61,7 +61,7 @@ class TestConfigMethods(unittest.TestCase):
     def test_get_random_ua_returns_string(self):
         ua = Config.get_random_ua()
         self.assertIsInstance(ua, str)
-        self.assertIn('Mozilla', ua)
+        self.assertIn("Mozilla", ua)
 
     def test_get_random_ua_from_pool(self):
         ua = Config.get_random_ua()
@@ -69,7 +69,7 @@ class TestConfigMethods(unittest.TestCase):
 
     def test_get_random_headers_keys(self):
         headers = Config.get_random_headers()
-        for key in ('User-Agent', 'Accept', 'Accept-Language'):
+        for key in ("User-Agent", "Accept", "Accept-Language"):
             self.assertIn(key, headers)
 
     def test_get_random_headers_returns_dict(self):
@@ -150,65 +150,65 @@ class TestPayloadsEncodings(unittest.TestCase):
     """Payloads.ENCODINGS lambdas produce expected output."""
 
     def test_url_single_encoding(self):
-        result = Payloads.ENCODINGS['url_single']('A')
-        self.assertEqual(result, '%41')
+        result = Payloads.ENCODINGS["url_single"]("A")
+        self.assertEqual(result, "%41")
 
     def test_url_double_encoding(self):
-        result = Payloads.ENCODINGS['url_double']('A')
-        self.assertEqual(result, '%2541')
+        result = Payloads.ENCODINGS["url_double"]("A")
+        self.assertEqual(result, "%2541")
 
     def test_html_entities(self):
-        result = Payloads.ENCODINGS['html_entities']('A')
-        self.assertEqual(result, '&#65;')
+        result = Payloads.ENCODINGS["html_entities"]("A")
+        self.assertEqual(result, "&#65;")
 
     def test_hex_encoding(self):
-        result = Payloads.ENCODINGS['hex']('A')
-        self.assertEqual(result, '\\x41')
+        result = Payloads.ENCODINGS["hex"]("A")
+        self.assertEqual(result, "\\x41")
 
     def test_octal_encoding(self):
-        result = Payloads.ENCODINGS['octal']('A')
-        self.assertEqual(result, '\\101')
+        result = Payloads.ENCODINGS["octal"]("A")
+        self.assertEqual(result, "\\101")
 
     def test_base64_encoding(self):
-        result = Payloads.ENCODINGS['base64']('test')
-        self.assertEqual(result, 'dGVzdA==')
+        result = Payloads.ENCODINGS["base64"]("test")
+        self.assertEqual(result, "dGVzdA==")
 
     def test_unicode_encoding(self):
-        result = Payloads.ENCODINGS['unicode']('A')
-        self.assertEqual(result, '%u0041')
+        result = Payloads.ENCODINGS["unicode"]("A")
+        self.assertEqual(result, "%u0041")
 
     def test_encodings_all_callable(self):
         for name, fn in Payloads.ENCODINGS.items():
-            self.assertTrue(callable(fn), f'{name} is not callable')
+            self.assertTrue(callable(fn), f"{name} is not callable")
 
 
 class TestColors(unittest.TestCase):
     """Colors class helper methods."""
 
     def test_success_contains_text(self):
-        result = Colors.success('ok')
-        self.assertIn('ok', result)
-        self.assertIn('[✓]', result)
+        result = Colors.success("ok")
+        self.assertIn("ok", result)
+        self.assertIn("[✓]", result)
 
     def test_error_contains_text(self):
-        result = Colors.error('fail')
-        self.assertIn('fail', result)
-        self.assertIn('[✗]', result)
+        result = Colors.error("fail")
+        self.assertIn("fail", result)
+        self.assertIn("[✗]", result)
 
     def test_warning_contains_text(self):
-        result = Colors.warning('warn')
-        self.assertIn('warn', result)
-        self.assertIn('[!]', result)
+        result = Colors.warning("warn")
+        self.assertIn("warn", result)
+        self.assertIn("[!]", result)
 
     def test_info_contains_text(self):
-        result = Colors.info('note')
-        self.assertIn('note', result)
-        self.assertIn('[*]', result)
+        result = Colors.info("note")
+        self.assertIn("note", result)
+        self.assertIn("[*]", result)
 
     def test_critical_contains_text(self):
-        result = Colors.critical('danger')
-        self.assertIn('danger', result)
-        self.assertIn('[CRITICAL]', result)
+        result = Colors.critical("danger")
+        self.assertIn("danger", result)
+        self.assertIn("[CRITICAL]", result)
 
 
 class TestMitreCweMap(unittest.TestCase):
@@ -222,23 +222,23 @@ class TestMitreCweMap(unittest.TestCase):
 
     def test_values_are_tuples(self):
         for vuln, val in MITRE_CWE_MAP.items():
-            self.assertIsInstance(val, tuple, f'{vuln} value is not a tuple')
-            self.assertEqual(len(val), 2, f'{vuln} tuple length != 2')
+            self.assertIsInstance(val, tuple, f"{vuln} value is not a tuple")
+            self.assertEqual(len(val), 2, f"{vuln} tuple length != 2")
 
     def test_mitre_ids_start_with_T(self):
         for vuln, (mitre, _cwe) in MITRE_CWE_MAP.items():
-            self.assertTrue(mitre.startswith('T'), f'{vuln}: mitre_id={mitre}')
+            self.assertTrue(mitre.startswith("T"), f"{vuln}: mitre_id={mitre}")
 
     def test_cwe_ids_start_with_CWE(self):
         for vuln, (_mitre, cwe) in MITRE_CWE_MAP.items():
-            self.assertTrue(cwe.startswith('CWE-'), f'{vuln}: cwe_id={cwe}')
+            self.assertTrue(cwe.startswith("CWE-"), f"{vuln}: cwe_id={cwe}")
 
     def test_known_entries(self):
-        self.assertIn('SQL Injection', MITRE_CWE_MAP)
-        self.assertIn('XSS', MITRE_CWE_MAP)
-        self.assertIn('SSRF', MITRE_CWE_MAP)
-        self.assertIn('CORS Misconfiguration', MITRE_CWE_MAP)
+        self.assertIn("SQL Injection", MITRE_CWE_MAP)
+        self.assertIn("XSS", MITRE_CWE_MAP)
+        self.assertIn("SSRF", MITRE_CWE_MAP)
+        self.assertIn("CORS Misconfiguration", MITRE_CWE_MAP)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

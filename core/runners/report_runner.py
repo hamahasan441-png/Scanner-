@@ -11,8 +11,8 @@ Returns a ``ReportResult`` with report paths and attack-map data.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Dict, Optional
 
 from config import Colors
 
@@ -35,10 +35,10 @@ class ReportRunner:
     focused, testable unit.
     """
 
-    def __init__(self, engine: 'AtomicEngine'):
+    def __init__(self, engine: "AtomicEngine"):
         self.engine = engine
         self.config = engine.config
-        self.modules_config = self.config.get('modules', {})
+        self.modules_config = self.config.get("modules", {})
 
     # ------------------------------------------------------------------
 
@@ -58,8 +58,7 @@ class ReportRunner:
         self.engine._agent_result = agent_result
 
         # PHASE 10: Commit & Report
-        result.output_phase_success = self._output_phase(
-            exploit_chains, shield_profile, real_ip_result, agent_result)
+        result.output_phase_success = self._output_phase(exploit_chains, shield_profile, real_ip_result, agent_result)
 
         # PHASE 11: Attack Map
         result.attack_map_result = self._attack_map(exploit_chains)
@@ -73,6 +72,7 @@ class ReportRunner:
     def _output_phase(self, exploit_chains, shield_profile, real_ip_result, agent_result) -> bool:
         try:
             from core.output_phase import OutputPhase
+
             output = OutputPhase(self.engine)
             output.run(
                 verified_findings=self.engine.findings,
@@ -80,11 +80,11 @@ class ReportRunner:
                 shield_profile=shield_profile,
                 origin_result=real_ip_result,
                 agent_result=agent_result,
-                report_format=self.config.get('format', 'html'),
+                report_format=self.config.get("format", "html"),
             )
             return True
         except Exception as exc:
-            if self.config.get('verbose'):
+            if self.config.get("verbose"):
                 print(f"{Colors.error(f'Phase 10 output error: {exc}')}")
             # Fallback: legacy DB update
             if self.engine.db:
@@ -96,37 +96,42 @@ class ReportRunner:
                         total_requests=self.engine.requester.total_requests,
                     )
                 except Exception as e:
-                    if self.config.get('verbose'):
+                    if self.config.get("verbose"):
                         print(f"{Colors.warning(f'Could not update scan record: {e}')}")
             return False
 
     def _attack_map(self, exploit_chains) -> Optional[Dict]:
         mc = self.modules_config
-        if not (mc.get('attack_map', False) and self.engine.findings):
+        if not (mc.get("attack_map", False) and self.engine.findings):
             return None
 
         # Auto-enable exploit search if not already run
-        if not mc.get('exploit_search', False):
+        if not mc.get("exploit_search", False):
             try:
                 from core.exploit_searcher import ExploitSearcher
+
                 searcher = ExploitSearcher(self.engine)
                 self.engine.findings = searcher.run(self.engine.findings)
             except Exception as e:
-                if self.config.get('verbose'):
+                if self.config.get("verbose"):
                     print(f"{Colors.warning(f'Phase 9B auto-enable for attack map failed: {e}')}")
 
         try:
             from core.attack_map import AttackMapBuilder
+
             builder = AttackMapBuilder(self.engine)
             map_result = builder.run(self.engine.findings, exploit_chains=exploit_chains)
             self.engine._attack_map = map_result
-            self.engine.emit_pipeline_event('attack_map_complete', {
-                'total_nodes': map_result.get('summary', {}).get('total_nodes', 0),
-                'critical_paths': map_result.get('summary', {}).get('critical_paths', 0),
-                'zero_click_paths': map_result.get('summary', {}).get('zero_click_paths', 0),
-            })
+            self.engine.emit_pipeline_event(
+                "attack_map_complete",
+                {
+                    "total_nodes": map_result.get("summary", {}).get("total_nodes", 0),
+                    "critical_paths": map_result.get("summary", {}).get("critical_paths", 0),
+                    "zero_click_paths": map_result.get("summary", {}).get("zero_click_paths", 0),
+                },
+            )
             return map_result
         except Exception as e:
-            if self.config.get('verbose'):
+            if self.config.get("verbose"):
                 print(f"{Colors.error(f'Phase 11 attack map error: {e}')}")
             return None

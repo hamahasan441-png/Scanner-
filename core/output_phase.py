@@ -33,7 +33,7 @@ class OutputPhase:
     def __init__(self, engine):
         self.engine = engine
         self.db = engine.db
-        self.verbose = engine.config.get('verbose', False)
+        self.verbose = engine.config.get("verbose", False)
 
     def run(
         self,
@@ -42,7 +42,7 @@ class OutputPhase:
         shield_profile: Optional[Dict] = None,
         origin_result: Optional[Dict] = None,
         agent_result: Optional[Dict] = None,
-        report_format: str = 'html',
+        report_format: str = "html",
     ) -> Dict:
         """Execute the full Phase 10 pipeline.
 
@@ -51,10 +51,13 @@ class OutputPhase:
         findings = verified_findings if verified_findings is not None else self.engine.findings
         chains = exploit_chains or []
 
-        self.engine.emit_pipeline_event('phase10_start', {
-            'findings_count': len(findings),
-            'chain_count': len(chains),
-        })
+        self.engine.emit_pipeline_event(
+            "phase10_start",
+            {
+                "findings_count": len(findings),
+                "chain_count": len(chains),
+            },
+        )
 
         # ── 1. Commit to database ─────────────────────────────────
         self._commit_to_db(findings, chains)
@@ -69,16 +72,19 @@ class OutputPhase:
             fmt=report_format,
         )
 
-        self.engine.emit_pipeline_event('phase10_complete', {
-            'reports': list(report_paths.keys()),
-            'findings_committed': len(findings),
-            'chains_committed': len(chains),
-        })
+        self.engine.emit_pipeline_event(
+            "phase10_complete",
+            {
+                "reports": list(report_paths.keys()),
+                "findings_committed": len(findings),
+                "chains_committed": len(chains),
+            },
+        )
 
         return {
-            'findings_committed': len(findings),
-            'chains_committed': len(chains),
-            'reports': report_paths,
+            "findings_committed": len(findings),
+            "chains_committed": len(chains),
+            "reports": report_paths,
         }
 
     # ── Database commit ───────────────────────────────────────────
@@ -135,7 +141,7 @@ class OutputPhase:
         from core.reporter import ReportGenerator
         from config import Config
 
-        output_dir = self.engine.config.get('output_dir', Config.REPORTS_DIR)
+        output_dir = self.engine.config.get("output_dir", Config.REPORTS_DIR)
 
         generator = ReportGenerator(
             scan_id=self.engine.scan_id,
@@ -152,8 +158,8 @@ class OutputPhase:
         )
 
         paths = {}
-        if fmt == 'all':
-            for f in ['html', 'json', 'csv', 'txt', 'pdf', 'xml', 'sarif']:
+        if fmt == "all":
+            for f in ["html", "json", "csv", "txt", "pdf", "xml", "sarif"]:
                 path = generator.generate(f)
                 if path:
                     paths[f] = path
@@ -163,9 +169,9 @@ class OutputPhase:
                 paths[fmt] = path
 
         # Always generate JSON alongside for machine consumption
-        if fmt != 'all' and fmt != 'json':
-            json_path = generator.generate('json')
+        if fmt != "all" and fmt != "json":
+            json_path = generator.generate("json")
             if json_path:
-                paths['json'] = json_path
+                paths["json"] = json_path
 
         return paths

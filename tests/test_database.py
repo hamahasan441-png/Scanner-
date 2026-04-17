@@ -36,6 +36,7 @@ class TestDatabase(unittest.TestCase):
         self._orig_db_url = Config.DB_URL
         Config.DB_URL = "sqlite:///:memory:"
         from utils.database import Database
+
         self.db = Database()
 
     def tearDown(self):
@@ -54,6 +55,7 @@ class TestDatabase(unittest.TestCase):
     def test_save_scan_stores_record(self):
         self.db.save_scan(scan_id="scan-1", target="http://example.com")
         from utils.database import ScanModel
+
         session = self.db.Session()
         scan = session.query(ScanModel).filter_by(scan_id="scan-1").first()
         self.assertIsNotNone(scan)
@@ -71,9 +73,9 @@ class TestDatabase(unittest.TestCase):
     def test_update_scan_modifies_fields(self):
         self.db.save_scan(scan_id="scan-2", target="http://example.com")
         now = datetime.now(timezone.utc)
-        self.db.update_scan("scan-2", end_time=now, findings_count=5,
-                            total_requests=100)
+        self.db.update_scan("scan-2", end_time=now, findings_count=5, total_requests=100)
         from utils.database import ScanModel
+
         session = self.db.Session()
         scan = session.query(ScanModel).filter_by(scan_id="scan-2").first()
         self.assertEqual(scan.findings_count, 5)
@@ -97,6 +99,7 @@ class TestDatabase(unittest.TestCase):
         self.db.save_finding("scan-f", finding)
 
         from utils.database import FindingModel
+
         session = self.db.Session()
         row = session.query(FindingModel).filter_by(scan_id="scan-f").first()
         self.assertIsNotNone(row)
@@ -113,9 +116,9 @@ class TestDatabase(unittest.TestCase):
     # save_shell / get_shells / update_shell
     # ------------------------------------------------------------------
     def test_save_shell_stores_record(self):
-        self.db.save_shell(shell_id="sh-1", url="http://example.com/shell.php",
-                           shell_type="php", password="secret")
+        self.db.save_shell(shell_id="sh-1", url="http://example.com/shell.php", shell_type="php", password="secret")
         from utils.database import ShellModel
+
         session = self.db.Session()
         shell = session.query(ShellModel).filter_by(shell_id="sh-1").first()
         self.assertIsNotNone(shell)
@@ -128,10 +131,8 @@ class TestDatabase(unittest.TestCase):
         self.db.save_shell(shell_id="sh-x", url="http://x", shell_type="php")
 
     def test_get_shells_returns_active(self):
-        self.db.save_shell(shell_id="sh-a", url="http://a.com/sh",
-                           shell_type="php")
-        self.db.save_shell(shell_id="sh-b", url="http://b.com/sh",
-                           shell_type="cmd")
+        self.db.save_shell(shell_id="sh-a", url="http://a.com/sh", shell_type="php")
+        self.db.save_shell(shell_id="sh-b", url="http://b.com/sh", shell_type="cmd")
         shells = self.db.get_shells()
         self.assertEqual(len(shells), 2)
         ids = {s["shell_id"] for s in shells}
@@ -146,19 +147,18 @@ class TestDatabase(unittest.TestCase):
         self.assertEqual(self.db.get_shells(), [])
 
     def test_update_shell_changes_status(self):
-        self.db.save_shell(shell_id="sh-u", url="http://u.com/sh",
-                           shell_type="php")
+        self.db.save_shell(shell_id="sh-u", url="http://u.com/sh", shell_type="php")
         self.db.update_shell("sh-u", status="inactive")
 
         from utils.database import ShellModel
+
         session = self.db.Session()
         shell = session.query(ShellModel).filter_by(shell_id="sh-u").first()
         self.assertEqual(shell.status, "inactive")
         session.close()
 
     def test_update_shell_inactive_not_returned(self):
-        self.db.save_shell(shell_id="sh-gone", url="http://g.com/sh",
-                           shell_type="php")
+        self.db.save_shell(shell_id="sh-gone", url="http://g.com/sh", shell_type="php")
         self.db.update_shell("sh-gone", status="inactive")
         shells = self.db.get_shells()
         self.assertEqual(shells, [])

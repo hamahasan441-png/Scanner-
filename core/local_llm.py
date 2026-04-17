@@ -20,15 +20,12 @@ Usage:
 import os
 import sys
 import json
-import hashlib
 import platform
 import shutil
 import time
-from pathlib import Path
 
 
 from config import Config, Colors
-
 
 # ── Model Configuration ──────────────────────────────────────────────
 
@@ -36,10 +33,7 @@ from config import Config, Colors
 # Optimized for ARM (Termux) and x86-64 (Linux/Desktop)
 DEFAULT_MODEL_REPO = "Qwen/Qwen2.5-7B-Instruct-GGUF"
 DEFAULT_MODEL_FILE = "qwen2.5-7b-instruct-q4_k_m.gguf"
-DEFAULT_MODEL_URL = (
-    f"https://huggingface.co/{DEFAULT_MODEL_REPO}"
-    f"/resolve/main/{DEFAULT_MODEL_FILE}"
-)
+DEFAULT_MODEL_URL = f"https://huggingface.co/{DEFAULT_MODEL_REPO}" f"/resolve/main/{DEFAULT_MODEL_FILE}"
 DEFAULT_MODEL_SIZE_BYTES = 4_700_000_000  # ~4.7 GB
 
 # Directory to store downloaded models
@@ -55,24 +49,24 @@ DEFAULT_N_GPU_LAYERS = 0  # CPU-only by default for Termux
 
 # ── Helper: Progress bar for downloads ────────────────────────────────
 
+
 def _download_progress(current, total, bar_length=40):
     """Print a simple progress bar to stderr."""
     if total <= 0:
         return
     fraction = current / total
     filled = int(bar_length * fraction)
-    bar = '█' * filled + '░' * (bar_length - filled)
+    bar = "█" * filled + "░" * (bar_length - filled)
     mb_current = current / (1024 * 1024)
     mb_total = total / (1024 * 1024)
-    sys.stderr.write(
-        f"\r  [{bar}] {fraction:.1%}  {mb_current:.0f}/{mb_total:.0f} MB"
-    )
+    sys.stderr.write(f"\r  [{bar}] {fraction:.1%}  {mb_current:.0f}/{mb_total:.0f} MB")
     sys.stderr.flush()
     if current >= total:
-        sys.stderr.write('\n')
+        sys.stderr.write("\n")
 
 
 # ── Model Download ────────────────────────────────────────────────────
+
 
 def get_model_path(model_file=None):
     """Return the local path for the GGUF model file."""
@@ -131,7 +125,7 @@ def download_model(model_url=None, model_file=None, force=False):
     # Support resume for interrupted downloads
     if os.path.isfile(tmp_path):
         resume_size = os.path.getsize(tmp_path)
-        headers['Range'] = f'bytes={resume_size}-'
+        headers["Range"] = f"bytes={resume_size}-"
         print(f"{Colors.info(f'Resuming from {resume_size / (1024**2):.0f} MB...')}")
 
     try:
@@ -141,11 +135,11 @@ def download_model(model_url=None, model_file=None, force=False):
         print(f"{Colors.error(f'Download failed: {exc}')}")
         print(f"{Colors.info('You can manually download the model:')}")
         print(f"  wget {url} -O {dest}")
-        return ''
+        return ""
 
-    total = int(resp.headers.get('content-length', 0)) + resume_size
+    total = int(resp.headers.get("content-length", 0)) + resume_size
 
-    mode = 'ab' if resume_size else 'wb'
+    mode = "ab" if resume_size else "wb"
     try:
         with open(tmp_path, mode) as f:
             downloaded = resume_size
@@ -157,7 +151,7 @@ def download_model(model_url=None, model_file=None, force=False):
     except (KeyboardInterrupt, Exception) as exc:
         print(f"\n{Colors.warning(f'Download interrupted: {exc}')}")
         print(f"{Colors.info(f'Partial file saved — re-run to resume.')}")
-        return ''
+        return ""
 
     # Rename from .part to final name
     shutil.move(tmp_path, dest)
@@ -167,6 +161,7 @@ def download_model(model_url=None, model_file=None, force=False):
 
 # ── LLM Inference Engine ──────────────────────────────────────────────
 
+
 class LocalLLM:
     """Local Qwen2.5-7B inference engine using llama-cpp-python.
 
@@ -174,8 +169,7 @@ class LocalLLM:
     security-focused analysis methods for the scan pipeline.
     """
 
-    def __init__(self, model_path=None, n_ctx=None, n_threads=None,
-                 n_gpu_layers=None, verbose=False):
+    def __init__(self, model_path=None, n_ctx=None, n_threads=None, n_gpu_layers=None, verbose=False):
         self.model_path = model_path or get_model_path()
         self.n_ctx = n_ctx or DEFAULT_CTX_SIZE
         self.n_threads = n_threads or DEFAULT_N_THREADS
@@ -192,6 +186,7 @@ class LocalLLM:
         """Check whether llama-cpp-python is installed."""
         try:
             import llama_cpp  # noqa: F401
+
             return True
         except ImportError:
             return False
@@ -204,17 +199,16 @@ class LocalLLM:
         """
         print(f"{Colors.info('Installing llama-cpp-python (this may take a few minutes on Termux)...')}")
         import subprocess
+
         env = os.environ.copy()
         # Termux-specific: ensure clang is used as the C compiler
-        is_termux = ('com.termux' in os.environ.get('PREFIX', '')
-                     or os.environ.get('TERMUX_VERSION', ''))
+        is_termux = "com.termux" in os.environ.get("PREFIX", "") or os.environ.get("TERMUX_VERSION", "")
         if is_termux:
-            env.setdefault('CC', 'clang')
-            env.setdefault('CXX', 'clang++')
+            env.setdefault("CC", "clang")
+            env.setdefault("CXX", "clang++")
         try:
             subprocess.check_call(
-                [sys.executable, '-m', 'pip', 'install',
-                 'llama-cpp-python', '--no-cache-dir'],
+                [sys.executable, "-m", "pip", "install", "llama-cpp-python", "--no-cache-dir"],
                 env=env,
             )
             print(f"{Colors.success('llama-cpp-python installed successfully.')}")
@@ -292,7 +286,7 @@ class LocalLLM:
         """
         if not self.is_loaded:
             if not self.load():
-                return ''
+                return ""
 
         max_tokens = max_tokens or DEFAULT_MAX_TOKENS
         temperature = temperature if temperature is not None else DEFAULT_TEMPERATURE
@@ -302,15 +296,15 @@ class LocalLLM:
                 prompt,
                 max_tokens=max_tokens,
                 temperature=temperature,
-                stop=stop or ['<|im_end|>', '<|endoftext|>'],
+                stop=stop or ["<|im_end|>", "<|endoftext|>"],
                 echo=False,
             )
-            text = result['choices'][0]['text'].strip() if result.get('choices') else ''
+            text = result["choices"][0]["text"].strip() if result.get("choices") else ""
             return text
         except Exception as exc:
             if self.verbose:
                 print(f"{Colors.error(f'LLM inference error: {exc}')}")
-            return ''
+            return ""
 
     def chat(self, system_prompt, user_message, max_tokens=None, temperature=None):
         """Send a chat-formatted message to the model.
@@ -329,7 +323,7 @@ class LocalLLM:
             prompt,
             max_tokens=max_tokens,
             temperature=temperature,
-            stop=['<|im_end|>', '<|endoftext|>'],
+            stop=["<|im_end|>", "<|endoftext|>"],
         )
 
     # ------------------------------------------------------------------
@@ -372,8 +366,8 @@ class LocalLLM:
         )
         response = self.chat(system, user, max_tokens=400)
         return {
-            'llm_analysis': response,
-            'model': 'qwen2.5-7b-instruct-q4_k_m',
+            "llm_analysis": response,
+            "model": "qwen2.5-7b-instruct-q4_k_m",
         }
 
     def suggest_payloads(self, vuln_type, context_info):
@@ -398,9 +392,9 @@ class LocalLLM:
             "based on the given context. Return ONLY the payloads, one per "
             "line, no explanations. Maximum 5 payloads."
         )
-        tech = context_info.get('technology', 'unknown')
-        waf = context_info.get('waf_detected', 'none')
-        param = context_info.get('param_name', 'id')
+        tech = context_info.get("technology", "unknown")
+        waf = context_info.get("waf_detected", "none")
+        param = context_info.get("param_name", "id")
         user = (
             f"Vulnerability type: {vuln_type}\n"
             f"Technology stack: {tech}\n"
@@ -413,9 +407,9 @@ class LocalLLM:
             return []
         # Parse payloads (one per line, strip empty)
         payloads = [
-            line.strip().lstrip('0123456789.-) ')
-            for line in response.strip().split('\n')
-            if line.strip() and not line.strip().startswith('#')
+            line.strip().lstrip("0123456789.-) ")
+            for line in response.strip().split("\n")
+            if line.strip() and not line.strip().startswith("#")
         ]
         return payloads[:5]
 
@@ -450,19 +444,19 @@ class LocalLLM:
         )
         response = self.chat(system, user, max_tokens=200, temperature=0.1)
 
-        result = {'is_vulnerable': False, 'confidence': 0.0, 'reasoning': response}
+        result = {"is_vulnerable": False, "confidence": 0.0, "reasoning": response}
         if not response:
             return result
 
         response_lower = response.lower()
-        if 'vulnerable: yes' in response_lower:
-            result['is_vulnerable'] = True
+        if "vulnerable: yes" in response_lower:
+            result["is_vulnerable"] = True
         # Parse confidence
-        for line in response.split('\n'):
-            if 'confidence:' in line.lower():
+        for line in response.split("\n"):
+            if "confidence:" in line.lower():
                 try:
-                    val = float(line.split(':')[-1].strip())
-                    result['confidence'] = max(0.0, min(1.0, val))
+                    val = float(line.split(":")[-1].strip())
+                    result["confidence"] = max(0.0, min(1.0, val))
                 except (ValueError, IndexError):
                     pass
                 break
@@ -490,9 +484,9 @@ class LocalLLM:
         severity_counts = {}
         techniques = []
         for f in findings[:20]:  # Limit to keep within context window
-            sev = f.get('severity', 'UNKNOWN')
+            sev = f.get("severity", "UNKNOWN")
             severity_counts[sev] = severity_counts.get(sev, 0) + 1
-            tech = f.get('technique', 'Unknown')
+            tech = f.get("technique", "Unknown")
             if tech not in techniques:
                 techniques.append(tech)
 
@@ -530,18 +524,18 @@ class LocalLLM:
             f"URL: {url}\n"
             f"Parameter name: {param_name}\n"
             f"Sample value: {param_value[:100]}\n\n"
-            "Return JSON: {{\"purpose\": \"...\", \"likely_vulns\": [\"sqli\", ...], \"priority\": \"high/medium/low\"}}"
+            'Return JSON: {{"purpose": "...", "likely_vulns": ["sqli", ...], "priority": "high/medium/low"}}'
         )
         response = self.chat(system, user, max_tokens=150, temperature=0.1)
         try:
             # Try to parse JSON from response
-            start = response.find('{')
-            end = response.rfind('}') + 1
+            start = response.find("{")
+            end = response.rfind("}") + 1
             if start >= 0 and end > start:
                 return json.loads(response[start:end])
         except (json.JSONDecodeError, ValueError):
             pass
-        return {'purpose': 'unknown', 'likely_vulns': [], 'priority': 'medium'}
+        return {"purpose": "unknown", "likely_vulns": [], "priority": "medium"}
 
     def analyze_waf_strategy(self, waf_name, vuln_type, blocked_payloads):
         """Generate WAF bypass strategy based on blocked payloads.
@@ -565,7 +559,7 @@ class LocalLLM:
             "payloads, suggest bypass techniques. Return ONLY bypass "
             "payloads, one per line. No explanations."
         )
-        blocked_sample = '\n'.join(blocked_payloads[:5])
+        blocked_sample = "\n".join(blocked_payloads[:5])
         user = (
             f"WAF: {waf_name}\n"
             f"Vulnerability type: {vuln_type}\n"
@@ -574,17 +568,17 @@ class LocalLLM:
         )
         response = self.chat(system, user, max_tokens=300, temperature=0.5)
         if not response:
-            return {'bypass_payloads': [], 'encoding_hints': [], 'notes': ''}
+            return {"bypass_payloads": [], "encoding_hints": [], "notes": ""}
 
         payloads = [
-            line.strip().lstrip('0123456789.-) ')
-            for line in response.strip().split('\n')
-            if line.strip() and not line.strip().startswith('#')
+            line.strip().lstrip("0123456789.-) ")
+            for line in response.strip().split("\n")
+            if line.strip() and not line.strip().startswith("#")
         ]
         return {
-            'bypass_payloads': payloads[:5],
-            'encoding_hints': [],
-            'notes': f'AI-generated bypass for {waf_name}',
+            "bypass_payloads": payloads[:5],
+            "encoding_hints": [],
+            "notes": f"AI-generated bypass for {waf_name}",
         }
 
     def prioritize_next_test(self, findings_so_far, remaining_modules):
@@ -611,7 +605,7 @@ class LocalLLM:
             "vulnerability modules. Return module names one per line, "
             "highest priority first. Only return names from the provided list."
         )
-        found_types = list({f.get('technique', '') for f in findings_so_far[:10]})
+        found_types = list({f.get("technique", "") for f in findings_so_far[:10]})
         user = (
             f"Findings so far: {', '.join(found_types) if found_types else 'none'}\n"
             f"Remaining modules: {', '.join(remaining_modules)}\n\n"
@@ -624,8 +618,8 @@ class LocalLLM:
         # Parse recommended order
         suggested = []
         remaining_set = set(remaining_modules)
-        for line in response.strip().split('\n'):
-            name = line.strip().lower().rstrip('.,;')
+        for line in response.strip().split("\n"):
+            name = line.strip().lower().rstrip(".,;")
             # Fuzzy match against remaining modules
             for mod in remaining_set:
                 if mod.lower() in name or name in mod.lower():
@@ -663,7 +657,7 @@ class LocalLLM:
                 f"(param={f.get('param', 'N/A')}, severity={f.get('severity', 'N/A')})"
             )
         user = (
-            f"Findings:\n" + '\n'.join(summary_lines) + "\n\n"
+            "Findings:\n" + "\n".join(summary_lines) + "\n\n"
             "Provide:\n"
             "1. Attack chain opportunities\n"
             "2. Most critical finding and why\n"
@@ -674,18 +668,16 @@ class LocalLLM:
 
 # ── Standalone CLI entrypoint ─────────────────────────────────────────
 
+
 def main():
     """Standalone model management CLI."""
     import argparse
-    parser = argparse.ArgumentParser(description='ATOMIC Local LLM Manager')
-    parser.add_argument('--download', action='store_true',
-                        help='Download the Qwen2.5-7B GGUF model')
-    parser.add_argument('--status', action='store_true',
-                        help='Show model and backend status')
-    parser.add_argument('--test', action='store_true',
-                        help='Run a quick inference test')
-    parser.add_argument('--model', type=str, default=None,
-                        help='Path to custom GGUF model file')
+
+    parser = argparse.ArgumentParser(description="ATOMIC Local LLM Manager")
+    parser.add_argument("--download", action="store_true", help="Download the Qwen2.5-7B GGUF model")
+    parser.add_argument("--status", action="store_true", help="Show model and backend status")
+    parser.add_argument("--test", action="store_true", help="Run a quick inference test")
+    parser.add_argument("--model", type=str, default=None, help="Path to custom GGUF model file")
     args = parser.parse_args()
 
     if args.status:
@@ -694,7 +686,7 @@ def main():
         print(f"Model path: {path}")
         print(f"Model downloaded: {'✓ yes' if is_model_downloaded(args.model) else '✗ no'}")
         if is_model_downloaded(args.model):
-            size_gb = os.path.getsize(path) / (1024 ** 3)
+            size_gb = os.path.getsize(path) / (1024**3)
             print(f"Model size: {size_gb:.2f} GB")
         print(f"Platform: {platform.system()} {platform.machine()}")
         print(f"CPU threads: {DEFAULT_N_THREADS}")
@@ -709,21 +701,23 @@ def main():
         if not llm.load():
             sys.exit(1)
         print("\n--- Test: Vulnerability Analysis ---")
-        result = llm.analyze_finding({
-            'technique': 'SQL Injection (Error-based)',
-            'url': 'https://example.com/search?q=test',
-            'param': 'q',
-            'payload': "' OR 1=1 --",
-            'evidence': 'MySQL syntax error detected',
-            'severity': 'HIGH',
-            'confidence': 0.9,
-        })
-        print(result.get('llm_analysis', 'No response'))
+        result = llm.analyze_finding(
+            {
+                "technique": "SQL Injection (Error-based)",
+                "url": "https://example.com/search?q=test",
+                "param": "q",
+                "payload": "' OR 1=1 --",
+                "evidence": "MySQL syntax error detected",
+                "severity": "HIGH",
+                "confidence": 0.9,
+            }
+        )
+        print(result.get("llm_analysis", "No response"))
         print("\n--- Test complete ---")
         return
 
     parser.print_help()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

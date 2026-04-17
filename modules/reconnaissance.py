@@ -11,22 +11,27 @@ import re
 import socket
 import subprocess
 from urllib.parse import urlparse
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 from config import Colors
 
-
 # ── WHOIS fields we care about ───────────────────────────────────────────
 _WHOIS_KEYS = {
-    'registrar',
-    'creation date', 'created',
-    'expiration date', 'expiry date', 'registry expiry date',
-    'updated date',
-    'name server', 'nserver',
-    'registrant organization', 'registrant name',
-    'registrant country',
-    'dnssec',
-    'status', 'domain status',
+    "registrar",
+    "creation date",
+    "created",
+    "expiration date",
+    "expiry date",
+    "registry expiry date",
+    "updated date",
+    "name server",
+    "nserver",
+    "registrant organization",
+    "registrant name",
+    "registrant country",
+    "dnssec",
+    "status",
+    "domain status",
 }
 
 
@@ -36,7 +41,7 @@ class ReconModule:
     def __init__(self, engine):
         self.engine = engine
         self.requester = engine.requester
-        self.verbose = engine.config.get('verbose', False)
+        self.verbose = engine.config.get("verbose", False)
 
     def run(self, target: str):
         """Run reconnaissance"""
@@ -91,7 +96,7 @@ class ReconModule:
                 print(f"{Colors.info('dnspython not installed — skipping MX/NS/TXT')}")
             return
 
-        for rtype in ('MX', 'NS', 'TXT'):
+        for rtype in ("MX", "NS", "TXT"):
             try:
                 answers = dns.resolver.resolve(domain, rtype)
                 for rdata in answers:
@@ -108,7 +113,7 @@ class ReconModule:
     def _detect_tech(self, url: str):
         """Detect technologies from HTTP headers and body."""
         try:
-            response = self.requester.request(url, 'GET')
+            response = self.requester.request(url, "GET")
             if not response:
                 return
 
@@ -116,50 +121,54 @@ class ReconModule:
             headers = response.headers
 
             # Server header
-            if 'Server' in headers:
+            if "Server" in headers:
                 tech.append(f"Server: {headers['Server']}")
 
             # X-Powered-By
-            if 'X-Powered-By' in headers:
+            if "X-Powered-By" in headers:
                 tech.append(f"Powered by: {headers['X-Powered-By']}")
 
             # Security headers (note presence / absence)
-            for hdr in ('X-Frame-Options', 'Content-Security-Policy',
-                        'Strict-Transport-Security', 'X-Content-Type-Options'):
+            for hdr in (
+                "X-Frame-Options",
+                "Content-Security-Policy",
+                "Strict-Transport-Security",
+                "X-Content-Type-Options",
+            ):
                 if hdr in headers:
                     tech.append(f"{hdr}: {headers[hdr][:80]}")
 
             # Cookies → language hints
-            if 'Set-Cookie' in headers:
-                cookies = headers['Set-Cookie']
-                if 'PHPSESSID' in cookies:
-                    tech.append('PHP')
-                if 'ASP.NET_SessionId' in cookies:
-                    tech.append('ASP.NET')
-                if 'JSESSIONID' in cookies:
-                    tech.append('Java')
-                if 'connect.sid' in cookies:
-                    tech.append('Node.js / Express')
+            if "Set-Cookie" in headers:
+                cookies = headers["Set-Cookie"]
+                if "PHPSESSID" in cookies:
+                    tech.append("PHP")
+                if "ASP.NET_SessionId" in cookies:
+                    tech.append("ASP.NET")
+                if "JSESSIONID" in cookies:
+                    tech.append("Java")
+                if "connect.sid" in cookies:
+                    tech.append("Node.js / Express")
 
             # Body analysis
             body = response.text[:5000]
 
             frameworks = {
-                'WordPress': r'/wp-content|wp-includes',
-                'Drupal': r'Drupal|drupal',
-                'Joomla': r'Joomla|joomla',
-                'React': r'react|reactjs',
-                'Angular': r'angular|ng-',
-                'Vue.js': r'vue\.js|vuejs',
-                'jQuery': r'jquery',
-                'Bootstrap': r'bootstrap',
-                'Laravel': r'laravel',
-                'Django': r'django|csrfmiddlewaretoken',
-                'Flask': r'flask',
-                'Express.js': r'express',
-                'Ruby on Rails': r'rails',
-                'Spring': r'spring',
-                'Next.js': r'_next/static|__NEXT_DATA__',
+                "WordPress": r"/wp-content|wp-includes",
+                "Drupal": r"Drupal|drupal",
+                "Joomla": r"Joomla|joomla",
+                "React": r"react|reactjs",
+                "Angular": r"angular|ng-",
+                "Vue.js": r"vue\.js|vuejs",
+                "jQuery": r"jquery",
+                "Bootstrap": r"bootstrap",
+                "Laravel": r"laravel",
+                "Django": r"django|csrfmiddlewaretoken",
+                "Flask": r"flask",
+                "Express.js": r"express",
+                "Ruby on Rails": r"rails",
+                "Spring": r"spring",
+                "Next.js": r"_next/static|__NEXT_DATA__",
             }
 
             for fw, pattern in frameworks.items():
@@ -183,7 +192,7 @@ class ReconModule:
         """Structured WHOIS lookup via system ``whois`` command."""
         try:
             result = subprocess.run(
-                ['whois', domain],
+                ["whois", domain],
                 capture_output=True,
                 text=True,
                 timeout=15,
@@ -218,41 +227,45 @@ class ReconModule:
         """SSL/TLS certificate analysis"""
         import ssl
         import socket as _socket
+
         try:
             context = ssl.create_default_context()
             with _socket.create_connection((domain, 443), timeout=5) as sock:
                 with context.wrap_socket(sock, server_hostname=domain) as ssock:
                     cert = ssock.getpeercert()
-                    
+
                     # Extract SAN
-                    san = cert.get('subjectAltName', ())
-                    san_names = [name for typ, name in san if typ == 'DNS']
-                    
+                    san = cert.get("subjectAltName", ())
+                    san_names = [name for typ, name in san if typ == "DNS"]
+
                     # Check expiry
-                    import datetime
-                    not_after = cert.get('notAfter', '')
-                    
+                    not_after = cert.get("notAfter", "")
+
                     # Certificate info
-                    issuer = dict(x[0] for x in cert.get('issuer', ()))
-                    subject = dict(x[0] for x in cert.get('subject', ()))
-                    
+                    issuer = dict(x[0] for x in cert.get("issuer", ()))
+                    subject = dict(x[0] for x in cert.get("subject", ()))
+
                     issuer_name = issuer.get("organizationName", "Unknown")
                     subject_cn = subject.get("commonName", "Unknown")
                     san_str = ", ".join(san_names[:10])
-                    
+
                     print(f"{Colors.info(f'SSL Issuer: {issuer_name}')}")
                     print(f"{Colors.info(f'SSL Subject: {subject_cn}')}")
                     print(f"{Colors.info(f'SSL Expires: {not_after}')}")
                     if san_names:
                         print(f"{Colors.info(f'SSL SANs: {san_str}')}")
-                    
+
                     # Check for weaknesses
                     if len(san_names) > 20:
                         from core.engine import Finding
+
                         finding = Finding(
                             technique="Recon (Wildcard/Many SANs)",
-                            url=f"https://{domain}", severity='INFO', confidence=0.8,
-                            param='SSL', payload=f'{len(san_names)} SANs',
+                            url=f"https://{domain}",
+                            severity="INFO",
+                            confidence=0.8,
+                            param="SSL",
+                            payload=f"{len(san_names)} SANs",
                             evidence=f"Certificate has {len(san_names)} SANs — potential shared hosting",
                         )
                         self.engine.add_finding(finding)
@@ -265,36 +278,40 @@ class ReconModule:
     def _audit_security_headers(self, url):
         """Audit HTTP security headers"""
         try:
-            response = self.requester.request(url, 'GET')
+            response = self.requester.request(url, "GET")
             if not response:
                 return
-            
+
             headers = response.headers
             missing_headers = []
-            
+
             security_headers = {
-                'Strict-Transport-Security': 'HSTS',
-                'X-Frame-Options': 'Clickjacking Protection',
-                'Content-Security-Policy': 'CSP',
-                'X-Content-Type-Options': 'MIME Sniffing Protection',
-                'Permissions-Policy': 'Permissions Policy',
-                'Referrer-Policy': 'Referrer Policy',
-                'X-XSS-Protection': 'XSS Protection',
+                "Strict-Transport-Security": "HSTS",
+                "X-Frame-Options": "Clickjacking Protection",
+                "Content-Security-Policy": "CSP",
+                "X-Content-Type-Options": "MIME Sniffing Protection",
+                "Permissions-Policy": "Permissions Policy",
+                "Referrer-Policy": "Referrer Policy",
+                "X-XSS-Protection": "XSS Protection",
             }
-            
+
             for header, description in security_headers.items():
                 if header not in headers:
                     missing_headers.append(f"{header} ({description})")
                 else:
                     print(f"{Colors.info(f'Security Header: {header}: {headers[header][:80]}')}")
-            
+
             if missing_headers:
                 from core.engine import Finding
-                severity = 'HIGH' if len(missing_headers) >= 4 else 'MEDIUM' if len(missing_headers) >= 2 else 'LOW'
+
+                severity = "HIGH" if len(missing_headers) >= 4 else "MEDIUM" if len(missing_headers) >= 2 else "LOW"
                 finding = Finding(
                     technique="Recon (Missing Security Headers)",
-                    url=url, severity=severity, confidence=0.95,
-                    param='Headers', payload=f'{len(missing_headers)} missing',
+                    url=url,
+                    severity=severity,
+                    confidence=0.95,
+                    param="Headers",
+                    payload=f"{len(missing_headers)} missing",
                     evidence=f"Missing: {'; '.join(missing_headers[:5])}",
                 )
                 self.engine.add_finding(finding)
@@ -307,41 +324,45 @@ class ReconModule:
     def _detect_subdomain_takeover(self, domain):
         """Check for subdomain takeover via dangling CNAMEs"""
         takeover_signatures = {
-            'github.io': "There isn't a GitHub Pages site here",
-            'herokuapp.com': 'No such app',
-            'amazonaws.com': 'NoSuchBucket',
-            'azure-api.net': 'not found',
-            'cloudfront.net': 'Bad request',
-            'ghost.io': 'Domain is not configured',
-            'shopify.com': 'Sorry, this shop is currently unavailable',
-            'tumblr.com': "There's nothing here",
-            'wordpress.com': 'Do you want to register',
-            'zendesk.com': 'Help Center Closed',
+            "github.io": "There isn't a GitHub Pages site here",
+            "herokuapp.com": "No such app",
+            "amazonaws.com": "NoSuchBucket",
+            "azure-api.net": "not found",
+            "cloudfront.net": "Bad request",
+            "ghost.io": "Domain is not configured",
+            "shopify.com": "Sorry, this shop is currently unavailable",
+            "tumblr.com": "There's nothing here",
+            "wordpress.com": "Do you want to register",
+            "zendesk.com": "Help Center Closed",
         }
-        
+
         try:
             import dns.resolver
         except ImportError:
             return
-        
-        subdomains = ['www', 'mail', 'blog', 'dev', 'staging', 'api', 'cdn', 'admin']
-        
+
+        subdomains = ["www", "mail", "blog", "dev", "staging", "api", "cdn", "admin"]
+
         for sub in subdomains:
             fqdn = f"{sub}.{domain}"
             try:
-                answers = dns.resolver.resolve(fqdn, 'CNAME')
+                answers = dns.resolver.resolve(fqdn, "CNAME")
                 for rdata in answers:
-                    cname = str(rdata.target).rstrip('.')
+                    cname = str(rdata.target).rstrip(".")
                     for service, signature in takeover_signatures.items():
                         if service in cname:
                             try:
-                                resp = self.requester.request(f"http://{fqdn}", 'GET')
+                                resp = self.requester.request(f"http://{fqdn}", "GET")
                                 if resp and signature.lower() in resp.text.lower():
                                     from core.engine import Finding
+
                                     finding = Finding(
                                         technique="Recon (Subdomain Takeover)",
-                                        url=f"http://{fqdn}", severity='HIGH', confidence=0.85,
-                                        param='CNAME', payload=cname,
+                                        url=f"http://{fqdn}",
+                                        severity="HIGH",
+                                        confidence=0.85,
+                                        param="CNAME",
+                                        payload=cname,
                                         evidence=f"CNAME points to {service} which shows: {signature}",
                                     )
                                     self.engine.add_finding(finding)
@@ -355,43 +376,47 @@ class ReconModule:
     def _detect_cloud_assets(self, url):
         """Detect cloud storage assets (S3, Azure Blobs, GCP)"""
         try:
-            response = self.requester.request(url, 'GET')
+            response = self.requester.request(url, "GET")
             if not response:
                 return
-            
+
             text = response.text
             cloud_patterns = {
-                'AWS S3': [
-                    r'https?://[\w.-]+\.s3[\w.-]*\.amazonaws\.com',
-                    r'https?://s3[\w.-]*\.amazonaws\.com/[\w.-]+',
-                    r's3://[\w.-]+',
+                "AWS S3": [
+                    r"https?://[\w.-]+\.s3[\w.-]*\.amazonaws\.com",
+                    r"https?://s3[\w.-]*\.amazonaws\.com/[\w.-]+",
+                    r"s3://[\w.-]+",
                 ],
-                'Azure Blob': [
-                    r'https?://[\w.-]+\.blob\.core\.windows\.net',
+                "Azure Blob": [
+                    r"https?://[\w.-]+\.blob\.core\.windows\.net",
                 ],
-                'GCP Storage': [
-                    r'https?://storage\.googleapis\.com/[\w.-]+',
-                    r'https?://[\w.-]+\.storage\.googleapis\.com',
-                    r'gs://[\w.-]+',
+                "GCP Storage": [
+                    r"https?://storage\.googleapis\.com/[\w.-]+",
+                    r"https?://[\w.-]+\.storage\.googleapis\.com",
+                    r"gs://[\w.-]+",
                 ],
             }
-            
+
             found = {}
             for provider, patterns in cloud_patterns.items():
                 for pattern in patterns:
                     matches = re.findall(pattern, text)
                     if matches:
                         found.setdefault(provider, []).extend(matches[:3])
-            
+
             if found:
                 all_assets = []
                 for provider, assets in found.items():
                     all_assets.extend([f"{provider}: {a}" for a in assets])
                 from core.engine import Finding
+
                 finding = Finding(
                     technique="Recon (Cloud Asset Detection)",
-                    url=url, severity='INFO', confidence=0.9,
-                    param='N/A', payload=f'{len(all_assets)} assets',
+                    url=url,
+                    severity="INFO",
+                    confidence=0.9,
+                    param="N/A",
+                    payload=f"{len(all_assets)} assets",
                     evidence="; ".join(all_assets[:5]),
                 )
                 self.engine.add_finding(finding)
@@ -404,33 +429,46 @@ class ReconModule:
         """Detect API versioning and enumerate endpoints"""
         base_url = f"{urlparse(url).scheme}://{urlparse(url).netloc}"
         api_paths = [
-            '/api', '/api/v1', '/api/v2', '/api/v3',
-            '/api/docs', '/api/swagger', '/api/openapi',
-            '/swagger.json', '/openapi.json',
-            '/graphql', '/graphiql',
-            '/api/health', '/api/status', '/api/version',
-            '/.well-known/openid-configuration',
+            "/api",
+            "/api/v1",
+            "/api/v2",
+            "/api/v3",
+            "/api/docs",
+            "/api/swagger",
+            "/api/openapi",
+            "/swagger.json",
+            "/openapi.json",
+            "/graphql",
+            "/graphiql",
+            "/api/health",
+            "/api/status",
+            "/api/version",
+            "/.well-known/openid-configuration",
         ]
-        
+
         found_endpoints = []
         for path in api_paths:
             try:
                 test_url = f"{base_url}{path}"
-                response = self.requester.request(test_url, 'GET')
+                response = self.requester.request(test_url, "GET")
                 if response and response.status_code in (200, 301, 302):
                     found_endpoints.append(f"{path} ({response.status_code})")
             except Exception:
                 continue
-        
+
         if found_endpoints:
             print(f"{Colors.info(f'API Endpoints: {len(found_endpoints)} found')}")
             for ep in found_endpoints:
                 print(f"  {Colors.info(ep)}")
             from core.engine import Finding
+
             finding = Finding(
                 technique="Recon (API Endpoint Enumeration)",
-                url=base_url, severity='INFO', confidence=0.85,
-                param='N/A', payload=f'{len(found_endpoints)} endpoints',
+                url=base_url,
+                severity="INFO",
+                confidence=0.85,
+                param="N/A",
+                payload=f"{len(found_endpoints)} endpoints",
                 evidence="; ".join(found_endpoints[:5]),
             )
             self.engine.add_finding(finding)
@@ -444,16 +482,16 @@ class ReconModule:
             import json as _json
 
             url = f"https://crt.sh/?q=%25.{domain}&output=json"
-            req = Request(url, headers={'User-Agent': 'ATOMIC-Framework/10.0'})
+            req = Request(url, headers={"User-Agent": "ATOMIC-Framework/10.0"})
             with urlopen(req, timeout=15) as resp:
-                data = _json.loads(resp.read().decode('utf-8', errors='replace'))
+                data = _json.loads(resp.read().decode("utf-8", errors="replace"))
 
             subdomains = set()
             for entry in data:
-                name = entry.get('name_value', '')
-                for line in name.split('\n'):
+                name = entry.get("name_value", "")
+                for line in name.split("\n"):
                     line = line.strip().lower()
-                    if line and '*' not in line and domain in line:
+                    if line and "*" not in line and domain in line:
                         subdomains.add(line)
 
             if subdomains:
@@ -461,10 +499,14 @@ class ReconModule:
                 for sub in sorted(subdomains)[:20]:
                     print(f"  - {sub}")
                 from core.engine import Finding
+
                 finding = Finding(
                     technique="Recon (Certificate Transparency)",
-                    url=f"https://{domain}", severity='INFO', confidence=0.9,
-                    param='N/A', payload=f'{len(subdomains)} subdomains',
+                    url=f"https://{domain}",
+                    severity="INFO",
+                    confidence=0.9,
+                    param="N/A",
+                    payload=f"{len(subdomains)} subdomains",
                     evidence=f"CT subdomains: {', '.join(sorted(subdomains)[:10])}",
                 )
                 self.engine.add_finding(finding)
@@ -489,8 +531,8 @@ class ReconModule:
             return
 
         try:
-            ns_records = dns.resolver.resolve(domain, 'NS')
-            nameservers = [str(rdata.target).rstrip('.') for rdata in ns_records]
+            ns_records = dns.resolver.resolve(domain, "NS")
+            nameservers = [str(rdata.target).rstrip(".") for rdata in ns_records]
         except Exception:
             return
 
@@ -510,12 +552,16 @@ class ReconModule:
                         print(f"  {rec}")
 
                     from core.engine import Finding
+
                     finding = Finding(
                         technique="Recon (DNS Zone Transfer)",
-                        url=f"dns://{ns}", severity='HIGH', confidence=0.95,
-                        param='AXFR', payload=ns,
+                        url=f"dns://{ns}",
+                        severity="HIGH",
+                        confidence=0.95,
+                        param="AXFR",
+                        payload=ns,
                         evidence=f"Zone transfer from {ns}: {len(records)} records. "
-                                 f"Sample: {'; '.join(records[:5])}",
+                        f"Sample: {'; '.join(records[:5])}",
                     )
                     self.engine.add_finding(finding)
                     return  # One successful transfer is enough
@@ -530,11 +576,11 @@ class ReconModule:
         parsed: Dict[str, str] = {}
         for line in raw.splitlines():
             line = line.strip()
-            if not line or line.startswith('%') or line.startswith('#'):
+            if not line or line.startswith("%") or line.startswith("#"):
                 continue
-            if ':' not in line:
+            if ":" not in line:
                 continue
-            key, _, value = line.partition(':')
+            key, _, value = line.partition(":")
             key_lower = key.strip().lower()
             value = value.strip()
             if not value:

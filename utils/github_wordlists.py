@@ -20,10 +20,8 @@ Supported repositories
 
 import hashlib
 import os
-import re
 import time
 from typing import Dict, List, Optional, Set
-from urllib.parse import quote
 
 from config import Config
 
@@ -32,40 +30,36 @@ _RAW_GITHUB = "https://raw.githubusercontent.com"
 
 _REPO_URLS: Dict[str, str] = {
     # SecLists — Discovery / Fuzzing
-    "seclists_common":        f"{_RAW_GITHUB}/danielmiessler/SecLists/master/Discovery/Web-Content/common.txt",
-    "seclists_big":           f"{_RAW_GITHUB}/danielmiessler/SecLists/master/Discovery/Web-Content/big.txt",
-    "seclists_raft_dirs":     f"{_RAW_GITHUB}/danielmiessler/SecLists/master/Discovery/Web-Content/raft-large-directories.txt",
-    "seclists_raft_files":    f"{_RAW_GITHUB}/danielmiessler/SecLists/master/Discovery/Web-Content/raft-large-files.txt",
-    "seclists_params":        f"{_RAW_GITHUB}/danielmiessler/SecLists/master/Discovery/Web-Content/burp-parameter-names.txt",
+    "seclists_common": f"{_RAW_GITHUB}/danielmiessler/SecLists/master/Discovery/Web-Content/common.txt",
+    "seclists_big": f"{_RAW_GITHUB}/danielmiessler/SecLists/master/Discovery/Web-Content/big.txt",
+    "seclists_raft_dirs": f"{_RAW_GITHUB}/danielmiessler/SecLists/master/Discovery/Web-Content/raft-large-directories.txt",
+    "seclists_raft_files": f"{_RAW_GITHUB}/danielmiessler/SecLists/master/Discovery/Web-Content/raft-large-files.txt",
+    "seclists_params": f"{_RAW_GITHUB}/danielmiessler/SecLists/master/Discovery/Web-Content/burp-parameter-names.txt",
     "seclists_api_endpoints": f"{_RAW_GITHUB}/danielmiessler/SecLists/master/Discovery/Web-Content/api/api-endpoints.txt",
-    "seclists_api_objects":   f"{_RAW_GITHUB}/danielmiessler/SecLists/master/Discovery/Web-Content/api/objects.txt",
-
+    "seclists_api_objects": f"{_RAW_GITHUB}/danielmiessler/SecLists/master/Discovery/Web-Content/api/objects.txt",
     # SecLists — Fuzzing category
-    "seclists_lfi_linux":     f"{_RAW_GITHUB}/danielmiessler/SecLists/master/Fuzzing/LFI/LFI-Jhaddix.txt",
-    "seclists_sqli":          f"{_RAW_GITHUB}/danielmiessler/SecLists/master/Fuzzing/SQLi/Generic-SQLi.txt",
-    "seclists_xss":           f"{_RAW_GITHUB}/danielmiessler/SecLists/master/Fuzzing/XSS/XSS-BruteLogic.txt",
-    "seclists_ssrf":          f"{_RAW_GITHUB}/danielmiessler/SecLists/master/Fuzzing/SSRFmap-payload.txt",
-    "seclists_ssti":          f"{_RAW_GITHUB}/danielmiessler/SecLists/master/Fuzzing/template-engines-special-vars.txt",
-    "seclists_user_agents":   f"{_RAW_GITHUB}/danielmiessler/SecLists/master/Fuzzing/User-Agents/operating-system-name/linux-based.txt",
-
+    "seclists_lfi_linux": f"{_RAW_GITHUB}/danielmiessler/SecLists/master/Fuzzing/LFI/LFI-Jhaddix.txt",
+    "seclists_sqli": f"{_RAW_GITHUB}/danielmiessler/SecLists/master/Fuzzing/SQLi/Generic-SQLi.txt",
+    "seclists_xss": f"{_RAW_GITHUB}/danielmiessler/SecLists/master/Fuzzing/XSS/XSS-BruteLogic.txt",
+    "seclists_ssrf": f"{_RAW_GITHUB}/danielmiessler/SecLists/master/Fuzzing/SSRFmap-payload.txt",
+    "seclists_ssti": f"{_RAW_GITHUB}/danielmiessler/SecLists/master/Fuzzing/template-engines-special-vars.txt",
+    "seclists_user_agents": f"{_RAW_GITHUB}/danielmiessler/SecLists/master/Fuzzing/User-Agents/operating-system-name/linux-based.txt",
     # PayloadsAllTheThings
-    "patt_sqli":              f"{_RAW_GITHUB}/swisskyrepo/PayloadsAllTheThings/master/SQL%20Injection/Intruder/Auth_Bypass.txt",
-    "patt_xss":               f"{_RAW_GITHUB}/swisskyrepo/PayloadsAllTheThings/master/XSS%20Injection/Intruder/IntruderXSS.txt",
-    "patt_ssti":              f"{_RAW_GITHUB}/swisskyrepo/PayloadsAllTheThings/master/Server%20Side%20Template%20Injection/Intruder/ssti.txt",
-    "patt_ssrf":              f"{_RAW_GITHUB}/swisskyrepo/PayloadsAllTheThings/master/Server%20Side%20Request%20Forgery/Intruder/SSRF.txt",
-    "patt_lfi":               f"{_RAW_GITHUB}/swisskyrepo/PayloadsAllTheThings/master/File%20Inclusion/Intruder/Traversals.txt",
-    "patt_cmdi":              f"{_RAW_GITHUB}/swisskyrepo/PayloadsAllTheThings/master/Command%20Injection/Intruder/command-execution.txt",
-    "patt_xxe":               f"{_RAW_GITHUB}/swisskyrepo/PayloadsAllTheThings/master/XXE%20Injection/Intruder/xxe.txt",
-    "patt_open_redirect":     f"{_RAW_GITHUB}/swisskyrepo/PayloadsAllTheThings/master/Open%20Redirect/Intruder/Open-Redirect-payloads.txt",
-    "patt_crlf":              f"{_RAW_GITHUB}/swisskyrepo/PayloadsAllTheThings/master/CRLF%20Injection/Intruder/CRLF.txt",
-    "patt_nosql":             f"{_RAW_GITHUB}/swisskyrepo/PayloadsAllTheThings/master/NoSQL%20Injection/Intruder/NoSQL.txt",
-
+    "patt_sqli": f"{_RAW_GITHUB}/swisskyrepo/PayloadsAllTheThings/master/SQL%20Injection/Intruder/Auth_Bypass.txt",
+    "patt_xss": f"{_RAW_GITHUB}/swisskyrepo/PayloadsAllTheThings/master/XSS%20Injection/Intruder/IntruderXSS.txt",
+    "patt_ssti": f"{_RAW_GITHUB}/swisskyrepo/PayloadsAllTheThings/master/Server%20Side%20Template%20Injection/Intruder/ssti.txt",
+    "patt_ssrf": f"{_RAW_GITHUB}/swisskyrepo/PayloadsAllTheThings/master/Server%20Side%20Request%20Forgery/Intruder/SSRF.txt",
+    "patt_lfi": f"{_RAW_GITHUB}/swisskyrepo/PayloadsAllTheThings/master/File%20Inclusion/Intruder/Traversals.txt",
+    "patt_cmdi": f"{_RAW_GITHUB}/swisskyrepo/PayloadsAllTheThings/master/Command%20Injection/Intruder/command-execution.txt",
+    "patt_xxe": f"{_RAW_GITHUB}/swisskyrepo/PayloadsAllTheThings/master/XXE%20Injection/Intruder/xxe.txt",
+    "patt_open_redirect": f"{_RAW_GITHUB}/swisskyrepo/PayloadsAllTheThings/master/Open%20Redirect/Intruder/Open-Redirect-payloads.txt",
+    "patt_crlf": f"{_RAW_GITHUB}/swisskyrepo/PayloadsAllTheThings/master/CRLF%20Injection/Intruder/CRLF.txt",
+    "patt_nosql": f"{_RAW_GITHUB}/swisskyrepo/PayloadsAllTheThings/master/NoSQL%20Injection/Intruder/NoSQL.txt",
     # fuzzdb — discovery & attack
-    "fuzzdb_dirs":            f"{_RAW_GITHUB}/fuzzdb-project/fuzzdb/master/discovery/predictable-filepaths/filename-dirname-bruteforce/raft-large-directories.txt",
-    "fuzzdb_extensions":      f"{_RAW_GITHUB}/fuzzdb-project/fuzzdb/master/discovery/predictable-filepaths/filename-dirname-bruteforce/raft-large-extensions.txt",
-
+    "fuzzdb_dirs": f"{_RAW_GITHUB}/fuzzdb-project/fuzzdb/master/discovery/predictable-filepaths/filename-dirname-bruteforce/raft-large-directories.txt",
+    "fuzzdb_extensions": f"{_RAW_GITHUB}/fuzzdb-project/fuzzdb/master/discovery/predictable-filepaths/filename-dirname-bruteforce/raft-large-extensions.txt",
     # dirsearch default wordlist
-    "dirsearch_default":      f"{_RAW_GITHUB}/maurosoria/dirsearch/master/db/dicc.txt",
+    "dirsearch_default": f"{_RAW_GITHUB}/maurosoria/dirsearch/master/db/dicc.txt",
 }
 
 
@@ -83,6 +77,7 @@ def _http_get(url: str, timeout: int = 20) -> Optional[str]:
     """
     try:
         from urllib.request import Request, urlopen
+
         req = Request(url)
         req.add_header("User-Agent", "ATOMIC-Framework/9.0")
         if Config.GITHUB_TOKEN:
@@ -94,6 +89,7 @@ def _http_get(url: str, timeout: int = 20) -> Optional[str]:
 
 
 # ─── Public API ──────────────────────────────────────────────────────────
+
 
 def fetch_wordlist(name: str, *, max_lines: int = 0) -> List[str]:
     """Return lines from a named wordlist, fetching & caching as needed.
@@ -126,7 +122,7 @@ def fetch_wordlist(name: str, *, max_lines: int = 0) -> List[str]:
         if age < _CACHE_TTL_SECONDS:
             try:
                 with open(cache_path, "r", errors="ignore") as fh:
-                    lines = [l.strip() for l in fh if l.strip() and not l.startswith("#")]
+                    lines = [line.strip() for line in fh if line.strip() and not line.startswith("#")]
                 return lines[:max_lines] if max_lines > 0 else lines
             except Exception:
                 pass
@@ -138,7 +134,7 @@ def fetch_wordlist(name: str, *, max_lines: int = 0) -> List[str]:
         if os.path.isfile(cache_path):
             try:
                 with open(cache_path, "r", errors="ignore") as fh:
-                    lines = [l.strip() for l in fh if l.strip() and not l.startswith("#")]
+                    lines = [line.strip() for line in fh if line.strip() and not line.startswith("#")]
                 return lines[:max_lines] if max_lines > 0 else lines
             except Exception:
                 pass
@@ -151,7 +147,7 @@ def fetch_wordlist(name: str, *, max_lines: int = 0) -> List[str]:
     except Exception:
         pass
 
-    lines = [l.strip() for l in body.splitlines() if l.strip() and not l.startswith("#")]
+    lines = [line.strip() for line in body.splitlines() if line.strip() and not line.startswith("#")]
     return lines[:max_lines] if max_lines > 0 else lines
 
 

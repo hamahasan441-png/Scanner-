@@ -23,7 +23,6 @@ Note:
 from __future__ import annotations
 
 import socket
-import struct
 from typing import Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 
@@ -77,9 +76,7 @@ _UDP_PROBES: Dict[int, bytes] = {
         b"\x00\x01\x00\x00\x00\x00\x00\x00"
         b"\x07version\x04bind\x00\x00\x10\x00\x03"
     ),
-    123: (  # NTP version request (mode 3 client)
-        b"\x1b" + b"\x00" * 47
-    ),
+    123: (b"\x1b" + b"\x00" * 47),  # NTP version request (mode 3 client)
     161: (  # SNMP v1 GetRequest for sysDescr (public community)
         b"\x30\x26\x02\x01\x00\x04\x06public"
         b"\xa0\x19\x02\x04\x00\x00\x00\x01"
@@ -89,7 +86,7 @@ _UDP_PROBES: Dict[int, bytes] = {
     1900: (  # SSDP M-SEARCH
         b"M-SEARCH * HTTP/1.1\r\n"
         b"HOST: 239.255.255.250:1900\r\n"
-        b"MAN: \"ssdp:discover\"\r\n"
+        b'MAN: "ssdp:discover"\r\n'
         b"MX: 1\r\n"
         b"ST: ssdp:all\r\n\r\n"
     ),
@@ -97,12 +94,12 @@ _UDP_PROBES: Dict[int, bytes] = {
 
 # ── OS fingerprint signatures (TTL + window size heuristics) ─────────────
 _OS_SIGNATURES: List[Dict] = [
-    {"os": "Linux",   "ttl_range": (60, 64),   "window_sizes": {5840, 14600, 29200, 65535}},
-    {"os": "Windows", "ttl_range": (125, 128),  "window_sizes": {8192, 16384, 65535}},
-    {"os": "macOS",   "ttl_range": (60, 64),    "window_sizes": {65535}},
-    {"os": "FreeBSD", "ttl_range": (60, 64),    "window_sizes": {65535}},
-    {"os": "Cisco",   "ttl_range": (252, 255),  "window_sizes": {4128}},
-    {"os": "Solaris", "ttl_range": (252, 255),  "window_sizes": {8760, 33304}},
+    {"os": "Linux", "ttl_range": (60, 64), "window_sizes": {5840, 14600, 29200, 65535}},
+    {"os": "Windows", "ttl_range": (125, 128), "window_sizes": {8192, 16384, 65535}},
+    {"os": "macOS", "ttl_range": (60, 64), "window_sizes": {65535}},
+    {"os": "FreeBSD", "ttl_range": (60, 64), "window_sizes": {65535}},
+    {"os": "Cisco", "ttl_range": (252, 255), "window_sizes": {4128}},
+    {"os": "Solaris", "ttl_range": (252, 255), "window_sizes": {8760, 33304}},
 ]
 
 
@@ -197,9 +194,7 @@ class ScapyCrawler:
             result["udp_results"] = self._udp_scan(host)
             open_udp = [r for r in result["udp_results"] if r["state"] == "open"]
             udp_total = len(result["udp_results"])
-            print(
-                Colors.info(f"UDP scan complete: {len(open_udp)} open / {udp_total} probed")
-            )
+            print(Colors.info(f"UDP scan complete: {len(open_udp)} open / {udp_total} probed"))
 
         # OS fingerprinting (uses data from SYN scan responses)
         if os_detect:
@@ -255,9 +250,7 @@ class ScapyCrawler:
                         "banner": "",
                         "protocol": "tcp",
                         "scan_type": "syn",
-                        "window_size": (
-                            received[TCP].window if TCP in received else 0
-                        ),
+                        "window_size": (received[TCP].window if TCP in received else 0),
                         "ttl": received[IP].ttl if IP in received else 0,
                     }
                     results.append(entry)
@@ -268,9 +261,7 @@ class ScapyCrawler:
 
         except PermissionError:
             if self.verbose:
-                print(
-                    f"{Colors.warning('SYN scan requires root — falling back to connect scan')}"
-                )
+                print(f"{Colors.warning('SYN scan requires root — falling back to connect scan')}")
             results = self._connect_fallback(host, ports)
         except Exception as e:
             if self.verbose:
@@ -325,15 +316,11 @@ class ScapyCrawler:
                 )
 
                 if state == "open":
-                    print(
-                        f"  {Colors.GREEN}OPEN{Colors.RESET}  {port:>5}/udp  {service}"
-                    )
+                    print(f"  {Colors.GREEN}OPEN{Colors.RESET}  {port:>5}/udp  {service}")
 
             except PermissionError:
                 if self.verbose:
-                    print(
-                        f"{Colors.warning(f'UDP scan port {port} requires root — skipped')}"
-                    )
+                    print(f"{Colors.warning(f'UDP scan port {port} requires root — skipped')}")
             except Exception as e:
                 if self.verbose:
                     print(f"{Colors.error(f'UDP scan port {port} error: {e}')}")
@@ -477,9 +464,7 @@ class ScapyCrawler:
                 sock.close()
 
                 svc = entry["service"]
-                print(
-                    f"  {Colors.GREEN}OPEN{Colors.RESET}  {port:>5}/tcp  {svc}"
-                )
+                print(f"  {Colors.GREEN}OPEN{Colors.RESET}  {port:>5}/tcp  {svc}")
             except (socket.timeout, ConnectionRefusedError, OSError):
                 pass
 
@@ -595,9 +580,7 @@ class StealthPortScanner:
         print(f"{Colors.BOLD}{'─' * 60}{Colors.RESET}")
         return results
 
-    def _stealth_scan(
-        self, host: str, ports: List[int], flags: str, label: str
-    ) -> List[Dict]:
+    def _stealth_scan(self, host: str, ports: List[int], flags: str, label: str) -> List[Dict]:
         """Generic stealth scan: send packet with *flags* and interpret silence vs RST."""
         open_filtered: List[Dict] = []
         print(f"  {Colors.CYAN}[{label}]{Colors.RESET} Scanning {len(ports)} ports...")
@@ -609,29 +592,31 @@ class StealthPortScanner:
             # Unanswered → open|filtered (no RST came back)
             for sent in unanswered:
                 port = sent[TCP].dport
-                open_filtered.append({
-                    "port": port,
-                    "state": "open|filtered",
-                    "service": WELL_KNOWN_PORTS.get(port, "unknown"),
-                    "scan_type": label.lower(),
-                })
+                open_filtered.append(
+                    {
+                        "port": port,
+                        "state": "open|filtered",
+                        "service": WELL_KNOWN_PORTS.get(port, "unknown"),
+                        "scan_type": label.lower(),
+                    }
+                )
 
             # Answered with RST → closed (skip)
             # Answered with ICMP unreachable → filtered
             for sent, received in answered:
                 port = sent[TCP].dport
                 if received.haslayer(ICMP):
-                    open_filtered.append({
-                        "port": port,
-                        "state": "filtered",
-                        "service": WELL_KNOWN_PORTS.get(port, "unknown"),
-                        "scan_type": label.lower(),
-                    })
+                    open_filtered.append(
+                        {
+                            "port": port,
+                            "state": "filtered",
+                            "service": WELL_KNOWN_PORTS.get(port, "unknown"),
+                            "scan_type": label.lower(),
+                        }
+                    )
 
             if open_filtered:
-                print(
-                    f"    {Colors.GREEN}{len(open_filtered)} open|filtered{Colors.RESET}"
-                )
+                print(f"    {Colors.GREEN}{len(open_filtered)} open|filtered{Colors.RESET}")
 
         except PermissionError:
             print(f"    {Colors.warning(f'{label} scan requires root — skipped')}")
@@ -755,16 +740,75 @@ class DNSReconScanner:
 
     # Common subdomain prefixes for brute-force
     _SUBDOMAIN_WORDLIST: List[str] = [
-        "www", "mail", "ftp", "admin", "api", "dev", "staging", "test",
-        "beta", "portal", "vpn", "remote", "ns1", "ns2", "mx", "smtp",
-        "pop", "imap", "webmail", "cloud", "cdn", "static", "assets",
-        "media", "blog", "shop", "store", "app", "m", "mobile",
-        "intranet", "internal", "git", "gitlab", "jenkins", "ci", "cd",
-        "docker", "k8s", "monitor", "grafana", "kibana", "elastic",
-        "redis", "db", "database", "backup", "vault", "sso", "auth",
-        "login", "secure", "proxy", "gateway", "edge", "lb", "web",
-        "www2", "owa", "exchange", "autodiscover", "cpanel", "whm",
-        "status", "help", "support", "docs", "wiki", "jira",
+        "www",
+        "mail",
+        "ftp",
+        "admin",
+        "api",
+        "dev",
+        "staging",
+        "test",
+        "beta",
+        "portal",
+        "vpn",
+        "remote",
+        "ns1",
+        "ns2",
+        "mx",
+        "smtp",
+        "pop",
+        "imap",
+        "webmail",
+        "cloud",
+        "cdn",
+        "static",
+        "assets",
+        "media",
+        "blog",
+        "shop",
+        "store",
+        "app",
+        "m",
+        "mobile",
+        "intranet",
+        "internal",
+        "git",
+        "gitlab",
+        "jenkins",
+        "ci",
+        "cd",
+        "docker",
+        "k8s",
+        "monitor",
+        "grafana",
+        "kibana",
+        "elastic",
+        "redis",
+        "db",
+        "database",
+        "backup",
+        "vault",
+        "sso",
+        "auth",
+        "login",
+        "secure",
+        "proxy",
+        "gateway",
+        "edge",
+        "lb",
+        "web",
+        "www2",
+        "owa",
+        "exchange",
+        "autodiscover",
+        "cpanel",
+        "whm",
+        "status",
+        "help",
+        "support",
+        "docs",
+        "wiki",
+        "jira",
     ]
 
     def __init__(self, engine):
@@ -889,8 +933,7 @@ SCAPY_VULN_DB: List[Dict] = [
         "id": "SVD-002",
         "title": "Predictable IP ID Sequence",
         "description": (
-            "IP ID values increment sequentially, enabling idle-scan "
-            "attacks and traffic-volume inference."
+            "IP ID values increment sequentially, enabling idle-scan " "attacks and traffic-volume inference."
         ),
         "severity": "LOW",
         "cvss": 3.7,
@@ -929,8 +972,7 @@ SCAPY_VULN_DB: List[Dict] = [
         "id": "SVD-005",
         "title": "IP Fragmentation Reassembly Accepted",
         "description": (
-            "Target reassembles fragmented IP packets, which can be "
-            "exploited for firewall evasion and IDS bypass."
+            "Target reassembles fragmented IP packets, which can be " "exploited for firewall evasion and IDS bypass."
         ),
         "severity": "LOW",
         "cvss": 3.1,
@@ -1259,6 +1301,7 @@ class ScapyVulnScanner:
         """Register the finding with the engine."""
         try:
             from core.engine import Finding
+
             finding = Finding(
                 technique=f"Network Vuln: {vuln['title']}",
                 url=f"tcp://{host}",
@@ -1501,7 +1544,9 @@ class ScapyAttackChain:
             print(f"    {Colors.YELLOW}→ Stopped at step {done}/{total}{Colors.RESET}")
 
     def _dispatch_step(
-        self, action: str, context: Dict,
+        self,
+        action: str,
+        context: Dict,
     ) -> Tuple[bool, Optional[Dict]]:
         """Route *action* to the appropriate handler."""
         handlers = {
@@ -1612,6 +1657,7 @@ class ScapyAttackChain:
             return False, None
         try:
             from modules.network_exploits import NetworkExploitScanner
+
             scanner = NetworkExploitScanner(self.engine)
             exploits = scanner.run(host, port_results)
             return bool(exploits), {"exploit_findings": exploits}
@@ -1660,11 +1706,13 @@ class ScapyAttackChain:
         for r in port_results:
             port = r.get("port", 0)
             if port in _CLEARTEXT_PORTS and r.get("state") == "open":
-                cleartext.append({
-                    "port": port,
-                    "service": _CLEARTEXT_PORTS[port],
-                    "risk": "Credentials may be transmitted in cleartext",
-                })
+                cleartext.append(
+                    {
+                        "port": port,
+                        "service": _CLEARTEXT_PORTS[port],
+                        "risk": "Credentials may be transmitted in cleartext",
+                    }
+                )
         ctx["cleartext_services"] = cleartext
         return bool(cleartext), {"cleartext_services": cleartext}
 
@@ -1686,11 +1734,13 @@ class ScapyAttackChain:
                     banner = sock.recv(1024).decode("utf-8", errors="replace").strip()[:120]
                 except (socket.timeout, OSError):
                     banner = ""
-                probed.append({
-                    "port": port,
-                    "service": svc["service"],
-                    "banner": banner,
-                })
+                probed.append(
+                    {
+                        "port": port,
+                        "service": svc["service"],
+                        "banner": banner,
+                    }
+                )
                 sock.close()
             except (socket.timeout, ConnectionRefusedError, OSError):
                 pass
@@ -1728,9 +1778,8 @@ class ScapyAttackChain:
         """Register a completed chain as a CRITICAL finding."""
         try:
             from core.engine import Finding
-            steps_desc = " → ".join(
-                s["desc"] for s in template["steps"]
-            )
+
+            steps_desc = " → ".join(s["desc"] for s in template["steps"])
             finding = Finding(
                 technique=f"Network Attack Chain: {template['name']}",
                 url=f"tcp://{self.engine.config.get('target', '')}",

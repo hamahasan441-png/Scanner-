@@ -15,8 +15,6 @@ import urllib.error
 from datetime import datetime, timezone
 from dataclasses import dataclass, field
 from typing import Optional, List, Dict
-from urllib.parse import urlparse
-
 
 # Maximum proxy history entries before oldest are discarded
 MAX_HISTORY_SIZE = 10000
@@ -28,32 +26,35 @@ UPSTREAM_TIMEOUT = 30
 @dataclass
 class ProxyRequest:
     """Captured HTTP request."""
+
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    method: str = ''
-    url: str = ''
+    method: str = ""
+    url: str = ""
     headers: Dict[str, str] = field(default_factory=dict)
-    body: str = ''
+    body: str = ""
     timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
-    client_address: str = ''
+    client_address: str = ""
 
 
 @dataclass
 class ProxyResponse:
     """Captured HTTP response."""
+
     status_code: int = 0
     headers: Dict[str, str] = field(default_factory=dict)
-    body: str = ''
+    body: str = ""
     elapsed: float = 0.0
 
 
 @dataclass
 class ProxyHistoryEntry:
     """Single request/response pair in the proxy history."""
+
     request: ProxyRequest = field(default_factory=ProxyRequest)
     response: Optional[ProxyResponse] = None
     intercepted: bool = False
     modified: bool = False
-    notes: str = ''
+    notes: str = ""
 
 
 class _PendingIntercept:
@@ -62,7 +63,7 @@ class _PendingIntercept:
     def __init__(self, proxy_request: ProxyRequest):
         self.proxy_request = proxy_request
         self.event = threading.Event()
-        self.action: Optional[str] = None          # 'forward' or 'drop'
+        self.action: Optional[str] = None  # 'forward' or 'drop'
         self.modified_request: Optional[dict] = None
 
 
@@ -77,39 +78,39 @@ class _ProxyHandler(http.server.BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         pass
 
-    def _get_proxy(self) -> 'InterceptProxy':
+    def _get_proxy(self) -> "InterceptProxy":
         return self.server.proxy  # type: ignore[attr-defined]
 
     # --- HTTP verb handlers ---------------------------------------------------
 
     def do_GET(self):
-        self._handle_request('GET')
+        self._handle_request("GET")
 
     def do_POST(self):
-        self._handle_request('POST')
+        self._handle_request("POST")
 
     def do_PUT(self):
-        self._handle_request('PUT')
+        self._handle_request("PUT")
 
     def do_DELETE(self):
-        self._handle_request('DELETE')
+        self._handle_request("DELETE")
 
     def do_PATCH(self):
-        self._handle_request('PATCH')
+        self._handle_request("PATCH")
 
     def do_HEAD(self):
-        self._handle_request('HEAD')
+        self._handle_request("HEAD")
 
     def do_OPTIONS(self):
-        self._handle_request('OPTIONS')
+        self._handle_request("OPTIONS")
 
     # --- Core forwarding logic ------------------------------------------------
 
     def _read_body(self) -> str:
-        length = int(self.headers.get('Content-Length', 0))
+        length = int(self.headers.get("Content-Length", 0))
         if length > 0:
-            return self.rfile.read(length).decode('utf-8', errors='replace')
-        return ''
+            return self.rfile.read(length).decode("utf-8", errors="replace")
+        return ""
 
     def _collect_headers(self) -> Dict[str, str]:
         result: Dict[str, str] = {}
@@ -122,7 +123,7 @@ class _ProxyHandler(http.server.BaseHTTPRequestHandler):
 
         body = self._read_body()
         headers = self._collect_headers()
-        client = f'{self.client_address[0]}:{self.client_address[1]}'
+        client = f"{self.client_address[0]}:{self.client_address[1]}"
 
         proxy_req = ProxyRequest(
             id=str(uuid.uuid4()),
@@ -148,25 +149,25 @@ class _ProxyHandler(http.server.BaseHTTPRequestHandler):
             # Block until analyst decides
             pending.event.wait()
 
-            if pending.action == 'drop':
+            if pending.action == "drop":
                 entry = ProxyHistoryEntry(
                     request=proxy_req,
                     response=None,
                     intercepted=True,
                     modified=was_modified,
-                    notes='Dropped by analyst',
+                    notes="Dropped by analyst",
                 )
                 proxy._add_history(entry)
-                self.send_error(444, 'Request dropped')
+                self.send_error(444, "Request dropped")
                 return
 
             if pending.modified_request is not None:
                 was_modified = True
                 mod = pending.modified_request
-                proxy_req.method = mod.get('method', proxy_req.method)
-                proxy_req.url = mod.get('url', proxy_req.url)
-                proxy_req.headers = mod.get('headers', proxy_req.headers)
-                proxy_req.body = mod.get('body', proxy_req.body)
+                proxy_req.method = mod.get("method", proxy_req.method)
+                proxy_req.url = mod.get("url", proxy_req.url)
+                proxy_req.headers = mod.get("headers", proxy_req.headers)
+                proxy_req.body = mod.get("body", proxy_req.body)
 
         # Forward upstream
         start = time.monotonic()
@@ -178,17 +179,17 @@ class _ProxyHandler(http.server.BaseHTTPRequestHandler):
                 response=ProxyResponse(status_code=502, body=str(exc)),
                 intercepted=intercepted,
                 modified=was_modified,
-                notes=f'Upstream error: {exc}',
+                notes=f"Upstream error: {exc}",
             )
             proxy._add_history(entry)
-            self.send_error(502, f'Bad Gateway: {exc}')
+            self.send_error(502, f"Bad Gateway: {exc}")
             return
         elapsed = time.monotonic() - start
 
         proxy_resp = ProxyResponse(
-            status_code=resp['status'],
-            headers=resp['headers'],
-            body=resp['body'],
+            status_code=resp["status"],
+            headers=resp["headers"],
+            body=resp["body"],
             elapsed=round(elapsed, 4),
         )
 
@@ -206,10 +207,10 @@ class _ProxyHandler(http.server.BaseHTTPRequestHandler):
         # Send response back to client
         self.send_response(proxy_resp.status_code)
         for key, val in proxy_resp.headers.items():
-            if key.lower() not in ('transfer-encoding', 'content-encoding', 'content-length'):
+            if key.lower() not in ("transfer-encoding", "content-encoding", "content-length"):
                 self.send_header(key, val)
-        resp_body = proxy_resp.body.encode('utf-8', errors='replace')
-        self.send_header('Content-Length', str(len(resp_body)))
+        resp_body = proxy_resp.body.encode("utf-8", errors="replace")
+        self.send_header("Content-Length", str(len(resp_body)))
         self.end_headers()
         self.wfile.write(resp_body)
 
@@ -230,8 +231,7 @@ class InterceptProxy:
         proxy.stop()
     """
 
-    def __init__(self, host: str = '127.0.0.1', port: int = 8080,
-                 intercept: bool = False):
+    def __init__(self, host: str = "127.0.0.1", port: int = 8080, intercept: bool = False):
         self.host = host
         self.port = port
 
@@ -281,7 +281,7 @@ class InterceptProxy:
         # Release any blocked intercepts
         with self._pending_lock:
             for pending in self._pending_requests.values():
-                pending.action = 'forward'
+                pending.action = "forward"
                 pending.event.set()
             self._pending_requests.clear()
 
@@ -299,7 +299,7 @@ class InterceptProxy:
             # Auto-forward all pending requests
             with self._pending_lock:
                 for pending in self._pending_requests.values():
-                    pending.action = 'forward'
+                    pending.action = "forward"
                     pending.event.set()
                 self._pending_requests.clear()
 
@@ -311,8 +311,7 @@ class InterceptProxy:
                     return pending.proxy_request
         return None
 
-    def forward_request(self, request_id: str,
-                        modified_request: Optional[dict] = None):
+    def forward_request(self, request_id: str, modified_request: Optional[dict] = None):
         """Forward an intercepted request, optionally with modifications.
 
         Parameters
@@ -325,8 +324,8 @@ class InterceptProxy:
         with self._pending_lock:
             pending = self._pending_requests.pop(request_id, None)
         if pending is None:
-            raise KeyError(f'No pending request with id {request_id}')
-        pending.action = 'forward'
+            raise KeyError(f"No pending request with id {request_id}")
+        pending.action = "forward"
         pending.modified_request = modified_request
         pending.event.set()
 
@@ -335,8 +334,8 @@ class InterceptProxy:
         with self._pending_lock:
             pending = self._pending_requests.pop(request_id, None)
         if pending is None:
-            raise KeyError(f'No pending request with id {request_id}')
-        pending.action = 'drop'
+            raise KeyError(f"No pending request with id {request_id}")
+        pending.action = "drop"
         pending.event.set()
 
     # --- History --------------------------------------------------------------
@@ -344,7 +343,7 @@ class InterceptProxy:
     def _add_history(self, entry: ProxyHistoryEntry):
         with self._history_lock:
             if len(self._history) >= MAX_HISTORY_SIZE:
-                self._history = self._history[-(MAX_HISTORY_SIZE // 2):]
+                self._history = self._history[-(MAX_HISTORY_SIZE // 2) :]
             self._history.append(entry)
 
     def get_history(self) -> List[ProxyHistoryEntry]:
@@ -357,9 +356,9 @@ class InterceptProxy:
         with self._history_lock:
             self._history.clear()
 
-    def filter_history(self, url_pattern: Optional[str] = None,
-                       method: Optional[str] = None,
-                       status_code: Optional[int] = None) -> List[ProxyHistoryEntry]:
+    def filter_history(
+        self, url_pattern: Optional[str] = None, method: Optional[str] = None, status_code: Optional[int] = None
+    ) -> List[ProxyHistoryEntry]:
         """Filter proxy history by URL regex, HTTP method, or status code."""
         with self._history_lock:
             results = list(self._history)
@@ -371,40 +370,37 @@ class InterceptProxy:
             upper = method.upper()
             results = [e for e in results if e.request.method == upper]
         if status_code is not None:
-            results = [
-                e for e in results
-                if e.response is not None and e.response.status_code == status_code
-            ]
+            results = [e for e in results if e.response is not None and e.response.status_code == status_code]
         return results
 
-    def export_history(self, format: str = 'json') -> str:
+    def export_history(self, format: str = "json") -> str:
         """Export proxy history as a JSON string."""
         history = self.get_history()
         data = []
         for entry in history:
             item: Dict = {
-                'request': {
-                    'id': entry.request.id,
-                    'method': entry.request.method,
-                    'url': entry.request.url,
-                    'headers': entry.request.headers,
-                    'body': entry.request.body,
-                    'timestamp': entry.request.timestamp,
-                    'client_address': entry.request.client_address,
+                "request": {
+                    "id": entry.request.id,
+                    "method": entry.request.method,
+                    "url": entry.request.url,
+                    "headers": entry.request.headers,
+                    "body": entry.request.body,
+                    "timestamp": entry.request.timestamp,
+                    "client_address": entry.request.client_address,
                 },
-                'intercepted': entry.intercepted,
-                'modified': entry.modified,
-                'notes': entry.notes,
+                "intercepted": entry.intercepted,
+                "modified": entry.modified,
+                "notes": entry.notes,
             }
             if entry.response is not None:
-                item['response'] = {
-                    'status_code': entry.response.status_code,
-                    'headers': entry.response.headers,
-                    'body': entry.response.body,
-                    'elapsed': entry.response.elapsed,
+                item["response"] = {
+                    "status_code": entry.response.status_code,
+                    "headers": entry.response.headers,
+                    "body": entry.response.body,
+                    "elapsed": entry.response.elapsed,
                 }
             else:
-                item['response'] = None
+                item["response"] = None
             data.append(item)
         return json.dumps(data, indent=2)
 
@@ -419,9 +415,9 @@ class InterceptProxy:
             Must contain 'match' (regex), 'replace' (str), and 'scope'
             which is one of 'url', 'header', 'body'.
         """
-        if not all(k in rule for k in ('match', 'replace', 'scope')):
+        if not all(k in rule for k in ("match", "replace", "scope")):
             raise ValueError("Rule must contain 'match', 'replace', and 'scope'")
-        if rule['scope'] not in ('url', 'header', 'body'):
+        if rule["scope"] not in ("url", "header", "body"):
             raise ValueError("Rule scope must be 'url', 'header', or 'body'")
         self._request_rules.append(dict(rule))
 
@@ -434,9 +430,9 @@ class InterceptProxy:
             Must contain 'match' (regex), 'replace' (str), and 'scope'
             which is one of 'header', 'body', 'status'.
         """
-        if not all(k in rule for k in ('match', 'replace', 'scope')):
+        if not all(k in rule for k in ("match", "replace", "scope")):
             raise ValueError("Rule must contain 'match', 'replace', and 'scope'")
-        if rule['scope'] not in ('header', 'body', 'status'):
+        if rule["scope"] not in ("header", "body", "status"):
             raise ValueError("Rule scope must be 'header', 'body', or 'status'")
         self._response_rules.append(dict(rule))
 
@@ -451,21 +447,21 @@ class InterceptProxy:
         """Apply auto-modification rules to *req*. Returns True if modified."""
         modified = False
         for rule in self._request_rules:
-            pattern = rule['match']
-            replacement = rule['replace']
-            scope = rule['scope']
-            if scope == 'url':
+            pattern = rule["match"]
+            replacement = rule["replace"]
+            scope = rule["scope"]
+            if scope == "url":
                 new_url = re.sub(pattern, replacement, req.url)
                 if new_url != req.url:
                     req.url = new_url
                     modified = True
-            elif scope == 'header':
+            elif scope == "header":
                 for key in list(req.headers):
                     new_val = re.sub(pattern, replacement, req.headers[key])
                     if new_val != req.headers[key]:
                         req.headers[key] = new_val
                         modified = True
-            elif scope == 'body':
+            elif scope == "body":
                 new_body = re.sub(pattern, replacement, req.body)
                 if new_body != req.body:
                     req.body = new_body
@@ -476,21 +472,21 @@ class InterceptProxy:
         """Apply auto-modification rules to *resp*. Returns True if modified."""
         modified = False
         for rule in self._response_rules:
-            pattern = rule['match']
-            replacement = rule['replace']
-            scope = rule['scope']
-            if scope == 'body':
+            pattern = rule["match"]
+            replacement = rule["replace"]
+            scope = rule["scope"]
+            if scope == "body":
                 new_body = re.sub(pattern, replacement, resp.body)
                 if new_body != resp.body:
                     resp.body = new_body
                     modified = True
-            elif scope == 'header':
+            elif scope == "header":
                 for key in list(resp.headers):
                     new_val = re.sub(pattern, replacement, resp.headers[key])
                     if new_val != resp.headers[key]:
                         resp.headers[key] = new_val
                         modified = True
-            elif scope == 'status':
+            elif scope == "status":
                 try:
                     new_code = int(replacement)
                     if new_code != resp.status_code:
@@ -503,39 +499,41 @@ class InterceptProxy:
     def _forward_upstream(self, req: ProxyRequest) -> dict:
         """Send the request upstream and return a response dict."""
         url = req.url
-        headers = {k: v for k, v in req.headers.items()
-                   if k.lower() not in ('host', 'proxy-connection')}
-        body_bytes = req.body.encode('utf-8') if req.body else None
+        headers = {k: v for k, v in req.headers.items() if k.lower() not in ("host", "proxy-connection")}
+        body_bytes = req.body.encode("utf-8") if req.body else None
 
         # Reject XML bodies that contain external entity declarations (XXE)
         if body_bytes:
-            content_type = (headers.get('Content-Type', '') or '').lower()
-            if 'xml' in content_type or (req.body and req.body.lstrip().startswith('<?xml')):
+            content_type = (headers.get("Content-Type", "") or "").lower()
+            if "xml" in content_type or (req.body and req.body.lstrip().startswith("<?xml")):
                 body_upper = req.body.upper()
-                if '<!ENTITY' in body_upper or '<!DOCTYPE' in body_upper:
+                if "<!ENTITY" in body_upper or "<!DOCTYPE" in body_upper:
                     return {
-                        'status': 400,
-                        'headers': {},
-                        'body': 'Request blocked: potentially dangerous XML entity declaration',
+                        "status": 400,
+                        "headers": {},
+                        "body": "Request blocked: potentially dangerous XML entity declaration",
                     }
 
         request = urllib.request.Request(
-            url, data=body_bytes, headers=headers, method=req.method,
+            url,
+            data=body_bytes,
+            headers=headers,
+            method=req.method,
         )
         try:
             with urllib.request.urlopen(request, timeout=UPSTREAM_TIMEOUT) as resp:
-                resp_body = resp.read().decode('utf-8', errors='replace')
+                resp_body = resp.read().decode("utf-8", errors="replace")
                 resp_headers = {k: v for k, v in resp.getheaders()}
                 return {
-                    'status': resp.status,
-                    'headers': resp_headers,
-                    'body': resp_body,
+                    "status": resp.status,
+                    "headers": resp_headers,
+                    "body": resp_body,
                 }
         except urllib.error.HTTPError as exc:
-            resp_body = exc.read().decode('utf-8', errors='replace') if exc.fp else ''
+            resp_body = exc.read().decode("utf-8", errors="replace") if exc.fp else ""
             resp_headers = dict(exc.headers) if exc.headers else {}
             return {
-                'status': exc.code,
-                'headers': resp_headers,
-                'body': resp_body,
+                "status": exc.code,
+                "headers": resp_headers,
+                "body": resp_body,
             }

@@ -11,7 +11,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import requests
 
-
 # ------------------------------------------------------------------ #
 #  Position marker                                                     #
 # ------------------------------------------------------------------ #
@@ -23,17 +22,25 @@ MARKER = "§"
 #  IntruderResult                                                      #
 # ------------------------------------------------------------------ #
 
+
 class IntruderResult:
     """Container for a single Intruder attack result."""
 
     __slots__ = (
-        "index", "payload", "status_code", "length", "elapsed",
-        "body", "headers", "error", "position",
+        "index",
+        "payload",
+        "status_code",
+        "length",
+        "elapsed",
+        "body",
+        "headers",
+        "error",
+        "position",
     )
 
-    def __init__(self, *, index, payload, status_code=0, length=0,
-                 elapsed=0.0, body="", headers=None, error=None,
-                 position=""):
+    def __init__(
+        self, *, index, payload, status_code=0, length=0, elapsed=0.0, body="", headers=None, error=None, position=""
+    ):
         self.index = index
         self.payload = payload
         self.status_code = status_code
@@ -78,8 +85,7 @@ class Intruder:
     and cluster_bomb.
     """
 
-    def __init__(self, timeout=15, proxy=None, threads=10, delay=0.0,
-                 verify_ssl=False):
+    def __init__(self, timeout=15, proxy=None, threads=10, delay=0.0, verify_ssl=False):
         self.timeout = timeout
         self.threads = max(1, threads)
         self.delay = max(0.0, delay)
@@ -121,11 +127,9 @@ class Intruder:
         """
         for pos in positions:
             if pos.get("location") not in VALID_LOCATIONS:
-                raise ValueError(
-                    f"Invalid position location: {pos.get('location')!r}")
+                raise ValueError(f"Invalid position location: {pos.get('location')!r}")
             if not pos.get("marker", "").startswith(MARKER):
-                raise ValueError(
-                    f"Marker must start with {MARKER!r}: {pos.get('marker')!r}")
+                raise ValueError(f"Marker must start with {MARKER!r}: {pos.get('marker')!r}")
         self._positions = list(positions)
 
     def add_payload_set(self, position_name, payloads):
@@ -135,9 +139,7 @@ class Intruder:
     def set_attack_type(self, attack_type):
         """Set attack type: sniper, battering_ram, pitchfork, or cluster_bomb."""
         if attack_type not in VALID_ATTACK_TYPES:
-            raise ValueError(
-                f"Invalid attack type: {attack_type!r}. "
-                f"Must be one of {sorted(VALID_ATTACK_TYPES)}")
+            raise ValueError(f"Invalid attack type: {attack_type!r}. " f"Must be one of {sorted(VALID_ATTACK_TYPES)}")
         self._attack_type = attack_type
 
     # ------------------------------------------------------------------ #
@@ -154,11 +156,13 @@ class Intruder:
         for pos in self._positions:
             payloads = self._payload_sets.get(pos["name"], [])
             for payload in payloads:
-                variations.append({
-                    "position": pos["name"],
-                    "payload": str(payload),
-                    "substitutions": {pos["name"]: str(payload)},
-                })
+                variations.append(
+                    {
+                        "position": pos["name"],
+                        "payload": str(payload),
+                        "substitutions": {pos["name"]: str(payload)},
+                    }
+                )
         return variations
 
     def _generate_requests_battering_ram(self):
@@ -177,11 +181,13 @@ class Intruder:
         for payload in payloads:
             subs = {pos["name"]: str(payload) for pos in self._positions}
             payload_str = str(payload)
-            variations.append({
-                "position": "all",
-                "payload": payload_str,
-                "substitutions": subs,
-            })
+            variations.append(
+                {
+                    "position": "all",
+                    "payload": payload_str,
+                    "substitutions": subs,
+                }
+            )
         return variations
 
     def _generate_requests_pitchfork(self):
@@ -204,11 +210,13 @@ class Intruder:
             for i, pos in enumerate(self._positions):
                 subs[pos["name"]] = str(combo[i])
                 payload_dict[pos["name"]] = str(combo[i])
-            variations.append({
-                "position": "multiple",
-                "payload": payload_dict,
-                "substitutions": subs,
-            })
+            variations.append(
+                {
+                    "position": "multiple",
+                    "payload": payload_dict,
+                    "substitutions": subs,
+                }
+            )
         return variations
 
     def _generate_requests_cluster_bomb(self):
@@ -230,19 +238,20 @@ class Intruder:
             for i, pos in enumerate(self._positions):
                 subs[pos["name"]] = str(combo[i])
                 payload_dict[pos["name"]] = str(combo[i])
-            variations.append({
-                "position": "multiple",
-                "payload": payload_dict,
-                "substitutions": subs,
-            })
+            variations.append(
+                {
+                    "position": "multiple",
+                    "payload": payload_dict,
+                    "substitutions": subs,
+                }
+            )
         return variations
 
     # ------------------------------------------------------------------ #
     #  Payload substitution                                                #
     # ------------------------------------------------------------------ #
 
-    def _substitute_payload(self, template_url, template_headers,
-                            template_body, position, payload):
+    def _substitute_payload(self, template_url, template_headers, template_body, position, payload):
         """Replace a marker with payload in the request components.
 
         Returns ``(url, headers, body)`` with the substitution applied.
@@ -297,8 +306,7 @@ class Intruder:
             for name, payload_val in variation["substitutions"].items():
                 pos = pos_map.get(name)
                 if pos:
-                    url, headers, body = self._substitute_payload(
-                        url, headers, body, pos, payload_val)
+                    url, headers, body = self._substitute_payload(url, headers, body, pos, payload_val)
 
             try:
                 if self.delay > 0:
@@ -342,10 +350,7 @@ class Intruder:
         _results_lock = threading.Lock()
 
         with ThreadPoolExecutor(max_workers=self.threads) as pool:
-            futures = {
-                pool.submit(_execute, idx, var): idx
-                for idx, var in enumerate(variations)
-            }
+            futures = {pool.submit(_execute, idx, var): idx for idx, var in enumerate(variations)}
             for future in as_completed(futures):
                 result = future.result()
                 with _results_lock:
@@ -364,8 +369,7 @@ class Intruder:
         """Return all attack results."""
         return list(self._results)
 
-    def filter_results(self, status_code=None, min_length=None,
-                       max_length=None, contains=None):
+    def filter_results(self, status_code=None, min_length=None, max_length=None, contains=None):
         """Filter results by criteria.
 
         Parameters
@@ -381,8 +385,7 @@ class Intruder:
         """
         filtered = list(self._results)
         if status_code is not None:
-            filtered = [r for r in filtered
-                        if r.status_code == status_code]
+            filtered = [r for r in filtered if r.status_code == status_code]
         if min_length is not None:
             filtered = [r for r in filtered if r.length >= min_length]
         if max_length is not None:

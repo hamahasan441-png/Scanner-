@@ -93,10 +93,7 @@ class Sequencer:
         num_categories = 256
         expected = n / num_categories
 
-        chi2 = sum(
-            (observed.get(i, 0) - expected) ** 2 / expected
-            for i in range(num_categories)
-        )
+        chi2 = sum((observed.get(i, 0) - expected) ** 2 / expected for i in range(num_categories))
 
         # For 255 degrees of freedom the 1 %–99 % critical values are
         # approximately 197 and 321.  We use a slightly wider band.
@@ -115,10 +112,7 @@ class Sequencer:
 
         length = len(data)
         freq = Counter(data)
-        return {
-            char: {"count": count, "percentage": (count / length) * 100}
-            for char, count in freq.items()
-        }
+        return {char: {"count": count, "percentage": (count / length) * 100} for char, count in freq.items()}
 
     # ------------------------------------------------------------------ #
     #  Bit-level analysis                                                 #
@@ -157,18 +151,11 @@ class Sequencer:
         p1 = ones / total if total else 0
         p0 = zeros / total if total else 0
         expected_runs = 1 + 2 * total * p0 * p1
-        variance = (
-            (2 * total * p0 * p1 * (2 * total * p0 * p1 - total))
-            / (total * total - total)
-            if total > 1
-            else 0
-        )
+        variance = (2 * total * p0 * p1 * (2 * total * p0 * p1 - total)) / (total * total - total) if total > 1 else 0
         std_dev = math.sqrt(variance) if variance > 0 else 0
 
         # Z-test: |Z| < 1.96 → random at 95 % confidence
-        runs_random = (
-            abs(runs - expected_runs) < 1.96 * std_dev if std_dev > 0 else False
-        )
+        runs_random = abs(runs - expected_runs) < 1.96 * std_dev if std_dev > 0 else False
 
         return {
             "total_bits": total,
@@ -207,10 +194,7 @@ class Sequencer:
                 prefix = prefix[:-1]
         result["common_prefix"] = prefix
         if prefix and len(prefix) >= len(tokens[0]) * 0.5:
-            result["details"].append(
-                f"Common prefix detected: '{prefix}' "
-                f"({len(prefix)}/{len(tokens[0])} chars)"
-            )
+            result["details"].append(f"Common prefix detected: '{prefix}' " f"({len(prefix)}/{len(tokens[0])} chars)")
 
         # --- sequential / incrementing patterns ---------------------------
         def _try_parse_decimal(t):
@@ -227,9 +211,7 @@ class Sequencer:
                 diffs = [nums[i + 1] - nums[i] for i in range(len(nums) - 1)]
                 if len(set(diffs)) == 1:
                     result["sequential"] = True
-                    result["details"].append(
-                        f"Sequential pattern: constant increment of {diffs[0]}"
-                    )
+                    result["details"].append(f"Sequential pattern: constant increment of {diffs[0]}")
                     break
             except (ValueError, OverflowError):
                 continue
@@ -239,16 +221,11 @@ class Sequencer:
         for t in tokens:
             seg_len = max(3, len(t) // 4)
             for i in range(len(t) - seg_len + 1):
-                segment_counts[t[i: i + seg_len]] += 1
-        repeated = [
-            seg for seg, cnt in segment_counts.items()
-            if cnt >= len(tokens) and len(seg) >= 3
-        ]
+                segment_counts[t[i : i + seg_len]] += 1
+        repeated = [seg for seg, cnt in segment_counts.items() if cnt >= len(tokens) and len(seg) >= 3]
         result["repeated_segments"] = repeated[:10]
         if repeated:
-            result["details"].append(
-                f"Repeated segments found: {len(repeated)}"
-            )
+            result["details"].append(f"Repeated segments found: {len(repeated)}")
 
         return result
 
@@ -283,14 +260,10 @@ class Sequencer:
         uniqueness = unique / total if total else 0
         if uniqueness < 0.5:
             score += 0.3
-            reasons.append(
-                f"Low uniqueness ratio ({uniqueness:.2f})"
-            )
+            reasons.append(f"Low uniqueness ratio ({uniqueness:.2f})")
         elif uniqueness < 0.9:
             score += 0.1
-            reasons.append(
-                f"Moderate uniqueness ratio ({uniqueness:.2f})"
-            )
+            reasons.append(f"Moderate uniqueness ratio ({uniqueness:.2f})")
 
         # Pattern detection
         patterns = self.detect_pattern()
@@ -408,7 +381,4 @@ class Sequencer:
                 "Token randomness is acceptable but could be improved by "
                 "increasing token length or character-set diversity."
             )
-        return (
-            "Token randomness is insufficient. Consider using a CSPRNG "
-            "and increasing entropy."
-        )
+        return "Token randomness is insufficient. Consider using a CSPRNG " "and increasing entropy."

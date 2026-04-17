@@ -22,9 +22,19 @@ from config import Colors
 # WAF detection indicators (status codes + header patterns)
 WAF_STATUS_CODES = {403, 406, 429, 503}
 WAF_HEADER_HINTS = [
-    'cloudflare', 'akamai', 'sucuri', 'incapsula', 'imperva',
-    'barracuda', 'modsecurity', 'aws', 'f5', 'citrix',
-    'fortiweb', 'wallarm', 'reblaze',
+    "cloudflare",
+    "akamai",
+    "sucuri",
+    "incapsula",
+    "imperva",
+    "barracuda",
+    "modsecurity",
+    "aws",
+    "f5",
+    "citrix",
+    "fortiweb",
+    "wallarm",
+    "reblaze",
 ]
 
 # Extra delay (seconds) added when WAF is detected
@@ -47,12 +57,12 @@ class AdaptiveController:
 
     def __init__(self, engine):
         self.engine = engine
-        self.verbose = engine.config.get('verbose', False)
+        self.verbose = engine.config.get("verbose", False)
 
         # State
         self.waf_detected = False
-        self.waf_name = ''
-        self.noise_level = 0.0   # 0.0 (clean) – 1.0 (very noisy)
+        self.waf_name = ""
+        self.noise_level = 0.0  # 0.0 (clean) – 1.0 (very noisy)
         self.signal_strength = 0.0
         self.blocked_count = 0
         self.total_tested = 0
@@ -98,22 +108,19 @@ class AdaptiveController:
             # Progressive WAF backoff: escalate delay when blocks continue
             now = time.time()
             if now - self._waf_last_block_time < self._waf_block_window:
-                self._waf_backoff_level = min(
-                    self._waf_backoff_level + 1,
-                    len(self._waf_backoff_delays) - 1
-                )
+                self._waf_backoff_level = min(self._waf_backoff_level + 1, len(self._waf_backoff_delays) - 1)
                 new_delay = self._waf_backoff_delays[self._waf_backoff_level]
                 if new_delay > self.extra_delay:
                     self.extra_delay = new_delay
                     if self.verbose:
-                        print(f"{Colors.warning(f'WAF blocks escalating → backoff delay {new_delay}s (level {self._waf_backoff_level})')}")
+                        print(
+                            f"{Colors.warning(f'WAF blocks escalating → backoff delay {new_delay}s (level {self._waf_backoff_level})')}"
+                        )
             self._waf_last_block_time = now
 
         # Check headers for WAF fingerprints
-        headers_str = ' '.join(
-            f'{k}: {v}' for k, v in response.headers.items()
-        ).lower()
-        body_lower = response.text[:2000].lower() if response.text else ''
+        headers_str = " ".join(f"{k}: {v}" for k, v in response.headers.items()).lower()
+        body_lower = response.text[:2000].lower() if response.text else ""
 
         for hint in WAF_HEADER_HINTS:
             if hint in headers_str or hint in body_lower:
@@ -164,8 +171,9 @@ class AdaptiveController:
         """Normalize URL to structural pattern for per-endpoint tracking."""
         import re
         from urllib.parse import urlparse
+
         parsed = urlparse(url)
-        path = re.sub(r'/\d+', '/{N}', parsed.path)
+        path = re.sub(r"/\d+", "/{N}", parsed.path)
         return f"{parsed.netloc}{path}"
 
     def record_blocked_payload(self, payload):
@@ -182,7 +190,7 @@ class AdaptiveController:
 
     def get_delay(self):
         """Return recommended delay before next request."""
-        base = self.engine.config.get('delay', 0.1)
+        base = self.engine.config.get("delay", 0.1)
         return base + self.extra_delay
 
     def should_mutate_payload(self):
@@ -212,9 +220,9 @@ class AdaptiveController:
         """
         adjusted = dict(base_thresholds)
         if self.noise_level >= NOISE_THRESHOLD:
-            adjusted['timing_min_delay'] = base_thresholds.get('timing_min_delay', 4.0) + 0.5
-            adjusted['diff_min_chars'] = base_thresholds.get('diff_min_chars', 50) + 20
-            adjusted['min_confidence'] = base_thresholds.get('min_confidence', 0.45) + NOISE_THRESHOLD_ADJUSTMENT
+            adjusted["timing_min_delay"] = base_thresholds.get("timing_min_delay", 4.0) + 0.5
+            adjusted["diff_min_chars"] = base_thresholds.get("diff_min_chars", 50) + 20
+            adjusted["min_confidence"] = base_thresholds.get("min_confidence", 0.45) + NOISE_THRESHOLD_ADJUSTMENT
         return adjusted
 
     def add_new_endpoint(self, url):
@@ -229,17 +237,17 @@ class AdaptiveController:
         """Return a dict summarising adaptive state."""
         block_rate = self.blocked_count / max(self.total_tested, 1)
         return {
-            'waf_detected': self.waf_detected,
-            'waf_name': self.waf_name,
-            'noise_level': round(self.noise_level, 2),
-            'signal_strength': round(self.signal_strength, 2),
-            'block_rate': round(block_rate, 3),
-            'extra_delay': self.extra_delay,
-            'depth_boost': self.get_depth_boost(),
-            'blocked_payloads': len(self._blocked_payloads),
-            'successful_payloads': len(self._successful_payloads),
-            'rate_limited': self.rate_limited,
-            'response_stability': self.get_response_stability(),
+            "waf_detected": self.waf_detected,
+            "waf_name": self.waf_name,
+            "noise_level": round(self.noise_level, 2),
+            "signal_strength": round(self.signal_strength, 2),
+            "block_rate": round(block_rate, 3),
+            "extra_delay": self.extra_delay,
+            "depth_boost": self.get_depth_boost(),
+            "blocked_payloads": len(self._blocked_payloads),
+            "successful_payloads": len(self._successful_payloads),
+            "rate_limited": self.rate_limited,
+            "response_stability": self.get_response_stability(),
         }
 
     # ------------------------------------------------------------------
@@ -255,10 +263,7 @@ class AdaptiveController:
             now = time.time()
             self._rate_limit_hits.append(now)
             # Clean old hits outside the window
-            self._rate_limit_hits = [
-                t for t in self._rate_limit_hits
-                if now - t <= RATE_LIMIT_WINDOW
-            ]
+            self._rate_limit_hits = [t for t in self._rate_limit_hits if now - t <= RATE_LIMIT_WINDOW]
             if len(self._rate_limit_hits) >= RATE_LIMIT_THRESHOLD:
                 if not self.rate_limited:
                     self.rate_limited = True
@@ -266,7 +271,7 @@ class AdaptiveController:
                 return True
 
         # Check Retry-After header
-        retry_after = response.headers.get('Retry-After', '')
+        retry_after = response.headers.get("Retry-After", "")
         if retry_after:
             if not self.rate_limited:
                 self.rate_limited = True
@@ -275,7 +280,7 @@ class AdaptiveController:
 
         return False
 
-    def _adapt_for_rate_limit(self, retry_after_value=''):
+    def _adapt_for_rate_limit(self, retry_after_value=""):
         """Adjust parameters when rate limiting is detected.
 
         Parses the Retry-After header value (seconds or HTTP-date) and
@@ -291,8 +296,10 @@ class AdaptiveController:
                 try:
                     # Try parsing as HTTP-date
                     from email.utils import parsedate_to_datetime
+
                     target_time = parsedate_to_datetime(retry_after_value)
                     from datetime import datetime, timezone
+
                     now = datetime.now(timezone.utc)
                     delta = (target_time - now).total_seconds()
                     if delta > 0:
@@ -331,20 +338,20 @@ class AdaptiveController:
         mean_time = sum(self._response_times) / len(self._response_times)
         if mean_time > 0:
             variance_time = sum((t - mean_time) ** 2 for t in self._response_times) / len(self._response_times)
-            cv_time = (variance_time ** 0.5) / mean_time
+            cv_time = (variance_time**0.5) / mean_time
         else:
             cv_time = 0.0
 
         # Coefficient of variation for length
         mean_len = sum(self._response_lengths) / len(self._response_lengths)
         if mean_len > 0:
-            variance_len = sum((l - mean_len) ** 2 for l in self._response_lengths) / len(self._response_lengths)
-            cv_len = (variance_len ** 0.5) / mean_len
+            variance_len = sum((x - mean_len) ** 2 for x in self._response_lengths) / len(self._response_lengths)
+            cv_len = (variance_len**0.5) / mean_len
         else:
             cv_len = 0.0
 
         # Combined stability: lower CV = more stable
-        combined_cv = (cv_time * 0.6 + cv_len * 0.4)
+        combined_cv = cv_time * 0.6 + cv_len * 0.4
         stability = max(0.0, min(1.0, 1.0 - combined_cv))
         return round(stability, 3)
 

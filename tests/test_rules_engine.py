@@ -18,21 +18,21 @@ class TestRulesEngineDefaults(unittest.TestCase):
         self.rules = RulesEngine()
 
     def test_profile(self):
-        self.assertEqual(self.rules.profile, 'accuracy_only')
+        self.assertEqual(self.rules.profile, "accuracy_only")
 
     def test_pipeline_stages(self):
         stages = self.rules.pipeline_stages
-        self.assertIn('discovery', stages)
-        self.assertIn('verification', stages)
-        self.assertIn('reporting', stages)
+        self.assertIn("discovery", stages)
+        self.assertIn("verification", stages)
+        self.assertIn("reporting", stages)
         self.assertEqual(len(stages), 7)
 
     def test_runtime_defaults(self):
         rt = self.rules.runtime
-        self.assertEqual(rt['threads'], 10)
-        self.assertEqual(rt['timeout_seconds'], 15)
-        self.assertEqual(rt['retries'], 2)
-        self.assertTrue(rt['jitter'])
+        self.assertEqual(rt["threads"], 10)
+        self.assertEqual(rt["timeout_seconds"], 15)
+        self.assertEqual(rt["retries"], 2)
+        self.assertTrue(rt["jitter"])
 
     def test_baseline_samples(self):
         mn, mx = self.rules.get_baseline_samples()
@@ -43,91 +43,91 @@ class TestRulesEngineDefaults(unittest.TestCase):
         self.assertAlmostEqual(self.rules.get_noisy_threshold(), 0.35)
 
     def test_scoring_labels(self):
-        self.assertEqual(self.rules.get_scoring_label(10), 'suspected')
-        self.assertEqual(self.rules.get_scoring_label(50), 'likely')
-        self.assertEqual(self.rules.get_scoring_label(70), 'high')
-        self.assertEqual(self.rules.get_scoring_label(90), 'confirmed')
+        self.assertEqual(self.rules.get_scoring_label(10), "suspected")
+        self.assertEqual(self.rules.get_scoring_label(50), "likely")
+        self.assertEqual(self.rules.get_scoring_label(70), "high")
+        self.assertEqual(self.rules.get_scoring_label(90), "confirmed")
 
     def test_scoring_component_range(self):
-        lo, hi = self.rules.get_scoring_component_range('repro')
+        lo, hi = self.rules.get_scoring_component_range("repro")
         self.assertEqual(lo, 0)
         self.assertEqual(hi, 30)
 
     def test_verification_config(self):
         cfg = self.rules.get_verification_config()
-        self.assertEqual(cfg['min_repro_runs_for_high_or_confirmed'], 3)
-        self.assertEqual(cfg['min_strong_signals'], 2)
-        self.assertTrue(cfg['confirmed_requires_secondary_proof'])
+        self.assertEqual(cfg["min_repro_runs_for_high_or_confirmed"], 3)
+        self.assertEqual(cfg["min_strong_signals"], 2)
+        self.assertTrue(cfg["confirmed_requires_secondary_proof"])
 
     def test_auto_demote_rules(self):
         rules = self.rules.get_auto_demote_rules()
-        self.assertIn('reflection_only', rules)
-        self.assertIn('single_timing_spike', rules)
+        self.assertIn("reflection_only", rules)
+        self.assertIn("single_timing_spike", rules)
 
     def test_vuln_map_sqli(self):
-        cfg = self.rules.get_vuln_config('sqli')
-        self.assertIn('/search', cfg['paths'])
-        self.assertIn('id', cfg['params'])
-        self.assertIn('deterministic_boolean_differential', cfg['strong_signals'])
+        cfg = self.rules.get_vuln_config("sqli")
+        self.assertIn("/search", cfg["paths"])
+        self.assertIn("id", cfg["params"])
+        self.assertIn("deterministic_boolean_differential", cfg["strong_signals"])
 
     def test_vuln_map_unknown(self):
-        cfg = self.rules.get_vuln_config('nonexistent')
+        cfg = self.rules.get_vuln_config("nonexistent")
         self.assertEqual(cfg, {})
 
     def test_matches_vuln_path(self):
-        self.assertTrue(self.rules.matches_vuln_path('sqli', '/search'))
-        self.assertTrue(self.rules.matches_vuln_path('cors', '/anything'))
+        self.assertTrue(self.rules.matches_vuln_path("sqli", "/search"))
+        self.assertTrue(self.rules.matches_vuln_path("cors", "/anything"))
 
     def test_matches_vuln_param(self):
-        self.assertTrue(self.rules.matches_vuln_param('sqli', 'id'))
-        self.assertFalse(self.rules.matches_vuln_param('sqli', 'random_xyz'))
+        self.assertTrue(self.rules.matches_vuln_param("sqli", "id"))
+        self.assertFalse(self.rules.matches_vuln_param("sqli", "random_xyz"))
 
     def test_should_reject_finding(self):
-        self.assertTrue(self.rules.should_reject_finding('sqli', ['single_timing_spike']))
-        self.assertFalse(self.rules.should_reject_finding('sqli', ['valid_signal']))
+        self.assertTrue(self.rules.should_reject_finding("sqli", ["single_timing_spike"]))
+        self.assertFalse(self.rules.should_reject_finding("sqli", ["valid_signal"]))
 
     def test_is_noisy_endpoint(self):
         self.assertTrue(self.rules.is_noisy_endpoint(0.5, 1.0))
         self.assertFalse(self.rules.is_noisy_endpoint(0.1, 1.0))
 
     def test_reporting(self):
-        self.assertIn('high', self.rules.get_main_report_labels())
-        self.assertIn('confirmed', self.rules.get_main_report_labels())
-        self.assertIn('endpoint', self.rules.get_evidence_required())
+        self.assertIn("high", self.rules.get_main_report_labels())
+        self.assertIn("confirmed", self.rules.get_main_report_labels())
+        self.assertIn("endpoint", self.rules.get_evidence_required())
 
     def test_priority_order(self):
         order = self.rules.get_priority_order()
-        self.assertEqual(order[0], 'auth_admin_account')
+        self.assertEqual(order[0], "auth_admin_account")
 
     def test_keyword_buckets(self):
         buckets = self.rules.get_keyword_buckets()
-        self.assertIn('auth_admin_account', buckets)
-        self.assertIn('login', buckets['auth_admin_account'])
+        self.assertIn("auth_admin_account", buckets)
+        self.assertIn("login", buckets["auth_admin_account"])
 
     def test_to_dict(self):
         d = self.rules.to_dict()
-        self.assertIn('profile', d)
-        self.assertIn('vuln_map', d)
+        self.assertIn("profile", d)
+        self.assertIn("vuln_map", d)
 
 
 class TestRulesEngineOverrides(unittest.TestCase):
     """Test that CLI config overrides work."""
 
     def test_config_overrides_threads(self):
-        rules = RulesEngine(config={'threads': 99})
-        self.assertEqual(rules.runtime['threads'], 99)
+        rules = RulesEngine(config={"threads": 99})
+        self.assertEqual(rules.runtime["threads"], 99)
 
     def test_config_overrides_timeout(self):
-        rules = RulesEngine(config={'timeout': 30})
-        self.assertEqual(rules.runtime['timeout_seconds'], 30)
+        rules = RulesEngine(config={"timeout": 30})
+        self.assertEqual(rules.runtime["timeout_seconds"], 30)
 
 
 class TestRulesEngineMissingFile(unittest.TestCase):
     """Test fallback when YAML file is missing."""
 
     def test_missing_file_uses_defaults(self):
-        rules = RulesEngine(rules_path='/tmp/nonexistent_rules.yaml')
-        self.assertEqual(rules.profile, 'accuracy_only')
+        rules = RulesEngine(rules_path="/tmp/nonexistent_rules.yaml")
+        self.assertEqual(rules.profile, "accuracy_only")
         self.assertEqual(len(rules.pipeline_stages), 7)
 
 
@@ -149,7 +149,7 @@ verification: {auto_demote_rules: []}
 reporting: {evidence_required: []}
 vuln_map: {}
 """
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
             f.write(yaml_content)
             f.flush()
             with self.assertRaises(ValueError):
@@ -166,7 +166,7 @@ class TestRulesEngineGetters(unittest.TestCase):
     def test_get_strip_patterns_returns_list(self):
         result = self.rules.get_strip_patterns()
         self.assertIsInstance(result, list)
-        self.assertIn('timestamps', result)
+        self.assertIn("timestamps", result)
 
     def test_get_min_repro_runs(self):
         self.assertEqual(self.rules.get_min_repro_runs(), 3)
@@ -176,18 +176,18 @@ class TestRulesEngineGetters(unittest.TestCase):
 
     def test_get_appendix_labels(self):
         labels = self.rules.get_appendix_labels()
-        self.assertIn('suspected', labels)
-        self.assertIn('likely', labels)
+        self.assertIn("suspected", labels)
+        self.assertIn("likely", labels)
 
     def test_get_main_report_labels(self):
         labels = self.rules.get_main_report_labels()
-        self.assertIn('high', labels)
-        self.assertIn('confirmed', labels)
+        self.assertIn("high", labels)
+        self.assertIn("confirmed", labels)
 
     def test_get_evidence_required_returns_list(self):
         result = self.rules.get_evidence_required()
         self.assertIsInstance(result, list)
-        self.assertIn('endpoint', result)
+        self.assertIn("endpoint", result)
 
     def test_get_priority_order_returns_list(self):
         order = self.rules.get_priority_order()
@@ -197,7 +197,7 @@ class TestRulesEngineGetters(unittest.TestCase):
     def test_get_keyword_buckets_returns_dict(self):
         buckets = self.rules.get_keyword_buckets()
         self.assertIsInstance(buckets, dict)
-        self.assertIn('auth_admin_account', buckets)
+        self.assertIn("auth_admin_account", buckets)
 
 
 class TestRulesEngineProperties(unittest.TestCase):
@@ -237,8 +237,8 @@ class TestRulesEngineProperties(unittest.TestCase):
         # Mutating one should not affect the other
         if vm1:
             first_key = next(iter(vm1))
-            vm1[first_key]['_test'] = True
-            self.assertNotIn('_test', vm2.get(first_key, {}))
+            vm1[first_key]["_test"] = True
+            self.assertNotIn("_test", vm2.get(first_key, {}))
 
 
 class TestRulesEngineMatchersExtended(unittest.TestCase):
@@ -249,52 +249,72 @@ class TestRulesEngineMatchersExtended(unittest.TestCase):
 
     def test_matches_vuln_path_wildcard(self):
         # Set up a vuln with wildcard paths
-        self.rules._raw['vuln_map']['test_vuln'] = {
-            'paths': ['*'], 'params': [], 'strong_signals': [], 'reject_if': [],
+        self.rules._raw["vuln_map"]["test_vuln"] = {
+            "paths": ["*"],
+            "params": [],
+            "strong_signals": [],
+            "reject_if": [],
         }
-        self.assertTrue(self.rules.matches_vuln_path('test_vuln', '/any/path'))
+        self.assertTrue(self.rules.matches_vuln_path("test_vuln", "/any/path"))
 
     def test_matches_vuln_path_empty_paths(self):
-        self.rules._raw['vuln_map']['test_vuln'] = {
-            'paths': [], 'params': [], 'strong_signals': [], 'reject_if': [],
+        self.rules._raw["vuln_map"]["test_vuln"] = {
+            "paths": [],
+            "params": [],
+            "strong_signals": [],
+            "reject_if": [],
         }
-        self.assertTrue(self.rules.matches_vuln_path('test_vuln', '/any/path'))
+        self.assertTrue(self.rules.matches_vuln_path("test_vuln", "/any/path"))
 
     def test_matches_vuln_path_template(self):
-        self.rules._raw['vuln_map']['test_vuln'] = {
-            'paths': ['/users/{id}'], 'params': [], 'strong_signals': [], 'reject_if': [],
+        self.rules._raw["vuln_map"]["test_vuln"] = {
+            "paths": ["/users/{id}"],
+            "params": [],
+            "strong_signals": [],
+            "reject_if": [],
         }
-        self.assertTrue(self.rules.matches_vuln_path('test_vuln', '/users/123'))
+        self.assertTrue(self.rules.matches_vuln_path("test_vuln", "/users/123"))
 
     def test_matches_vuln_path_no_match(self):
-        self.rules._raw['vuln_map']['test_vuln'] = {
-            'paths': ['/admin'], 'params': [], 'strong_signals': [], 'reject_if': [],
+        self.rules._raw["vuln_map"]["test_vuln"] = {
+            "paths": ["/admin"],
+            "params": [],
+            "strong_signals": [],
+            "reject_if": [],
         }
-        self.assertFalse(self.rules.matches_vuln_path('test_vuln', '/public'))
+        self.assertFalse(self.rules.matches_vuln_path("test_vuln", "/public"))
 
     def test_matches_vuln_param_case_insensitive(self):
-        self.rules._raw['vuln_map']['test_vuln'] = {
-            'paths': [], 'params': ['ID', 'Username'], 'strong_signals': [], 'reject_if': [],
+        self.rules._raw["vuln_map"]["test_vuln"] = {
+            "paths": [],
+            "params": ["ID", "Username"],
+            "strong_signals": [],
+            "reject_if": [],
         }
-        self.assertTrue(self.rules.matches_vuln_param('test_vuln', 'id'))
-        self.assertTrue(self.rules.matches_vuln_param('test_vuln', 'username'))
+        self.assertTrue(self.rules.matches_vuln_param("test_vuln", "id"))
+        self.assertTrue(self.rules.matches_vuln_param("test_vuln", "username"))
 
     def test_matches_vuln_param_no_match(self):
-        self.rules._raw['vuln_map']['test_vuln'] = {
-            'paths': [], 'params': ['id'], 'strong_signals': [], 'reject_if': [],
+        self.rules._raw["vuln_map"]["test_vuln"] = {
+            "paths": [],
+            "params": ["id"],
+            "strong_signals": [],
+            "reject_if": [],
         }
-        self.assertFalse(self.rules.matches_vuln_param('test_vuln', 'random'))
+        self.assertFalse(self.rules.matches_vuln_param("test_vuln", "random"))
 
     def test_should_reject_finding_with_set(self):
-        self.rules._raw['vuln_map']['test_vuln'] = {
-            'paths': [], 'params': [], 'strong_signals': [],
-            'reject_if': ['reflection_only', 'generic_500_only'],
+        self.rules._raw["vuln_map"]["test_vuln"] = {
+            "paths": [],
+            "params": [],
+            "strong_signals": [],
+            "reject_if": ["reflection_only", "generic_500_only"],
         }
-        self.assertTrue(self.rules.should_reject_finding('test_vuln', {'reflection_only'}))
-        self.assertFalse(self.rules.should_reject_finding('test_vuln', {'valid_signal'}))
+        self.assertTrue(self.rules.should_reject_finding("test_vuln", {"reflection_only"}))
+        self.assertFalse(self.rules.should_reject_finding("test_vuln", {"valid_signal"}))
 
     def test_should_reject_finding_unknown_vuln(self):
-        self.assertFalse(self.rules.should_reject_finding('nonexistent', ['anything']))
+        self.assertFalse(self.rules.should_reject_finding("nonexistent", ["anything"]))
 
     def test_is_noisy_endpoint_zero_mean(self):
         self.assertFalse(self.rules.is_noisy_endpoint(0.5, 0))
@@ -317,14 +337,14 @@ class TestRulesEngineToDict(unittest.TestCase):
     def test_contains_required_keys(self):
         rules = RulesEngine()
         d = rules.to_dict()
-        for key in ('profile', 'pipeline', 'runtime_defaults', 'scoring', 'verification'):
+        for key in ("profile", "pipeline", "runtime_defaults", "scoring", "verification"):
             self.assertIn(key, d)
 
     def test_deep_copy_isolation(self):
         rules = RulesEngine()
         d = rules.to_dict()
-        d['profile'] = 'MODIFIED'
-        self.assertNotEqual(rules.profile, 'MODIFIED')
+        d["profile"] = "MODIFIED"
+        self.assertNotEqual(rules.profile, "MODIFIED")
 
 
 class TestRulesEngineScoringLabels(unittest.TestCase):
@@ -334,41 +354,41 @@ class TestRulesEngineScoringLabels(unittest.TestCase):
         self.rules = RulesEngine()
 
     def test_score_0_is_suspected(self):
-        self.assertEqual(self.rules.get_scoring_label(0), 'suspected')
+        self.assertEqual(self.rules.get_scoring_label(0), "suspected")
 
     def test_score_39_is_suspected(self):
-        self.assertEqual(self.rules.get_scoring_label(39), 'suspected')
+        self.assertEqual(self.rules.get_scoring_label(39), "suspected")
 
     def test_score_40_is_likely(self):
-        self.assertEqual(self.rules.get_scoring_label(40), 'likely')
+        self.assertEqual(self.rules.get_scoring_label(40), "likely")
 
     def test_score_64_is_likely(self):
-        self.assertEqual(self.rules.get_scoring_label(64), 'likely')
+        self.assertEqual(self.rules.get_scoring_label(64), "likely")
 
     def test_score_65_is_high(self):
-        self.assertEqual(self.rules.get_scoring_label(65), 'high')
+        self.assertEqual(self.rules.get_scoring_label(65), "high")
 
     def test_score_84_is_high(self):
-        self.assertEqual(self.rules.get_scoring_label(84), 'high')
+        self.assertEqual(self.rules.get_scoring_label(84), "high")
 
     def test_score_85_is_confirmed(self):
-        self.assertEqual(self.rules.get_scoring_label(85), 'confirmed')
+        self.assertEqual(self.rules.get_scoring_label(85), "confirmed")
 
     def test_score_100_is_confirmed(self):
-        self.assertEqual(self.rules.get_scoring_label(100), 'confirmed')
+        self.assertEqual(self.rules.get_scoring_label(100), "confirmed")
 
 
 class TestRulesEngineConfigOverrideDelay(unittest.TestCase):
     """Test delay override."""
 
     def test_config_overrides_delay(self):
-        rules = RulesEngine(config={'delay': 0.5})
-        self.assertAlmostEqual(rules.runtime['delay_seconds'], 0.5)
+        rules = RulesEngine(config={"delay": 0.5})
+        self.assertAlmostEqual(rules.runtime["delay_seconds"], 0.5)
 
     def test_delay_zero_override(self):
-        rules = RulesEngine(config={'delay': 0})
-        self.assertEqual(rules.runtime['delay_seconds'], 0)
+        rules = RulesEngine(config={"delay": 0})
+        self.assertEqual(rules.runtime["delay_seconds"], 0)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

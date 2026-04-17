@@ -10,7 +10,6 @@ Schedule types:
   once      — Single future execution
 """
 
-import json
 import threading
 import time
 import uuid
@@ -25,54 +24,55 @@ FALLBACK_DELAY_SECONDS = 86400  # 24 hours
 @dataclass
 class ScheduleEntry:
     """A scheduled scan definition."""
-    schedule_id: str = ''
-    name: str = ''
-    target: str = ''
-    schedule_type: str = 'interval'  # interval | cron | once
-    interval_seconds: int = 3600     # for interval type
-    cron_expression: str = ''        # for cron type  (min hour dom mon dow)
-    next_run: float = 0.0            # next execution epoch
+
+    schedule_id: str = ""
+    name: str = ""
+    target: str = ""
+    schedule_type: str = "interval"  # interval | cron | once
+    interval_seconds: int = 3600  # for interval type
+    cron_expression: str = ""  # for cron type  (min hour dom mon dow)
+    next_run: float = 0.0  # next execution epoch
     last_run: float = 0.0
     run_count: int = 0
-    max_runs: int = 0                # 0 = unlimited
+    max_runs: int = 0  # 0 = unlimited
     enabled: bool = True
     config: dict = field(default_factory=dict)
-    created_at: str = ''
-    created_by: str = ''
+    created_at: str = ""
+    created_by: str = ""
 
     def to_dict(self) -> dict:
         return {
-            'schedule_id': self.schedule_id,
-            'name': self.name,
-            'target': self.target,
-            'schedule_type': self.schedule_type,
-            'interval_seconds': self.interval_seconds,
-            'cron_expression': self.cron_expression,
-            'next_run': datetime.fromtimestamp(self.next_run, tz=timezone.utc).isoformat() if self.next_run else None,
-            'last_run': datetime.fromtimestamp(self.last_run, tz=timezone.utc).isoformat() if self.last_run else None,
-            'run_count': self.run_count,
-            'max_runs': self.max_runs,
-            'enabled': self.enabled,
-            'config': self.config,
-            'created_at': self.created_at,
-            'created_by': self.created_by,
+            "schedule_id": self.schedule_id,
+            "name": self.name,
+            "target": self.target,
+            "schedule_type": self.schedule_type,
+            "interval_seconds": self.interval_seconds,
+            "cron_expression": self.cron_expression,
+            "next_run": datetime.fromtimestamp(self.next_run, tz=timezone.utc).isoformat() if self.next_run else None,
+            "last_run": datetime.fromtimestamp(self.last_run, tz=timezone.utc).isoformat() if self.last_run else None,
+            "run_count": self.run_count,
+            "max_runs": self.max_runs,
+            "enabled": self.enabled,
+            "config": self.config,
+            "created_at": self.created_at,
+            "created_by": self.created_by,
         }
 
 
 def _parse_cron_field(field_str: str, min_val: int, max_val: int) -> list:
     """Parse a single cron field into a list of valid integer values."""
     values = set()
-    for part in field_str.split(','):
+    for part in field_str.split(","):
         part = part.strip()
-        if part == '*':
+        if part == "*":
             values.update(range(min_val, max_val + 1))
-        elif '/' in part:
-            base, step = part.split('/', 1)
+        elif "/" in part:
+            base, step = part.split("/", 1)
             step = int(step)
-            start = min_val if base == '*' else int(base)
+            start = min_val if base == "*" else int(base)
             values.update(range(start, max_val + 1, step))
-        elif '-' in part:
-            lo, hi = part.split('-', 1)
+        elif "-" in part:
+            lo, hi = part.split("-", 1)
             values.update(range(int(lo), int(hi) + 1))
         else:
             values.add(int(part))
@@ -87,14 +87,14 @@ def parse_cron(expression: str) -> dict:
     """
     fields = expression.strip().split()
     if len(fields) != 5:
-        raise ValueError(f'Cron expression must have 5 fields, got {len(fields)}')
+        raise ValueError(f"Cron expression must have 5 fields, got {len(fields)}")
 
     return {
-        'minutes': _parse_cron_field(fields[0], 0, 59),
-        'hours': _parse_cron_field(fields[1], 0, 23),
-        'days': _parse_cron_field(fields[2], 1, 31),
-        'months': _parse_cron_field(fields[3], 1, 12),
-        'weekdays': _parse_cron_field(fields[4], 0, 6),
+        "minutes": _parse_cron_field(fields[0], 0, 59),
+        "hours": _parse_cron_field(fields[1], 0, 23),
+        "days": _parse_cron_field(fields[2], 1, 31),
+        "months": _parse_cron_field(fields[3], 1, 12),
+        "weekdays": _parse_cron_field(fields[4], 0, 6),
     }
 
 
@@ -102,11 +102,11 @@ def cron_matches(expression: str, dt: datetime) -> bool:
     """Check whether a datetime matches a cron expression."""
     cron = parse_cron(expression)
     return (
-        dt.minute in cron['minutes']
-        and dt.hour in cron['hours']
-        and dt.day in cron['days']
-        and dt.month in cron['months']
-        and dt.weekday() in cron['weekdays']
+        dt.minute in cron["minutes"]
+        and dt.hour in cron["hours"]
+        and dt.day in cron["days"]
+        and dt.month in cron["months"]
+        and dt.weekday() in cron["weekdays"]
     )
 
 
@@ -129,11 +129,13 @@ def next_cron_time(expression: str, after: Optional[datetime] = None) -> float:
     # Brute-force scan (efficient for typical cron patterns)
     max_iterations = 366 * 24 * 60  # one year of minutes
     for _ in range(max_iterations):
-        if (candidate.minute in cron['minutes']
-                and candidate.hour in cron['hours']
-                and candidate.day in cron['days']
-                and candidate.month in cron['months']
-                and candidate.weekday() in cron['weekdays']):
+        if (
+            candidate.minute in cron["minutes"]
+            and candidate.hour in cron["hours"]
+            and candidate.day in cron["days"]
+            and candidate.month in cron["months"]
+            and candidate.weekday() in cron["weekdays"]
+        ):
             return candidate.timestamp()
         # Advance by one minute
         epoch = candidate.timestamp() + 60
@@ -169,23 +171,23 @@ class ScanScheduler:
         self,
         name: str,
         target: str,
-        schedule_type: str = 'interval',
+        schedule_type: str = "interval",
         interval_seconds: int = 3600,
-        cron_expression: str = '',
+        cron_expression: str = "",
         max_runs: int = 0,
         config: Optional[dict] = None,
-        created_by: str = '',
+        created_by: str = "",
     ) -> ScheduleEntry:
         """Create a new scheduled scan."""
         sid = str(uuid.uuid4())[:8]
         now = time.time()
 
-        if schedule_type == 'cron':
+        if schedule_type == "cron":
             if not cron_expression:
-                raise ValueError('cron_expression required for cron schedule type')
+                raise ValueError("cron_expression required for cron schedule type")
             parse_cron(cron_expression)  # validate
             nxt = next_cron_time(cron_expression)
-        elif schedule_type == 'once':
+        elif schedule_type == "once":
             nxt = now + interval_seconds
         else:
             nxt = now + interval_seconds
@@ -237,7 +239,7 @@ class ScanScheduler:
         if self._running:
             return
         self._running = True
-        self._thread = threading.Thread(target=self._loop, daemon=True, name='scan-scheduler')
+        self._thread = threading.Thread(target=self._loop, daemon=True, name="scan-scheduler")
         self._thread.start()
 
     def stop(self):
@@ -255,10 +257,7 @@ class ScanScheduler:
         while self._running:
             now = time.time()
             with self._lock:
-                due = [
-                    e for e in self._schedules.values()
-                    if e.enabled and e.next_run <= now
-                ]
+                due = [e for e in self._schedules.values() if e.enabled and e.next_run <= now]
 
             for entry in due:
                 self._execute(entry)
@@ -275,20 +274,24 @@ class ScanScheduler:
             if self._scan_callback:
                 self._scan_callback(entry)
         except Exception as exc:
-            self._history.append({
-                'schedule_id': entry.schedule_id,
-                'target': entry.target,
-                'status': 'error',
-                'error': str(exc),
-                'timestamp': datetime.now(timezone.utc).isoformat(),
-            })
+            self._history.append(
+                {
+                    "schedule_id": entry.schedule_id,
+                    "target": entry.target,
+                    "status": "error",
+                    "error": str(exc),
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                }
+            )
         else:
-            self._history.append({
-                'schedule_id': entry.schedule_id,
-                'target': entry.target,
-                'status': 'triggered',
-                'timestamp': datetime.now(timezone.utc).isoformat(),
-            })
+            self._history.append(
+                {
+                    "schedule_id": entry.schedule_id,
+                    "target": entry.target,
+                    "status": "triggered",
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                }
+            )
 
         # Cap history
         if len(self._history) > 500:
@@ -298,9 +301,9 @@ class ScanScheduler:
         entry.run_count += 1
 
         # Calculate next run
-        if entry.schedule_type == 'once':
+        if entry.schedule_type == "once":
             entry.enabled = False
-        elif entry.schedule_type == 'cron':
+        elif entry.schedule_type == "cron":
             entry.next_run = next_cron_time(entry.cron_expression)
         else:
             entry.next_run = time.time() + entry.interval_seconds
@@ -313,10 +316,7 @@ class ScanScheduler:
         """Return schedules that are currently due (for manual tick)."""
         now = time.time()
         with self._lock:
-            return [
-                e for e in self._schedules.values()
-                if e.enabled and e.next_run <= now
-            ]
+            return [e for e in self._schedules.values() if e.enabled and e.next_run <= now]
 
     def tick(self):
         """Manual tick — execute all due schedules. Useful for testing."""

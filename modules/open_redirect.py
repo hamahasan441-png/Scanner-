@@ -16,10 +16,28 @@ class OpenRedirectModule:
     """Open Redirect Testing Module"""
 
     REDIRECT_PARAMS = {
-        'url', 'redirect', 'redirect_url', 'redirect_uri', 'return',
-        'return_url', 'returnto', 'next', 'goto', 'rurl', 'dest',
-        'destination', 'redir', 'redirect_to', 'continue', 'forward',
-        'target', 'out', 'view', 'ref', 'callback', 'path',
+        "url",
+        "redirect",
+        "redirect_url",
+        "redirect_uri",
+        "return",
+        "return_url",
+        "returnto",
+        "next",
+        "goto",
+        "rurl",
+        "dest",
+        "destination",
+        "redir",
+        "redirect_to",
+        "continue",
+        "forward",
+        "target",
+        "out",
+        "view",
+        "ref",
+        "callback",
+        "path",
     }
 
     def __init__(self, engine):
@@ -37,23 +55,26 @@ class OpenRedirectModule:
         for payload in payloads:
             try:
                 response = self.requester.request(
-                    url, method, data={param: payload},
+                    url,
+                    method,
+                    data={param: payload},
                     allow_redirects=False,
                 )
                 if not response:
                     continue
 
                 # Check for redirect in Location header
-                location = response.headers.get('Location', '')
+                location = response.headers.get("Location", "")
                 if self._is_open_redirect(location, payload):
                     from core.engine import Finding
+
                     finding = Finding(
                         technique="Open Redirect",
                         url=url,
                         param=param,
                         payload=payload,
                         evidence=f"Location: {location}",
-                        severity='MEDIUM',
+                        severity="MEDIUM",
                         confidence=0.85,
                     )
                     self.engine.add_finding(finding)
@@ -64,25 +85,25 @@ class OpenRedirectModule:
                     body = response.text[:5000].lower()
                     if self._check_meta_redirect(body, payload):
                         from core.engine import Finding
+
                         finding = Finding(
                             technique="Open Redirect (Meta/JS)",
                             url=url,
                             param=param,
                             payload=payload,
                             evidence="Redirect payload reflected in page body",
-                            severity='LOW',
+                            severity="LOW",
                             confidence=0.6,
                         )
                         self.engine.add_finding(finding)
                         return
 
             except Exception as e:
-                if self.engine.config.get('verbose'):
+                if self.engine.config.get("verbose"):
                     print(f"{Colors.error(f'Open redirect test error: {e}')}")
 
     def test_url(self, url: str):
         """URL-level open redirect test (not applicable)."""
-        pass
 
     def _is_open_redirect(self, location, payload):
         """Check if the Location header redirects to an external domain."""
@@ -98,8 +119,8 @@ class OpenRedirectModule:
         # Check for external domain in Location
         try:
             parsed = urlparse(location)
-            if parsed.netloc and parsed.netloc not in ('', 'localhost', '127.0.0.1'):
-                evil_domains = ['evil.com', 'attacker.com']
+            if parsed.netloc and parsed.netloc not in ("", "localhost", "127.0.0.1"):
+                evil_domains = ["evil.com", "attacker.com"]
                 return any(d in parsed.netloc.lower() for d in evil_domains)
         except Exception:
             pass
@@ -110,9 +131,9 @@ class OpenRedirectModule:
         """Check for meta refresh or JS redirect containing the payload."""
         payload_lower = payload.lower()
         return (
-            (f'url={payload_lower}' in body) or
-            (f"location='{payload_lower}'" in body) or
-            (f'location="{payload_lower}"' in body) or
-            (f'location.href="{payload_lower}"' in body) or
-            (f"window.location='{payload_lower}'" in body)
+            (f"url={payload_lower}" in body)
+            or (f"location='{payload_lower}'" in body)
+            or (f'location="{payload_lower}"' in body)
+            or (f'location.href="{payload_lower}"' in body)
+            or (f"window.location='{payload_lower}'" in body)
         )

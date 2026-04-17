@@ -6,8 +6,6 @@ Detects CRLF (Carriage Return Line Feed) injection vulnerabilities
 that allow HTTP response splitting and header injection.
 """
 
-
-
 from config import Payloads, Colors
 
 
@@ -25,8 +23,8 @@ class CRLFModule:
         "\nX-Injected: crlf-test",
     ]
 
-    INJECTED_HEADER = 'x-injected'
-    COOKIE_MARKER = 'crlfinjection=true'
+    INJECTED_HEADER = "x-injected"
+    COOKIE_MARKER = "crlfinjection=true"
 
     def __init__(self, engine):
         self.engine = engine
@@ -38,7 +36,9 @@ class CRLFModule:
         for payload in self.CRLF_PAYLOADS:
             try:
                 response = self.requester.request(
-                    url, method, data={param: payload},
+                    url,
+                    method,
+                    data={param: payload},
                     allow_redirects=False,
                 )
                 if not response:
@@ -47,39 +47,43 @@ class CRLFModule:
                 # Check for injected headers
                 if self._detect_crlf(response, payload):
                     from core.engine import Finding
+
                     finding = Finding(
                         technique="CRLF Injection",
                         url=url,
                         param=param,
                         payload=payload,
                         evidence=self._get_evidence(response),
-                        severity='MEDIUM',
+                        severity="MEDIUM",
                         confidence=0.8,
                     )
                     self.engine.add_finding(finding)
                     return
 
             except Exception as e:
-                if self.engine.config.get('verbose'):
+                if self.engine.config.get("verbose"):
                     print(f"{Colors.error(f'CRLF test error: {e}')}")
 
     def test_url(self, url: str):
         """Test URL-level CRLF injection via path/query."""
         for payload in self.CRLF_PAYLOADS[:4]:
             try:
-                test_url = url.rstrip('/') + '/' + payload
+                test_url = url.rstrip("/") + "/" + payload
                 response = self.requester.request(
-                    test_url, 'GET', allow_redirects=False,
+                    test_url,
+                    "GET",
+                    allow_redirects=False,
                 )
                 if response and self._detect_crlf(response, payload):
                     from core.engine import Finding
+
                     finding = Finding(
                         technique="CRLF Injection (URL Path)",
                         url=url,
-                        param='path',
+                        param="path",
                         payload=payload,
                         evidence=self._get_evidence(response),
-                        severity='MEDIUM',
+                        severity="MEDIUM",
                         confidence=0.75,
                     )
                     self.engine.add_finding(finding)
@@ -93,18 +97,18 @@ class CRLFModule:
         for header_name, header_value in response.headers.items():
             if self.INJECTED_HEADER in header_name.lower():
                 return True
-            if 'crlf-test' in header_value.lower():
+            if "crlf-test" in header_value.lower():
                 return True
 
         # Check for Set-Cookie injection
-        set_cookie = response.headers.get('Set-Cookie', '')
+        set_cookie = response.headers.get("Set-Cookie", "")
         if self.COOKIE_MARKER in set_cookie:
             return True
 
         # Check response body for HTTP response splitting
         if response.text:
             body_lower = response.text[:3000].lower()
-            if 'x-injected: crlf-test' in body_lower:
+            if "x-injected: crlf-test" in body_lower:
                 return True
 
         return False
@@ -114,8 +118,8 @@ class CRLFModule:
         evidence_parts = []
         for name, value in response.headers.items():
             name_lower = name.lower()
-            if self.INJECTED_HEADER in name_lower or 'crlf' in value.lower():
+            if self.INJECTED_HEADER in name_lower or "crlf" in value.lower():
                 evidence_parts.append(f"{name}: {value}")
         if not evidence_parts:
             evidence_parts.append(f"Status: {response.status_code}")
-        return '; '.join(evidence_parts)[:200]
+        return "; ".join(evidence_parts)[:200]
