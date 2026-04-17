@@ -42,7 +42,8 @@ class Comparer:
         lines2 = text2.splitlines(keepends=True)
         return list(
             difflib.unified_diff(
-                lines1, lines2,
+                lines1,
+                lines2,
                 fromfile="response1",
                 tofile="response2",
                 n=context_lines,
@@ -57,7 +58,8 @@ class Comparer:
         hex2 = self._hex_lines(bytes2)
         return list(
             difflib.unified_diff(
-                hex1, hex2,
+                hex1,
+                hex2,
                 fromfile="binary1",
                 tofile="binary2",
                 lineterm="",
@@ -153,9 +155,7 @@ class Comparer:
 
         # Status code
         if r1["status_code"] != r2["status_code"]:
-            parts.append(
-                f"Status changed: {r1['status_code']} -> {r2['status_code']}"
-            )
+            parts.append(f"Status changed: {r1['status_code']} -> {r2['status_code']}")
         else:
             parts.append(f"Status: {r1['status_code']} (unchanged)")
 
@@ -171,9 +171,7 @@ class Comparer:
 
         # Header changes
         hdiff = self.compare_headers(r1["headers"], r2["headers"])
-        h_changes = (
-            len(hdiff["added"]) + len(hdiff["removed"]) + len(hdiff["changed"])
-        )
+        h_changes = len(hdiff["added"]) + len(hdiff["removed"]) + len(hdiff["changed"])
         if h_changes:
             parts.append(
                 f"Header changes: {len(hdiff['added'])} added, "
@@ -216,7 +214,7 @@ class Comparer:
         """Convert bytes to a list of hex-dump lines."""
         lines = []
         for offset in range(0, len(data), width):
-            chunk = data[offset: offset + width]
+            chunk = data[offset : offset + width]
             hex_part = " ".join(f"{b:02x}" for b in chunk)
             ascii_part = "".join(chr(b) if 32 <= b < 127 else "." for b in chunk)
             lines.append(f"{offset:08x}  {hex_part:<{width * 3}}  |{ascii_part}|")

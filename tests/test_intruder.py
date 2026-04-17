@@ -3,14 +3,14 @@
 """Tests for core.intruder – Automated Customized Attack Tool."""
 
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock
 
 from core.intruder import Intruder, IntruderResult, MARKER
-
 
 # ------------------------------------------------------------------ #
 #  Helpers                                                             #
 # ------------------------------------------------------------------ #
+
 
 class _MockResponse:
     """Minimal stand-in for ``requests.Response``."""
@@ -33,9 +33,11 @@ def _setup_single_position_intruder(attack_type="sniper", payloads=None):
     """Return an intruder configured with one URL position."""
     intruder = _make_intruder()
     intruder.set_target("GET", "https://example.com/api?id=§id§")
-    intruder.set_positions([
-        {"name": "id", "location": "url", "marker": "§id§"},
-    ])
+    intruder.set_positions(
+        [
+            {"name": "id", "location": "url", "marker": "§id§"},
+        ]
+    )
     intruder.add_payload_set("id", payloads if payloads is not None else ["1", "2", "3"])
     intruder.set_attack_type(attack_type)
     return intruder
@@ -44,6 +46,7 @@ def _setup_single_position_intruder(attack_type="sniper", payloads=None):
 # ------------------------------------------------------------------ #
 #  IntruderResult                                                      #
 # ------------------------------------------------------------------ #
+
 
 class TestIntruderResult(unittest.TestCase):
     """Tests for the IntruderResult data container."""
@@ -62,9 +65,15 @@ class TestIntruderResult(unittest.TestCase):
 
     def test_custom_values(self):
         r = IntruderResult(
-            index=5, payload="admin", status_code=200,
-            length=42, elapsed=0.5, body="hello",
-            headers={"X": "1"}, error=None, position="user",
+            index=5,
+            payload="admin",
+            status_code=200,
+            length=42,
+            elapsed=0.5,
+            body="hello",
+            headers={"X": "1"},
+            error=None,
+            position="user",
         )
         self.assertEqual(r.status_code, 200)
         self.assertEqual(r.length, 42)
@@ -82,8 +91,15 @@ class TestIntruderResult(unittest.TestCase):
     def test_to_dict_keys(self):
         r = IntruderResult(index=0, payload="x")
         expected_keys = {
-            "index", "payload", "status_code", "length", "elapsed",
-            "body", "headers", "error", "position",
+            "index",
+            "payload",
+            "status_code",
+            "length",
+            "elapsed",
+            "body",
+            "headers",
+            "error",
+            "position",
         }
         self.assertEqual(set(r.to_dict().keys()), expected_keys)
 
@@ -95,6 +111,7 @@ class TestIntruderResult(unittest.TestCase):
 # ------------------------------------------------------------------ #
 #  Constructor & configuration                                         #
 # ------------------------------------------------------------------ #
+
 
 class TestIntruderInit(unittest.TestCase):
     """Tests for Intruder constructor and basic configuration."""
@@ -123,8 +140,7 @@ class TestIntruderInit(unittest.TestCase):
 
     def test_proxy_setting(self):
         intruder = Intruder(proxy="http://127.0.0.1:8080")
-        self.assertEqual(intruder.session.proxies["http"],
-                         "http://127.0.0.1:8080")
+        self.assertEqual(intruder.session.proxies["http"], "http://127.0.0.1:8080")
 
 
 class TestSetTarget(unittest.TestCase):
@@ -159,6 +175,7 @@ class TestSetTarget(unittest.TestCase):
 #  Positions & payloads                                                #
 # ------------------------------------------------------------------ #
 
+
 class TestPositions(unittest.TestCase):
 
     def test_set_valid_positions(self):
@@ -170,16 +187,20 @@ class TestPositions(unittest.TestCase):
     def test_invalid_location_raises(self):
         intruder = Intruder()
         with self.assertRaises(ValueError):
-            intruder.set_positions([
-                {"name": "id", "location": "invalid", "marker": "§id§"},
-            ])
+            intruder.set_positions(
+                [
+                    {"name": "id", "location": "invalid", "marker": "§id§"},
+                ]
+            )
 
     def test_invalid_marker_raises(self):
         intruder = Intruder()
         with self.assertRaises(ValueError):
-            intruder.set_positions([
-                {"name": "id", "location": "url", "marker": "no_marker"},
-            ])
+            intruder.set_positions(
+                [
+                    {"name": "id", "location": "url", "marker": "no_marker"},
+                ]
+            )
 
     def test_add_payload_set(self):
         intruder = Intruder()
@@ -197,6 +218,7 @@ class TestPositions(unittest.TestCase):
 # ------------------------------------------------------------------ #
 #  Attack type                                                         #
 # ------------------------------------------------------------------ #
+
 
 class TestAttackType(unittest.TestCase):
 
@@ -216,6 +238,7 @@ class TestAttackType(unittest.TestCase):
 #  Sniper request generation                                           #
 # ------------------------------------------------------------------ #
 
+
 class TestSniperGeneration(unittest.TestCase):
 
     def test_single_position_count(self):
@@ -225,10 +248,12 @@ class TestSniperGeneration(unittest.TestCase):
 
     def test_multi_position_count(self):
         intruder = _make_intruder()
-        intruder.set_positions([
-            {"name": "a", "location": "url", "marker": "§a§"},
-            {"name": "b", "location": "body", "marker": "§b§"},
-        ])
+        intruder.set_positions(
+            [
+                {"name": "a", "location": "url", "marker": "§a§"},
+                {"name": "b", "location": "body", "marker": "§b§"},
+            ]
+        )
         intruder.add_payload_set("a", ["1", "2"])
         intruder.add_payload_set("b", ["x", "y", "z"])
         variations = intruder._generate_requests_sniper()
@@ -250,14 +275,17 @@ class TestSniperGeneration(unittest.TestCase):
 #  Battering ram request generation                                    #
 # ------------------------------------------------------------------ #
 
+
 class TestBatteringRamGeneration(unittest.TestCase):
 
     def test_same_payload_all_positions(self):
         intruder = _make_intruder()
-        intruder.set_positions([
-            {"name": "a", "location": "url", "marker": "§a§"},
-            {"name": "b", "location": "body", "marker": "§b§"},
-        ])
+        intruder.set_positions(
+            [
+                {"name": "a", "location": "url", "marker": "§a§"},
+                {"name": "b", "location": "body", "marker": "§b§"},
+            ]
+        )
         intruder.add_payload_set("a", ["X", "Y"])
         variations = intruder._generate_requests_battering_ram()
         self.assertEqual(len(variations), 2)
@@ -279,29 +307,32 @@ class TestBatteringRamGeneration(unittest.TestCase):
 #  Pitchfork request generation                                        #
 # ------------------------------------------------------------------ #
 
+
 class TestPitchforkGeneration(unittest.TestCase):
 
     def test_parallel_zip(self):
         intruder = _make_intruder()
-        intruder.set_positions([
-            {"name": "user", "location": "body", "marker": "§user§"},
-            {"name": "pass", "location": "body", "marker": "§pass§"},
-        ])
+        intruder.set_positions(
+            [
+                {"name": "user", "location": "body", "marker": "§user§"},
+                {"name": "pass", "location": "body", "marker": "§pass§"},
+            ]
+        )
         intruder.add_payload_set("user", ["admin", "root"])
         intruder.add_payload_set("pass", ["123", "toor"])
         variations = intruder._generate_requests_pitchfork()
         self.assertEqual(len(variations), 2)
-        self.assertEqual(variations[0]["substitutions"],
-                         {"user": "admin", "pass": "123"})
-        self.assertEqual(variations[1]["substitutions"],
-                         {"user": "root", "pass": "toor"})
+        self.assertEqual(variations[0]["substitutions"], {"user": "admin", "pass": "123"})
+        self.assertEqual(variations[1]["substitutions"], {"user": "root", "pass": "toor"})
 
     def test_stops_at_shortest(self):
         intruder = _make_intruder()
-        intruder.set_positions([
-            {"name": "a", "location": "url", "marker": "§a§"},
-            {"name": "b", "location": "url", "marker": "§b§"},
-        ])
+        intruder.set_positions(
+            [
+                {"name": "a", "location": "url", "marker": "§a§"},
+                {"name": "b", "location": "url", "marker": "§b§"},
+            ]
+        )
         intruder.add_payload_set("a", ["1", "2", "3"])
         intruder.add_payload_set("b", ["x"])
         variations = intruder._generate_requests_pitchfork()
@@ -309,10 +340,12 @@ class TestPitchforkGeneration(unittest.TestCase):
 
     def test_payload_is_dict(self):
         intruder = _make_intruder()
-        intruder.set_positions([
-            {"name": "a", "location": "url", "marker": "§a§"},
-            {"name": "b", "location": "url", "marker": "§b§"},
-        ])
+        intruder.set_positions(
+            [
+                {"name": "a", "location": "url", "marker": "§a§"},
+                {"name": "b", "location": "url", "marker": "§b§"},
+            ]
+        )
         intruder.add_payload_set("a", ["1"])
         intruder.add_payload_set("b", ["x"])
         variations = intruder._generate_requests_pitchfork()
@@ -329,14 +362,17 @@ class TestPitchforkGeneration(unittest.TestCase):
 #  Cluster bomb request generation                                     #
 # ------------------------------------------------------------------ #
 
+
 class TestClusterBombGeneration(unittest.TestCase):
 
     def test_cartesian_product_count(self):
         intruder = _make_intruder()
-        intruder.set_positions([
-            {"name": "a", "location": "url", "marker": "§a§"},
-            {"name": "b", "location": "url", "marker": "§b§"},
-        ])
+        intruder.set_positions(
+            [
+                {"name": "a", "location": "url", "marker": "§a§"},
+                {"name": "b", "location": "url", "marker": "§b§"},
+            ]
+        )
         intruder.add_payload_set("a", ["1", "2"])
         intruder.add_payload_set("b", ["x", "y", "z"])
         variations = intruder._generate_requests_cluster_bomb()
@@ -345,11 +381,13 @@ class TestClusterBombGeneration(unittest.TestCase):
 
     def test_three_positions(self):
         intruder = _make_intruder()
-        intruder.set_positions([
-            {"name": "a", "location": "url", "marker": "§a§"},
-            {"name": "b", "location": "url", "marker": "§b§"},
-            {"name": "c", "location": "body", "marker": "§c§"},
-        ])
+        intruder.set_positions(
+            [
+                {"name": "a", "location": "url", "marker": "§a§"},
+                {"name": "b", "location": "url", "marker": "§b§"},
+                {"name": "c", "location": "body", "marker": "§c§"},
+            ]
+        )
         intruder.add_payload_set("a", ["1", "2"])
         intruder.add_payload_set("b", ["x"])
         intruder.add_payload_set("c", ["!", "@"])
@@ -359,17 +397,17 @@ class TestClusterBombGeneration(unittest.TestCase):
 
     def test_all_combos_present(self):
         intruder = _make_intruder()
-        intruder.set_positions([
-            {"name": "a", "location": "url", "marker": "§a§"},
-            {"name": "b", "location": "url", "marker": "§b§"},
-        ])
+        intruder.set_positions(
+            [
+                {"name": "a", "location": "url", "marker": "§a§"},
+                {"name": "b", "location": "url", "marker": "§b§"},
+            ]
+        )
         intruder.add_payload_set("a", ["1", "2"])
         intruder.add_payload_set("b", ["x", "y"])
         variations = intruder._generate_requests_cluster_bomb()
-        combos = {(v["substitutions"]["a"], v["substitutions"]["b"])
-                  for v in variations}
-        self.assertEqual(combos,
-                         {("1", "x"), ("1", "y"), ("2", "x"), ("2", "y")})
+        combos = {(v["substitutions"]["a"], v["substitutions"]["b"]) for v in variations}
+        self.assertEqual(combos, {("1", "x"), ("1", "y"), ("2", "x"), ("2", "y")})
 
     def test_empty_positions(self):
         intruder = _make_intruder()
@@ -382,6 +420,7 @@ class TestClusterBombGeneration(unittest.TestCase):
 #  Payload substitution                                                #
 # ------------------------------------------------------------------ #
 
+
 class TestSubstitutePayload(unittest.TestCase):
 
     def setUp(self):
@@ -389,47 +428,42 @@ class TestSubstitutePayload(unittest.TestCase):
 
     def test_url_substitution(self):
         pos = {"name": "id", "location": "url", "marker": "§id§"}
-        url, _, _ = self.intruder._substitute_payload(
-            "https://x.com?id=§id§", {}, None, pos, "42")
+        url, _, _ = self.intruder._substitute_payload("https://x.com?id=§id§", {}, None, pos, "42")
         self.assertEqual(url, "https://x.com?id=42")
 
     def test_header_substitution(self):
         pos = {"name": "tok", "location": "header", "marker": "§tok§"}
         _, headers, _ = self.intruder._substitute_payload(
-            "https://x.com", {"Authorization": "Bearer §tok§"}, None,
-            pos, "abc123")
+            "https://x.com", {"Authorization": "Bearer §tok§"}, None, pos, "abc123"
+        )
         self.assertEqual(headers["Authorization"], "Bearer abc123")
 
     def test_body_substitution(self):
         pos = {"name": "user", "location": "body", "marker": "§user§"}
-        _, _, body = self.intruder._substitute_payload(
-            "https://x.com", {}, "user=§user§&pass=x", pos, "admin")
+        _, _, body = self.intruder._substitute_payload("https://x.com", {}, "user=§user§&pass=x", pos, "admin")
         self.assertEqual(body, "user=admin&pass=x")
 
     def test_cookie_substitution(self):
         pos = {"name": "sess", "location": "cookie", "marker": "§sess§"}
         _, headers, _ = self.intruder._substitute_payload(
-            "https://x.com", {"Cookie": "session=§sess§"}, None,
-            pos, "abc")
+            "https://x.com", {"Cookie": "session=§sess§"}, None, pos, "abc"
+        )
         self.assertEqual(headers["Cookie"], "session=abc")
 
     def test_body_none_unchanged(self):
         pos = {"name": "x", "location": "body", "marker": "§x§"}
-        _, _, body = self.intruder._substitute_payload(
-            "https://x.com", {}, None, pos, "val")
+        _, _, body = self.intruder._substitute_payload("https://x.com", {}, None, pos, "val")
         self.assertIsNone(body)
 
     def test_url_multiple_markers(self):
         pos = {"name": "v", "location": "url", "marker": "§v§"}
-        url, _, _ = self.intruder._substitute_payload(
-            "https://x.com?a=§v§&b=§v§", {}, None, pos, "1")
+        url, _, _ = self.intruder._substitute_payload("https://x.com?a=§v§&b=§v§", {}, None, pos, "1")
         self.assertEqual(url, "https://x.com?a=1&b=1")
 
     def test_does_not_mutate_original_headers(self):
         pos = {"name": "t", "location": "header", "marker": "§t§"}
         original = {"X-Token": "§t§"}
-        _, headers, _ = self.intruder._substitute_payload(
-            "https://x.com", original, None, pos, "new")
+        _, headers, _ = self.intruder._substitute_payload("https://x.com", original, None, pos, "new")
         # The returned headers are a deep copy
         self.assertEqual(headers["X-Token"], "new")
 
@@ -437,6 +471,7 @@ class TestSubstitutePayload(unittest.TestCase):
 # ------------------------------------------------------------------ #
 #  Attack execution (mocked HTTP)                                      #
 # ------------------------------------------------------------------ #
+
 
 class TestAttack(unittest.TestCase):
 
@@ -474,10 +509,12 @@ class TestAttack(unittest.TestCase):
     def test_battering_ram_attack(self):
         intruder = _make_intruder()
         intruder.set_target("GET", "https://x.com/§a§/§b§")
-        intruder.set_positions([
-            {"name": "a", "location": "url", "marker": "§a§"},
-            {"name": "b", "location": "url", "marker": "§b§"},
-        ])
+        intruder.set_positions(
+            [
+                {"name": "a", "location": "url", "marker": "§a§"},
+                {"name": "b", "location": "url", "marker": "§b§"},
+            ]
+        )
         intruder.add_payload_set("a", ["X"])
         intruder.set_attack_type("battering_ram")
         results = self._run_attack(intruder)
@@ -485,12 +522,13 @@ class TestAttack(unittest.TestCase):
 
     def test_pitchfork_attack(self):
         intruder = _make_intruder()
-        intruder.set_target("POST", "https://x.com",
-                            body="u=§u§&p=§p§")
-        intruder.set_positions([
-            {"name": "u", "location": "body", "marker": "§u§"},
-            {"name": "p", "location": "body", "marker": "§p§"},
-        ])
+        intruder.set_target("POST", "https://x.com", body="u=§u§&p=§p§")
+        intruder.set_positions(
+            [
+                {"name": "u", "location": "body", "marker": "§u§"},
+                {"name": "p", "location": "body", "marker": "§p§"},
+            ]
+        )
         intruder.add_payload_set("u", ["admin", "root"])
         intruder.add_payload_set("p", ["123", "toor"])
         intruder.set_attack_type("pitchfork")
@@ -499,12 +537,13 @@ class TestAttack(unittest.TestCase):
 
     def test_cluster_bomb_attack(self):
         intruder = _make_intruder()
-        intruder.set_target("POST", "https://x.com",
-                            body="u=§u§&p=§p§")
-        intruder.set_positions([
-            {"name": "u", "location": "body", "marker": "§u§"},
-            {"name": "p", "location": "body", "marker": "§p§"},
-        ])
+        intruder.set_target("POST", "https://x.com", body="u=§u§&p=§p§")
+        intruder.set_positions(
+            [
+                {"name": "u", "location": "body", "marker": "§u§"},
+                {"name": "p", "location": "body", "marker": "§p§"},
+            ]
+        )
         intruder.add_payload_set("u", ["admin", "root"])
         intruder.add_payload_set("p", ["123", "toor"])
         intruder.set_attack_type("cluster_bomb")
@@ -530,6 +569,7 @@ class TestAttack(unittest.TestCase):
 #  Callback                                                            #
 # ------------------------------------------------------------------ #
 
+
 class TestCallback(unittest.TestCase):
 
     def test_callback_called_per_result(self):
@@ -551,19 +591,16 @@ class TestCallback(unittest.TestCase):
 #  Result filtering                                                    #
 # ------------------------------------------------------------------ #
 
+
 class TestFilterResults(unittest.TestCase):
 
     def setUp(self):
         self.intruder = Intruder()
         self.intruder._results = [
-            IntruderResult(index=0, payload="a", status_code=200,
-                           length=100, body="ok"),
-            IntruderResult(index=1, payload="b", status_code=404,
-                           length=50, body="not found"),
-            IntruderResult(index=2, payload="c", status_code=200,
-                           length=200, body="ok large"),
-            IntruderResult(index=3, payload="d", status_code=500,
-                           length=10, body="error"),
+            IntruderResult(index=0, payload="a", status_code=200, length=100, body="ok"),
+            IntruderResult(index=1, payload="b", status_code=404, length=50, body="not found"),
+            IntruderResult(index=2, payload="c", status_code=200, length=200, body="ok large"),
+            IntruderResult(index=3, payload="d", status_code=500, length=10, body="error"),
         ]
 
     def test_filter_by_status_code(self):
@@ -583,8 +620,7 @@ class TestFilterResults(unittest.TestCase):
         self.assertEqual(len(results), 2)
 
     def test_filter_combined(self):
-        results = self.intruder.filter_results(
-            status_code=200, min_length=150)
+        results = self.intruder.filter_results(status_code=200, min_length=150)
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0].payload, "c")
 
@@ -600,6 +636,7 @@ class TestFilterResults(unittest.TestCase):
 # ------------------------------------------------------------------ #
 #  get_results & clear                                                 #
 # ------------------------------------------------------------------ #
+
 
 class TestGetResultsAndClear(unittest.TestCase):
 
@@ -624,9 +661,11 @@ class TestGetResultsAndClear(unittest.TestCase):
 
     def test_clear_resets_positions(self):
         intruder = Intruder()
-        intruder.set_positions([
-            {"name": "a", "location": "url", "marker": "§a§"},
-        ])
+        intruder.set_positions(
+            [
+                {"name": "a", "location": "url", "marker": "§a§"},
+            ]
+        )
         intruder.clear()
         self.assertEqual(intruder._positions, [])
 
@@ -655,6 +694,7 @@ class TestGetResultsAndClear(unittest.TestCase):
 #  Edge cases                                                          #
 # ------------------------------------------------------------------ #
 
+
 class TestEdgeCases(unittest.TestCase):
 
     def test_empty_payload_set(self):
@@ -666,9 +706,11 @@ class TestEdgeCases(unittest.TestCase):
     def test_numeric_payloads_converted_to_string(self):
         intruder = _make_intruder()
         intruder.set_target("GET", "https://x.com?n=§n§")
-        intruder.set_positions([
-            {"name": "n", "location": "url", "marker": "§n§"},
-        ])
+        intruder.set_positions(
+            [
+                {"name": "n", "location": "url", "marker": "§n§"},
+            ]
+        )
         intruder.add_payload_set("n", [1, 2, 100])
         variations = intruder._generate_requests_sniper()
         self.assertEqual(variations[0]["payload"], "1")
@@ -680,9 +722,11 @@ class TestEdgeCases(unittest.TestCase):
     def test_attack_with_delay(self):
         intruder = _make_intruder(delay=0.01)
         intruder.set_target("GET", "https://x.com?id=§id§")
-        intruder.set_positions([
-            {"name": "id", "location": "url", "marker": "§id§"},
-        ])
+        intruder.set_positions(
+            [
+                {"name": "id", "location": "url", "marker": "§id§"},
+            ]
+        )
         intruder.add_payload_set("id", ["1"])
         intruder.set_attack_type("sniper")
         intruder.session.request.return_value = _MockResponse()
@@ -694,9 +738,8 @@ class TestEdgeCases(unittest.TestCase):
         intruder = Intruder()
         pos = {"name": "t", "location": "header", "marker": "§t§"}
         _, headers, _ = intruder._substitute_payload(
-            "https://x.com",
-            {"Auth": "§t§", "Accept": "text/html"},
-            None, pos, "tok")
+            "https://x.com", {"Auth": "§t§", "Accept": "text/html"}, None, pos, "tok"
+        )
         self.assertEqual(headers["Auth"], "tok")
         self.assertEqual(headers["Accept"], "text/html")
 
@@ -704,8 +747,7 @@ class TestEdgeCases(unittest.TestCase):
         """Cookie substitution with no Cookie header is a no-op."""
         intruder = Intruder()
         pos = {"name": "s", "location": "cookie", "marker": "§s§"}
-        _, headers, _ = intruder._substitute_payload(
-            "https://x.com", {}, None, pos, "val")
+        _, headers, _ = intruder._substitute_payload("https://x.com", {}, None, pos, "val")
         self.assertNotIn("Cookie", headers)
 
 

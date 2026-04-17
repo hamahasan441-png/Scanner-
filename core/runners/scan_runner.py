@@ -17,10 +17,9 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple
-from urllib.parse import parse_qs, urlparse
+from typing import TYPE_CHECKING, Any, Dict, Optional
 
-from config import Colors, Config
+from config import Colors
 
 if TYPE_CHECKING:
     from core.engine import AtomicEngine
@@ -45,14 +44,14 @@ class ScanRunner:
     focused, testable unit.
     """
 
-    def __init__(self, engine: 'AtomicEngine'):
+    def __init__(self, engine: "AtomicEngine"):
         self.engine = engine
         self.config = engine.config
-        self.modules_config = self.config.get('modules', {})
+        self.modules_config = self.config.get("modules", {})
 
     # ------------------------------------------------------------------
 
-    def run(self, target: str, recon: 'ReconResult', init_resp: Any = None) -> ScanResult:
+    def run(self, target: str, recon: "ReconResult", init_resp: Any = None) -> ScanResult:
         """Execute the full scan phase and return ``ScanResult``."""
         result = ScanResult()
 
@@ -60,18 +59,22 @@ class ScanRunner:
         result.enriched_params = self.engine.context.analyze_parameters(recon.parameters)
 
         # PHASE 6: Intelligence Enrichment
-        result.intel_bundle = self._intelligence_enrichment(
-            init_resp, recon.parameters, recon.urls)
+        result.intel_bundle = self._intelligence_enrichment(init_resp, recon.parameters, recon.urls)
 
         # PHASE 7: Attack Surface Prioritization
         result.scan_queue = self._build_scan_queue(
-            result.enriched_params, recon.urls, result.intel_bundle,
-            recon.real_ip_result, recon.shield_profile, recon.fanout_result)
+            result.enriched_params,
+            recon.urls,
+            result.intel_bundle,
+            recon.real_ip_result,
+            recon.shield_profile,
+            recon.fanout_result,
+        )
 
         # AI strategy
         result.ai_strategy = self.engine.ai.get_attack_strategy(target, result.enriched_params)
-        if self.config.get('verbose') and result.ai_strategy.get('module_order'):
-            module_order = result.ai_strategy['module_order']
+        if self.config.get("verbose") and result.ai_strategy.get("module_order"):
+            module_order = result.ai_strategy["module_order"]
             print(f"{Colors.info(f'AI recommended module order: {module_order}')}")
 
         # §5: Risk-Based Prioritization
@@ -101,41 +104,48 @@ class ScanRunner:
     # ------------------------------------------------------------------
 
     def _intelligence_enrichment(self, init_resp, parameters, urls):
-        if not self.modules_config.get('enrich', False):
+        if not self.modules_config.get("enrich", False):
             return None
         try:
             from core.intelligence_enricher import IntelligenceEnricher
+
             enricher = IntelligenceEnricher(self.engine)
             responses = [init_resp] if init_resp else []
             bundle = enricher.run(responses=responses, params=parameters, urls=urls)
-            self.engine.emit_pipeline_event('phase6_result', bundle.to_dict())
+            self.engine.emit_pipeline_event("phase6_result", bundle.to_dict())
             return bundle
         except Exception as e:
-            if self.config.get('verbose'):
+            if self.config.get("verbose"):
                 print(f"{Colors.error(f'Phase 6 enrichment error: {e}')}")
             return None
 
-    def _build_scan_queue(self, enriched_params, urls, intel_bundle,
-                          real_ip_result, shield_profile, fanout_result):
-        if not (self.modules_config.get('enrich', False) and intel_bundle):
+    def _build_scan_queue(self, enriched_params, urls, intel_bundle, real_ip_result, shield_profile, fanout_result):
+        if not (self.modules_config.get("enrich", False) and intel_bundle):
             return None
         try:
             from core.scan_priority_queue import ScanPriorityQueue
+
             pq = ScanPriorityQueue(self.engine)
-            origin_ip = real_ip_result.get('origin_ip') if real_ip_result else None
-            bypass_profile = shield_profile.get('waf', {}) if shield_profile else None
-            asset_graph = (fanout_result and hasattr(fanout_result, '_asset_graph')
-                           and getattr(fanout_result, '_asset_graph', None))
+            origin_ip = real_ip_result.get("origin_ip") if real_ip_result else None
+            bypass_profile = shield_profile.get("waf", {}) if shield_profile else None
+            asset_graph = (
+                fanout_result
+                and hasattr(fanout_result, "_asset_graph")
+                and getattr(fanout_result, "_asset_graph", None)
+            )
             queue = pq.build(
-                enriched_params=enriched_params, urls=urls,
-                intel_bundle=intel_bundle, agent_result=None,
-                asset_graph=asset_graph, bypass_profile=bypass_profile,
+                enriched_params=enriched_params,
+                urls=urls,
+                intel_bundle=intel_bundle,
+                agent_result=None,
+                asset_graph=asset_graph,
+                bypass_profile=bypass_profile,
                 origin_ip=origin_ip,
             )
-            self.engine.emit_pipeline_event('phase7_result', {'queue_size': len(queue)})
+            self.engine.emit_pipeline_event("phase7_result", {"queue_size": len(queue)})
             return queue
         except Exception as e:
-            if self.config.get('verbose'):
+            if self.config.get("verbose"):
                 print(f"{Colors.error(f'Phase 7 prioritization error: {e}')}")
             return None
 
@@ -146,23 +156,22 @@ class ScanRunner:
             bkey = f"{ep['method']}:{ep['url']}:{ep['param']}"
             if bkey not in seen:
                 seen.add(bkey)
-                self.engine.baseline_engine.get_baseline(
-                    ep['url'], ep['method'], ep['param'], ep['value'])
+                self.engine.baseline_engine.get_baseline(ep["url"], ep["method"], ep["param"], ep["value"])
 
     def _run_modules(self, enriched_params, prioritized_urls, ai_strategy):
         """Adaptive module testing with reflection gate."""
         # Determine which modules require input reflection from module metadata
         # (falls back to known set if module lacks the attribute)
-        _FALLBACK_REFLECTION_MODULES = {'xss', 'ssti'}
+        _FALLBACK_REFLECTION_MODULES = {"xss", "ssti"}
 
         # Determine module order
         ordered_modules = []
-        if ai_strategy and ai_strategy.get('module_order'):
-            for mkey in ai_strategy['module_order']:
+        if ai_strategy and ai_strategy.get("module_order"):
+            for mkey in ai_strategy["module_order"]:
                 if mkey in self.engine._modules:
                     ordered_modules.append((mkey, self.engine._modules[mkey]))
             for mkey, minst in self.engine._modules.items():
-                if mkey not in ai_strategy['module_order']:
+                if mkey not in ai_strategy["module_order"]:
                     ordered_modules.append((mkey, minst))
         else:
             ordered_modules = list(self.engine._modules.items())
@@ -170,7 +179,7 @@ class ScanRunner:
         # Build reflection-dependent set from module metadata
         reflection_dependent: set = set()
         for mkey, minst in ordered_modules:
-            if getattr(minst, 'requires_reflection', False):
+            if getattr(minst, "requires_reflection", False):
                 reflection_dependent.add(mkey)
             elif mkey in _FALLBACK_REFLECTION_MODULES:
                 reflection_dependent.add(mkey)
@@ -178,15 +187,18 @@ class ScanRunner:
         # Reflection cache
         reflection_cache: dict = {}
         for ep in enriched_params:
-            r_key = (ep['url'], ep['method'], ep['param'])
+            r_key = (ep["url"], ep["method"], ep["param"])
             if r_key not in reflection_cache:
                 reflection_cache[r_key] = self.engine.baseline_engine.reflection_check(
-                    ep['url'], ep['method'], ep['param'], ep['value'])
+                    ep["url"], ep["method"], ep["param"], ep["value"]
+                )
 
         reflected = sum(1 for v in reflection_cache.values() if v)
         skipped = len(reflection_cache) - reflected
         if skipped > 0:
-            print(f"{Colors.info(f'Reflection gate: {reflected} reflected, {skipped} non-reflected (XSS/SSTI skipped)')}")
+            print(
+                f"{Colors.info(f'Reflection gate: {reflected} reflected, {skipped} non-reflected (XSS/SSTI skipped)')}"
+            )
 
         for module_key, module_instance in ordered_modules:
             print(f"\n{Colors.info(f'Running {module_instance.name} module...')}")
@@ -196,7 +208,7 @@ class ScanRunner:
                 if self.engine.persistence.is_tested(ep_key):
                     continue
                 if module_key in reflection_dependent:
-                    r_key = (ep['url'], ep['method'], ep['param'])
+                    r_key = (ep["url"], ep["method"], ep["param"])
                     if not reflection_cache.get(r_key, False):
                         self.engine.persistence.mark_tested(ep_key)
                         continue
@@ -206,8 +218,8 @@ class ScanRunner:
                     delay = self.engine.adaptive.get_delay()
                     if delay > 0:
                         time.sleep(delay)
-                    if hasattr(m, 'test'):
-                        m.test(e['url'], e['method'], e['param'], e['value'])
+                    if hasattr(m, "test"):
+                        m.test(e["url"], e["method"], e["param"], e["value"])
                     return True
 
                 self.engine.persistence.execute_with_retry(_do_test, ep_key)
@@ -218,7 +230,7 @@ class ScanRunner:
                     continue
 
                 def _do_url_test(m=module_instance, u=url_item):
-                    if hasattr(m, 'test_url'):
+                    if hasattr(m, "test_url"):
                         m.test_url(u)
                     return True
 
@@ -227,10 +239,10 @@ class ScanRunner:
     def _run_scan_workers(self, scan_queue):
         try:
             from core.scan_worker_pool import ScanWorkerPool
+
             pool = ScanWorkerPool(self.engine)
             pool.run(scan_queue)
-            self.engine.emit_pipeline_event('phase8_result', {
-                'additional_findings': len(self.engine.findings)})
+            self.engine.emit_pipeline_event("phase8_result", {"additional_findings": len(self.engine.findings)})
         except Exception as e:
-            if self.config.get('verbose'):
+            if self.config.get("verbose"):
                 print(f"{Colors.error(f'Phase 8 worker pool error: {e}')}")

@@ -9,7 +9,6 @@ from pathlib import Path
 
 from config import Config
 
-
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGE_SPEC = spec_from_file_location("atomic_framework_package", ROOT / "__init__.py")
 PACKAGE_METADATA = module_from_spec(PACKAGE_SPEC)

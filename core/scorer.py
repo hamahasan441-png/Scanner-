@@ -15,8 +15,6 @@ Confidence formula:
           / TOTAL_WEIGHT
 """
 
-
-
 from core.baseline import BaselineEngine
 from core.normalizer import normalize
 
@@ -27,9 +25,13 @@ DEFAULT_WEIGHT_REFLECTION = 2
 DEFAULT_WEIGHT_DIFF = 1
 DEFAULT_WEIGHT_BEHAVIOR = 2
 
-TOTAL_WEIGHT = (DEFAULT_WEIGHT_TIMING + DEFAULT_WEIGHT_ERROR
-                + DEFAULT_WEIGHT_REFLECTION + DEFAULT_WEIGHT_DIFF
-                + DEFAULT_WEIGHT_BEHAVIOR)
+TOTAL_WEIGHT = (
+    DEFAULT_WEIGHT_TIMING
+    + DEFAULT_WEIGHT_ERROR
+    + DEFAULT_WEIGHT_REFLECTION
+    + DEFAULT_WEIGHT_DIFF
+    + DEFAULT_WEIGHT_BEHAVIOR
+)
 
 # Confidence thresholds
 CONFIDENCE_HIGH = 0.75
@@ -43,23 +45,29 @@ class SignalSet:
     """Container for detection signals from a single test."""
 
     __slots__ = (
-        'timing_signal', 'error_signal', 'reflection_signal', 'diff_signal',
-        'behavior_signal', 'raw_scores', '_weights', '_rules_engine',
+        "timing_signal",
+        "error_signal",
+        "reflection_signal",
+        "diff_signal",
+        "behavior_signal",
+        "raw_scores",
+        "_weights",
+        "_rules_engine",
     )
 
     def __init__(self, weights=None, rules_engine=None):
-        self.timing_signal = 0.0     # 0.0 - 1.0
-        self.error_signal = 0.0      # 0.0 - 1.0
+        self.timing_signal = 0.0  # 0.0 - 1.0
+        self.error_signal = 0.0  # 0.0 - 1.0
         self.reflection_signal = 0.0  # 0.0 - 1.0
-        self.diff_signal = 0.0       # 0.0 - 1.0
-        self.behavior_signal = 0.0   # 0.0 - 1.0 (v10.0: status code / redirect behavior)
+        self.diff_signal = 0.0  # 0.0 - 1.0
+        self.behavior_signal = 0.0  # 0.0 - 1.0 (v10.0: status code / redirect behavior)
         self.raw_scores = {}
         self._weights = weights or {
-            'timing': DEFAULT_WEIGHT_TIMING,
-            'error': DEFAULT_WEIGHT_ERROR,
-            'reflection': DEFAULT_WEIGHT_REFLECTION,
-            'diff': DEFAULT_WEIGHT_DIFF,
-            'behavior': DEFAULT_WEIGHT_BEHAVIOR,
+            "timing": DEFAULT_WEIGHT_TIMING,
+            "error": DEFAULT_WEIGHT_ERROR,
+            "reflection": DEFAULT_WEIGHT_REFLECTION,
+            "diff": DEFAULT_WEIGHT_DIFF,
+            "behavior": DEFAULT_WEIGHT_BEHAVIOR,
         }
         self._rules_engine = rules_engine
 
@@ -68,11 +76,11 @@ class SignalSet:
         """Weighted confidence score (0.0 - 1.0)."""
         w = self._weights
         total = (
-            self.timing_signal * w['timing']
-            + self.error_signal * w['error']
-            + self.reflection_signal * w['reflection']
-            + self.diff_signal * w['diff']
-            + self.behavior_signal * w.get('behavior', DEFAULT_WEIGHT_BEHAVIOR)
+            self.timing_signal * w["timing"]
+            + self.error_signal * w["error"]
+            + self.reflection_signal * w["reflection"]
+            + self.diff_signal * w["diff"]
+            + self.behavior_signal * w.get("behavior", DEFAULT_WEIGHT_BEHAVIOR)
         )
         total_weight = sum(w.values())
         return round(total / total_weight, 3) if total_weight > 0 else 0.0
@@ -104,33 +112,33 @@ class SignalSet:
             rules_label = self._rules_engine.get_scoring_label(score_100)
             # Map rules engine labels to unified output labels
             label_map = {
-                'confirmed': 'HIGH',
-                'high': 'HIGH',
-                'likely': 'MEDIUM',
-                'suspected': 'LOW',
+                "confirmed": "HIGH",
+                "high": "HIGH",
+                "likely": "MEDIUM",
+                "suspected": "LOW",
             }
-            label = label_map.get(rules_label, 'LOW')
+            label = label_map.get(rules_label, "LOW")
             # Still enforce minimum active signals for HIGH
-            if label == 'HIGH' and active < MIN_SIGNALS_FOR_HIGH:
-                return 'MEDIUM'
+            if label == "HIGH" and active < MIN_SIGNALS_FOR_HIGH:
+                return "MEDIUM"
             return label
         # Fallback when no rules engine: use hardcoded thresholds
         if score >= CONFIDENCE_HIGH and active >= MIN_SIGNALS_FOR_HIGH:
-            return 'HIGH'
+            return "HIGH"
         elif score >= CONFIDENCE_MEDIUM:
-            return 'MEDIUM'
-        return 'LOW'
+            return "MEDIUM"
+        return "LOW"
 
     def to_dict(self):
         return {
-            'timing': round(self.timing_signal, 3),
-            'error': round(self.error_signal, 3),
-            'reflection': round(self.reflection_signal, 3),
-            'diff': round(self.diff_signal, 3),
-            'behavior': round(self.behavior_signal, 3),
-            'combined': self.combined_score,
-            'active_signals': self.active_signal_count,
-            'label': self.confidence_label,
+            "timing": round(self.timing_signal, 3),
+            "error": round(self.error_signal, 3),
+            "reflection": round(self.reflection_signal, 3),
+            "diff": round(self.diff_signal, 3),
+            "behavior": round(self.behavior_signal, 3),
+            "combined": self.combined_score,
+            "active_signals": self.active_signal_count,
+            "label": self.confidence_label,
         }
 
 
@@ -140,7 +148,7 @@ class SignalScorer:
     def __init__(self, engine):
         self.engine = engine
         # Load scoring label thresholds from rules engine when available
-        rules = getattr(engine, 'rules', None)
+        rules = getattr(engine, "rules", None)
         self._rules = rules
 
     def _get_weights(self):
@@ -148,19 +156,19 @@ class SignalScorer:
         try:
             learned = self.engine.learning.get_signal_weights()
             return {
-                'timing': learned.get('timing', DEFAULT_WEIGHT_TIMING),
-                'error': learned.get('error', DEFAULT_WEIGHT_ERROR),
-                'reflection': learned.get('reflection', DEFAULT_WEIGHT_REFLECTION),
-                'diff': learned.get('diff', DEFAULT_WEIGHT_DIFF),
-                'behavior': learned.get('behavior', DEFAULT_WEIGHT_BEHAVIOR),
+                "timing": learned.get("timing", DEFAULT_WEIGHT_TIMING),
+                "error": learned.get("error", DEFAULT_WEIGHT_ERROR),
+                "reflection": learned.get("reflection", DEFAULT_WEIGHT_REFLECTION),
+                "diff": learned.get("diff", DEFAULT_WEIGHT_DIFF),
+                "behavior": learned.get("behavior", DEFAULT_WEIGHT_BEHAVIOR),
             }
         except (AttributeError, TypeError):
             return {
-                'timing': DEFAULT_WEIGHT_TIMING,
-                'error': DEFAULT_WEIGHT_ERROR,
-                'reflection': DEFAULT_WEIGHT_REFLECTION,
-                'diff': DEFAULT_WEIGHT_DIFF,
-                'behavior': DEFAULT_WEIGHT_BEHAVIOR,
+                "timing": DEFAULT_WEIGHT_TIMING,
+                "error": DEFAULT_WEIGHT_ERROR,
+                "reflection": DEFAULT_WEIGHT_REFLECTION,
+                "diff": DEFAULT_WEIGHT_DIFF,
+                "behavior": DEFAULT_WEIGHT_BEHAVIOR,
             }
 
     def score_timing(self, baseline, elapsed):
@@ -202,7 +210,7 @@ class SignalScorer:
             return 0.0
 
         response_lower = normalize(response_text).lower()
-        baseline_lower = normalize(baseline_text or '').lower()
+        baseline_lower = normalize(baseline_text or "").lower()
 
         matches = 0
         for pat in error_patterns:
@@ -228,8 +236,15 @@ class SignalScorer:
         if payload in response_text:
             # Check for sanitization markers
             sanitized_markers = [
-                '&lt;', '&gt;', '&quot;', '&#x3C;', '&#x3E;',
-                '\\x3c', '\\x3e', '\\u003c', '\\u003e',
+                "&lt;",
+                "&gt;",
+                "&quot;",
+                "&#x3C;",
+                "&#x3E;",
+                "\\x3c",
+                "\\x3e",
+                "\\u003c",
+                "\\u003e",
             ]
             for marker in sanitized_markers:
                 if marker in response_text:
@@ -237,7 +252,7 @@ class SignalScorer:
             return 1.0  # reflected without sanitization
 
         # Partial reflection (e.g., part of payload echoed)
-        if len(payload) > 6 and payload[:len(payload) // 2] in response_text:
+        if len(payload) > 6 and payload[: len(payload) // 2] in response_text:
             return 0.3
 
         return 0.0
@@ -258,11 +273,7 @@ class SignalScorer:
 
         # Structural fingerprint comparison (also on normalized text)
         current_hash = BaselineEngine._structure_fingerprint(normalized_text)
-        structure_changed = (
-            baseline.structure_hash
-            and current_hash
-            and baseline.structure_hash != current_hash
-        )
+        structure_changed = baseline.structure_hash and current_hash and baseline.structure_hash != current_hash
 
         if structure_changed and length_dev >= 3:
             return 1.0
@@ -284,8 +295,8 @@ class SignalScorer:
             return 0.0
 
         score = 0.0
-        baseline_status = getattr(baseline, 'status_code', None)
-        baseline_headers = getattr(baseline, 'response_headers', None)
+        baseline_status = getattr(baseline, "status_code", None)
+        baseline_headers = getattr(baseline, "response_headers", None)
 
         # Status code anomaly detection
         if baseline_status is not None and status_code is not None:
@@ -307,8 +318,10 @@ class SignalScorer:
         if headers and baseline_headers:
             # Check for new security-relevant headers appearing/disappearing
             security_headers = {
-                'x-frame-options', 'content-security-policy',
-                'x-content-type-options', 'x-xss-protection',
+                "x-frame-options",
+                "content-security-policy",
+                "x-content-type-options",
+                "x-xss-protection",
             }
             for hdr in security_headers:
                 baseline_has = hdr in {k.lower() for k in baseline_headers}
@@ -318,19 +331,21 @@ class SignalScorer:
 
         return min(1.0, score)
 
-    def score_context_fit(self, vuln_type, url='', param=''):
+    def score_context_fit(self, vuln_type, url="", param=""):
         """Score based on context intelligence predictions (E1).
 
         Maps ContextIntelligence sink classification into a 0.0-1.0 score.
         Represents the [0, 20] context_fit component from the scoring formula.
         """
-        context = getattr(self.engine, 'context_intelligence', None)
+        context = getattr(self.engine, "context_intelligence", None)
         if context is None:
             return 0.0
 
         try:
             # Try to get predictions for this parameter
-            predictions = context.predict_vulns_for_param(url, param) if hasattr(context, 'predict_vulns_for_param') else {}
+            predictions = (
+                context.predict_vulns_for_param(url, param) if hasattr(context, "predict_vulns_for_param") else {}
+            )
             if not predictions:
                 return 0.0
 
@@ -348,28 +363,41 @@ class SignalScorer:
         """
         try:
             from core.post_worker_verifier import CVSS_TEMPLATES
+
             for key, template in CVSS_TEMPLATES.items():
-                if key in (vuln_type or '').lower():
-                    return min(1.0, template['base'] / 10.0)
+                if key in (vuln_type or "").lower():
+                    return min(1.0, template["base"] / 10.0)
         except Exception:
             pass
         return 0.3  # default moderate impact
 
-    def analyze(self, baseline, elapsed, response_text, payload,
-                error_patterns=None, baseline_text='',
-                status_code=None, headers=None,
-                vuln_type='', url='', param=''):
+    def analyze(
+        self,
+        baseline,
+        elapsed,
+        response_text,
+        payload,
+        error_patterns=None,
+        baseline_text="",
+        status_code=None,
+        headers=None,
+        vuln_type="",
+        url="",
+        param="",
+    ):
         """Run all signal checks and return a :class:`SignalSet`."""
         weights = self._get_weights()
         signals = SignalSet(weights=weights, rules_engine=self._rules)
         signals.timing_signal = self.score_timing(baseline, elapsed)
         signals.error_signal = self.score_error(
-            baseline_text, response_text, error_patterns or [],
+            baseline_text,
+            response_text,
+            error_patterns or [],
         )
         signals.reflection_signal = self.score_reflection(payload, response_text)
         signals.diff_signal = self.score_diff(baseline, response_text)
         signals.behavior_signal = self.score_behavior(baseline, status_code, headers)
         # Store context_fit and impact as raw_scores for downstream consumers
-        signals.raw_scores['context_fit'] = self.score_context_fit(vuln_type, url, param)
-        signals.raw_scores['impact'] = self.score_impact(vuln_type)
+        signals.raw_scores["context_fit"] = self.score_context_fit(vuln_type, url, param)
+        signals.raw_scores["impact"] = self.score_impact(vuln_type)
         return signals

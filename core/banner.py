@@ -5,8 +5,6 @@ ATOMIC FRAMEWORK v10.0 - ULTIMATE EDITION
 Banner display module
 """
 
-
-
 from config import Config, Colors
 
 

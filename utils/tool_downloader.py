@@ -24,9 +24,8 @@ import platform
 import shlex
 import shutil
 import subprocess
-import sys
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import Dict, Optional
 
 from config import Colors
 
@@ -36,13 +35,14 @@ _logger = logging.getLogger(__name__)
 @dataclass
 class ToolInfo:
     """Metadata for an external security tool."""
+
     name: str
     description: str
     github: str
     category: str
     install_methods: Dict[str, str] = field(default_factory=dict)
-    binary_name: str = ''
-    homepage: str = ''
+    binary_name: str = ""
+    homepage: str = ""
 
     def __post_init__(self):
         if not self.binary_name:
@@ -55,208 +55,207 @@ class ToolInfo:
 
 TOOL_REGISTRY: Dict[str, ToolInfo] = {
     # ── ToolIntegrator tools (5) ──────────────────────────────────
-    'nmap': ToolInfo(
-        name='nmap',
-        description='Network scanner with service/version detection',
-        github='https://github.com/nmap/nmap',
-        category='network_scanning',
-        homepage='https://nmap.org',
+    "nmap": ToolInfo(
+        name="nmap",
+        description="Network scanner with service/version detection",
+        github="https://github.com/nmap/nmap",
+        category="network_scanning",
+        homepage="https://nmap.org",
         install_methods={
-            'apt': 'sudo apt-get install -y nmap',
-            'brew': 'brew install nmap',
-            'pacman': 'sudo pacman -S nmap',
-            'pkg': 'pkg install nmap',
+            "apt": "sudo apt-get install -y nmap",
+            "brew": "brew install nmap",
+            "pacman": "sudo pacman -S nmap",
+            "pkg": "pkg install nmap",
         },
     ),
-    'nuclei': ToolInfo(
-        name='nuclei',
-        description='Template-based vulnerability scanner',
-        github='https://github.com/projectdiscovery/nuclei',
-        category='vulnerability_scanning',
+    "nuclei": ToolInfo(
+        name="nuclei",
+        description="Template-based vulnerability scanner",
+        github="https://github.com/projectdiscovery/nuclei",
+        category="vulnerability_scanning",
         install_methods={
-            'go': 'go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest',
-            'brew': 'brew install nuclei',
+            "go": "go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest",
+            "brew": "brew install nuclei",
         },
     ),
-    'nikto': ToolInfo(
-        name='nikto',
-        description='Web server vulnerability scanner',
-        github='https://github.com/sullo/nikto',
-        category='vulnerability_scanning',
-        binary_name='nikto',
+    "nikto": ToolInfo(
+        name="nikto",
+        description="Web server vulnerability scanner",
+        github="https://github.com/sullo/nikto",
+        category="vulnerability_scanning",
+        binary_name="nikto",
         install_methods={
-            'apt': 'sudo apt-get install -y nikto',
-            'brew': 'brew install nikto',
+            "apt": "sudo apt-get install -y nikto",
+            "brew": "brew install nikto",
         },
     ),
-    'whatweb': ToolInfo(
-        name='whatweb',
-        description='Web technology fingerprinting',
-        github='https://github.com/urbanadventurer/WhatWeb',
-        category='reconnaissance',
+    "whatweb": ToolInfo(
+        name="whatweb",
+        description="Web technology fingerprinting",
+        github="https://github.com/urbanadventurer/WhatWeb",
+        category="reconnaissance",
         install_methods={
-            'apt': 'sudo apt-get install -y whatweb',
-            'brew': 'brew install whatweb',
+            "apt": "sudo apt-get install -y whatweb",
+            "brew": "brew install whatweb",
         },
     ),
-    'subfinder': ToolInfo(
-        name='subfinder',
-        description='Subdomain enumeration tool',
-        github='https://github.com/projectdiscovery/subfinder',
-        category='subdomain_enum',
+    "subfinder": ToolInfo(
+        name="subfinder",
+        description="Subdomain enumeration tool",
+        github="https://github.com/projectdiscovery/subfinder",
+        category="subdomain_enum",
         install_methods={
-            'go': 'go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest',
-            'brew': 'brew install subfinder',
+            "go": "go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest",
+            "brew": "brew install subfinder",
         },
     ),
-
     # ── ReconArsenal tools (15) ───────────────────────────────────
-    'amass': ToolInfo(
-        name='amass',
-        description='OWASP advanced subdomain enumeration & network mapping',
-        github='https://github.com/owasp-amass/amass',
-        category='subdomain_enum',
+    "amass": ToolInfo(
+        name="amass",
+        description="OWASP advanced subdomain enumeration & network mapping",
+        github="https://github.com/owasp-amass/amass",
+        category="subdomain_enum",
         install_methods={
-            'go': 'go install -v github.com/owasp-amass/amass/v4/...@master',
-            'brew': 'brew install amass',
-            'apt': 'sudo apt-get install -y amass',
+            "go": "go install -v github.com/owasp-amass/amass/v4/...@master",
+            "brew": "brew install amass",
+            "apt": "sudo apt-get install -y amass",
         },
     ),
-    'httpx': ToolInfo(
-        name='httpx',
-        description='Fast HTTP probing & technology detection',
-        github='https://github.com/projectdiscovery/httpx',
-        category='http_probe',
+    "httpx": ToolInfo(
+        name="httpx",
+        description="Fast HTTP probing & technology detection",
+        github="https://github.com/projectdiscovery/httpx",
+        category="http_probe",
         install_methods={
-            'go': 'go install -v github.com/projectdiscovery/httpx/cmd/httpx@latest',
-            'brew': 'brew install httpx',
+            "go": "go install -v github.com/projectdiscovery/httpx/cmd/httpx@latest",
+            "brew": "brew install httpx",
         },
     ),
-    'katana': ToolInfo(
-        name='katana',
-        description='Next-generation web crawler',
-        github='https://github.com/projectdiscovery/katana',
-        category='crawler',
+    "katana": ToolInfo(
+        name="katana",
+        description="Next-generation web crawler",
+        github="https://github.com/projectdiscovery/katana",
+        category="crawler",
         install_methods={
-            'go': 'go install -v github.com/projectdiscovery/katana/cmd/katana@latest',
-            'brew': 'brew install katana',
+            "go": "go install -v github.com/projectdiscovery/katana/cmd/katana@latest",
+            "brew": "brew install katana",
         },
     ),
-    'dnsx': ToolInfo(
-        name='dnsx',
-        description='Fast multi-purpose DNS toolkit',
-        github='https://github.com/projectdiscovery/dnsx',
-        category='subdomain_enum',
+    "dnsx": ToolInfo(
+        name="dnsx",
+        description="Fast multi-purpose DNS toolkit",
+        github="https://github.com/projectdiscovery/dnsx",
+        category="subdomain_enum",
         install_methods={
-            'go': 'go install -v github.com/projectdiscovery/dnsx/cmd/dnsx@latest',
-            'brew': 'brew install dnsx',
+            "go": "go install -v github.com/projectdiscovery/dnsx/cmd/dnsx@latest",
+            "brew": "brew install dnsx",
         },
     ),
-    'ffuf': ToolInfo(
-        name='ffuf',
-        description='Fast web fuzzer for directory/parameter brute-forcing',
-        github='https://github.com/ffuf/ffuf',
-        category='dir_bruteforce',
+    "ffuf": ToolInfo(
+        name="ffuf",
+        description="Fast web fuzzer for directory/parameter brute-forcing",
+        github="https://github.com/ffuf/ffuf",
+        category="dir_bruteforce",
         install_methods={
-            'go': 'go install -v github.com/ffuf/ffuf/v2@latest',
-            'brew': 'brew install ffuf',
-            'apt': 'sudo apt-get install -y ffuf',
+            "go": "go install -v github.com/ffuf/ffuf/v2@latest",
+            "brew": "brew install ffuf",
+            "apt": "sudo apt-get install -y ffuf",
         },
     ),
-    'gau': ToolInfo(
-        name='gau',
-        description='Fetch known URLs from Wayback Machine, CommonCrawl, OTX, URLScan',
-        github='https://github.com/lc/gau',
-        category='url_harvest',
+    "gau": ToolInfo(
+        name="gau",
+        description="Fetch known URLs from Wayback Machine, CommonCrawl, OTX, URLScan",
+        github="https://github.com/lc/gau",
+        category="url_harvest",
         install_methods={
-            'go': 'go install -v github.com/lc/gau/v2/cmd/gau@latest',
+            "go": "go install -v github.com/lc/gau/v2/cmd/gau@latest",
         },
     ),
-    'waybackurls': ToolInfo(
-        name='waybackurls',
-        description='Fetch known URLs from the Wayback Machine',
-        github='https://github.com/tomnomnom/waybackurls',
-        category='url_harvest',
+    "waybackurls": ToolInfo(
+        name="waybackurls",
+        description="Fetch known URLs from the Wayback Machine",
+        github="https://github.com/tomnomnom/waybackurls",
+        category="url_harvest",
         install_methods={
-            'go': 'go install -v github.com/tomnomnom/waybackurls@latest',
+            "go": "go install -v github.com/tomnomnom/waybackurls@latest",
         },
     ),
-    'gobuster': ToolInfo(
-        name='gobuster',
-        description='Directory/DNS/vhost brute-forcing tool',
-        github='https://github.com/OJ/gobuster',
-        category='dir_bruteforce',
+    "gobuster": ToolInfo(
+        name="gobuster",
+        description="Directory/DNS/vhost brute-forcing tool",
+        github="https://github.com/OJ/gobuster",
+        category="dir_bruteforce",
         install_methods={
-            'go': 'go install -v github.com/OJ/gobuster/v3@latest',
-            'apt': 'sudo apt-get install -y gobuster',
-            'brew': 'brew install gobuster',
+            "go": "go install -v github.com/OJ/gobuster/v3@latest",
+            "apt": "sudo apt-get install -y gobuster",
+            "brew": "brew install gobuster",
         },
     ),
-    'feroxbuster': ToolInfo(
-        name='feroxbuster',
-        description='Recursive content discovery tool written in Rust',
-        github='https://github.com/epi052/feroxbuster',
-        category='dir_bruteforce',
+    "feroxbuster": ToolInfo(
+        name="feroxbuster",
+        description="Recursive content discovery tool written in Rust",
+        github="https://github.com/epi052/feroxbuster",
+        category="dir_bruteforce",
         install_methods={
-            'cargo': 'cargo install feroxbuster',
-            'brew': 'brew install feroxbuster',
-            'apt': 'sudo apt-get install -y feroxbuster',
+            "cargo": "cargo install feroxbuster",
+            "brew": "brew install feroxbuster",
+            "apt": "sudo apt-get install -y feroxbuster",
         },
     ),
-    'masscan': ToolInfo(
-        name='masscan',
-        description='Fastest Internet port scanner',
-        github='https://github.com/robertdavidgraham/masscan',
-        category='port_scan',
+    "masscan": ToolInfo(
+        name="masscan",
+        description="Fastest Internet port scanner",
+        github="https://github.com/robertdavidgraham/masscan",
+        category="port_scan",
         install_methods={
-            'apt': 'sudo apt-get install -y masscan',
-            'brew': 'brew install masscan',
+            "apt": "sudo apt-get install -y masscan",
+            "brew": "brew install masscan",
         },
     ),
-    'rustscan': ToolInfo(
-        name='rustscan',
-        description='Fast port scanner that pipes into Nmap',
-        github='https://github.com/RustScan/RustScan',
-        category='port_scan',
+    "rustscan": ToolInfo(
+        name="rustscan",
+        description="Fast port scanner that pipes into Nmap",
+        github="https://github.com/RustScan/RustScan",
+        category="port_scan",
         install_methods={
-            'cargo': 'cargo install rustscan',
-            'brew': 'brew install rustscan',
+            "cargo": "cargo install rustscan",
+            "brew": "brew install rustscan",
         },
     ),
-    'hakrawler': ToolInfo(
-        name='hakrawler',
-        description='Fast web crawler for URL and JavaScript endpoint discovery',
-        github='https://github.com/hakluke/hakrawler',
-        category='crawler',
+    "hakrawler": ToolInfo(
+        name="hakrawler",
+        description="Fast web crawler for URL and JavaScript endpoint discovery",
+        github="https://github.com/hakluke/hakrawler",
+        category="crawler",
         install_methods={
-            'go': 'go install -v github.com/hakluke/hakrawler@latest',
+            "go": "go install -v github.com/hakluke/hakrawler@latest",
         },
     ),
-    'arjun': ToolInfo(
-        name='arjun',
-        description='HTTP parameter discovery suite',
-        github='https://github.com/s0md3v/Arjun',
-        category='param_discovery',
+    "arjun": ToolInfo(
+        name="arjun",
+        description="HTTP parameter discovery suite",
+        github="https://github.com/s0md3v/Arjun",
+        category="param_discovery",
         install_methods={
-            'pip': 'pip install arjun',
+            "pip": "pip install arjun",
         },
     ),
-    'paramspider': ToolInfo(
-        name='paramspider',
-        description='Mining URLs with parameters from web archives',
-        github='https://github.com/devanshbatham/ParamSpider',
-        category='url_harvest',
+    "paramspider": ToolInfo(
+        name="paramspider",
+        description="Mining URLs with parameters from web archives",
+        github="https://github.com/devanshbatham/ParamSpider",
+        category="url_harvest",
         install_methods={
-            'pip': 'pip install paramspider',
+            "pip": "pip install paramspider",
         },
     ),
-    'dirsearch': ToolInfo(
-        name='dirsearch',
-        description='Web path scanner with smart wordlist',
-        github='https://github.com/maurosoria/dirsearch',
-        category='dir_bruteforce',
+    "dirsearch": ToolInfo(
+        name="dirsearch",
+        description="Web path scanner with smart wordlist",
+        github="https://github.com/maurosoria/dirsearch",
+        category="dir_bruteforce",
         install_methods={
-            'pip': 'pip install dirsearch',
+            "pip": "pip install dirsearch",
         },
     ),
 }
@@ -267,49 +266,49 @@ def _detect_platform() -> str:
 
     Returns one of: 'termux', 'linux', 'macos', 'windows', 'unknown'.
     """
-    if os.path.isdir('/data/data/com.termux'):
-        return 'termux'
+    if os.path.isdir("/data/data/com.termux"):
+        return "termux"
     system = platform.system().lower()
-    if system == 'linux':
-        return 'linux'
-    elif system == 'darwin':
-        return 'macos'
-    elif system == 'windows':
-        return 'windows'
-    return 'unknown'
+    if system == "linux":
+        return "linux"
+    elif system == "darwin":
+        return "macos"
+    elif system == "windows":
+        return "windows"
+    return "unknown"
 
 
 def _detect_package_manager() -> Optional[str]:
     """Detect the best available package manager."""
     plat = _detect_platform()
 
-    if plat == 'termux':
-        if shutil.which('pkg'):
-            return 'pkg'
-    elif plat == 'macos':
-        if shutil.which('brew'):
-            return 'brew'
-    elif plat == 'linux':
-        if shutil.which('apt-get'):
-            return 'apt'
-        if shutil.which('pacman'):
-            return 'pacman'
+    if plat == "termux":
+        if shutil.which("pkg"):
+            return "pkg"
+    elif plat == "macos":
+        if shutil.which("brew"):
+            return "brew"
+    elif plat == "linux":
+        if shutil.which("apt-get"):
+            return "apt"
+        if shutil.which("pacman"):
+            return "pacman"
     return None
 
 
 def _has_go() -> bool:
     """Check if Go toolchain is available."""
-    return shutil.which('go') is not None
+    return shutil.which("go") is not None
 
 
 def _has_cargo() -> bool:
     """Check if Rust cargo is available."""
-    return shutil.which('cargo') is not None
+    return shutil.which("cargo") is not None
 
 
 def _has_pip() -> bool:
     """Check if pip is available."""
-    return shutil.which('pip') is not None or shutil.which('pip3') is not None
+    return shutil.which("pip") is not None or shutil.which("pip3") is not None
 
 
 def _is_tool_installed(tool_name: str) -> bool:
@@ -336,12 +335,12 @@ def get_install_command(tool_name: str) -> Optional[str]:
         return methods[pkg_mgr]
 
     # Then try language-specific installers
-    if 'go' in methods and _has_go():
-        return methods['go']
-    if 'cargo' in methods and _has_cargo():
-        return methods['cargo']
-    if 'pip' in methods and _has_pip():
-        return methods['pip']
+    if "go" in methods and _has_go():
+        return methods["go"]
+    if "cargo" in methods and _has_cargo():
+        return methods["cargo"]
+    if "pip" in methods and _has_pip():
+        return methods["pip"]
 
     return None
 
@@ -364,11 +363,11 @@ def check_tools() -> Dict[str, Dict]:
         installed = _is_tool_installed(name)
         install_cmd = get_install_command(name) if not installed else None
         results[name] = {
-            'installed': installed,
-            'description': info.description,
-            'category': info.category,
-            'github': info.github,
-            'install_cmd': install_cmd,
+            "installed": installed,
+            "description": info.description,
+            "category": info.category,
+            "github": info.github,
+            "install_cmd": install_cmd,
         }
     return results
 
@@ -409,7 +408,9 @@ def install_tool(tool_name: str, verbose: bool = True) -> bool:
         cmd_list = shlex.split(cmd)
         result = subprocess.run(
             cmd_list,
-            capture_output=True, text=True, timeout=600,
+            capture_output=True,
+            text=True,
+            timeout=600,
         )
         if result.returncode == 0 and _is_tool_installed(tool_name):
             if verbose:
@@ -419,7 +420,7 @@ def install_tool(tool_name: str, verbose: bool = True) -> bool:
             if verbose:
                 print(f"  {Colors.RED}[✗]{Colors.RESET} {tool_name} — installation failed")
                 if result.stderr:
-                    for line in result.stderr.strip().split('\n')[-3:]:
+                    for line in result.stderr.strip().split("\n")[-3:]:
                         print(f"      {line}")
                 print(f"      Manual install: {info.github}")
             return False
@@ -467,37 +468,37 @@ def print_tools_status():
     # Group by category
     categories = {}
     for name, info in status.items():
-        cat = info['category']
+        cat = info["category"]
         if cat not in categories:
             categories[cat] = {}
         categories[cat][name] = info
 
     category_labels = {
-        'network_scanning': 'Network Scanning',
-        'vulnerability_scanning': 'Vulnerability Scanning',
-        'reconnaissance': 'Reconnaissance',
-        'subdomain_enum': 'Subdomain Enumeration',
-        'http_probe': 'HTTP Probing',
-        'crawler': 'Web Crawling',
-        'url_harvest': 'URL Harvesting',
-        'param_discovery': 'Parameter Discovery',
-        'dir_bruteforce': 'Directory Brute Force',
-        'port_scan': 'Port Scanning',
+        "network_scanning": "Network Scanning",
+        "vulnerability_scanning": "Vulnerability Scanning",
+        "reconnaissance": "Reconnaissance",
+        "subdomain_enum": "Subdomain Enumeration",
+        "http_probe": "HTTP Probing",
+        "crawler": "Web Crawling",
+        "url_harvest": "URL Harvesting",
+        "param_discovery": "Parameter Discovery",
+        "dir_bruteforce": "Directory Brute Force",
+        "port_scan": "Port Scanning",
     }
 
-    installed_count = sum(1 for v in status.values() if v['installed'])
+    installed_count = sum(1 for v in status.values() if v["installed"])
     total = len(status)
 
     print(f"\n{Colors.BOLD}External Security Tools Status ({installed_count}/{total} installed){Colors.RESET}\n")
 
     for cat, tools in categories.items():
-        label = category_labels.get(cat, cat.replace('_', ' ').title())
+        label = category_labels.get(cat, cat.replace("_", " ").title())
         print(f"  {Colors.CYAN}{label}:{Colors.RESET}")
         for name, info in tools.items():
-            if info['installed']:
+            if info["installed"]:
                 print(f"    {Colors.GREEN}✓{Colors.RESET} {name:<14} {info['description']}")
             else:
-                cmd = info.get('install_cmd', '')
+                cmd = info.get("install_cmd", "")
                 hint = f"  →  {cmd}" if cmd else f"  →  {info['github']}"
                 print(f"    {Colors.RED}✗{Colors.RESET} {name:<14} {info['description']}")
                 print(f"      {Colors.YELLOW}{hint}{Colors.RESET}")

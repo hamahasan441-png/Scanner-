@@ -20,212 +20,268 @@ Usage:
 
 import hashlib
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 from config import Colors
 
-
 # ── Node types ────────────────────────────────────────────────────────
-ENTRY = 'ENTRY'
-PIVOT = 'PIVOT'
-ESCALATION = 'ESCALATION'
-IMPACT = 'IMPACT'
-SUPPORT = 'SUPPORT'
+ENTRY = "ENTRY"
+PIVOT = "PIVOT"
+ESCALATION = "ESCALATION"
+IMPACT = "IMPACT"
+SUPPORT = "SUPPORT"
 
 # ── Edge types ────────────────────────────────────────────────────────
-REQUIRES = 'REQUIRES'
-ENABLES = 'ENABLES'
-CHAINS_TO = 'CHAINS_TO'
-AMPLIFIES = 'AMPLIFIES'
+REQUIRES = "REQUIRES"
+ENABLES = "ENABLES"
+CHAINS_TO = "CHAINS_TO"
+AMPLIFIES = "AMPLIFIES"
 
 # ── Path classifications ─────────────────────────────────────────────
-CRITICAL_PATH = 'CRITICAL_PATH'
-HIGH_PATH = 'HIGH_PATH'
-COMPLEX_PATH = 'COMPLEX_PATH'
-DIRECT_PATH = 'DIRECT_PATH'
-WEAPONIZED_PATH = 'WEAPONIZED_PATH'
-MSF_PATH = 'MSF_PATH'
-ZERO_CLICK_PATH = 'ZERO_CLICK_PATH'
+CRITICAL_PATH = "CRITICAL_PATH"
+HIGH_PATH = "HIGH_PATH"
+COMPLEX_PATH = "COMPLEX_PATH"
+DIRECT_PATH = "DIRECT_PATH"
+WEAPONIZED_PATH = "WEAPONIZED_PATH"
+MSF_PATH = "MSF_PATH"
+ZERO_CLICK_PATH = "ZERO_CLICK_PATH"
 
 # ── Impact zones ─────────────────────────────────────────────────────
-ZONE_DATA_BREACH = 'DATA_BREACH'
-ZONE_ACCOUNT_TAKEOVER = 'ACCOUNT_TAKEOVER'
-ZONE_SERVER_COMPROMISE = 'SERVER_COMPROMISE'
-ZONE_INTERNAL_PIVOT = 'INTERNAL_PIVOT'
-ZONE_CLOUD_CRED_THEFT = 'CLOUD_CRED_THEFT'
-ZONE_PERSISTENCE = 'PERSISTENCE'
+ZONE_DATA_BREACH = "DATA_BREACH"
+ZONE_ACCOUNT_TAKEOVER = "ACCOUNT_TAKEOVER"
+ZONE_SERVER_COMPROMISE = "SERVER_COMPROMISE"
+ZONE_INTERNAL_PIVOT = "INTERNAL_PIVOT"
+ZONE_CLOUD_CRED_THEFT = "CLOUD_CRED_THEFT"
+ZONE_PERSISTENCE = "PERSISTENCE"
 
 # ── Attacker profiles ────────────────────────────────────────────────
-PROFILE_OPPORTUNISTIC = 'OPPORTUNISTIC'
-PROFILE_SKILLED = 'SKILLED'
-PROFILE_APT = 'APT'
+PROFILE_OPPORTUNISTIC = "OPPORTUNISTIC"
+PROFILE_SKILLED = "SKILLED"
+PROFILE_APT = "APT"
 
 # ── Exploit availability constants ───────────────────────────────────
-WEAPONIZED = 'WEAPONIZED'
-PUBLIC_POC = 'PUBLIC_POC'
-PARTIAL_POC = 'PARTIAL_POC'
-THEORETICAL = 'THEORETICAL'
+WEAPONIZED = "WEAPONIZED"
+PUBLIC_POC = "PUBLIC_POC"
+PARTIAL_POC = "PARTIAL_POC"
+THEORETICAL = "THEORETICAL"
 
 # ── Vulnerability class → node type mapping ──────────────────────────
 _ENTRY_TECHNIQUES = {
-    'sql injection', 'command injection', 'ssti', 'ssrf',
-    'file upload', 'xxe', 'path traversal', 'rce',
-    'remote code execution', 'log4shell', 'graphql injection',
-    'nosql injection', 'deserialization',
+    "sql injection",
+    "command injection",
+    "ssti",
+    "ssrf",
+    "file upload",
+    "xxe",
+    "path traversal",
+    "rce",
+    "remote code execution",
+    "log4shell",
+    "graphql injection",
+    "nosql injection",
+    "deserialization",
 }
 
 _PIVOT_TECHNIQUES = {
-    'ssrf', 'lfi', 'local file inclusion', 'path traversal',
-    'jwt', 'jwt forgery', 'open redirect',
+    "ssrf",
+    "lfi",
+    "local file inclusion",
+    "path traversal",
+    "jwt",
+    "jwt forgery",
+    "open redirect",
 }
 
 _ESCALATION_TECHNIQUES = {
-    'mass assignment', 'jwt', 'jwt forgery', 'idor',
-    'privilege escalation', 'broken access control',
-    'insecure direct object reference',
+    "mass assignment",
+    "jwt",
+    "jwt forgery",
+    "idor",
+    "privilege escalation",
+    "broken access control",
+    "insecure direct object reference",
 }
 
 _IMPACT_TECHNIQUES = {
-    'command injection', 'rce', 'remote code execution',
-    'sql injection', 'ssti', 'file upload', 'deserialization',
+    "command injection",
+    "rce",
+    "remote code execution",
+    "sql injection",
+    "ssti",
+    "file upload",
+    "deserialization",
 }
 
 _SUPPORT_TECHNIQUES = {
-    'information disclosure', 'cors', 'cors misconfiguration',
-    'missing security header', 'xss', 'crlf', 'hpp',
-    'open redirect', 'prototype pollution',
-    'rate limit bypass', 'missing httponly',
+    "information disclosure",
+    "cors",
+    "cors misconfiguration",
+    "missing security header",
+    "xss",
+    "crlf",
+    "hpp",
+    "open redirect",
+    "prototype pollution",
+    "rate limit bypass",
+    "missing httponly",
 }
 
 # ── Chain rules: vuln_class → {target_class: edge_type} ─────────────
 CHAIN_RULES = {
-    'ssrf': {
-        'internal scan': CHAINS_TO,
-        'cloud metadata': CHAINS_TO,
-        'cloud credential theft': ENABLES,
-        'information disclosure': CHAINS_TO,
+    "ssrf": {
+        "internal scan": CHAINS_TO,
+        "cloud metadata": CHAINS_TO,
+        "cloud credential theft": ENABLES,
+        "information disclosure": CHAINS_TO,
     },
-    'lfi': {
-        'path traversal': CHAINS_TO,
-        'log poisoning': ENABLES,
-        'rce': CHAINS_TO,
-        'information disclosure': CHAINS_TO,
-        'command injection': ENABLES,
+    "lfi": {
+        "path traversal": CHAINS_TO,
+        "log poisoning": ENABLES,
+        "rce": CHAINS_TO,
+        "information disclosure": CHAINS_TO,
+        "command injection": ENABLES,
     },
-    'local file inclusion': {
-        'path traversal': CHAINS_TO,
-        'log poisoning': ENABLES,
-        'rce': CHAINS_TO,
-        'information disclosure': CHAINS_TO,
+    "local file inclusion": {
+        "path traversal": CHAINS_TO,
+        "log poisoning": ENABLES,
+        "rce": CHAINS_TO,
+        "information disclosure": CHAINS_TO,
     },
-    'sql injection': {
-        'data extraction': CHAINS_TO,
-        'credential extraction': CHAINS_TO,
-        'authentication bypass': ENABLES,
-        'file write': CHAINS_TO,
-        'information disclosure': CHAINS_TO,
+    "sql injection": {
+        "data extraction": CHAINS_TO,
+        "credential extraction": CHAINS_TO,
+        "authentication bypass": ENABLES,
+        "file write": CHAINS_TO,
+        "information disclosure": CHAINS_TO,
     },
-    'xss': {
-        'session theft': CHAINS_TO,
-        'account takeover': CHAINS_TO,
-        'missing httponly': REQUIRES,
+    "xss": {
+        "session theft": CHAINS_TO,
+        "account takeover": CHAINS_TO,
+        "missing httponly": REQUIRES,
     },
-    'jwt': {
-        'elevated session': CHAINS_TO,
-        'privilege escalation': ENABLES,
-        'account takeover': CHAINS_TO,
+    "jwt": {
+        "elevated session": CHAINS_TO,
+        "privilege escalation": ENABLES,
+        "account takeover": CHAINS_TO,
     },
-    'jwt forgery': {
-        'elevated session': CHAINS_TO,
-        'privilege escalation': ENABLES,
+    "jwt forgery": {
+        "elevated session": CHAINS_TO,
+        "privilege escalation": ENABLES,
     },
-    'file upload': {
-        'webshell': CHAINS_TO,
-        'rce': CHAINS_TO,
-        'command injection': ENABLES,
+    "file upload": {
+        "webshell": CHAINS_TO,
+        "rce": CHAINS_TO,
+        "command injection": ENABLES,
     },
-    'command injection': {
-        'os command exec': CHAINS_TO,
-        'file system access': CHAINS_TO,
-        'credential dump': ENABLES,
-        'persistence': CHAINS_TO,
+    "command injection": {
+        "os command exec": CHAINS_TO,
+        "file system access": CHAINS_TO,
+        "credential dump": ENABLES,
+        "persistence": CHAINS_TO,
     },
-    'ssti': {
-        'rce': CHAINS_TO,
-        'command injection': CHAINS_TO,
-        'information disclosure': CHAINS_TO,
+    "ssti": {
+        "rce": CHAINS_TO,
+        "command injection": CHAINS_TO,
+        "information disclosure": CHAINS_TO,
     },
-    'information disclosure': {
-        'sql injection': AMPLIFIES,
-        'authentication bypass': AMPLIFIES,
-        'cve targeting': ENABLES,
+    "information disclosure": {
+        "sql injection": AMPLIFIES,
+        "authentication bypass": AMPLIFIES,
+        "cve targeting": ENABLES,
     },
-    'cors': {
-        'xss': AMPLIFIES,
-        'data theft': ENABLES,
+    "cors": {
+        "xss": AMPLIFIES,
+        "data theft": ENABLES,
     },
-    'idor': {
-        'data extraction': CHAINS_TO,
-        'account takeover': CHAINS_TO,
+    "idor": {
+        "data extraction": CHAINS_TO,
+        "account takeover": CHAINS_TO,
     },
-    'open redirect': {
-        'phishing': CHAINS_TO,
-        'oauth token theft': CHAINS_TO,
+    "open redirect": {
+        "phishing": CHAINS_TO,
+        "oauth token theft": CHAINS_TO,
     },
-    'xxe': {
-        'information disclosure': CHAINS_TO,
-        'ssrf': CHAINS_TO,
-        'file read': CHAINS_TO,
+    "xxe": {
+        "information disclosure": CHAINS_TO,
+        "ssrf": CHAINS_TO,
+        "file read": CHAINS_TO,
     },
-    'nosql injection': {
-        'authentication bypass': CHAINS_TO,
-        'data extraction': CHAINS_TO,
+    "nosql injection": {
+        "authentication bypass": CHAINS_TO,
+        "data extraction": CHAINS_TO,
     },
 }
 
 # ── Impact zone trigger mapping ──────────────────────────────────────
 ZONE_TRIGGERS = {
     ZONE_DATA_BREACH: {
-        'sql injection', 'lfi', 'local file inclusion', 'ssrf',
-        'idor', 'nosql injection', 'path traversal', 'xxe',
+        "sql injection",
+        "lfi",
+        "local file inclusion",
+        "ssrf",
+        "idor",
+        "nosql injection",
+        "path traversal",
+        "xxe",
     },
     ZONE_ACCOUNT_TAKEOVER: {
-        'xss', 'jwt', 'jwt forgery', 'idor', 'cors',
-        'authentication bypass', 'session fixation',
+        "xss",
+        "jwt",
+        "jwt forgery",
+        "idor",
+        "cors",
+        "authentication bypass",
+        "session fixation",
     },
     ZONE_SERVER_COMPROMISE: {
-        'command injection', 'rce', 'remote code execution',
-        'ssti', 'file upload', 'deserialization', 'lfi',
-        'local file inclusion',
+        "command injection",
+        "rce",
+        "remote code execution",
+        "ssti",
+        "file upload",
+        "deserialization",
+        "lfi",
+        "local file inclusion",
     },
     ZONE_INTERNAL_PIVOT: {
-        'ssrf', 'command injection', 'rce',
+        "ssrf",
+        "command injection",
+        "rce",
     },
     ZONE_CLOUD_CRED_THEFT: {
-        'ssrf', 'lfi', 'local file inclusion',
-        'information disclosure', 'path traversal',
+        "ssrf",
+        "lfi",
+        "local file inclusion",
+        "information disclosure",
+        "path traversal",
     },
     ZONE_PERSISTENCE: {
-        'command injection', 'rce', 'file upload',
-        'sql injection', 'ssti', 'deserialization',
+        "command injection",
+        "rce",
+        "file upload",
+        "sql injection",
+        "ssti",
+        "deserialization",
     },
 }
 
 
 # ── Data classes ──────────────────────────────────────────────────────
 
+
 @dataclass
 class AttackNode:
     """A node in the attack graph."""
-    id: str = ''
-    finding_id: str = ''
-    label: str = ''
-    type: str = SUPPORT      # ENTRY|PIVOT|ESCALATION|IMPACT|SUPPORT
-    severity: str = 'INFO'
+
+    id: str = ""
+    finding_id: str = ""
+    label: str = ""
+    type: str = SUPPORT  # ENTRY|PIVOT|ESCALATION|IMPACT|SUPPORT
+    severity: str = "INFO"
     cvss: float = 0.0
     adjusted_cvss: float = 0.0
-    vuln_class: str = ''
-    endpoint: str = ''
+    vuln_class: str = ""
+    endpoint: str = ""
     exploit_availability: str = THEORETICAL
     actively_exploited: bool = False
     metasploit_ready: bool = False
@@ -235,54 +291,56 @@ class AttackNode:
 
     def to_dict(self) -> Dict:
         return {
-            'id': self.id,
-            'finding_id': self.finding_id,
-            'label': self.label,
-            'type': self.type,
-            'severity': self.severity,
-            'cvss': self.cvss,
-            'adjusted_cvss': self.adjusted_cvss,
-            'vuln_class': self.vuln_class,
-            'endpoint': self.endpoint,
-            'exploit_availability': self.exploit_availability,
-            'actively_exploited': self.actively_exploited,
-            'metasploit_ready': self.metasploit_ready,
-            'nuclei_ready': self.nuclei_ready,
-            'exploitdb_id': self.exploitdb_id,
-            'cisa_kev': self.cisa_kev,
+            "id": self.id,
+            "finding_id": self.finding_id,
+            "label": self.label,
+            "type": self.type,
+            "severity": self.severity,
+            "cvss": self.cvss,
+            "adjusted_cvss": self.adjusted_cvss,
+            "vuln_class": self.vuln_class,
+            "endpoint": self.endpoint,
+            "exploit_availability": self.exploit_availability,
+            "actively_exploited": self.actively_exploited,
+            "metasploit_ready": self.metasploit_ready,
+            "nuclei_ready": self.nuclei_ready,
+            "exploitdb_id": self.exploitdb_id,
+            "cisa_kev": self.cisa_kev,
         }
 
 
 @dataclass
 class AttackEdge:
     """An edge between two nodes."""
-    from_id: str = ''
-    to_id: str = ''
+
+    from_id: str = ""
+    to_id: str = ""
     type: str = ENABLES
     confidence: float = 0.5
     exploit_assisted: bool = False
 
     def to_dict(self) -> Dict:
         return {
-            'from': self.from_id,
-            'to': self.to_id,
-            'type': self.type,
-            'confidence': self.confidence,
-            'exploit_assisted': self.exploit_assisted,
+            "from": self.from_id,
+            "to": self.to_id,
+            "type": self.type,
+            "confidence": self.confidence,
+            "exploit_assisted": self.exploit_assisted,
         }
 
 
 @dataclass
 class AttackPath:
     """An attack path from entry to impact."""
-    id: str = ''
+
+    id: str = ""
     classification: List[str] = field(default_factory=list)
-    nodes: List[str] = field(default_factory=list)      # node IDs
-    edges: List[str] = field(default_factory=list)       # edge descriptions
+    nodes: List[str] = field(default_factory=list)  # node IDs
+    edges: List[str] = field(default_factory=list)  # edge descriptions
     path_score: float = 0.0
-    entry: str = ''
-    impact: str = ''
-    narrative: str = ''
+    entry: str = ""
+    impact: str = ""
+    narrative: str = ""
     steps: List[str] = field(default_factory=list)
     auth_required: bool = False
     fully_weaponized: bool = False
@@ -293,26 +351,27 @@ class AttackPath:
 
     def to_dict(self) -> Dict:
         return {
-            'id': self.id,
-            'classification': self.classification,
-            'nodes': self.nodes,
-            'path_score': self.path_score,
-            'entry': self.entry,
-            'impact': self.impact,
-            'narrative': self.narrative,
-            'steps': self.steps,
-            'auth_required': self.auth_required,
-            'fully_weaponized': self.fully_weaponized,
-            'msf_end_to_end': self.msf_end_to_end,
-            'nuclei_end_to_end': self.nuclei_end_to_end,
-            'cisa_kev_in_path': self.cisa_kev_in_path,
+            "id": self.id,
+            "classification": self.classification,
+            "nodes": self.nodes,
+            "path_score": self.path_score,
+            "entry": self.entry,
+            "impact": self.impact,
+            "narrative": self.narrative,
+            "steps": self.steps,
+            "auth_required": self.auth_required,
+            "fully_weaponized": self.fully_weaponized,
+            "msf_end_to_end": self.msf_end_to_end,
+            "nuclei_end_to_end": self.nuclei_end_to_end,
+            "cisa_kev_in_path": self.cisa_kev_in_path,
         }
 
 
 @dataclass
 class ImpactZone:
     """An impact zone result."""
-    zone: str = ''
+
+    zone: str = ""
     triggered_by: List[str] = field(default_factory=list)  # path IDs
     assets_at_risk: List[str] = field(default_factory=list)
     likelihood: float = 0.0
@@ -320,38 +379,40 @@ class ImpactZone:
 
     def to_dict(self) -> Dict:
         return {
-            'zone': self.zone,
-            'triggered_by': self.triggered_by,
-            'assets_at_risk': self.assets_at_risk,
-            'likelihood': self.likelihood,
-            'weaponized_path_exists': self.weaponized_path_exists,
+            "zone": self.zone,
+            "triggered_by": self.triggered_by,
+            "assets_at_risk": self.assets_at_risk,
+            "likelihood": self.likelihood,
+            "weaponized_path_exists": self.weaponized_path_exists,
         }
 
 
 @dataclass
 class SimulationResult:
     """Attacker profile simulation result."""
-    profile: str = ''
+
+    profile: str = ""
     paths_available: int = 0
-    fastest_path_id: str = ''
+    fastest_path_id: str = ""
     min_steps_to_impact: int = 0
-    time_estimate: str = ''
+    time_estimate: str = ""
     requires_custom_exploit: bool = False
 
     def to_dict(self) -> Dict:
         return {
-            'profile': self.profile,
-            'paths_available': self.paths_available,
-            'fastest_path_id': self.fastest_path_id,
-            'min_steps_to_impact': self.min_steps_to_impact,
-            'time_estimate': self.time_estimate,
-            'requires_custom_exploit': self.requires_custom_exploit,
+            "profile": self.profile,
+            "paths_available": self.paths_available,
+            "fastest_path_id": self.fastest_path_id,
+            "min_steps_to_impact": self.min_steps_to_impact,
+            "time_estimate": self.time_estimate,
+            "requires_custom_exploit": self.requires_custom_exploit,
         }
 
 
 # ══════════════════════════════════════════════════════════════════════
 # STEP 1: Node Classification
 # ══════════════════════════════════════════════════════════════════════
+
 
 class NodeClassifier:
     """Classify findings into attack graph node types."""
@@ -361,32 +422,30 @@ class NodeClassifier:
         """Convert enriched findings to classified AttackNodes."""
         nodes = []
         for finding in findings:
-            technique = (getattr(finding, 'technique', '') or '').lower()
-            url = getattr(finding, 'url', '') or ''
-            severity = getattr(finding, 'adjusted_severity', '') or getattr(finding, 'severity', 'INFO')
-            cvss = getattr(finding, 'cvss', 0.0) or 0.0
-            adjusted_cvss = getattr(finding, 'adjusted_cvss', cvss) or cvss
-            avail = getattr(finding, 'exploit_availability', THEORETICAL)
-            kev = getattr(finding, 'actively_exploited', False)
-            msf = getattr(finding, 'metasploit_ready', False)
-            nuclei = getattr(finding, 'nuclei_ready', False)
+            technique = (getattr(finding, "technique", "") or "").lower()
+            url = getattr(finding, "url", "") or ""
+            severity = getattr(finding, "adjusted_severity", "") or getattr(finding, "severity", "INFO")
+            cvss = getattr(finding, "cvss", 0.0) or 0.0
+            adjusted_cvss = getattr(finding, "adjusted_cvss", cvss) or cvss
+            avail = getattr(finding, "exploit_availability", THEORETICAL)
+            kev = getattr(finding, "actively_exploited", False)
+            msf = getattr(finding, "metasploit_ready", False)
+            nuclei = getattr(finding, "nuclei_ready", False)
 
             # Determine exploit record info
-            record = getattr(finding, 'exploit_record', None)
-            edb_id = getattr(record, 'exploitdb_id', None) if record else None
+            record = getattr(finding, "exploit_record", None)
+            edb_id = getattr(record, "exploitdb_id", None) if record else None
 
             # Classify node type
             node_type = NodeClassifier._classify_type(technique, severity, cvss)
 
-            node_id = hashlib.md5(
-                f"{url}:{technique}:{getattr(finding, 'param', '')}".encode()
-            ).hexdigest()[:10]
+            node_id = hashlib.md5(f"{url}:{technique}:{getattr(finding, 'param', '')}".encode()).hexdigest()[:10]
 
             label = f"{technique.title()} @ {url[:60]}"
 
             node = AttackNode(
                 id=f"N-{node_id}",
-                finding_id=getattr(finding, '_exploit_finding_id', '') or node_id,
+                finding_id=getattr(finding, "_exploit_finding_id", "") or node_id,
                 label=label,
                 type=node_type,
                 severity=severity,
@@ -433,9 +492,9 @@ class NodeClassifier:
             return SUPPORT
 
         # Default based on severity
-        if severity in ('CRITICAL', 'HIGH') and cvss >= 7.0:
+        if severity in ("CRITICAL", "HIGH") and cvss >= 7.0:
             return ENTRY
-        elif severity == 'MEDIUM':
+        elif severity == "MEDIUM":
             return PIVOT
         else:
             return SUPPORT
@@ -445,6 +504,7 @@ class NodeClassifier:
 # STEP 2: Edge Definition
 # ══════════════════════════════════════════════════════════════════════
 
+
 class EdgeBuilder:
     """Build edges between attack nodes."""
 
@@ -452,7 +512,6 @@ class EdgeBuilder:
     def connect(nodes: List[AttackNode]) -> List[AttackEdge]:
         """Create edges based on chain rules and node relationships."""
         edges = []
-        node_map = {n.id: n for n in nodes}
 
         for src in nodes:
             src_class = src.vuln_class.lower().strip()
@@ -472,18 +531,20 @@ class EdgeBuilder:
 
                 if edge_type:
                     confidence = EdgeBuilder._compute_confidence(src, dst)
-                    exploit_assisted = (
-                        src.exploit_availability in (WEAPONIZED, PUBLIC_POC)
-                        or dst.exploit_availability in (WEAPONIZED, PUBLIC_POC)
-                    )
+                    exploit_assisted = src.exploit_availability in (
+                        WEAPONIZED,
+                        PUBLIC_POC,
+                    ) or dst.exploit_availability in (WEAPONIZED, PUBLIC_POC)
 
-                    edges.append(AttackEdge(
-                        from_id=src.id,
-                        to_id=dst.id,
-                        type=edge_type,
-                        confidence=confidence,
-                        exploit_assisted=exploit_assisted,
-                    ))
+                    edges.append(
+                        AttackEdge(
+                            from_id=src.id,
+                            to_id=dst.id,
+                            type=edge_type,
+                            confidence=confidence,
+                            exploit_assisted=exploit_assisted,
+                        )
+                    )
 
         return edges
 
@@ -545,6 +606,7 @@ class EdgeBuilder:
 # STEP 3: Path Enumeration
 # ══════════════════════════════════════════════════════════════════════
 
+
 class PathFinder:
     """Enumerate attack paths from entry to impact."""
 
@@ -592,9 +654,16 @@ class PathFinder:
         paths.sort(key=lambda p: p.path_score, reverse=True)
         return paths[:50]  # Cap at 50 paths
 
-    def _dfs(self, current: str, path: List[str], visited: Set[str],
-             targets: Set[str], results: List[AttackPath],
-             max_depth: int, counter: int):
+    def _dfs(
+        self,
+        current: str,
+        path: List[str],
+        visited: Set[str],
+        targets: Set[str],
+        results: List[AttackPath],
+        max_depth: int,
+        counter: int,
+    ):
         """DFS traversal to find paths to impact nodes."""
         if current in visited:
             return
@@ -656,9 +725,9 @@ class PathFinder:
 
         # Classification
         classifications = []
-        if any(n.severity == 'CRITICAL' for n in nodes):
+        if any(n.severity == "CRITICAL" for n in nodes):
             classifications.append(CRITICAL_PATH)
-        if all(n.severity in ('CRITICAL', 'HIGH') for n in nodes):
+        if all(n.severity in ("CRITICAL", "HIGH") for n in nodes):
             classifications.append(HIGH_PATH)
         if len(nodes) > 4:
             classifications.append(COMPLEX_PATH)
@@ -670,18 +739,11 @@ class PathFinder:
             classifications.append(MSF_PATH)
 
         # Auth check
-        auth_required = any(
-            n.vuln_class.lower() in ('idor', 'mass assignment', 'jwt', 'jwt forgery')
-            for n in nodes
-        )
+        auth_required = any(n.vuln_class.lower() in ("idor", "mass assignment", "jwt", "jwt forgery") for n in nodes)
 
         # Zero-click check: no auth + auto-exploitable entry
         entry_node = nodes[0]
-        zero_click = (
-            not auth_required
-            and entry_node.exploit_availability == WEAPONIZED
-            and len(nodes) <= 3
-        )
+        zero_click = not auth_required and entry_node.exploit_availability == WEAPONIZED and len(nodes) <= 3
         if zero_click:
             classifications.append(ZERO_CLICK_PATH)
 
@@ -690,10 +752,7 @@ class PathFinder:
         for i, node in enumerate(nodes):
             step_type = node.type
             avail = node.exploit_availability
-            steps.append(
-                f"Step {i + 1} [{step_type}]: {node.vuln_class.title()} "
-                f"at {node.endpoint[:60]} ({avail})"
-            )
+            steps.append(f"Step {i + 1} [{step_type}]: {node.vuln_class.title()} " f"at {node.endpoint[:60]} ({avail})")
 
         narrative = f"{path_id} — {' → '.join(n.vuln_class.title() for n in nodes)}"
 
@@ -718,17 +777,18 @@ class PathFinder:
 # STEP 4: Impact Zone Mapping
 # ══════════════════════════════════════════════════════════════════════
 
+
 class ImpactZoneMapper:
     """Map attack paths to business impact zones."""
 
     # Assets at risk per zone
     ZONE_ASSETS = {
-        ZONE_DATA_BREACH: ['PII', 'passwords', 'tokens', 'API keys', 'credit cards'],
-        ZONE_ACCOUNT_TAKEOVER: ['user accounts', 'admin accounts', 'sessions'],
-        ZONE_SERVER_COMPROMISE: ['OS', 'filesystem', 'env vars', 'SSH keys', 'codebase'],
-        ZONE_INTERNAL_PIVOT: ['internal APIs', 'databases', 'admin panels', 'microservices'],
-        ZONE_CLOUD_CRED_THEFT: ['AWS IAM', 'GCP SA', 'Azure identity', 'cloud storage'],
-        ZONE_PERSISTENCE: ['codebase', 'CI/CD', 'long-term data', 'backdoors'],
+        ZONE_DATA_BREACH: ["PII", "passwords", "tokens", "API keys", "credit cards"],
+        ZONE_ACCOUNT_TAKEOVER: ["user accounts", "admin accounts", "sessions"],
+        ZONE_SERVER_COMPROMISE: ["OS", "filesystem", "env vars", "SSH keys", "codebase"],
+        ZONE_INTERNAL_PIVOT: ["internal APIs", "databases", "admin panels", "microservices"],
+        ZONE_CLOUD_CRED_THEFT: ["AWS IAM", "GCP SA", "Azure identity", "cloud storage"],
+        ZONE_PERSISTENCE: ["codebase", "CI/CD", "long-term data", "backdoors"],
     }
 
     @staticmethod
@@ -748,29 +808,29 @@ class ImpactZoneMapper:
                 if vuln_classes & triggers:
                     if zone not in zone_data:
                         zone_data[zone] = {
-                            'triggered_by': [],
-                            'weaponized': False,
-                            'max_score': 0.0,
+                            "triggered_by": [],
+                            "weaponized": False,
+                            "max_score": 0.0,
                         }
-                    zone_data[zone]['triggered_by'].append(path.id)
+                    zone_data[zone]["triggered_by"].append(path.id)
                     if path.fully_weaponized:
-                        zone_data[zone]['weaponized'] = True
-                    zone_data[zone]['max_score'] = max(
-                        zone_data[zone]['max_score'], path.path_score
-                    )
+                        zone_data[zone]["weaponized"] = True
+                    zone_data[zone]["max_score"] = max(zone_data[zone]["max_score"], path.path_score)
 
         results = []
         for zone, data in zone_data.items():
             assets = ImpactZoneMapper.ZONE_ASSETS.get(zone, [])
-            likelihood = min(data['max_score'] / 10.0, 1.0)
+            likelihood = min(data["max_score"] / 10.0, 1.0)
 
-            results.append(ImpactZone(
-                zone=zone,
-                triggered_by=data['triggered_by'],
-                assets_at_risk=assets,
-                likelihood=round(likelihood, 2),
-                weaponized_path_exists=data['weaponized'],
-            ))
+            results.append(
+                ImpactZone(
+                    zone=zone,
+                    triggered_by=data["triggered_by"],
+                    assets_at_risk=assets,
+                    likelihood=round(likelihood, 2),
+                    weaponized_path_exists=data["weaponized"],
+                )
+            )
 
         results.sort(key=lambda z: z.likelihood, reverse=True)
         return results
@@ -779,6 +839,7 @@ class ImpactZoneMapper:
 # ══════════════════════════════════════════════════════════════════════
 # STEP 5: Attacker Profile Simulation
 # ══════════════════════════════════════════════════════════════════════
+
 
 class AttackerSimulator:
     """Simulate attacker profiles against discovered paths."""
@@ -790,50 +851,42 @@ class AttackerSimulator:
 
         # ── Profile A: Opportunistic ──────────────────────────────
         opp_paths = [
-            p for p in paths
-            if (ZERO_CLICK_PATH in p.classification
-                or MSF_PATH in p.classification)
-            and p.fully_weaponized
+            p
+            for p in paths
+            if (ZERO_CLICK_PATH in p.classification or MSF_PATH in p.classification) and p.fully_weaponized
         ]
         fastest_opp = min(opp_paths, key=lambda p: len(p.nodes)) if opp_paths else None
         results[PROFILE_OPPORTUNISTIC] = SimulationResult(
             profile=PROFILE_OPPORTUNISTIC,
             paths_available=len(opp_paths),
-            fastest_path_id=fastest_opp.id if fastest_opp else '',
+            fastest_path_id=fastest_opp.id if fastest_opp else "",
             min_steps_to_impact=len(fastest_opp.nodes) if fastest_opp else 0,
-            time_estimate='< 5 minutes' if fastest_opp else 'N/A',
+            time_estimate="< 5 minutes" if fastest_opp else "N/A",
             requires_custom_exploit=False,
         )
 
         # ── Profile B: Skilled Attacker ───────────────────────────
-        skilled_paths = [
-            p for p in paths
-            if (CRITICAL_PATH in p.classification
-                or HIGH_PATH in p.classification)
-        ]
+        skilled_paths = [p for p in paths if (CRITICAL_PATH in p.classification or HIGH_PATH in p.classification)]
         fastest_sk = min(skilled_paths, key=lambda p: len(p.nodes)) if skilled_paths else None
         results[PROFILE_SKILLED] = SimulationResult(
             profile=PROFILE_SKILLED,
             paths_available=len(skilled_paths),
-            fastest_path_id=fastest_sk.id if fastest_sk else '',
+            fastest_path_id=fastest_sk.id if fastest_sk else "",
             min_steps_to_impact=len(fastest_sk.nodes) if fastest_sk else 0,
-            time_estimate='~15-60 minutes' if fastest_sk else 'N/A',
+            time_estimate="~15-60 minutes" if fastest_sk else "N/A",
             requires_custom_exploit=False,
         )
 
         # ── Profile C: APT ────────────────────────────────────────
         all_paths = paths
         fastest_apt = min(all_paths, key=lambda p: len(p.nodes)) if all_paths else None
-        has_theoretical = any(
-            not p.fully_weaponized and COMPLEX_PATH in p.classification
-            for p in all_paths
-        )
+        has_theoretical = any(not p.fully_weaponized and COMPLEX_PATH in p.classification for p in all_paths)
         results[PROFILE_APT] = SimulationResult(
             profile=PROFILE_APT,
             paths_available=len(all_paths),
-            fastest_path_id=fastest_apt.id if fastest_apt else '',
+            fastest_path_id=fastest_apt.id if fastest_apt else "",
             min_steps_to_impact=len(fastest_apt.nodes) if fastest_apt else 0,
-            time_estimate='hours to days',
+            time_estimate="hours to days",
             requires_custom_exploit=has_theoretical,
         )
 
@@ -844,12 +897,13 @@ class AttackerSimulator:
 # STEP 6: Attack Map Output Builder
 # ══════════════════════════════════════════════════════════════════════
 
+
 class AttackMapBuilder:
     """Phase 11 — Attack Map Builder orchestrator."""
 
     def __init__(self, engine):
         self.engine = engine
-        self.verbose = engine.config.get('verbose', False)
+        self.verbose = engine.config.get("verbose", False)
 
     def run(self, enriched_findings: List, exploit_chains: Optional[List] = None) -> Dict:
         """Execute the Phase 11 pipeline.
@@ -864,11 +918,14 @@ class AttackMapBuilder:
         if not enriched_findings:
             return self._empty_map()
 
-        self.engine.emit_pipeline_event('phase11_start', {
-            'findings_count': len(enriched_findings),
-        })
+        self.engine.emit_pipeline_event(
+            "phase11_start",
+            {
+                "findings_count": len(enriched_findings),
+            },
+        )
 
-        if not self.engine.config.get('quiet'):
+        if not self.engine.config.get("quiet"):
             print(f"\n  {Colors.CYAN}{Colors.BOLD}[Phase 11] Attack Map Generation{Colors.RESET}")
             print(f"    Building attack graph from {len(enriched_findings)} findings...")
 
@@ -897,76 +954,80 @@ class AttackMapBuilder:
         msf_ready = [p for p in paths if MSF_PATH in p.classification]
 
         attack_map = {
-            'nodes': [n.to_dict() for n in nodes],
-            'edges': [e.to_dict() for e in edges],
-            'paths': [p.to_dict() for p in paths],
-            'impact_zones': [z.to_dict() for z in impact_zones],
-            'simulation': {k: v.to_dict() for k, v in simulation.items()},
-            'summary': {
-                'total_nodes': len(nodes),
-                'entry_points': len(entry_nodes),
-                'weaponized_entries': len(weaponized_entries),
-                'critical_paths': len(critical_paths),
-                'zero_click_paths': len(zero_click),
-                'msf_ready_paths': len(msf_ready),
-                'cisa_kev_in_map': any(n.cisa_kev for n in nodes),
-                'impact_zones_active': [z.zone for z in impact_zones],
-                'highest_path_score': max((p.path_score for p in paths), default=0.0),
-                'fastest_compromise': {
-                    'steps': min((len(p.nodes) for p in paths), default=0),
-                    'path_id': paths[0].id if paths else '',
-                    'time_est': simulation.get(PROFILE_OPPORTUNISTIC, SimulationResult()).time_estimate,
+            "nodes": [n.to_dict() for n in nodes],
+            "edges": [e.to_dict() for e in edges],
+            "paths": [p.to_dict() for p in paths],
+            "impact_zones": [z.to_dict() for z in impact_zones],
+            "simulation": {k: v.to_dict() for k, v in simulation.items()},
+            "summary": {
+                "total_nodes": len(nodes),
+                "entry_points": len(entry_nodes),
+                "weaponized_entries": len(weaponized_entries),
+                "critical_paths": len(critical_paths),
+                "zero_click_paths": len(zero_click),
+                "msf_ready_paths": len(msf_ready),
+                "cisa_kev_in_map": any(n.cisa_kev for n in nodes),
+                "impact_zones_active": [z.zone for z in impact_zones],
+                "highest_path_score": max((p.path_score for p in paths), default=0.0),
+                "fastest_compromise": {
+                    "steps": min((len(p.nodes) for p in paths), default=0),
+                    "path_id": paths[0].id if paths else "",
+                    "time_est": simulation.get(PROFILE_OPPORTUNISTIC, SimulationResult()).time_estimate,
                 },
-                'most_damaging': {
-                    'zone': impact_zones[0].zone if impact_zones else '',
-                    'path_id': impact_zones[0].triggered_by[0] if impact_zones and impact_zones[0].triggered_by else '',
+                "most_damaging": {
+                    "zone": impact_zones[0].zone if impact_zones else "",
+                    "path_id": impact_zones[0].triggered_by[0] if impact_zones and impact_zones[0].triggered_by else "",
                 },
-                'exploit_coverage_pct': round(
-                    sum(1 for n in nodes if n.exploit_availability != THEORETICAL)
-                    / max(len(nodes), 1) * 100, 1
+                "exploit_coverage_pct": round(
+                    sum(1 for n in nodes if n.exploit_availability != THEORETICAL) / max(len(nodes), 1) * 100, 1
                 ),
             },
         }
 
         # ── Print summary ─────────────────────────────────────────
-        if not self.engine.config.get('quiet'):
-            s = attack_map['summary']
-            print(f"    Nodes: {s['total_nodes']}  Entries: {s['entry_points']}  "
-                  f"Paths: {len(paths)}  "
-                  f"Critical: {s['critical_paths']}  "
-                  f"Zero-click: {s['zero_click_paths']}")
+        if not self.engine.config.get("quiet"):
+            s = attack_map["summary"]
+            print(
+                f"    Nodes: {s['total_nodes']}  Entries: {s['entry_points']}  "
+                f"Paths: {len(paths)}  "
+                f"Critical: {s['critical_paths']}  "
+                f"Zero-click: {s['zero_click_paths']}"
+            )
             print(f"    Impact zones: {', '.join(s['impact_zones_active']) or 'none'}")
             print(f"    Exploit coverage: {s['exploit_coverage_pct']}%")
 
-        self.engine.emit_pipeline_event('phase11_complete', {
-            'nodes': len(nodes),
-            'edges': len(edges),
-            'paths': len(paths),
-            'impact_zones': len(impact_zones),
-        })
+        self.engine.emit_pipeline_event(
+            "phase11_complete",
+            {
+                "nodes": len(nodes),
+                "edges": len(edges),
+                "paths": len(paths),
+                "impact_zones": len(impact_zones),
+            },
+        )
 
         return attack_map
 
     def _empty_map(self) -> Dict:
         """Return an empty attack map structure."""
         return {
-            'nodes': [],
-            'edges': [],
-            'paths': [],
-            'impact_zones': [],
-            'simulation': {},
-            'summary': {
-                'total_nodes': 0,
-                'entry_points': 0,
-                'weaponized_entries': 0,
-                'critical_paths': 0,
-                'zero_click_paths': 0,
-                'msf_ready_paths': 0,
-                'cisa_kev_in_map': False,
-                'impact_zones_active': [],
-                'highest_path_score': 0.0,
-                'fastest_compromise': {'steps': 0, 'path_id': '', 'time_est': 'N/A'},
-                'most_damaging': {'zone': '', 'path_id': ''},
-                'exploit_coverage_pct': 0.0,
+            "nodes": [],
+            "edges": [],
+            "paths": [],
+            "impact_zones": [],
+            "simulation": {},
+            "summary": {
+                "total_nodes": 0,
+                "entry_points": 0,
+                "weaponized_entries": 0,
+                "critical_paths": 0,
+                "zero_click_paths": 0,
+                "msf_ready_paths": 0,
+                "cisa_kev_in_map": False,
+                "impact_zones_active": [],
+                "highest_path_score": 0.0,
+                "fastest_compromise": {"steps": 0, "path_id": "", "time_est": "N/A"},
+                "most_damaging": {"zone": "", "path_id": ""},
+                "exploit_coverage_pct": 0.0,
             },
         }

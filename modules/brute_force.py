@@ -10,52 +10,117 @@ stops on confirmed success or detected lockout.
 """
 
 import itertools
-from typing import List, Dict, Optional, Tuple
-from urllib.parse import urljoin, urlparse
+from typing import List, Dict, Optional
+from urllib.parse import urljoin
 
 from config import Colors
 
-
 # ── Default mini-wordlist (used when no external file is given) ───────────
 DEFAULT_USERNAMES = [
-    'admin', 'administrator', 'root', 'user', 'test', 'guest',
-    'info', 'adm', 'mysql', 'postgres', 'ftp', 'operator',
+    "admin",
+    "administrator",
+    "root",
+    "user",
+    "test",
+    "guest",
+    "info",
+    "adm",
+    "mysql",
+    "postgres",
+    "ftp",
+    "operator",
 ]
 
 DEFAULT_PASSWORDS = [
-    'admin', 'password', '123456', '12345678', 'root', 'toor',
-    'pass', 'test', 'guest', 'master', 'changeme', 'letmein',
-    'qwerty', 'abc123', 'monkey', 'dragon', 'login', '1234',
-    'password1', 'admin123', 'welcome', 'shadow', 'sunshine',
+    "admin",
+    "password",
+    "123456",
+    "12345678",
+    "root",
+    "toor",
+    "pass",
+    "test",
+    "guest",
+    "master",
+    "changeme",
+    "letmein",
+    "qwerty",
+    "abc123",
+    "monkey",
+    "dragon",
+    "login",
+    "1234",
+    "password1",
+    "admin123",
+    "welcome",
+    "shadow",
+    "sunshine",
 ]
 
 # Field names commonly used for login forms
 USERNAME_FIELDS = {
-    'username', 'user', 'login', 'email', 'user_name', 'userid',
-    'user_id', 'name', 'uname', 'usr', 'account',
+    "username",
+    "user",
+    "login",
+    "email",
+    "user_name",
+    "userid",
+    "user_id",
+    "name",
+    "uname",
+    "usr",
+    "account",
 }
 PASSWORD_FIELDS = {
-    'password', 'pass', 'passwd', 'pwd', 'secret', 'user_password',
-    'user_pass', 'passw', 'passwort',
+    "password",
+    "pass",
+    "passwd",
+    "pwd",
+    "secret",
+    "user_password",
+    "user_pass",
+    "passw",
+    "passwort",
 }
 
 # Indicators of a failed login (looked for in response body)
 FAILURE_INDICATORS = [
-    'invalid', 'incorrect', 'wrong', 'failed', 'error', 'denied',
-    'bad credentials', 'authentication failed', 'login failed',
-    'try again', 'not found', 'unauthorized',
+    "invalid",
+    "incorrect",
+    "wrong",
+    "failed",
+    "error",
+    "denied",
+    "bad credentials",
+    "authentication failed",
+    "login failed",
+    "try again",
+    "not found",
+    "unauthorized",
 ]
 
 # Indicators of successful login
 SUCCESS_INDICATORS = [
-    'dashboard', 'welcome', 'logout', 'sign out', 'my account',
-    'profile', 'settings', 'admin panel',
+    "dashboard",
+    "welcome",
+    "logout",
+    "sign out",
+    "my account",
+    "profile",
+    "settings",
+    "admin panel",
 ]
 
 # Lockout detection
 LOCKOUT_INDICATORS = [
-    'locked', 'too many', 'rate limit', 'blocked', 'captcha',
-    'try again later', 'temporarily', 'suspended',
+    "locked",
+    "too many",
+    "rate limit",
+    "blocked",
+    "captcha",
+    "try again later",
+    "temporarily",
+    "suspended",
 ]
 
 MAX_ATTEMPTS = 500  # safety cap
@@ -69,7 +134,7 @@ class BruteForceModule:
         self.engine = engine
         self.requester = engine.requester
         self.config = engine.config
-        self.verbose = self.config.get('verbose', False)
+        self.verbose = self.config.get("verbose", False)
         self.results: List[Dict] = []
 
     # ─── public API ──────────────────────────────────────────────────
@@ -125,24 +190,22 @@ class BruteForceModule:
         """Return forms that look like login forms."""
         login_forms = []
         for form in forms:
-            inputs = form.get('inputs', [])
-            input_names = {
-                inp.get('name', '').lower()
-                for inp in inputs
-                if inp.get('name')
-            }
+            inputs = form.get("inputs", [])
+            input_names = {inp.get("name", "").lower() for inp in inputs if inp.get("name")}
             has_user = bool(input_names & USERNAME_FIELDS)
             has_pass = bool(input_names & PASSWORD_FIELDS)
             if has_pass:  # password field is the minimum requirement
-                login_forms.append({
-                    'url': form.get('url', ''),
-                    'action': form.get('action', ''),
-                    'method': form.get('method', 'POST').upper(),
-                    'inputs': inputs,
-                    'user_field': (input_names & USERNAME_FIELDS) or None,
-                    'pass_field': (input_names & PASSWORD_FIELDS) or None,
-                    'has_user': has_user,
-                })
+                login_forms.append(
+                    {
+                        "url": form.get("url", ""),
+                        "action": form.get("action", ""),
+                        "method": form.get("method", "POST").upper(),
+                        "inputs": inputs,
+                        "user_field": (input_names & USERNAME_FIELDS) or None,
+                        "pass_field": (input_names & PASSWORD_FIELDS) or None,
+                        "has_user": has_user,
+                    }
+                )
         return login_forms
 
     def _brute_form(
@@ -152,40 +215,41 @@ class BruteForceModule:
         passwords: List[str],
     ) -> None:
         """Execute brute-force against a single login form."""
-        action = form['action'] or form['url']
-        if action and not action.startswith('http'):
-            action = urljoin(form['url'], action)
+        action = form["action"] or form["url"]
+        if action and not action.startswith("http"):
+            action = urljoin(form["url"], action)
 
-        method = form['method']
+        method = form["method"]
 
         # Resolve field names
-        user_field = next(iter(form['user_field'])) if form['user_field'] else None
-        pass_field = next(iter(form['pass_field'])) if form['pass_field'] else None
+        user_field = next(iter(form["user_field"])) if form["user_field"] else None
+        pass_field = next(iter(form["pass_field"])) if form["pass_field"] else None
 
         if not pass_field:
             return
 
         # Collect static hidden fields
         static_fields: Dict[str, str] = {}
-        for inp in form['inputs']:
-            name = inp.get('name', '')
+        for inp in form["inputs"]:
+            name = inp.get("name", "")
             if name.lower() not in USERNAME_FIELDS and name.lower() not in PASSWORD_FIELDS:
-                static_fields[name] = inp.get('value', '')
+                static_fields[name] = inp.get("value", "")
 
         # Get baseline failure response
         baseline_resp = self._send_attempt(
-            action, method, user_field, 'aaaa_invalid_user',
-            pass_field, 'aaaa_invalid_pass', static_fields,
+            action,
+            method,
+            user_field,
+            "aaaa_invalid_user",
+            pass_field,
+            "aaaa_invalid_pass",
+            static_fields,
         )
-        baseline_text = baseline_resp.text.lower() if baseline_resp else ''
+        baseline_text = baseline_resp.text.lower() if baseline_resp else ""
         baseline_len = len(baseline_text)
 
         attempts = 0
-        combo_iter = (
-            itertools.product(usernames, passwords)
-            if user_field
-            else ((None, p) for p in passwords)
-        )
+        combo_iter = itertools.product(usernames, passwords) if user_field else ((None, p) for p in passwords)
 
         for username, password in combo_iter:
             if attempts >= MAX_ATTEMPTS:
@@ -194,8 +258,13 @@ class BruteForceModule:
             attempts += 1
 
             resp = self._send_attempt(
-                action, method, user_field, username,
-                pass_field, password, static_fields,
+                action,
+                method,
+                user_field,
+                username,
+                pass_field,
+                password,
+                static_fields,
             )
             if not resp:
                 continue
@@ -210,17 +279,14 @@ class BruteForceModule:
             # Success heuristics
             if self._is_success(resp, resp_lower, baseline_text, baseline_len):
                 cred = {
-                    'url': action,
-                    'username': username or '(none)',
-                    'password': password,
+                    "url": action,
+                    "username": username or "(none)",
+                    "password": password,
                 }
                 self.results.append(cred)
-                display_user = username or '(none)'
-                masked_pw = password[:2] + '*' * max(0, len(password) - 2)
-                print(
-                    f"  {Colors.GREEN}[FOUND]{Colors.RESET} "
-                    f"{display_user}:{masked_pw}  →  {action}"
-                )
+                display_user = username or "(none)"
+                masked_pw = password[:2] + "*" * max(0, len(password) - 2)
+                print(f"  {Colors.GREEN}[FOUND]{Colors.RESET} " f"{display_user}:{masked_pw}  →  {action}")
                 # Add as finding to the engine
                 self._add_finding(action, username, password)
                 break  # move to next form
@@ -229,8 +295,14 @@ class BruteForceModule:
                 print(f"  {Colors.info(f'  {attempts} attempts tried...')}")
 
     def _send_attempt(
-        self, url, method, user_field, username,
-        pass_field, password, static_fields,
+        self,
+        url,
+        method,
+        user_field,
+        username,
+        pass_field,
+        password,
+        static_fields,
     ):
         """Send a single login attempt."""
         data = dict(static_fields)
@@ -240,7 +312,10 @@ class BruteForceModule:
 
         try:
             return self.requester.request(
-                url, method, data=data, allow_redirects=True,
+                url,
+                method,
+                data=data,
+                allow_redirects=True,
             )
         except Exception:
             return None
@@ -249,9 +324,9 @@ class BruteForceModule:
     def _is_success(resp, resp_lower: str, baseline_text: str, baseline_len: int) -> bool:
         """Heuristic: decide whether a response represents successful auth."""
         # 302 redirect to a different page is a strong signal
-        if resp.status_code in (301, 302, 303) and resp.headers.get('Location'):
-            loc = resp.headers['Location'].lower()
-            if any(kw in loc for kw in ('dashboard', 'home', 'account', 'profile', 'admin')):
+        if resp.status_code in (301, 302, 303) and resp.headers.get("Location"):
+            loc = resp.headers["Location"].lower()
+            if any(kw in loc for kw in ("dashboard", "home", "account", "profile", "admin")):
                 return True
 
         # Positive keywords present AND negative keywords absent
@@ -271,14 +346,15 @@ class BruteForceModule:
     def _add_finding(self, url: str, username: Optional[str], password: str):
         """Register a brute-force finding with the engine."""
         from core.engine import Finding
+
         finding = Finding(
-            technique='Brute Force - Weak Credentials',
+            technique="Brute Force - Weak Credentials",
             url=url,
-            method='POST',
+            method="POST",
             param=f'username={username or "(none)"}',
             payload=f'password={"*" * len(password)}',
             evidence=f'Valid credentials found for user: {username or "(none)"}',
-            severity='HIGH',
+            severity="HIGH",
             confidence=0.9,
         )
         self.engine.add_finding(finding)

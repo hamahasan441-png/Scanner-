@@ -4,24 +4,28 @@
 
 import unittest
 from core.adaptive import AdaptiveController
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 class _MockEngine:
     def __init__(self):
-        self.config = {'verbose': False, 'delay': 0.1}
+        self.config = {"verbose": False, "delay": 0.1}
 
 
 class _FakeResponse:
-    def __init__(self, status_code=200, headers=None, text=''):
+    def __init__(self, status_code=200, headers=None, text=""):
         self.status_code = status_code
         self.headers = headers or {}
         self.text = text
 
+
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
+
 
 class TestAdaptiveController(unittest.TestCase):
 
@@ -44,12 +48,12 @@ class TestAdaptiveController(unittest.TestCase):
     def test_should_rediscover_threshold(self):
         self.assertFalse(self.ctrl.should_rediscover())
         for i in range(6):
-            self.ctrl.add_new_endpoint(f'http://x/page{i}')
+            self.ctrl.add_new_endpoint(f"http://x/page{i}")
         self.assertTrue(self.ctrl.should_rediscover())
 
     def test_add_new_endpoint(self):
-        self.ctrl.add_new_endpoint('http://x/test')
-        self.assertIn('http://x/test', self.ctrl.new_endpoints)
+        self.ctrl.add_new_endpoint("http://x/test")
+        self.assertIn("http://x/test", self.ctrl.new_endpoints)
 
     def test_get_delay_baseline(self):
         delay = self.ctrl.get_delay()
@@ -59,16 +63,16 @@ class TestAdaptiveController(unittest.TestCase):
         """WAF detection should set flag and increase delay."""
         resp = _FakeResponse(
             status_code=403,
-            headers={'Server': 'cloudflare'},
-            text='Access Denied by cloudflare',
+            headers={"Server": "cloudflare"},
+            text="Access Denied by cloudflare",
         )
         self.ctrl.check_waf(resp)
         self.assertTrue(self.ctrl.waf_detected)
 
     def test_scan_summary(self):
         summary = self.ctrl.get_scan_summary()
-        self.assertIn('waf_detected', summary)
-        self.assertIn('noise_level', summary)
+        self.assertIn("waf_detected", summary)
+        self.assertIn("noise_level", summary)
 
 
 class TestRateLimiting(unittest.TestCase):
@@ -97,7 +101,7 @@ class TestRateLimiting(unittest.TestCase):
         self.assertGreaterEqual(self.ctrl.extra_delay, 3.0)
 
     def test_retry_after_header_triggers(self):
-        resp = _FakeResponse(status_code=200, headers={'Retry-After': '30'})
+        resp = _FakeResponse(status_code=200, headers={"Retry-After": "30"})
         self.ctrl.check_rate_limit(resp)
         self.assertTrue(self.ctrl.rate_limited)
 
@@ -164,9 +168,9 @@ class TestScanSummaryEnhanced(unittest.TestCase):
 
     def test_summary_has_new_keys(self):
         summary = self.ctrl.get_scan_summary()
-        self.assertIn('rate_limited', summary)
-        self.assertIn('response_stability', summary)
+        self.assertIn("rate_limited", summary)
+        self.assertIn("response_stability", summary)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

@@ -3,20 +3,18 @@
 """Unit tests for the Repeater module."""
 
 import unittest
-from unittest.mock import patch, MagicMock, PropertyMock
+from unittest.mock import patch, MagicMock
 
 import requests
 
 from core.repeater import Repeater, RepeaterResponse
 
-
 # ------------------------------------------------------------------ #
 #  Helper fixtures                                                    #
 # ------------------------------------------------------------------ #
 
-def _mock_response(status_code=200, headers=None, body=b"OK",
-                   text="OK", url="http://example.com/",
-                   cookies=None):
+
+def _mock_response(status_code=200, headers=None, body=b"OK", text="OK", url="http://example.com/", cookies=None):
     """Build a mock that mimics a *requests.Response*."""
     resp = MagicMock()
     resp.status_code = status_code
@@ -32,14 +30,22 @@ def _mock_response(status_code=200, headers=None, body=b"OK",
 #  Tests – RepeaterResponse                                           #
 # ------------------------------------------------------------------ #
 
+
 class TestRepeaterResponse(unittest.TestCase):
     """Tests for the RepeaterResponse data container."""
 
     def _make(self, **overrides):
         defaults = dict(
-            status_code=200, headers={"X": "1"}, body="hello",
-            elapsed=0.12, size=5, cookies={}, url="http://a.com/",
-            method="GET", request_headers={}, request_body=None,
+            status_code=200,
+            headers={"X": "1"},
+            body="hello",
+            elapsed=0.12,
+            size=5,
+            cookies={},
+            url="http://a.com/",
+            method="GET",
+            request_headers={},
+            request_body=None,
             timestamp="2024-01-01T00:00:00+00:00",
         )
         defaults.update(overrides)
@@ -54,9 +60,17 @@ class TestRepeaterResponse(unittest.TestCase):
         rr = self._make()
         d = rr.to_dict()
         expected = {
-            "status_code", "headers", "body", "elapsed", "size",
-            "cookies", "url", "method", "request_headers",
-            "request_body", "timestamp",
+            "status_code",
+            "headers",
+            "body",
+            "elapsed",
+            "size",
+            "cookies",
+            "url",
+            "method",
+            "request_headers",
+            "request_body",
+            "timestamp",
         }
         self.assertEqual(set(d.keys()), expected)
 
@@ -70,6 +84,7 @@ class TestRepeaterResponse(unittest.TestCase):
 # ------------------------------------------------------------------ #
 #  Tests – Repeater.__init__                                          #
 # ------------------------------------------------------------------ #
+
 
 class TestRepeaterInit(unittest.TestCase):
     """Initialisation and configuration."""
@@ -98,24 +113,28 @@ class TestRepeaterInit(unittest.TestCase):
 #  Tests – send()                                                     #
 # ------------------------------------------------------------------ #
 
+
 class TestSend(unittest.TestCase):
     """Tests for Repeater.send."""
 
     def setUp(self):
         self.rep = Repeater()
 
-    @patch.object(Repeater, '_build_response')
+    @patch.object(Repeater, "_build_response")
     def _send(self, mock_resp, build_resp, **kwargs):
         self.rep.session.request = MagicMock(return_value=mock_resp)
-        rr = _mock_response()
+        _mock_response()
         build_resp.return_value = RepeaterResponse(
             status_code=mock_resp.status_code,
             headers=dict(mock_resp.headers),
             body=mock_resp.text,
-            elapsed=0.01, size=len(mock_resp.content),
-            cookies={}, url=mock_resp.url,
+            elapsed=0.01,
+            size=len(mock_resp.content),
+            cookies={},
+            url=mock_resp.url,
             method=kwargs.get("method", "GET"),
-            request_headers={}, request_body=None,
+            request_headers={},
+            request_body=None,
             timestamp="2024-01-01T00:00:00+00:00",
         )
         return self.rep.send(**kwargs)
@@ -129,26 +148,21 @@ class TestSend(unittest.TestCase):
 
     @patch("core.repeater.requests.Session.request")
     def test_post_request(self, mock_req):
-        mock_req.return_value = _mock_response(status_code=201, text="created",
-                                                body=b"created")
-        rr = self.rep.send("POST", "http://example.com/api",
-                           body="data=1")
+        mock_req.return_value = _mock_response(status_code=201, text="created", body=b"created")
+        rr = self.rep.send("POST", "http://example.com/api", body="data=1")
         self.assertEqual(rr.status_code, 201)
         self.assertEqual(rr.method, "POST")
 
     @patch("core.repeater.requests.Session.request")
     def test_put_request(self, mock_req):
-        mock_req.return_value = _mock_response(status_code=204, text="",
-                                                body=b"")
-        rr = self.rep.send("PUT", "http://example.com/item/1",
-                           body='{"key":"value"}')
+        mock_req.return_value = _mock_response(status_code=204, text="", body=b"")
+        rr = self.rep.send("PUT", "http://example.com/item/1", body='{"key":"value"}')
         self.assertEqual(rr.status_code, 204)
         self.assertEqual(rr.method, "PUT")
 
     @patch("core.repeater.requests.Session.request")
     def test_delete_request(self, mock_req):
-        mock_req.return_value = _mock_response(status_code=200, text="deleted",
-                                                body=b"deleted")
+        mock_req.return_value = _mock_response(status_code=200, text="deleted", body=b"deleted")
         rr = self.rep.send("DELETE", "http://example.com/item/1")
         self.assertEqual(rr.status_code, 200)
         self.assertEqual(rr.method, "DELETE")
@@ -156,32 +170,28 @@ class TestSend(unittest.TestCase):
     @patch("core.repeater.requests.Session.request")
     def test_custom_headers(self, mock_req):
         mock_req.return_value = _mock_response()
-        self.rep.send("GET", "http://example.com/",
-                      headers={"Authorization": "Bearer tok"})
+        self.rep.send("GET", "http://example.com/", headers={"Authorization": "Bearer tok"})
         _, kwargs = mock_req.call_args
         self.assertEqual(kwargs["headers"]["Authorization"], "Bearer tok")
 
     @patch("core.repeater.requests.Session.request")
     def test_params_forwarded(self, mock_req):
         mock_req.return_value = _mock_response()
-        self.rep.send("GET", "http://example.com/search",
-                      params={"q": "test"})
+        self.rep.send("GET", "http://example.com/search", params={"q": "test"})
         _, kwargs = mock_req.call_args
         self.assertEqual(kwargs["params"], {"q": "test"})
 
     @patch("core.repeater.requests.Session.request")
     def test_cookies_forwarded(self, mock_req):
         mock_req.return_value = _mock_response()
-        self.rep.send("GET", "http://example.com/",
-                      cookies={"session": "abc123"})
+        self.rep.send("GET", "http://example.com/", cookies={"session": "abc123"})
         _, kwargs = mock_req.call_args
         self.assertEqual(kwargs["cookies"], {"session": "abc123"})
 
     @patch("core.repeater.requests.Session.request")
     def test_redirects_disabled(self, mock_req):
         mock_req.return_value = _mock_response(status_code=302)
-        self.rep.send("GET", "http://example.com/old",
-                      allow_redirects=False)
+        self.rep.send("GET", "http://example.com/old", allow_redirects=False)
         _, kwargs = mock_req.call_args
         self.assertFalse(kwargs["allow_redirects"])
 
@@ -224,6 +234,7 @@ class TestSend(unittest.TestCase):
 #  Tests – parse_raw_request                                          #
 # ------------------------------------------------------------------ #
 
+
 class TestParseRawRequest(unittest.TestCase):
     """Tests for Repeater.parse_raw_request."""
 
@@ -236,10 +247,12 @@ class TestParseRawRequest(unittest.TestCase):
         self.assertIsNone(body)
 
     def test_post_with_body(self):
-        raw = ("POST /login HTTP/1.1\r\n"
-               "Host: example.com\r\n"
-               "Content-Type: application/x-www-form-urlencoded\r\n\r\n"
-               "user=admin&pass=secret")
+        raw = (
+            "POST /login HTTP/1.1\r\n"
+            "Host: example.com\r\n"
+            "Content-Type: application/x-www-form-urlencoded\r\n\r\n"
+            "user=admin&pass=secret"
+        )
         method, path, headers, body = Repeater.parse_raw_request(raw)
         self.assertEqual(method, "POST")
         self.assertEqual(body, "user=admin&pass=secret")
@@ -258,10 +271,7 @@ class TestParseRawRequest(unittest.TestCase):
         self.assertIsNone(body)
 
     def test_multiple_headers(self):
-        raw = ("GET / HTTP/1.1\r\n"
-               "Host: example.com\r\n"
-               "Accept: text/html\r\n"
-               "Cookie: a=1\r\n\r\n")
+        raw = "GET / HTTP/1.1\r\n" "Host: example.com\r\n" "Accept: text/html\r\n" "Cookie: a=1\r\n\r\n"
         _, _, headers, _ = Repeater.parse_raw_request(raw)
         self.assertEqual(headers["Accept"], "text/html")
         self.assertEqual(headers["Cookie"], "a=1")
@@ -275,6 +285,7 @@ class TestParseRawRequest(unittest.TestCase):
 # ------------------------------------------------------------------ #
 #  Tests – build_raw_request                                          #
 # ------------------------------------------------------------------ #
+
 
 class TestBuildRawRequest(unittest.TestCase):
     """Tests for Repeater.build_raw_request."""
@@ -294,14 +305,16 @@ class TestBuildRawRequest(unittest.TestCase):
 
     def test_custom_headers(self):
         raw = Repeater.build_raw_request(
-            "POST", "http://example.com/api",
+            "POST",
+            "http://example.com/api",
             headers={"Content-Type": "application/json"},
         )
         self.assertIn("Content-Type: application/json", raw)
 
     def test_body_appended(self):
         raw = Repeater.build_raw_request(
-            "POST", "http://example.com/api",
+            "POST",
+            "http://example.com/api",
             body='{"key":"val"}',
         )
         self.assertTrue(raw.endswith('{"key":"val"}'))
@@ -310,6 +323,7 @@ class TestBuildRawRequest(unittest.TestCase):
 # ------------------------------------------------------------------ #
 #  Tests – send_raw                                                   #
 # ------------------------------------------------------------------ #
+
 
 class TestSendRaw(unittest.TestCase):
     """Tests for Repeater.send_raw."""
@@ -354,6 +368,7 @@ class TestSendRaw(unittest.TestCase):
 # ------------------------------------------------------------------ #
 #  Tests – history                                                    #
 # ------------------------------------------------------------------ #
+
 
 class TestHistory(unittest.TestCase):
     """Tests for history tracking."""
@@ -403,6 +418,7 @@ class TestHistory(unittest.TestCase):
 # ------------------------------------------------------------------ #
 #  Tests – replay                                                     #
 # ------------------------------------------------------------------ #
+
 
 class TestReplay(unittest.TestCase):
     """Tests for Repeater.replay."""
@@ -462,6 +478,7 @@ class TestReplay(unittest.TestCase):
 #  Tests – diff_responses                                             #
 # ------------------------------------------------------------------ #
 
+
 class TestDiffResponses(unittest.TestCase):
     """Tests for Repeater.diff_responses."""
 
@@ -480,8 +497,7 @@ class TestDiffResponses(unittest.TestCase):
     def test_diff_different_status(self, mock_req):
         mock_req.return_value = _mock_response(status_code=200)
         self.rep.send("GET", "http://example.com/a")
-        mock_req.return_value = _mock_response(status_code=404, text="nope",
-                                                body=b"nope")
+        mock_req.return_value = _mock_response(status_code=404, text="nope", body=b"nope")
         self.rep.send("GET", "http://example.com/b")
         diff = self.rep.diff_responses(0, 1)
         self.assertIn("status", diff)
@@ -511,6 +527,7 @@ class TestDiffResponses(unittest.TestCase):
 # ------------------------------------------------------------------ #
 #  Tests – error handling                                             #
 # ------------------------------------------------------------------ #
+
 
 class TestErrorHandling(unittest.TestCase):
     """Edge-cases and error scenarios."""
@@ -545,14 +562,14 @@ class TestErrorHandling(unittest.TestCase):
     @patch("core.repeater.requests.Session.request")
     def test_patch_method(self, mock_req):
         mock_req.return_value = _mock_response()
-        rr = self.rep.send("PATCH", "http://example.com/item/1",
-                           body='{"name":"new"}')
+        rr = self.rep.send("PATCH", "http://example.com/item/1", body='{"name":"new"}')
         self.assertEqual(rr.method, "PATCH")
 
 
 # ------------------------------------------------------------------ #
 #  Tests – proxy configuration                                       #
 # ------------------------------------------------------------------ #
+
 
 class TestProxyConfiguration(unittest.TestCase):
     """Tests for proxy support."""

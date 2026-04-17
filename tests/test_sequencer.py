@@ -4,15 +4,14 @@
 
 import math
 import secrets
-import string
 import unittest
 
 from utils.sequencer import Sequencer
 
-
 # ------------------------------------------------------------------ #
 #  Helpers                                                             #
 # ------------------------------------------------------------------ #
+
 
 def _random_tokens(n=50, length=32):
     """Generate *n* cryptographically random hex tokens."""
@@ -27,6 +26,7 @@ def _sequential_tokens(n=50, start=1000):
 # ------------------------------------------------------------------ #
 #  Tests – Shannon entropy                                             #
 # ------------------------------------------------------------------ #
+
 
 class TestShannonEntropy(unittest.TestCase):
     """Tests for Sequencer.shannon_entropy."""
@@ -72,6 +72,7 @@ class TestShannonEntropy(unittest.TestCase):
 #  Tests – chi-squared                                                 #
 # ------------------------------------------------------------------ #
 
+
 class TestChiSquared(unittest.TestCase):
     """Tests for Sequencer.chi_squared."""
 
@@ -106,6 +107,7 @@ class TestChiSquared(unittest.TestCase):
 # ------------------------------------------------------------------ #
 #  Tests – character frequency                                         #
 # ------------------------------------------------------------------ #
+
 
 class TestCharacterFrequency(unittest.TestCase):
     """Tests for Sequencer.character_frequency."""
@@ -145,6 +147,7 @@ class TestCharacterFrequency(unittest.TestCase):
 #  Tests – bit-level analysis                                          #
 # ------------------------------------------------------------------ #
 
+
 class TestBitLevelAnalysis(unittest.TestCase):
     """Tests for Sequencer.bit_level_analysis."""
 
@@ -167,9 +170,7 @@ class TestBitLevelAnalysis(unittest.TestCase):
     def test_ratios_sum_to_one(self):
         """Ones ratio + zeros ratio == 1.0."""
         result = self.seq.bit_level_analysis("Hello World")
-        self.assertAlmostEqual(
-            result["ones_ratio"] + result["zeros_ratio"], 1.0, places=5
-        )
+        self.assertAlmostEqual(result["ones_ratio"] + result["zeros_ratio"], 1.0, places=5)
 
     def test_all_zeros_char(self):
         """Null bytes should have zero ones."""
@@ -193,6 +194,7 @@ class TestBitLevelAnalysis(unittest.TestCase):
 # ------------------------------------------------------------------ #
 #  Tests – pattern detection                                           #
 # ------------------------------------------------------------------ #
+
 
 class TestDetectPattern(unittest.TestCase):
     """Tests for Sequencer.detect_pattern."""
@@ -240,6 +242,7 @@ class TestDetectPattern(unittest.TestCase):
 #  Tests – predictability                                              #
 # ------------------------------------------------------------------ #
 
+
 class TestIsPredictable(unittest.TestCase):
     """Tests for Sequencer.is_predictable."""
 
@@ -285,6 +288,7 @@ class TestIsPredictable(unittest.TestCase):
 #  Tests – token set analysis                                          #
 # ------------------------------------------------------------------ #
 
+
 class TestAnalyzeTokenSet(unittest.TestCase):
     """Tests for Sequencer.analyze_token_set."""
 
@@ -301,9 +305,17 @@ class TestAnalyzeTokenSet(unittest.TestCase):
         self.seq.add_tokens(_random_tokens(20))
         result = self.seq.analyze_token_set()
         for key in (
-            "token_count", "min_length", "max_length", "avg_length",
-            "charset", "entropy", "entropy_rating", "chi_squared",
-            "unique_tokens", "uniqueness_ratio", "bit_analysis",
+            "token_count",
+            "min_length",
+            "max_length",
+            "avg_length",
+            "charset",
+            "entropy",
+            "entropy_rating",
+            "chi_squared",
+            "unique_tokens",
+            "uniqueness_ratio",
+            "bit_analysis",
         ):
             self.assertIn(key, result)
 
@@ -346,6 +358,7 @@ class TestAnalyzeTokenSet(unittest.TestCase):
 #  Tests – report generation                                           #
 # ------------------------------------------------------------------ #
 
+
 class TestGenerateReport(unittest.TestCase):
     """Tests for Sequencer.generate_report."""
 
@@ -368,8 +381,11 @@ class TestGenerateReport(unittest.TestCase):
         self.seq.add_tokens(_random_tokens(20))
         summary = self.seq.generate_report()["summary"]
         for key in (
-            "token_count", "entropy", "entropy_rating",
-            "is_predictable", "predictability_confidence",
+            "token_count",
+            "entropy",
+            "entropy_rating",
+            "is_predictable",
+            "predictability_confidence",
         ):
             self.assertIn(key, summary)
 
@@ -382,6 +398,7 @@ class TestGenerateReport(unittest.TestCase):
 # ------------------------------------------------------------------ #
 #  Tests – clear & add methods                                         #
 # ------------------------------------------------------------------ #
+
 
 class TestLifecycle(unittest.TestCase):
     """Tests for add_token, add_tokens, and clear."""
@@ -406,6 +423,7 @@ class TestLifecycle(unittest.TestCase):
 # ------------------------------------------------------------------ #
 #  Tests – entropy rating                                              #
 # ------------------------------------------------------------------ #
+
 
 class TestEntropyRating(unittest.TestCase):
     """Tests for the rating thresholds."""

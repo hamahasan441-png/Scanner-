@@ -21,11 +21,10 @@ Usage:
 import re
 import time
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List
 from urllib.parse import urlparse
 
 from config import Colors
-
 
 # ── Constants ──────────────────────────────────────────────────────────
 
@@ -33,266 +32,388 @@ RECHECK_ROUNDS = 3
 
 # CVSS v3.1 base score templates by vulnerability class
 CVSS_TEMPLATES = {
-    'sql injection': {
-        'AV': 'N', 'AC': 'L', 'PR': 'N', 'UI': 'N', 'S': 'U', 'C': 'H', 'I': 'H', 'A': 'N',
-        'base': 8.1,
+    "sql injection": {
+        "AV": "N",
+        "AC": "L",
+        "PR": "N",
+        "UI": "N",
+        "S": "U",
+        "C": "H",
+        "I": "H",
+        "A": "N",
+        "base": 8.1,
     },
-    'xss': {
-        'AV': 'N', 'AC': 'L', 'PR': 'N', 'UI': 'R', 'S': 'C', 'C': 'L', 'I': 'L', 'A': 'N',
-        'base': 6.1,
+    "xss": {
+        "AV": "N",
+        "AC": "L",
+        "PR": "N",
+        "UI": "R",
+        "S": "C",
+        "C": "L",
+        "I": "L",
+        "A": "N",
+        "base": 6.1,
     },
-    'stored xss': {
-        'AV': 'N', 'AC': 'L', 'PR': 'L', 'UI': 'R', 'S': 'C', 'C': 'L', 'I': 'L', 'A': 'N',
-        'base': 6.5,
+    "stored xss": {
+        "AV": "N",
+        "AC": "L",
+        "PR": "L",
+        "UI": "R",
+        "S": "C",
+        "C": "L",
+        "I": "L",
+        "A": "N",
+        "base": 6.5,
     },
-    'command injection': {
-        'AV': 'N', 'AC': 'L', 'PR': 'N', 'UI': 'N', 'S': 'U', 'C': 'H', 'I': 'H', 'A': 'H',
-        'base': 9.8,
+    "command injection": {
+        "AV": "N",
+        "AC": "L",
+        "PR": "N",
+        "UI": "N",
+        "S": "U",
+        "C": "H",
+        "I": "H",
+        "A": "H",
+        "base": 9.8,
     },
-    'ssrf': {
-        'AV': 'N', 'AC': 'L', 'PR': 'N', 'UI': 'N', 'S': 'U', 'C': 'H', 'I': 'N', 'A': 'N',
-        'base': 7.5,
+    "ssrf": {
+        "AV": "N",
+        "AC": "L",
+        "PR": "N",
+        "UI": "N",
+        "S": "U",
+        "C": "H",
+        "I": "N",
+        "A": "N",
+        "base": 7.5,
     },
-    'ssti': {
-        'AV': 'N', 'AC': 'L', 'PR': 'N', 'UI': 'N', 'S': 'U', 'C': 'H', 'I': 'H', 'A': 'H',
-        'base': 9.8,
+    "ssti": {
+        "AV": "N",
+        "AC": "L",
+        "PR": "N",
+        "UI": "N",
+        "S": "U",
+        "C": "H",
+        "I": "H",
+        "A": "H",
+        "base": 9.8,
     },
-    'lfi': {
-        'AV': 'N', 'AC': 'L', 'PR': 'N', 'UI': 'N', 'S': 'U', 'C': 'H', 'I': 'N', 'A': 'N',
-        'base': 7.5,
+    "lfi": {
+        "AV": "N",
+        "AC": "L",
+        "PR": "N",
+        "UI": "N",
+        "S": "U",
+        "C": "H",
+        "I": "N",
+        "A": "N",
+        "base": 7.5,
     },
-    'xxe': {
-        'AV': 'N', 'AC': 'L', 'PR': 'N', 'UI': 'N', 'S': 'U', 'C': 'H', 'I': 'N', 'A': 'N',
-        'base': 7.5,
+    "xxe": {
+        "AV": "N",
+        "AC": "L",
+        "PR": "N",
+        "UI": "N",
+        "S": "U",
+        "C": "H",
+        "I": "N",
+        "A": "N",
+        "base": 7.5,
     },
-    'idor': {
-        'AV': 'N', 'AC': 'L', 'PR': 'L', 'UI': 'N', 'S': 'U', 'C': 'H', 'I': 'N', 'A': 'N',
-        'base': 6.5,
+    "idor": {
+        "AV": "N",
+        "AC": "L",
+        "PR": "L",
+        "UI": "N",
+        "S": "U",
+        "C": "H",
+        "I": "N",
+        "A": "N",
+        "base": 6.5,
     },
-    'cors': {
-        'AV': 'N', 'AC': 'L', 'PR': 'N', 'UI': 'R', 'S': 'U', 'C': 'H', 'I': 'N', 'A': 'N',
-        'base': 6.5,
+    "cors": {
+        "AV": "N",
+        "AC": "L",
+        "PR": "N",
+        "UI": "R",
+        "S": "U",
+        "C": "H",
+        "I": "N",
+        "A": "N",
+        "base": 6.5,
     },
-    'jwt': {
-        'AV': 'N', 'AC': 'L', 'PR': 'N', 'UI': 'N', 'S': 'U', 'C': 'H', 'I': 'H', 'A': 'N',
-        'base': 9.1,
+    "jwt": {
+        "AV": "N",
+        "AC": "L",
+        "PR": "N",
+        "UI": "N",
+        "S": "U",
+        "C": "H",
+        "I": "H",
+        "A": "N",
+        "base": 9.1,
     },
-    'file upload': {
-        'AV': 'N', 'AC': 'L', 'PR': 'L', 'UI': 'N', 'S': 'U', 'C': 'H', 'I': 'H', 'A': 'H',
-        'base': 8.8,
+    "file upload": {
+        "AV": "N",
+        "AC": "L",
+        "PR": "L",
+        "UI": "N",
+        "S": "U",
+        "C": "H",
+        "I": "H",
+        "A": "H",
+        "base": 8.8,
     },
-    'open redirect': {
-        'AV': 'N', 'AC': 'L', 'PR': 'N', 'UI': 'R', 'S': 'C', 'C': 'L', 'I': 'L', 'A': 'N',
-        'base': 6.1,
+    "open redirect": {
+        "AV": "N",
+        "AC": "L",
+        "PR": "N",
+        "UI": "R",
+        "S": "C",
+        "C": "L",
+        "I": "L",
+        "A": "N",
+        "base": 6.1,
     },
-    'crlf': {
-        'AV': 'N', 'AC': 'L', 'PR': 'N', 'UI': 'R', 'S': 'C', 'C': 'L', 'I': 'L', 'A': 'N',
-        'base': 6.1,
+    "crlf": {
+        "AV": "N",
+        "AC": "L",
+        "PR": "N",
+        "UI": "R",
+        "S": "C",
+        "C": "L",
+        "I": "L",
+        "A": "N",
+        "base": 6.1,
     },
-    'nosql injection': {
-        'AV': 'N', 'AC': 'L', 'PR': 'N', 'UI': 'N', 'S': 'U', 'C': 'H', 'I': 'H', 'A': 'N',
-        'base': 8.1,
+    "nosql injection": {
+        "AV": "N",
+        "AC": "L",
+        "PR": "N",
+        "UI": "N",
+        "S": "U",
+        "C": "H",
+        "I": "H",
+        "A": "N",
+        "base": 8.1,
     },
-    'missing security header': {
-        'AV': 'N', 'AC': 'L', 'PR': 'N', 'UI': 'N', 'S': 'U', 'C': 'N', 'I': 'N', 'A': 'N',
-        'base': 0.0,
+    "missing security header": {
+        "AV": "N",
+        "AC": "L",
+        "PR": "N",
+        "UI": "N",
+        "S": "U",
+        "C": "N",
+        "I": "N",
+        "A": "N",
+        "base": 0.0,
     },
 }
 
 # WAF confidence adjustments
 WAF_ADJUSTMENTS = {
-    'WAF_BYPASSED_CONFIRMED': 0.5,
-    'UNVERIFIED_THROUGH_CDN': -1.0,
-    'UNSTABLE': -0.5,
-    'BYPASS_REQUIRED': -0.3,
+    "WAF_BYPASSED_CONFIRMED": 0.5,
+    "UNVERIFIED_THROUGH_CDN": -1.0,
+    "UNSTABLE": -0.5,
+    "BYPASS_REQUIRED": -0.3,
 }
 
 # Exploit chain rules
 CHAIN_RULES = [
     {
-        'name': 'SSRF → Internal Pivot',
-        'requires': ['ssrf'],
-        'condition': lambda findings: any('internal' in (f.evidence or '').lower() or '169.254' in (f.evidence or '') for f in findings if 'ssrf' in f.technique.lower()),
-        'severity': 'CRITICAL',
-        'cvss_combined': 9.5,
-    },
-    {
-        'name': 'XSS + No HttpOnly → Session Hijack',
-        'requires': ['xss', 'missing httponly'],
-        'condition': lambda findings: (
-            any('xss' in f.technique.lower() for f in findings) and
-            any('httponly' in f.technique.lower() for f in findings)
+        "name": "SSRF → Internal Pivot",
+        "requires": ["ssrf"],
+        "condition": lambda findings: any(
+            "internal" in (f.evidence or "").lower() or "169.254" in (f.evidence or "")
+            for f in findings
+            if "ssrf" in f.technique.lower()
         ),
-        'severity': 'HIGH',
-        'cvss_combined': 8.5,
+        "severity": "CRITICAL",
+        "cvss_combined": 9.5,
     },
     {
-        'name': 'LFI + Log Write → RCE',
-        'requires': ['lfi'],
-        'condition': lambda findings: any(
-            'lfi' in f.technique.lower() and
-            any(kw in (f.evidence or '').lower() for kw in ['log', 'access.log', 'error.log'])
+        "name": "XSS + No HttpOnly → Session Hijack",
+        "requires": ["xss", "missing httponly"],
+        "condition": lambda findings: (
+            any("xss" in f.technique.lower() for f in findings)
+            and any("httponly" in f.technique.lower() for f in findings)
+        ),
+        "severity": "HIGH",
+        "cvss_combined": 8.5,
+    },
+    {
+        "name": "LFI + Log Write → RCE",
+        "requires": ["lfi"],
+        "condition": lambda findings: any(
+            "lfi" in f.technique.lower()
+            and any(kw in (f.evidence or "").lower() for kw in ["log", "access.log", "error.log"])
             for f in findings
         ),
-        'severity': 'CRITICAL',
-        'cvss_combined': 9.8,
+        "severity": "CRITICAL",
+        "cvss_combined": 9.8,
     },
     {
-        'name': 'IDOR + Broken Auth → Account Takeover',
-        'requires': ['idor'],
-        'condition': lambda findings: (
-            any('idor' in f.technique.lower() for f in findings) and
-            any('auth' in f.technique.lower() or 'jwt' in f.technique.lower() for f in findings)
+        "name": "IDOR + Broken Auth → Account Takeover",
+        "requires": ["idor"],
+        "condition": lambda findings: (
+            any("idor" in f.technique.lower() for f in findings)
+            and any("auth" in f.technique.lower() or "jwt" in f.technique.lower() for f in findings)
         ),
-        'severity': 'CRITICAL',
-        'cvss_combined': 9.5,
+        "severity": "CRITICAL",
+        "cvss_combined": 9.5,
     },
     {
-        'name': 'SQLi + FILE WRITE → Webshell',
-        'requires': ['sql injection'],
-        'condition': lambda findings: any(
-            'sql' in f.technique.lower() and
-            any(kw in (f.payload or '').lower() for kw in ['into outfile', 'into dumpfile', 'file_write'])
+        "name": "SQLi + FILE WRITE → Webshell",
+        "requires": ["sql injection"],
+        "condition": lambda findings: any(
+            "sql" in f.technique.lower()
+            and any(kw in (f.payload or "").lower() for kw in ["into outfile", "into dumpfile", "file_write"])
             for f in findings
         ),
-        'severity': 'CRITICAL',
-        'cvss_combined': 10.0,
+        "severity": "CRITICAL",
+        "cvss_combined": 10.0,
     },
     {
-        'name': 'Open Redirect + OAuth → Token Theft',
-        'requires': ['open redirect'],
-        'condition': lambda findings: (
-            any('redirect' in f.technique.lower() for f in findings) and
-            any('oauth' in (f.url or '').lower() or 'auth' in (f.url or '').lower() for f in findings)
+        "name": "Open Redirect + OAuth → Token Theft",
+        "requires": ["open redirect"],
+        "condition": lambda findings: (
+            any("redirect" in f.technique.lower() for f in findings)
+            and any("oauth" in (f.url or "").lower() or "auth" in (f.url or "").lower() for f in findings)
         ),
-        'severity': 'HIGH',
-        'cvss_combined': 8.0,
+        "severity": "HIGH",
+        "cvss_combined": 8.0,
     },
     {
-        'name': 'CORS + Credentials → Cross-Origin Data Theft',
-        'requires': ['cors'],
-        'condition': lambda findings: any(
-            'cors' in f.technique.lower() and 'credential' in (f.evidence or '').lower()
-            for f in findings
+        "name": "CORS + Credentials → Cross-Origin Data Theft",
+        "requires": ["cors"],
+        "condition": lambda findings: any(
+            "cors" in f.technique.lower() and "credential" in (f.evidence or "").lower() for f in findings
         ),
-        'severity': 'HIGH',
-        'cvss_combined': 8.5,
+        "severity": "HIGH",
+        "cvss_combined": 8.5,
     },
     # ── G5: New Exploit Chains ──
     {
-        'name': 'SSTI → RCE → Post-Exploit',
-        'requires': ['ssti'],
-        'condition': lambda findings: any(
-            'ssti' in f.technique.lower() and
-            any(kw in (f.evidence or '').lower() for kw in ['exec', 'system', 'popen', 'os.', 'subprocess', '__class__', '__import__'])
+        "name": "SSTI → RCE → Post-Exploit",
+        "requires": ["ssti"],
+        "condition": lambda findings: any(
+            "ssti" in f.technique.lower()
+            and any(
+                kw in (f.evidence or "").lower()
+                for kw in ["exec", "system", "popen", "os.", "subprocess", "__class__", "__import__"]
+            )
             for f in findings
         ),
-        'severity': 'CRITICAL',
-        'cvss_combined': 10.0,
+        "severity": "CRITICAL",
+        "cvss_combined": 10.0,
     },
     {
-        'name': 'CMDi → Lateral Movement',
-        'requires': ['command injection'],
-        'condition': lambda findings: any(
-            'command' in f.technique.lower() and
-            any(kw in (f.evidence or '').lower() for kw in ['curl', 'wget', 'nc ', 'ncat', 'ping', 'nslookup', 'ifconfig', 'ip addr'])
+        "name": "CMDi → Lateral Movement",
+        "requires": ["command injection"],
+        "condition": lambda findings: any(
+            "command" in f.technique.lower()
+            and any(
+                kw in (f.evidence or "").lower()
+                for kw in ["curl", "wget", "nc ", "ncat", "ping", "nslookup", "ifconfig", "ip addr"]
+            )
             for f in findings
         ),
-        'severity': 'CRITICAL',
-        'cvss_combined': 9.8,
+        "severity": "CRITICAL",
+        "cvss_combined": 9.8,
     },
     {
-        'name': 'XXE → SSRF → Cloud Metadata',
-        'requires': ['xxe'],
-        'condition': lambda findings: any(
-            'xxe' in f.technique.lower() and
-            any(kw in (f.evidence or '').lower() for kw in ['169.254', 'metadata', 'aws', 'gcp', 'azure', 'internal'])
+        "name": "XXE → SSRF → Cloud Metadata",
+        "requires": ["xxe"],
+        "condition": lambda findings: any(
+            "xxe" in f.technique.lower()
+            and any(
+                kw in (f.evidence or "").lower() for kw in ["169.254", "metadata", "aws", "gcp", "azure", "internal"]
+            )
             for f in findings
         ),
-        'severity': 'CRITICAL',
-        'cvss_combined': 9.5,
+        "severity": "CRITICAL",
+        "cvss_combined": 9.5,
     },
     {
-        'name': 'Upload + LFI → RCE',
-        'requires': ['upload', 'lfi'],
-        'condition': lambda findings: (
-            any('upload' in f.technique.lower() for f in findings) and
-            any('lfi' in f.technique.lower() for f in findings)
+        "name": "Upload + LFI → RCE",
+        "requires": ["upload", "lfi"],
+        "condition": lambda findings: (
+            any("upload" in f.technique.lower() for f in findings)
+            and any("lfi" in f.technique.lower() for f in findings)
         ),
-        'severity': 'CRITICAL',
-        'cvss_combined': 9.8,
+        "severity": "CRITICAL",
+        "cvss_combined": 9.8,
     },
     {
-        'name': 'NoSQL + IDOR → Data Breach',
-        'requires': ['nosql', 'idor'],
-        'condition': lambda findings: (
-            any('nosql' in f.technique.lower() for f in findings) and
-            any('idor' in f.technique.lower() for f in findings)
+        "name": "NoSQL + IDOR → Data Breach",
+        "requires": ["nosql", "idor"],
+        "condition": lambda findings: (
+            any("nosql" in f.technique.lower() for f in findings)
+            and any("idor" in f.technique.lower() for f in findings)
         ),
-        'severity': 'CRITICAL',
-        'cvss_combined': 9.0,
+        "severity": "CRITICAL",
+        "cvss_combined": 9.0,
     },
     {
-        'name': 'JWT None + IDOR → Full Account Takeover',
-        'requires': ['jwt', 'idor'],
-        'condition': lambda findings: (
-            any('jwt' in f.technique.lower() and 'none' in (f.evidence or '').lower() for f in findings) and
-            any('idor' in f.technique.lower() for f in findings)
+        "name": "JWT None + IDOR → Full Account Takeover",
+        "requires": ["jwt", "idor"],
+        "condition": lambda findings: (
+            any("jwt" in f.technique.lower() and "none" in (f.evidence or "").lower() for f in findings)
+            and any("idor" in f.technique.lower() for f in findings)
         ),
-        'severity': 'CRITICAL',
-        'cvss_combined': 10.0,
+        "severity": "CRITICAL",
+        "cvss_combined": 10.0,
     },
     {
-        'name': 'Open Redirect + XSS → Credential Phishing',
-        'requires': ['open redirect', 'xss'],
-        'condition': lambda findings: (
-            any('redirect' in f.technique.lower() for f in findings) and
-            any('xss' in f.technique.lower() for f in findings)
+        "name": "Open Redirect + XSS → Credential Phishing",
+        "requires": ["open redirect", "xss"],
+        "condition": lambda findings: (
+            any("redirect" in f.technique.lower() for f in findings)
+            and any("xss" in f.technique.lower() for f in findings)
         ),
-        'severity': 'HIGH',
-        'cvss_combined': 8.5,
+        "severity": "HIGH",
+        "cvss_combined": 8.5,
     },
     {
-        'name': 'Race Condition + Payment → Financial Loss',
-        'requires': ['race condition'],
-        'condition': lambda findings: any(
-            'race' in f.technique.lower() and
-            any(kw in (f.url or '').lower() for kw in ['payment', 'checkout', 'transfer', 'redeem', 'coupon', 'purchase'])
+        "name": "Race Condition + Payment → Financial Loss",
+        "requires": ["race condition"],
+        "condition": lambda findings: any(
+            "race" in f.technique.lower()
+            and any(
+                kw in (f.url or "").lower()
+                for kw in ["payment", "checkout", "transfer", "redeem", "coupon", "purchase"]
+            )
             for f in findings
         ),
-        'severity': 'CRITICAL',
-        'cvss_combined': 9.0,
+        "severity": "CRITICAL",
+        "cvss_combined": 9.0,
     },
     # ── Phase N: Additional Exploit Chains ──
     {
-        'name': 'Request Smuggling → WAF Bypass → Backend Exploit',
-        'requires': ['request_smuggling'],
-        'condition': lambda findings: any(
-            'smuggl' in f.technique.lower()
-            for f in findings
-        ),
-        'severity': 'CRITICAL',
-        'cvss_combined': 9.8,
+        "name": "Request Smuggling → WAF Bypass → Backend Exploit",
+        "requires": ["request_smuggling"],
+        "condition": lambda findings: any("smuggl" in f.technique.lower() for f in findings),
+        "severity": "CRITICAL",
+        "cvss_combined": 9.8,
     },
     {
-        'name': 'GraphQL Introspection + Mutation → Data Manipulation',
-        'requires': ['graphql'],
-        'condition': lambda findings: (
-            any('introspection' in f.technique.lower() for f in findings) and
-            any('mutation' in f.technique.lower() for f in findings)
+        "name": "GraphQL Introspection + Mutation → Data Manipulation",
+        "requires": ["graphql"],
+        "condition": lambda findings: (
+            any("introspection" in f.technique.lower() for f in findings)
+            and any("mutation" in f.technique.lower() for f in findings)
         ),
-        'severity': 'HIGH',
-        'cvss_combined': 8.5,
+        "severity": "HIGH",
+        "cvss_combined": 8.5,
     },
     {
-        'name': 'JWT kid Injection → LFI/SQLi → Auth Bypass',
-        'requires': ['jwt'],
-        'condition': lambda findings: any(
-            'kid' in f.technique.lower() and 'jwt' in f.technique.lower()
-            for f in findings
+        "name": "JWT kid Injection → LFI/SQLi → Auth Bypass",
+        "requires": ["jwt"],
+        "condition": lambda findings: any(
+            "kid" in f.technique.lower() and "jwt" in f.technique.lower() for f in findings
         ),
-        'severity': 'CRITICAL',
-        'cvss_combined': 9.5,
+        "severity": "CRITICAL",
+        "cvss_combined": 9.5,
     },
 ]
 
@@ -303,50 +424,54 @@ MAX_FINDINGS_PER_VULN_TYPE = 25
 
 # ── Data contracts ──────────────────────────────────────────────────────
 
+
 @dataclass
 class ExploitChain:
     """A detected exploit chain."""
-    id: str = ''
-    name: str = ''
+
+    id: str = ""
+    name: str = ""
     steps: List[str] = field(default_factory=list)
     combined_cvss: float = 0.0
-    combined_severity: str = 'HIGH'
+    combined_severity: str = "HIGH"
     findings: List = field(default_factory=list)
 
     def to_dict(self) -> Dict:
         return {
-            'id': self.id,
-            'name': self.name,
-            'steps': self.steps,
-            'combined_cvss': self.combined_cvss,
-            'combined_severity': self.combined_severity,
-            'finding_count': len(self.findings),
+            "id": self.id,
+            "name": self.name,
+            "steps": self.steps,
+            "combined_cvss": self.combined_cvss,
+            "combined_severity": self.combined_severity,
+            "finding_count": len(self.findings),
         }
 
 
 @dataclass
 class VerificationResult:
     """Result of Phase 9 verification."""
+
     verified_findings: List = field(default_factory=list)
     exploit_chains: List[ExploitChain] = field(default_factory=list)
     stats: Dict = field(default_factory=dict)
 
     def to_dict(self) -> Dict:
         return {
-            'verified_count': len(self.verified_findings),
-            'chain_count': len(self.exploit_chains),
-            'stats': self.stats,
+            "verified_count": len(self.verified_findings),
+            "chain_count": len(self.exploit_chains),
+            "stats": self.stats,
         }
 
 
 # ── ChainDetector ──────────────────────────────────────────────────────
+
 
 class ChainDetector:
     """Step 6: Detect exploit chains from verified findings."""
 
     def __init__(self, engine):
         self.engine = engine
-        self.verbose = engine.config.get('verbose', False)
+        self.verbose = engine.config.get("verbose", False)
 
     def analyze(self, findings: List) -> List[ExploitChain]:
         """Analyze findings for exploitable chains."""
@@ -355,21 +480,21 @@ class ChainDetector:
 
         for rule in CHAIN_RULES:
             try:
-                if rule['condition'](findings):
+                if rule["condition"](findings):
                     chain_id += 1
                     chain = ExploitChain(
-                        id=f'CHAIN-{chain_id:03d}',
-                        name=rule['name'],
-                        steps=rule['requires'],
-                        combined_cvss=rule['cvss_combined'],
-                        combined_severity=rule['severity'],
-                        findings=[f for f in findings if any(
-                            req in f.technique.lower() for req in rule['requires']
-                        )],
+                        id=f"CHAIN-{chain_id:03d}",
+                        name=rule["name"],
+                        steps=rule["requires"],
+                        combined_cvss=rule["cvss_combined"],
+                        combined_severity=rule["severity"],
+                        findings=[f for f in findings if any(req in f.technique.lower() for req in rule["requires"])],
                     )
                     chains.append(chain)
                     if self.verbose:
-                        print(f"{Colors.critical(f'Exploit chain detected: {chain.name} (CVSS {chain.combined_cvss})')}")
+                        print(
+                            f"{Colors.critical(f'Exploit chain detected: {chain.name} (CVSS {chain.combined_cvss})')}"
+                        )
             except Exception:
                 pass
 
@@ -378,13 +503,14 @@ class ChainDetector:
 
 # ── PostWorkerVerifier ─────────────────────────────────────────────────
 
+
 class PostWorkerVerifier:
     """Phase 9 — Post-worker verification pipeline."""
 
     def __init__(self, engine):
         self.engine = engine
         self.requester = engine.requester
-        self.verbose = engine.config.get('verbose', False)
+        self.verbose = engine.config.get("verbose", False)
         self.chain_detector = ChainDetector(engine)
 
     @staticmethod
@@ -395,15 +521,15 @@ class PostWorkerVerifier:
 
     def run(self, raw_findings: List) -> VerificationResult:
         """Run all verification steps on raw findings."""
-        self.engine.emit_pipeline_event('phase9_start', {'raw_count': len(raw_findings)})
+        self.engine.emit_pipeline_event("phase9_start", {"raw_count": len(raw_findings)})
         result = VerificationResult()
         stats = {
-            'input': len(raw_findings),
-            'stable': 0,
-            'unstable': 0,
-            'noise': 0,
-            'fp_filtered': 0,
-            'deduplicated': 0,
+            "input": len(raw_findings),
+            "stable": 0,
+            "unstable": 0,
+            "noise": 0,
+            "fp_filtered": 0,
+            "deduplicated": 0,
         }
 
         # Step 1: Consistency recheck
@@ -428,13 +554,15 @@ class PostWorkerVerifier:
         result.exploit_chains = chains
         result.stats = stats
 
-        self.engine.emit_pipeline_event('phase9_complete', result.to_dict())
+        self.engine.emit_pipeline_event("phase9_complete", result.to_dict())
 
         if self.verbose:
-            raw_count = stats['input']
+            raw_count = stats["input"]
             verified_count = len(scored)
             chain_count = len(chains)
-            print(f"{Colors.info(f'Verification: {raw_count} raw → {verified_count} verified, {chain_count} chains detected')}")
+            print(
+                f"{Colors.info(f'Verification: {raw_count} raw → {verified_count} verified, {chain_count} chains detected')}"
+            )
 
         return result
 
@@ -448,15 +576,15 @@ class PostWorkerVerifier:
             confirmations = self._recheck_finding(finding)
 
             if confirmations >= 3:
-                stats['stable'] += 1
-                self._ensure_signals_dict(finding)['stability'] = 'STABLE'
+                stats["stable"] += 1
+                self._ensure_signals_dict(finding)["stability"] = "STABLE"
                 verified.append(finding)
             elif confirmations >= 2:
-                stats['unstable'] += 1
-                self._ensure_signals_dict(finding)['stability'] = 'UNSTABLE'
+                stats["unstable"] += 1
+                self._ensure_signals_dict(finding)["stability"] = "UNSTABLE"
                 verified.append(finding)
             else:
-                stats['noise'] += 1
+                stats["noise"] += 1
                 # NOISE → discard
 
         return verified
@@ -470,7 +598,7 @@ class PostWorkerVerifier:
         for _ in range(RECHECK_ROUNDS):
             try:
                 data = {finding.param: finding.payload}
-                method = getattr(finding, 'method', 'GET')
+                method = getattr(finding, "method", "GET")
                 start = time.time()
                 resp = self.requester.request(finding.url, method, data=data)
                 elapsed = time.time() - start
@@ -486,74 +614,116 @@ class PostWorkerVerifier:
     def _check_evidence(self, finding, response, elapsed: float) -> bool:
         """Check if evidence is still present in recheck response."""
         technique = finding.technique.lower()
-        text = response.text.lower() if hasattr(response, 'text') else ''
+        text = response.text.lower() if hasattr(response, "text") else ""
 
-        if 'time-based' in technique or 'blind' in technique:
+        if "time-based" in technique or "blind" in technique:
             return elapsed >= 4.0
 
-        if 'error' in technique:
-            return any(kw in text for kw in ['sql', 'syntax', 'error', 'exception'])
+        if "error" in technique:
+            return any(kw in text for kw in ["sql", "syntax", "error", "exception"])
 
-        if 'xss' in technique or 'reflected' in technique:
-            return finding.payload in response.text if hasattr(response, 'text') else False
+        if "xss" in technique or "reflected" in technique:
+            return finding.payload in response.text if hasattr(response, "text") else False
 
-        if 'ssti' in technique:
+        if "ssti" in technique:
             # Broaden SSTI evidence: check for multiple common expression results
-            ssti_results = ['49', '7777777', '36', '343', '16', '25', '64', '81', '100', '125']
+            ssti_results = ["49", "7777777", "36", "343", "16", "25", "64", "81", "100", "125"]
             return any(r in text for r in ssti_results)
 
-        if 'lfi' in technique:
-            return any(kw in text for kw in ['root:x:0:0', '[extensions]', 'boot loader', 'root:x:', '/bin/bash'])
+        if "lfi" in technique:
+            return any(kw in text for kw in ["root:x:0:0", "[extensions]", "boot loader", "root:x:", "/bin/bash"])
 
-        if 'command' in technique:
-            return any(kw in text for kw in ['uid=', 'root:', '/bin/', 'windows', 'volume serial'])
+        if "command" in technique:
+            return any(kw in text for kw in ["uid=", "root:", "/bin/", "windows", "volume serial"])
 
-        if 'ssrf' in technique:
+        if "ssrf" in technique:
             # SSRF: check for cloud metadata indicators or status differential
             if response is None:
                 return False
-            ssrf_indicators = ['ami-id', 'instance-id', 'accesskeyid', 'secretaccesskey',
-                             'computemetadata', 'security-credentials', 'local-hostname',
-                             'kubernetes', 'metadata']
+            ssrf_indicators = [
+                "ami-id",
+                "instance-id",
+                "accesskeyid",
+                "secretaccesskey",
+                "computemetadata",
+                "security-credentials",
+                "local-hostname",
+                "kubernetes",
+                "metadata",
+            ]
             if any(ind in text for ind in ssrf_indicators):
                 return True
             # Status code differential (not 404/403 = potentially interesting)
             return response.status_code not in (404, 403, 502, 503)
 
-        if 'xxe' in technique:
+        if "xxe" in technique:
             # XXE: check for entity resolution markers
-            xxe_indicators = ['root:x:', '/etc/passwd', 'SYSTEM "', 'DOCTYPE', 'ENTITY',
-                            'file:///', 'expect://', 'php://']
+            xxe_indicators = [
+                "root:x:",
+                "/etc/passwd",
+                'SYSTEM "',
+                "DOCTYPE",
+                "ENTITY",
+                "file:///",
+                "expect://",
+                "php://",
+            ]
             return any(ind in text for ind in xxe_indicators)
 
-        if 'nosql' in technique or 'nosqli' in technique:
+        if "nosql" in technique or "nosqli" in technique:
             # NoSQL: check for error patterns or data leak
-            nosql_indicators = ['mongoerror', 'bson', 'operator', '$where', '$gt',
-                              'castError', 'objectid', 'aggregation', 'unauthorized',
-                              'json parse error']
+            nosql_indicators = [
+                "mongoerror",
+                "bson",
+                "operator",
+                "$where",
+                "$gt",
+                "castError",
+                "objectid",
+                "aggregation",
+                "unauthorized",
+                "json parse error",
+            ]
             if any(ind in text for ind in nosql_indicators):
                 return True
             # Check if response reveals data (status 200 with content)
             return response.status_code == 200 and len(text) > 100
 
-        if 'idor' in technique:
+        if "idor" in technique:
             # IDOR: check for cross-account data diff (not just status 200)
             if response is None or response.status_code != 200:
                 return False
             # Look for user-identifiable data patterns
-            data_indicators = ['email', 'username', 'phone', 'address', 'name',
-                             'account', 'profile', 'user_id', 'order']
+            data_indicators = [
+                "email",
+                "username",
+                "phone",
+                "address",
+                "name",
+                "account",
+                "profile",
+                "user_id",
+                "order",
+            ]
             return any(ind in text for ind in data_indicators)
 
-        if 'deserialization' in technique:
-            deser_indicators = ['classnotfound', 'unserialize', 'objectinputstream',
-                              '__wakeup', '__destruct', 'gadgetchain', 'java.lang',
-                              'aced0005', 'rO0ABX']
+        if "deserialization" in technique:
+            deser_indicators = [
+                "classnotfound",
+                "unserialize",
+                "objectinputstream",
+                "__wakeup",
+                "__destruct",
+                "gadgetchain",
+                "java.lang",
+                "aced0005",
+                "rO0ABX",
+            ]
             return any(ind in text for ind in deser_indicators)
 
-        if 'crlf' in technique:
+        if "crlf" in technique:
             # Check if injected header appears in response
-            return 'x-injected' in text or 'set-cookie' in text
+            return "x-injected" in text or "set-cookie" in text
 
         return True  # Default: assume confirmed
 
@@ -565,7 +735,7 @@ class PostWorkerVerifier:
 
         for finding in findings:
             if self._is_false_positive(finding):
-                stats['fp_filtered'] += 1
+                stats["fp_filtered"] += 1
                 if self.verbose:
                     print(f"{Colors.warning(f'FP filtered: {finding.technique} @ {finding.url}')}")
                 continue
@@ -578,11 +748,11 @@ class PostWorkerVerifier:
         technique = finding.technique.lower()
 
         # XSS: require payload actually in response, not just echo
-        if 'xss' in technique and finding.confidence < 0.6:
+        if "xss" in technique and finding.confidence < 0.6:
             return True
 
         # SQLi: require at least 2 signals (error + boolean, or error + time)
-        if 'sql' in technique:
+        if "sql" in technique:
             signals = finding.signals or {}
             active_count = sum(1 for v in signals.values() if isinstance(v, (int, float)) and v > 0.3)
             if active_count < 1 and finding.confidence < 0.5:
@@ -594,23 +764,23 @@ class PostWorkerVerifier:
 
     def _step3_waf_check(self, findings: List) -> List:
         """Annotate findings with WAF interference flags."""
-        shield_profile = getattr(self.engine, '_shield_profile', None)
+        shield_profile = getattr(self.engine, "_shield_profile", None)
 
         for finding in findings:
             signals = self._ensure_signals_dict(finding)
 
             if shield_profile:
-                waf = shield_profile.get('waf', {})
-                if waf.get('detected'):
-                    if shield_profile.get('needs_waf_bypass'):
-                        signals['waf_flag'] = 'BYPASS_REQUIRED'
+                waf = shield_profile.get("waf", {})
+                if waf.get("detected"):
+                    if shield_profile.get("needs_waf_bypass"):
+                        signals["waf_flag"] = "BYPASS_REQUIRED"
                     else:
-                        signals['waf_flag'] = 'UNVERIFIED_THROUGH_CDN'
+                        signals["waf_flag"] = "UNVERIFIED_THROUGH_CDN"
 
             # Check stability flag
-            stability = signals.get('stability', 'STABLE')
-            if stability == 'UNSTABLE':
-                signals['waf_flag'] = signals.get('waf_flag', '') or 'UNSTABLE'
+            stability = signals.get("stability", "STABLE")
+            if stability == "UNSTABLE":
+                signals["waf_flag"] = signals.get("waf_flag", "") or "UNSTABLE"
 
         return findings
 
@@ -638,12 +808,12 @@ class PostWorkerVerifier:
 
             # Attach cluster metadata
             signals = self._ensure_signals_dict(representative)
-            signals['affected_count'] = len(cluster)
+            signals["affected_count"] = len(cluster)
             if len(cluster) > 1:
-                signals['all_urls'] = [f.url for f in cluster[:10]]
+                signals["all_urls"] = [f.url for f in cluster[:10]]
             deduped.append(representative)
 
-        stats['deduplicated'] = len(findings) - len(deduped)
+        stats["deduplicated"] = len(findings) - len(deduped)
 
         # G4: Cap findings per vulnerability type to prevent report flood
         vuln_type_counts: Dict[str, int] = {}
@@ -655,7 +825,7 @@ class PostWorkerVerifier:
                 capped.append(finding)
                 vuln_type_counts[technique] = count + 1
             else:
-                stats['deduplicated'] = stats.get('deduplicated', 0) + 1
+                stats["deduplicated"] = stats.get("deduplicated", 0) + 1
 
         return capped
 
@@ -663,7 +833,7 @@ class PostWorkerVerifier:
     def _structural_endpoint(url: str) -> str:
         """Normalize URL to structural pattern."""
         parsed = urlparse(url)
-        path = re.sub(r'/\d+', '/{N}', parsed.path)
+        path = re.sub(r"/\d+", "/{N}", parsed.path)
         return f"{parsed.netloc}{path}"
 
     # ── Step 5: CVSS v3.1 Scoring ──────────────────────────────────────
@@ -674,11 +844,11 @@ class PostWorkerVerifier:
             base_cvss = self._compute_cvss(finding)
 
             # Apply adjustments
-            waf_flag = (finding.signals or {}).get('waf_flag', '')
+            waf_flag = (finding.signals or {}).get("waf_flag", "")
             adjustment = WAF_ADJUSTMENTS.get(waf_flag, 0.0)
-            stability = (finding.signals or {}).get('stability', 'STABLE')
-            if stability == 'UNSTABLE':
-                adjustment += WAF_ADJUSTMENTS.get('UNSTABLE', 0)
+            stability = (finding.signals or {}).get("stability", "STABLE")
+            if stability == "UNSTABLE":
+                adjustment += WAF_ADJUSTMENTS.get("UNSTABLE", 0)
 
             final_cvss = max(0.0, min(10.0, base_cvss + adjustment))
             finding.cvss = round(final_cvss, 1)
@@ -694,7 +864,7 @@ class PostWorkerVerifier:
 
         for vuln_key, template in CVSS_TEMPLATES.items():
             if vuln_key in technique:
-                return template['base']
+                return template["base"]
 
         # Default: use existing cvss or estimate from confidence
         if finding.cvss > 0:
@@ -705,11 +875,11 @@ class PostWorkerVerifier:
     def _cvss_to_severity(cvss: float) -> str:
         """Map CVSS score to severity label."""
         if cvss >= 9.0:
-            return 'CRITICAL'
+            return "CRITICAL"
         if cvss >= 7.0:
-            return 'HIGH'
+            return "HIGH"
         if cvss >= 4.0:
-            return 'MEDIUM'
+            return "MEDIUM"
         if cvss >= 0.1:
-            return 'LOW'
-        return 'INFO'
+            return "LOW"
+        return "INFO"

@@ -6,10 +6,10 @@ import unittest
 
 from utils.comparer import Comparer
 
-
 # ------------------------------------------------------------------ #
 #  Helper fixtures                                                    #
 # ------------------------------------------------------------------ #
+
 
 def _make_response(status_code=200, headers=None, body=""):
     """Build a minimal response dict."""
@@ -23,6 +23,7 @@ def _make_response(status_code=200, headers=None, body=""):
 # ------------------------------------------------------------------ #
 #  Tests – compare_responses                                          #
 # ------------------------------------------------------------------ #
+
 
 class TestCompareResponses(unittest.TestCase):
     """Tests for Comparer.compare_responses."""
@@ -80,6 +81,7 @@ class TestCompareResponses(unittest.TestCase):
 #  Tests – diff_text                                                  #
 # ------------------------------------------------------------------ #
 
+
 class TestDiffText(unittest.TestCase):
     """Tests for Comparer.diff_text."""
 
@@ -125,6 +127,7 @@ class TestDiffText(unittest.TestCase):
 #  Tests – diff_bytes                                                 #
 # ------------------------------------------------------------------ #
 
+
 class TestDiffBytes(unittest.TestCase):
     """Tests for Comparer.diff_bytes."""
 
@@ -149,6 +152,7 @@ class TestDiffBytes(unittest.TestCase):
 # ------------------------------------------------------------------ #
 #  Tests – similarity_ratio                                           #
 # ------------------------------------------------------------------ #
+
 
 class TestSimilarityRatio(unittest.TestCase):
     """Tests for Comparer.similarity_ratio."""
@@ -190,6 +194,7 @@ class TestSimilarityRatio(unittest.TestCase):
 #  Tests – highlight_differences                                      #
 # ------------------------------------------------------------------ #
 
+
 class TestHighlightDifferences(unittest.TestCase):
     """Tests for Comparer.highlight_differences."""
 
@@ -227,6 +232,7 @@ class TestHighlightDifferences(unittest.TestCase):
 # ------------------------------------------------------------------ #
 #  Tests – compare_headers                                            #
 # ------------------------------------------------------------------ #
+
 
 class TestCompareHeaders(unittest.TestCase):
     """Tests for Comparer.compare_headers."""
@@ -278,6 +284,7 @@ class TestCompareHeaders(unittest.TestCase):
 #  Tests – word_diff                                                  #
 # ------------------------------------------------------------------ #
 
+
 class TestWordDiff(unittest.TestCase):
     """Tests for Comparer.word_diff."""
 
@@ -317,6 +324,7 @@ class TestWordDiff(unittest.TestCase):
 # ------------------------------------------------------------------ #
 #  Tests – summary                                                    #
 # ------------------------------------------------------------------ #
+
 
 class TestSummary(unittest.TestCase):
     """Tests for Comparer.summary."""
@@ -369,6 +377,7 @@ class TestSummary(unittest.TestCase):
 # ------------------------------------------------------------------ #
 #  Tests – edge cases                                                 #
 # ------------------------------------------------------------------ #
+
 
 class TestEdgeCases(unittest.TestCase):
     """Edge-case and regression tests."""

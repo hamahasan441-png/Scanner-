@@ -12,10 +12,10 @@ from utils.evasion import (
     TimingEvasion,
 )
 
-
 # ---------------------------------------------------------------------------
 # PayloadMutator tests
 # ---------------------------------------------------------------------------
+
 
 class TestPayloadMutatorCaseAlternate(unittest.TestCase):
     """Tests for the case_alternate mutation technique."""
@@ -125,9 +125,7 @@ class TestPayloadMutatorStringConcat(unittest.TestCase):
     def test_reconstructable(self):
         payload = "test"
         result = self.mutator.mutate(payload, "string_concat")
-        reconstructed = "".join(
-            part.strip("'") for part in result.split("+")
-        )
+        reconstructed = "".join(part.strip("'") for part in result.split("+"))
         self.assertEqual(reconstructed, payload)
 
 
@@ -170,9 +168,7 @@ class TestPayloadMutatorChain(unittest.TestCase):
         self.mutator = PayloadMutator()
 
     def test_applies_multiple_techniques(self):
-        result = self.mutator.mutate_chain(
-            "SELECT 1", techniques=["case_alternate", "comment_inject"]
-        )
+        result = self.mutator.mutate_chain("SELECT 1", techniques=["case_alternate", "comment_inject"])
         self.assertIsInstance(result, str)
         self.assertNotEqual(result, "SELECT 1")
 
@@ -221,6 +217,7 @@ class TestPayloadMutatorSplitEncoded(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # TimingEvasion tests
 # ---------------------------------------------------------------------------
+
 
 class TestTimingEvasion(unittest.TestCase):
     """Tests for the TimingEvasion controller."""
@@ -279,6 +276,7 @@ class TestTimingEvasion(unittest.TestCase):
 # FingerprintRandomizer tests
 # ---------------------------------------------------------------------------
 
+
 class TestFingerprintRandomizer(unittest.TestCase):
     """Tests for the HTTP fingerprint spoofing engine."""
 
@@ -313,6 +311,7 @@ class TestFingerprintRandomizer(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # EvasionEngine tests
 # ---------------------------------------------------------------------------
+
 
 class TestEvasionEngineInit(unittest.TestCase):
     """Tests for EvasionEngine initialization."""
@@ -385,6 +384,7 @@ class TestEvasionEngineRequestConfig(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # New mutation technique tests
 # ---------------------------------------------------------------------------
+
 
 class TestPayloadMutatorUnicodeNormalize(unittest.TestCase):
     """Tests for the unicode_normalize mutation technique."""
@@ -460,13 +460,13 @@ class TestNewTechniquesInList(unittest.TestCase):
     """Verify new techniques are properly registered."""
 
     def test_unicode_normalize_in_techniques(self):
-        self.assertIn('unicode_normalize', PayloadMutator.TECHNIQUES)
+        self.assertIn("unicode_normalize", PayloadMutator.TECHNIQUES)
 
     def test_hpp_split_in_techniques(self):
-        self.assertIn('hpp_split', PayloadMutator.TECHNIQUES)
+        self.assertIn("hpp_split", PayloadMutator.TECHNIQUES)
 
     def test_double_encode_in_techniques(self):
-        self.assertIn('double_encode', PayloadMutator.TECHNIQUES)
+        self.assertIn("double_encode", PayloadMutator.TECHNIQUES)
 
 
 class TestEvasionEngineHppContext(unittest.TestCase):
@@ -474,13 +474,13 @@ class TestEvasionEngineHppContext(unittest.TestCase):
 
     def test_hpp_context_exists(self):
         eng = EvasionEngine("high")
-        self.assertIn('hpp', eng.CONTEXT_TECHNIQUES)
+        self.assertIn("hpp", eng.CONTEXT_TECHNIQUES)
 
     def test_hpp_context_includes_hpp_split(self):
-        self.assertIn('hpp_split', EvasionEngine.CONTEXT_TECHNIQUES['hpp'])
+        self.assertIn("hpp_split", EvasionEngine.CONTEXT_TECHNIQUES["hpp"])
 
     def test_hpp_context_includes_double_encode(self):
-        self.assertIn('double_encode', EvasionEngine.CONTEXT_TECHNIQUES['hpp'])
+        self.assertIn("double_encode", EvasionEngine.CONTEXT_TECHNIQUES["hpp"])
 
 
 if __name__ == "__main__":

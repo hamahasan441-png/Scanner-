@@ -5,16 +5,17 @@ ATOMIC FRAMEWORK - Database Module
 SQLite/SQLAlchemy database operations
 """
 
-
 try:
-    from sqlalchemy import create_engine, Column, String, Integer, Float, DateTime, Text, ForeignKey, JSON
-    from sqlalchemy.orm import sessionmaker, relationship, declarative_base
+    from sqlalchemy import create_engine, Column, String, Integer, Float, DateTime, Text, ForeignKey
+    from sqlalchemy.orm import sessionmaker, declarative_base
+
     SQLALCHEMY_AVAILABLE = True
 except ImportError:
     try:
-        from sqlalchemy import create_engine, Column, String, Integer, Float, DateTime, Text, ForeignKey, JSON
+        from sqlalchemy import create_engine, Column, String, Integer, Float, DateTime, Text, ForeignKey
         from sqlalchemy.ext.declarative import declarative_base
-        from sqlalchemy.orm import sessionmaker, relationship
+        from sqlalchemy.orm import sessionmaker
+
         SQLALCHEMY_AVAILABLE = True
     except ImportError:
         SQLALCHEMY_AVAILABLE = False
@@ -29,9 +30,10 @@ Base = declarative_base() if SQLALCHEMY_AVAILABLE else None
 
 class ScanModel(Base if SQLALCHEMY_AVAILABLE else object):
     """Scan metadata model"""
+
     if SQLALCHEMY_AVAILABLE:
-        __tablename__ = 'scans'
-        
+        __tablename__ = "scans"
+
         id = Column(Integer, primary_key=True)
         scan_id = Column(String(50), unique=True, nullable=False)
         target = Column(String(500), nullable=False)
@@ -44,11 +46,12 @@ class ScanModel(Base if SQLALCHEMY_AVAILABLE else object):
 
 class FindingModel(Base if SQLALCHEMY_AVAILABLE else object):
     """Finding model"""
+
     if SQLALCHEMY_AVAILABLE:
-        __tablename__ = 'findings'
-        
+        __tablename__ = "findings"
+
         id = Column(Integer, primary_key=True)
-        scan_id = Column(String(50), ForeignKey('scans.scan_id'))
+        scan_id = Column(String(50), ForeignKey("scans.scan_id"))
         timestamp = Column(DateTime, default=lambda: datetime.now(timezone.utc))
         technique = Column(String(100))
         mitre_id = Column(String(20))
@@ -65,11 +68,12 @@ class FindingModel(Base if SQLALCHEMY_AVAILABLE else object):
 
 class ExploitChainModel(Base if SQLALCHEMY_AVAILABLE else object):
     """Exploit chain model — stores detected multi-step chains."""
+
     if SQLALCHEMY_AVAILABLE:
-        __tablename__ = 'exploit_chains'
+        __tablename__ = "exploit_chains"
 
         id = Column(Integer, primary_key=True)
-        scan_id = Column(String(50), ForeignKey('scans.scan_id'))
+        scan_id = Column(String(50), ForeignKey("scans.scan_id"))
         chain_id = Column(String(50))
         name = Column(String(200))
         steps = Column(Text)  # JSON list of step labels
@@ -80,9 +84,10 @@ class ExploitChainModel(Base if SQLALCHEMY_AVAILABLE else object):
 
 class ShellModel(Base if SQLALCHEMY_AVAILABLE else object):
     """Active shell model"""
+
     if SQLALCHEMY_AVAILABLE:
-        __tablename__ = 'shells'
-        
+        __tablename__ = "shells"
+
         id = Column(Integer, primary_key=True)
         shell_id = Column(String(50), unique=True)
         url = Column(String(500))
@@ -90,16 +95,16 @@ class ShellModel(Base if SQLALCHEMY_AVAILABLE else object):
         password = Column(String(100))
         created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
         last_used = Column(DateTime)
-        status = Column(String(20), default='active')
+        status = Column(String(20), default="active")
 
 
 class Database:
     """Database handler"""
-    
+
     def __init__(self):
         self.engine = None
         self.Session = None
-        
+
         if SQLALCHEMY_AVAILABLE:
             try:
                 self.engine = create_engine(Config.DB_URL)
@@ -107,12 +112,12 @@ class Database:
                 self.Session = sessionmaker(bind=self.engine)
             except Exception as e:
                 print(f"[!] Database error: {e}")
-    
+
     def save_scan(self, **kwargs):
         """Save scan metadata"""
         if not self.Session:
             return
-        
+
         try:
             session = self.Session()
             scan = ScanModel(**kwargs)
@@ -121,12 +126,12 @@ class Database:
             session.close()
         except Exception as e:
             print(f"[!] Error saving scan: {e}")
-    
+
     def save_finding(self, scan_id, finding):
         """Save finding"""
         if not self.Session:
             return
-        
+
         try:
             session = self.Session()
             f = FindingModel(
@@ -159,17 +164,17 @@ class Database:
             for finding in findings:
                 f = FindingModel(
                     scan_id=scan_id,
-                    technique=getattr(finding, 'technique', ''),
-                    mitre_id=getattr(finding, 'mitre_id', ''),
-                    cwe_id=getattr(finding, 'cwe_id', ''),
-                    cvss=getattr(finding, 'cvss', 0.0),
-                    severity=getattr(finding, 'severity', 'INFO'),
-                    confidence=getattr(finding, 'confidence', 0.0),
-                    url=getattr(finding, 'url', ''),
-                    param=getattr(finding, 'param', ''),
-                    payload=getattr(finding, 'payload', ''),
-                    evidence=getattr(finding, 'evidence', ''),
-                    extracted_data=getattr(finding, 'extracted_data', ''),
+                    technique=getattr(finding, "technique", ""),
+                    mitre_id=getattr(finding, "mitre_id", ""),
+                    cwe_id=getattr(finding, "cwe_id", ""),
+                    cvss=getattr(finding, "cvss", 0.0),
+                    severity=getattr(finding, "severity", "INFO"),
+                    confidence=getattr(finding, "confidence", 0.0),
+                    url=getattr(finding, "url", ""),
+                    param=getattr(finding, "param", ""),
+                    payload=getattr(finding, "payload", ""),
+                    evidence=getattr(finding, "evidence", ""),
+                    extracted_data=getattr(finding, "extracted_data", ""),
                 )
                 session.add(f)
             session.commit()
@@ -184,16 +189,17 @@ class Database:
 
         try:
             import json as _json
+
             session = self.Session()
             for chain in chains:
                 c = ExploitChainModel(
                     scan_id=scan_id,
-                    chain_id=getattr(chain, 'id', ''),
-                    name=getattr(chain, 'name', ''),
-                    steps=_json.dumps(getattr(chain, 'steps', [])),
-                    combined_cvss=getattr(chain, 'combined_cvss', 0.0),
-                    combined_severity=getattr(chain, 'combined_severity', 'HIGH'),
-                    finding_count=len(getattr(chain, 'findings', [])),
+                    chain_id=getattr(chain, "id", ""),
+                    name=getattr(chain, "name", ""),
+                    steps=_json.dumps(getattr(chain, "steps", [])),
+                    combined_cvss=getattr(chain, "combined_cvss", 0.0),
+                    combined_severity=getattr(chain, "combined_severity", "HIGH"),
+                    finding_count=len(getattr(chain, "findings", [])),
                 )
                 session.add(c)
             session.commit()
@@ -217,12 +223,12 @@ class Database:
             session.close()
         except Exception as e:
             print(f"[!] Error updating scan: {e}")
-    
+
     def save_shell(self, shell_id, url, shell_type, password=None):
         """Save active shell"""
         if not self.Session:
             return
-        
+
         try:
             session = self.Session()
             shell = ShellModel(
@@ -236,33 +242,36 @@ class Database:
             session.close()
         except Exception as e:
             print(f"[!] Error saving shell: {e}")
-    
+
     def get_shells(self):
         """Get all active shells"""
         if not self.Session:
             return []
-        
+
         try:
             session = self.Session()
-            shells = session.query(ShellModel).filter_by(status='active').all()
-            result = [{
-                'shell_id': s.shell_id,
-                'url': s.url,
-                'shell_type': s.shell_type,
-                'password': '********' if s.password else None,
-                'created_at': s.created_at,
-            } for s in shells]
+            shells = session.query(ShellModel).filter_by(status="active").all()
+            result = [
+                {
+                    "shell_id": s.shell_id,
+                    "url": s.url,
+                    "shell_type": s.shell_type,
+                    "password": "********" if s.password else None,
+                    "created_at": s.created_at,
+                }
+                for s in shells
+            ]
             session.close()
             return result
         except Exception as e:
             print(f"[!] Error getting shells: {e}")
             return []
-    
+
     def update_shell(self, shell_id, **kwargs):
         """Update shell info"""
         if not self.Session:
             return
-        
+
         try:
             session = self.Session()
             shell = session.query(ShellModel).filter_by(shell_id=shell_id).first()
@@ -280,27 +289,27 @@ def list_scans():
     if not SQLALCHEMY_AVAILABLE:
         print("[!] SQLAlchemy not available")
         return
-    
+
     try:
         engine = create_engine(Config.DB_URL)
         Session = sessionmaker(bind=engine)
         session = Session()
-        
+
         scans = session.query(ScanModel).order_by(ScanModel.start_time.desc()).all()
-        
+
         if not scans:
             print(f"{Colors.info('No scans found')}")
             return
-        
+
         print(f"\n{Colors.BOLD}{'='*100}{Colors.RESET}")
         print(f"{Colors.CYAN}{'Scan ID':<20} {'Target':<35} {'Date':<20} {'Findings':<10}{Colors.RESET}")
         print(f"{Colors.BOLD}{'='*100}{Colors.RESET}")
-        
+
         for scan in scans:
-            target = scan.target[:33] if scan.target else 'N/A'
-            date_str = scan.start_time.strftime('%Y-%m-%d %H:%M') if scan.start_time else 'N/A'
+            target = scan.target[:33] if scan.target else "N/A"
+            date_str = scan.start_time.strftime("%Y-%m-%d %H:%M") if scan.start_time else "N/A"
             print(f"{scan.scan_id:<20} {target:<35} {date_str:<20} {scan.findings_count:<10}")
-        
+
         session.close()
     except Exception as e:
         print(f"[!] Error listing scans: {e}")
@@ -311,7 +320,7 @@ def clear_database():
     if not SQLALCHEMY_AVAILABLE:
         print("[!] SQLAlchemy not available")
         return
-    
+
     try:
         engine = create_engine(Config.DB_URL)
         Base.metadata.drop_all(engine)

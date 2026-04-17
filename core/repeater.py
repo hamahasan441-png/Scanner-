@@ -5,27 +5,47 @@ Repeater - Manual HTTP Request Replay & Modification Tool"""
 
 import time
 from datetime import datetime, timezone
-from urllib.parse import urlparse, urlencode, urlunparse
+from urllib.parse import urlparse
 
 import requests
-
 
 # ------------------------------------------------------------------ #
 #  RepeaterResponse                                                   #
 # ------------------------------------------------------------------ #
 
+
 class RepeaterResponse:
     """Immutable container for an HTTP response and its originating request."""
 
     __slots__ = (
-        "status_code", "headers", "body", "elapsed", "size",
-        "cookies", "url", "method", "request_headers", "request_body",
+        "status_code",
+        "headers",
+        "body",
+        "elapsed",
+        "size",
+        "cookies",
+        "url",
+        "method",
+        "request_headers",
+        "request_body",
         "timestamp",
     )
 
-    def __init__(self, *, status_code, headers, body, elapsed, size,
-                 cookies, url, method, request_headers, request_body,
-                 timestamp):
+    def __init__(
+        self,
+        *,
+        status_code,
+        headers,
+        body,
+        elapsed,
+        size,
+        cookies,
+        url,
+        method,
+        request_headers,
+        request_body,
+        timestamp,
+    ):
         self.status_code = status_code
         self.headers = headers
         self.body = body
@@ -59,6 +79,7 @@ class RepeaterResponse:
 #  Repeater                                                           #
 # ------------------------------------------------------------------ #
 
+
 class Repeater:
     """Burp-style HTTP request repeater for manual replay and modification."""
 
@@ -78,8 +99,7 @@ class Repeater:
     #  Public API                                                         #
     # ------------------------------------------------------------------ #
 
-    def send(self, method, url, headers=None, body=None, params=None,
-             cookies=None, allow_redirects=True):
+    def send(self, method, url, headers=None, body=None, params=None, cookies=None, allow_redirects=True):
         """Send an HTTP request and return a *RepeaterResponse*.
 
         Parameters mirror the standard *requests* API so callers can
@@ -104,8 +124,7 @@ class Repeater:
         elapsed = time.monotonic() - start
 
         rr = self._build_response(resp, method, req_headers, req_body, elapsed)
-        self._record(method, url, req_headers, req_body, params, cookies,
-                     allow_redirects, rr)
+        self._record(method, url, req_headers, req_body, params, cookies, allow_redirects, rr)
         return rr
 
     def send_raw(self, raw_request, host=None, port=80, use_ssl=False):
@@ -222,8 +241,7 @@ class Repeater:
             body=mods.get("body", req_info.get("body")),
             params=mods.get("params", req_info.get("params")),
             cookies=mods.get("cookies", req_info.get("cookies")),
-            allow_redirects=mods.get("allow_redirects",
-                                     req_info.get("allow_redirects", True)),
+            allow_redirects=mods.get("allow_redirects", req_info.get("allow_redirects", True)),
         )
 
     # -- diff ---------------------------------------------------------- #
@@ -244,6 +262,7 @@ class Repeater:
 
         try:
             from utils.comparer import Comparer
+
             comparer = Comparer()
             return comparer.compare_responses(resp1.to_dict(), resp2.to_dict())
         except ImportError:
@@ -270,8 +289,7 @@ class Repeater:
             timestamp=datetime.now(timezone.utc).isoformat(),
         )
 
-    def _record(self, method, url, headers, body, params, cookies,
-                allow_redirects, rr):
+    def _record(self, method, url, headers, body, params, cookies, allow_redirects, rr):
         """Append a request/response pair to history."""
         req_info = {
             "method": method,

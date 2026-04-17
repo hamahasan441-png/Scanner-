@@ -22,15 +22,15 @@ class BaseModule(ABC):
             module for parameters that do not reflect user input.
     """
 
-    name: str = 'Base'
-    vuln_type: str = ''
+    name: str = "Base"
+    vuln_type: str = ""
     requires_reflection: bool = False
 
     def __init__(self, engine):
         self.engine = engine
         self.requester = engine.requester
         self.config = engine.config
-        self.verbose = engine.config.get('verbose', False)
+        self.verbose = engine.config.get("verbose", False)
 
     @abstractmethod
     def test(self, url: str, method: str, param: str, value: str) -> None:
@@ -42,6 +42,7 @@ class BaseModule(ABC):
     def _add_finding(self, **kwargs):
         """Convenience wrapper to create and register a Finding."""
         from core.engine import Finding
+
         finding = Finding(**kwargs)
         self.engine.add_finding(finding)
 
@@ -49,19 +50,18 @@ class BaseModule(ABC):
     # LLM-Enhanced Payload Helpers
     # ------------------------------------------------------------------
 
-    def _get_ai_payloads(self, vuln_type, standard_payloads, param_name=''):
+    def _get_ai_payloads(self, vuln_type, standard_payloads, param_name=""):
         """Augment *standard_payloads* with LLM-generated suggestions.
 
         Calls ``AIEngine.get_llm_enhanced_payloads()`` when the local
         LLM is loaded (``--local-llm`` flag).  Gracefully falls back to
         the original list when the LLM is unavailable.
         """
-        ai = getattr(self.engine, 'ai', None)
+        ai = getattr(self.engine, "ai", None)
         if ai is None:
             return standard_payloads
         try:
-            return ai.get_llm_enhanced_payloads(
-                vuln_type, standard_payloads, param_name=param_name)
+            return ai.get_llm_enhanced_payloads(vuln_type, standard_payloads, param_name=param_name)
         except Exception:
             return standard_payloads
 
@@ -71,11 +71,10 @@ class BaseModule(ABC):
         Returns ``None`` when the LLM is unavailable (so callers should
         treat ``None`` as "no opinion").
         """
-        ai = getattr(self.engine, 'ai', None)
+        ai = getattr(self.engine, "ai", None)
         if ai is None:
             return None
         try:
-            return ai.analyze_module_response(
-                vuln_type, url, param, payload, response_text)
+            return ai.analyze_module_response(vuln_type, url, param, payload, response_text)
         except Exception:
             return None

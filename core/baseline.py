@@ -20,7 +20,6 @@ import statistics
 from collections import OrderedDict
 
 
-from config import Colors
 from core.normalizer import normalize
 
 # Number of clean requests per baseline measurement
@@ -42,11 +41,19 @@ class BaselineResult:
     """Stores baseline statistics for a single endpoint+param combo."""
 
     __slots__ = (
-        'url', 'method', 'param', 'value',
-        'time_mean', 'time_stdev', 'time_samples',
-        'length_mean', 'length_stdev',
-        'status_code', 'structure_hash',
-        'response_headers', 'valid',
+        "url",
+        "method",
+        "param",
+        "value",
+        "time_mean",
+        "time_stdev",
+        "time_samples",
+        "length_mean",
+        "length_stdev",
+        "status_code",
+        "structure_hash",
+        "response_headers",
+        "valid",
     )
 
     def __init__(self, url, method, param, value):
@@ -60,7 +67,7 @@ class BaselineResult:
         self.length_mean = 0.0
         self.length_stdev = 0.0
         self.status_code = 0
-        self.structure_hash = ''
+        self.structure_hash = ""
         self.response_headers = {}
         self.valid = False
 
@@ -118,11 +125,11 @@ class BaselineEngine:
     def __init__(self, engine):
         self.engine = engine
         self.requester = engine.requester
-        self.verbose = engine.config.get('verbose', False)
+        self.verbose = engine.config.get("verbose", False)
         self._cache = OrderedDict()  # key → BaselineResult (LRU)
 
         # Load sample counts from rules engine when available
-        rules = getattr(engine, 'rules', None)
+        rules = getattr(engine, "rules", None)
         if rules:
             self._min_samples, self._max_samples = rules.get_baseline_samples()
             self._noisy_threshold = rules.get_noisy_threshold()
@@ -153,7 +160,7 @@ class BaselineEngine:
         timings = []
         lengths = []
         last_status = 0
-        last_body = ''
+        last_body = ""
         last_headers = {}
 
         data = {param: value} if param else None
@@ -201,11 +208,12 @@ class BaselineEngine:
         text changes (e.g. dynamic tokens) don't affect the hash.
         """
         if not html_body:
-            return ''
+            return ""
         import re
-        tags = re.findall(r'</?[a-zA-Z][^>]*>', html_body)
-        skeleton = ''.join(tags[:MAX_FINGERPRINT_TAGS])
-        return hashlib.sha256(skeleton.encode('utf-8', errors='ignore')).hexdigest()
+
+        tags = re.findall(r"</?[a-zA-Z][^>]*>", html_body)
+        skeleton = "".join(tags[:MAX_FINGERPRINT_TAGS])
+        return hashlib.sha256(skeleton.encode("utf-8", errors="ignore")).hexdigest()
 
     # ------------------------------------------------------------------
     # Reflection Gate (§ pre-test filter)
@@ -222,6 +230,7 @@ class BaselineEngine:
         Returns True if the probe value is reflected, False otherwise.
         """
         import uuid
+
         # Use a fully random alphanumeric string to avoid WAF detection
         # and collisions with existing page content.
         probe = uuid.uuid4().hex
@@ -272,40 +281,38 @@ class BaselineEngine:
                 pass
 
         result = {
-            'timings': timings,
-            'lengths': lengths,
-            'status_codes': status_codes,
-            'texts': texts,
-            'normalized_texts': [normalize(t) for t in texts],
-            'repeat_count': len(timings),
+            "timings": timings,
+            "lengths": lengths,
+            "status_codes": status_codes,
+            "texts": texts,
+            "normalized_texts": [normalize(t) for t in texts],
+            "repeat_count": len(timings),
         }
 
         if timings:
-            result['time_mean'] = statistics.mean(timings)
-            result['time_stdev'] = statistics.stdev(timings) if len(timings) > 1 else 0.0
+            result["time_mean"] = statistics.mean(timings)
+            result["time_stdev"] = statistics.stdev(timings) if len(timings) > 1 else 0.0
         else:
-            result['time_mean'] = 0.0
-            result['time_stdev'] = 0.0
+            result["time_mean"] = 0.0
+            result["time_stdev"] = 0.0
 
         if lengths:
-            result['length_mean'] = statistics.mean(lengths)
-            result['length_stdev'] = statistics.stdev(lengths) if len(lengths) > 1 else 0.0
-            result['length_consistent'] = result['length_stdev'] < MAX_LENGTH_STDEV_THRESHOLD
+            result["length_mean"] = statistics.mean(lengths)
+            result["length_stdev"] = statistics.stdev(lengths) if len(lengths) > 1 else 0.0
+            result["length_consistent"] = result["length_stdev"] < MAX_LENGTH_STDEV_THRESHOLD
         else:
-            result['length_mean'] = 0.0
-            result['length_stdev'] = 0.0
-            result['length_consistent'] = False
+            result["length_mean"] = 0.0
+            result["length_stdev"] = 0.0
+            result["length_consistent"] = False
 
         # Status consistency check
         if status_codes:
-            result['status_consistent'] = len(set(status_codes)) == 1
+            result["status_consistent"] = len(set(status_codes)) == 1
         else:
-            result['status_consistent'] = False
+            result["status_consistent"] = False
 
         # Repeatability: normalized responses must be identical across runs
-        normalized = result['normalized_texts']
-        result['repeatable'] = (
-            len(normalized) >= 2 and len(set(normalized)) == 1
-        )
+        normalized = result["normalized_texts"]
+        result["repeatable"] = len(normalized) >= 2 and len(set(normalized)) == 1
 
         return result

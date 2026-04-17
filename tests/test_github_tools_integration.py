@@ -12,10 +12,8 @@ Covers:
 """
 
 import os
-import re
-import tempfile
 import unittest
-from unittest.mock import MagicMock, patch, PropertyMock
+from unittest.mock import MagicMock, patch
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -207,7 +205,7 @@ class TestGitHubWordlistsModule(unittest.TestCase):
         self.assertEqual(result, ['line1', 'line2'])
 
     def test_fetch_wordlist_caches_result(self):
-        from utils.github_wordlists import fetch_wordlist, _CACHE_DIR
+        from utils.github_wordlists import fetch_wordlist
         body = "cached_line1\ncached_line2\n"
         with patch('utils.github_wordlists._http_get', return_value=body):
             result1 = fetch_wordlist('seclists_common')
@@ -315,7 +313,9 @@ class TestFuzzerGitHubIntegration(unittest.TestCase):
 
     def test_github_param_discover_detects_change(self):
         from modules.fuzzer import FuzzerModule
+
         call_count = [0]
+
         def side_effect(url, method, **kw):
             call_count[0] += 1
             if call_count[0] == 1:
@@ -473,7 +473,7 @@ class TestDiscoveryExtendedPaths(unittest.TestCase):
         # The canary URL should be first
         self.assertTrue(any('atomic_nonexistent_path' in u for u in requested_urls))
         # Extended paths should be probed
-        total_paths = len(set(COMMON_PATHS) | set(Payloads.DISCOVERY_PATHS_EXTENDED))
+        len(set(COMMON_PATHS) | set(Payloads.DISCOVERY_PATHS_EXTENDED))
         # Total requests = 1 (canary) + all unique paths
         self.assertGreater(len(requested_urls), len(COMMON_PATHS))
 

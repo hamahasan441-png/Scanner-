@@ -11,16 +11,15 @@ Enforces target scope and scanning policies:
   - Enforces rate-limit policies
 """
 
-import re
 import time
-from urllib.parse import urlparse, urljoin
+from urllib.parse import urlparse
 from urllib.robotparser import RobotFileParser
 
 
 from config import Colors
 
 # Default user-agent name for robots.txt compliance
-SCANNER_USER_AGENT = 'AtomicScanner'
+SCANNER_USER_AGENT = "AtomicScanner"
 
 # Maximum allowed requests per second (0 = unlimited)
 DEFAULT_RATE_LIMIT = 0
@@ -31,31 +30,31 @@ class ScopePolicy:
 
     def __init__(self, engine):
         self.engine = engine
-        self.verbose = engine.config.get('verbose', False)
-        self.strict_scope = bool(engine.config.get('strict_scope', False))
-        scope_cfg = engine.config.get('scope', {})
+        self.verbose = engine.config.get("verbose", False)
+        self.strict_scope = bool(engine.config.get("strict_scope", False))
+        scope_cfg = engine.config.get("scope", {})
 
         # Scope boundaries
         self.allowed_domains = set()
         self.allowed_subdomains = set()
-        self.allowed_paths = list(scope_cfg.get('allowed_paths', []))
-        self.excluded_paths = list(scope_cfg.get('excluded_paths', []))
+        self.allowed_paths = list(scope_cfg.get("allowed_paths", []))
+        self.excluded_paths = list(scope_cfg.get("excluded_paths", []))
 
-        for domain in scope_cfg.get('allowed_domains', []):
+        for domain in scope_cfg.get("allowed_domains", []):
             cleaned = str(domain).strip().lower()
             if not cleaned:
                 continue
             self.allowed_domains.add(cleaned)
-            parts = cleaned.split('.')
+            parts = cleaned.split(".")
             if len(parts) >= 2:
-                self.allowed_subdomains.add('.'.join(parts[-2:]))
+                self.allowed_subdomains.add(".".join(parts[-2:]))
 
         # robots.txt compliance
         self.robots_parser = None
         self.robots_loaded = False
 
         # Rate limiting
-        self.rate_limit = engine.config.get('rate_limit', DEFAULT_RATE_LIMIT)
+        self.rate_limit = engine.config.get("rate_limit", DEFAULT_RATE_LIMIT)
         self._last_request_time = 0.0
         self._request_count = 0
 
@@ -70,7 +69,7 @@ class ScopePolicy:
     def set_target_scope(self, target_url):
         """Derive scope boundaries from the primary target URL."""
         parsed = urlparse(target_url)
-        domain = parsed.netloc.split(':')[0].lower()  # strip port
+        domain = parsed.netloc.split(":")[0].lower()  # strip port
 
         # In strict scope mode with explicit domains configured, do not
         # auto-expand scope from target to avoid widening boundaries.
@@ -82,9 +81,9 @@ class ScopePolicy:
         self.allowed_domains.add(domain)
 
         # Allow subdomains of the primary domain
-        parts = domain.split('.')
+        parts = domain.split(".")
         if len(parts) >= 2:
-            base_domain = '.'.join(parts[-2:])
+            base_domain = ".".join(parts[-2:])
             self.allowed_subdomains.add(base_domain)
 
         if self.verbose:
@@ -102,7 +101,7 @@ class ScopePolicy:
             self.robots_loaded = True
 
             # Extract disallowed paths as excluded paths
-            if hasattr(self.robots_parser, 'entries'):
+            if hasattr(self.robots_parser, "entries"):
                 for entry in self.robots_parser.entries:
                     for line in entry.rulelines:
                         if not line.allowance:
@@ -125,7 +124,7 @@ class ScopePolicy:
         Returns True if in scope, False if out of scope (should be skipped).
         """
         parsed = urlparse(url)
-        domain = parsed.netloc.split(':')[0]
+        domain = parsed.netloc.split(":")[0]
 
         # Check domain scope
         if not self._domain_allowed(domain):
@@ -133,7 +132,7 @@ class ScopePolicy:
             return False
 
         # Check excluded paths
-        path = parsed.path or '/'
+        path = parsed.path or "/"
         for excluded in self.excluded_paths:
             if path.startswith(excluded):
                 self.blocked_count += 1
@@ -161,7 +160,7 @@ class ScopePolicy:
 
         # Check subdomain match
         for base in self.allowed_subdomains:
-            if domain.endswith('.' + base) or domain == base:
+            if domain.endswith("." + base) or domain == base:
                 return True
 
         return False
@@ -201,7 +200,7 @@ class ScopePolicy:
         """Filter parameter tuples, keeping only in-scope ones."""
         filtered = []
         for param_tuple in parameters:
-            url = param_tuple[0] if isinstance(param_tuple, (list, tuple)) else param_tuple.get('url', '')
+            url = param_tuple[0] if isinstance(param_tuple, (list, tuple)) else param_tuple.get("url", "")
             if self.is_in_scope(url):
                 filtered.append(param_tuple)
         return filtered
@@ -209,9 +208,9 @@ class ScopePolicy:
     def get_scope_summary(self):
         """Return a summary of scope enforcement statistics."""
         return {
-            'allowed_domains': list(self.allowed_domains),
-            'excluded_paths': len(self.excluded_paths),
-            'robots_loaded': self.robots_loaded,
-            'allowed_count': self.allowed_count,
-            'blocked_count': self.blocked_count,
+            "allowed_domains": list(self.allowed_domains),
+            "excluded_paths": len(self.excluded_paths),
+            "robots_loaded": self.robots_loaded,
+            "allowed_count": self.allowed_count,
+            "blocked_count": self.blocked_count,
         }

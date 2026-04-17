@@ -11,7 +11,6 @@ import json
 import os
 import sys
 import unittest
-from unittest.mock import MagicMock, patch
 
 # Ensure project root is on path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -41,8 +40,7 @@ class TestPhaseEnum(unittest.TestCase):
 
     def test_all_phases_have_partitions(self):
         for phase in Phase:
-            self.assertIn(phase, PHASE_PARTITION,
-                          f'{phase.value} missing from PHASE_PARTITION')
+            self.assertIn(phase, PHASE_PARTITION, f"{phase.value} missing from PHASE_PARTITION")
 
     def test_partitions_are_valid(self):
         for phase, partition in PHASE_PARTITION.items():
@@ -54,11 +52,9 @@ class TestPhaseEnum(unittest.TestCase):
 
     def test_minimum_phase_count(self):
         # Verify critical phases exist rather than asserting exact count
-        critical_phases = {Phase.INIT, Phase.SCOPE, Phase.SCAN_WORKERS,
-                           Phase.VERIFICATION, Phase.REPORT, Phase.DONE}
+        critical_phases = {Phase.INIT, Phase.SCOPE, Phase.SCAN_WORKERS, Phase.VERIFICATION, Phase.REPORT, Phase.DONE}
         for phase in critical_phases:
-            self.assertIn(phase, PHASE_ORDER,
-                          f'Critical phase {phase.value} missing from PHASE_ORDER')
+            self.assertIn(phase, PHASE_ORDER, f"Critical phase {phase.value} missing from PHASE_ORDER")
 
 
 class TestPipelineStateMachine(unittest.TestCase):
@@ -132,7 +128,7 @@ class TestPipelineStateMachine(unittest.TestCase):
 
     def test_repr(self):
         sm = PipelineStateMachine()
-        self.assertIn('init', repr(sm))
+        self.assertIn("init", repr(sm))
 
 
 class TestAllowedTransitions(unittest.TestCase):
@@ -147,27 +143,32 @@ class TestAllowedTransitions(unittest.TestCase):
     def test_no_backward_transitions(self):
         for idx, phase in enumerate(PHASE_ORDER):
             for earlier in PHASE_ORDER[:idx]:
-                self.assertNotIn(earlier, ALLOWED_TRANSITIONS[phase],
-                                 f'{phase.value} should not transition back to {earlier.value}')
+                self.assertNotIn(
+                    earlier, ALLOWED_TRANSITIONS[phase], f"{phase.value} should not transition back to {earlier.value}"
+                )
 
 
 class TestRunnerImports(unittest.TestCase):
     """Verify that all runner modules can be imported."""
 
     def test_import_recon_runner(self):
-        from core.runners.recon_runner import ReconRunner, ReconResult
+        from core.runners.recon_runner import ReconRunner
+
         self.assertTrue(callable(ReconRunner))
 
     def test_import_scan_runner(self):
-        from core.runners.scan_runner import ScanRunner, ScanResult
+        from core.runners.scan_runner import ScanRunner
+
         self.assertTrue(callable(ScanRunner))
 
     def test_import_verify_runner(self):
-        from core.runners.verify_runner import VerifyRunner, VerifyResult
+        from core.runners.verify_runner import VerifyRunner
+
         self.assertTrue(callable(VerifyRunner))
 
     def test_import_report_runner(self):
-        from core.runners.report_runner import ReportRunner, ReportResult
+        from core.runners.report_runner import ReportRunner
+
         self.assertTrue(callable(ReportRunner))
 
 
@@ -177,23 +178,28 @@ class TestSchemaValidation(unittest.TestCase):
     def test_schema_file_exists(self):
         schema_path = os.path.join(
             os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-            'schemas', 'scanner_rules.schema.json')
-        self.assertTrue(os.path.isfile(schema_path), 'Schema file should exist')
+            "schemas",
+            "scanner_rules.schema.json",
+        )
+        self.assertTrue(os.path.isfile(schema_path), "Schema file should exist")
 
     def test_schema_is_valid_json(self):
         schema_path = os.path.join(
             os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-            'schemas', 'scanner_rules.schema.json')
-        with open(schema_path, 'r') as fh:
+            "schemas",
+            "scanner_rules.schema.json",
+        )
+        with open(schema_path, "r") as fh:
             schema = json.load(fh)
-        self.assertIn('$schema', schema)
-        self.assertIn('required', schema)
+        self.assertIn("$schema", schema)
+        self.assertIn("required", schema)
 
     def test_scanner_rules_yaml_loads(self):
         """Ensure scanner_rules.yaml can still be loaded by rules engine."""
         from core.rules_engine import RulesEngine
+
         rules = RulesEngine()
-        self.assertEqual(rules.profile, 'accuracy_only')
+        self.assertEqual(rules.profile, "accuracy_only")
         self.assertGreater(len(rules.pipeline_stages), 0)
 
     def test_scanner_rules_yaml_passes_schema(self):
@@ -201,19 +207,22 @@ class TestSchemaValidation(unittest.TestCase):
         try:
             import jsonschema
         except ImportError:
-            self.skipTest('jsonschema not installed')
+            self.skipTest("jsonschema not installed")
 
         import yaml
+
         rules_path = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-            'scanner_rules.yaml')
+            os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "scanner_rules.yaml"
+        )
         schema_path = os.path.join(
             os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-            'schemas', 'scanner_rules.schema.json')
+            "schemas",
+            "scanner_rules.schema.json",
+        )
 
-        with open(rules_path, 'r') as fh:
+        with open(rules_path, "r") as fh:
             data = yaml.safe_load(fh)
-        with open(schema_path, 'r') as fh:
+        with open(schema_path, "r") as fh:
             schema = json.load(fh)
 
         # Should not raise
@@ -224,26 +233,23 @@ class TestLogicMapChecker(unittest.TestCase):
     """Verify the check_logic_map.py tool runs without crashing."""
 
     def test_run_checks_returns_list(self):
-        tools_dir = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-            'tools')
+        tools_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "tools")
         sys.path.insert(0, tools_dir)
         from check_logic_map import run_checks
+
         errors = run_checks()
         self.assertIsInstance(errors, list)
 
     def test_core_files_exist(self):
         """Key structure files should exist after refactoring."""
-        tools_dir = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-            'tools')
+        tools_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "tools")
         sys.path.insert(0, tools_dir)
         from check_logic_map import run_checks
+
         errors = run_checks()
-        structure_errors = [e for e in errors if '[structure]' in e]
-        self.assertEqual(len(structure_errors), 0,
-                         f'Missing structural files: {structure_errors}')
+        structure_errors = [e for e in errors if "[structure]" in e]
+        self.assertEqual(len(structure_errors), 0, f"Missing structural files: {structure_errors}")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

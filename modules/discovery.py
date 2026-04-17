@@ -18,18 +18,20 @@ import subprocess
 import json
 import concurrent.futures
 import xml.etree.ElementTree as ET
-from urllib.parse import urljoin, urlparse, parse_qs, quote
+from urllib.parse import urljoin, urlparse, quote
 from urllib.request import urlopen, Request
 from collections import Counter
 
 try:
     import aiohttp
+
     _HAS_AIOHTTP = True
 except ImportError:
     _HAS_AIOHTTP = False
 
 try:
     from bs4 import BeautifulSoup
+
     _HAS_BS4 = True
 except ImportError:
     _HAS_BS4 = False
@@ -37,110 +39,286 @@ except ImportError:
 
 from config import Colors, Payloads
 
-
 # ────────────────────────────────────────────
 # Common paths for directory brute-forcing
 # ────────────────────────────────────────────
 COMMON_PATHS = [
     # ── Admin / Management ──
-    '/admin', '/administrator', '/admin/login', '/admin/dashboard',
-    '/cpanel', '/dashboard', '/manage', '/manager', '/panel',
-    '/control', '/wp-admin', '/webadmin', '/sysadmin',
-    '/console', '/h2-console', '/monitoring', '/nagios',
-    '/system', '/webmail',
+    "/admin",
+    "/administrator",
+    "/admin/login",
+    "/admin/dashboard",
+    "/cpanel",
+    "/dashboard",
+    "/manage",
+    "/manager",
+    "/panel",
+    "/control",
+    "/wp-admin",
+    "/webadmin",
+    "/sysadmin",
+    "/console",
+    "/h2-console",
+    "/monitoring",
+    "/nagios",
+    "/system",
+    "/webmail",
     # ── Login / Auth ──
-    '/login', '/signin', '/signup', '/register', '/auth', '/oauth',
-    '/logout', '/password', '/forgot-password', '/reset-password',
-    '/account', '/profile', '/user', '/users', '/me',
-    '/sso', '/saml', '/cas', '/openid',
+    "/login",
+    "/signin",
+    "/signup",
+    "/register",
+    "/auth",
+    "/oauth",
+    "/logout",
+    "/password",
+    "/forgot-password",
+    "/reset-password",
+    "/account",
+    "/profile",
+    "/user",
+    "/users",
+    "/me",
+    "/sso",
+    "/saml",
+    "/cas",
+    "/openid",
     # ── API Endpoints ──
-    '/api', '/api/v1', '/api/v2', '/api/v3', '/api/latest',
-    '/graphql', '/graphiql', '/playground', '/__graphql',
-    '/rest', '/soap', '/rpc', '/jsonrpc', '/xmlrpc',
-    '/swagger', '/swagger-ui', '/swagger-ui.html',
-    '/api-docs', '/openapi.json', '/api/docs', '/api/schema',
-    '/swagger.json', '/swagger.yaml',
-    '/v1/api-docs', '/v2/api-docs', '/v3/api-docs',
-    '/webhook', '/callback', '/notify',
+    "/api",
+    "/api/v1",
+    "/api/v2",
+    "/api/v3",
+    "/api/latest",
+    "/graphql",
+    "/graphiql",
+    "/playground",
+    "/__graphql",
+    "/rest",
+    "/soap",
+    "/rpc",
+    "/jsonrpc",
+    "/xmlrpc",
+    "/swagger",
+    "/swagger-ui",
+    "/swagger-ui.html",
+    "/api-docs",
+    "/openapi.json",
+    "/api/docs",
+    "/api/schema",
+    "/swagger.json",
+    "/swagger.yaml",
+    "/v1/api-docs",
+    "/v2/api-docs",
+    "/v3/api-docs",
+    "/webhook",
+    "/callback",
+    "/notify",
     # ── Configuration / Debug ──
-    '/config', '/configuration', '/settings', '/env', '/.env',
-    '/debug', '/trace', '/status', '/health', '/healthcheck',
-    '/info', '/server-info', '/server-status', '/phpinfo.php',
-    '/metrics', '/stats', '/monitor',
-    '/actuator', '/actuator/env', '/actuator/health',
-    '/actuator/heapdump', '/actuator/mappings',
-    '/_debug', '/__debug__', '/debug/pprof',
-    '/_profiler', '/_wdt',
+    "/config",
+    "/configuration",
+    "/settings",
+    "/env",
+    "/.env",
+    "/debug",
+    "/trace",
+    "/status",
+    "/health",
+    "/healthcheck",
+    "/info",
+    "/server-info",
+    "/server-status",
+    "/phpinfo.php",
+    "/metrics",
+    "/stats",
+    "/monitor",
+    "/actuator",
+    "/actuator/env",
+    "/actuator/health",
+    "/actuator/heapdump",
+    "/actuator/mappings",
+    "/_debug",
+    "/__debug__",
+    "/debug/pprof",
+    "/_profiler",
+    "/_wdt",
     # ── Backup / Development ──
-    '/backup', '/backups', '/bak', '/old', '/temp', '/tmp',
-    '/test', '/testing', '/dev', '/development', '/staging',
-    '/archive', '/archives', '/legacy', '/deprecated',
-    '/.git', '/.git/config', '/.git/HEAD', '/.svn', '/.hg',
-    '/.DS_Store', '/web.config', '/.htaccess', '/.htpasswd',
-    '/Thumbs.db',
+    "/backup",
+    "/backups",
+    "/bak",
+    "/old",
+    "/temp",
+    "/tmp",
+    "/test",
+    "/testing",
+    "/dev",
+    "/development",
+    "/staging",
+    "/archive",
+    "/archives",
+    "/legacy",
+    "/deprecated",
+    "/.git",
+    "/.git/config",
+    "/.git/HEAD",
+    "/.svn",
+    "/.hg",
+    "/.DS_Store",
+    "/web.config",
+    "/.htaccess",
+    "/.htpasswd",
+    "/Thumbs.db",
     # ── WordPress ──
-    '/wp-login.php', '/wp-content', '/wp-content/plugins',
-    '/wp-content/themes', '/wp-content/uploads',
-    '/wp-includes', '/wp-json', '/wp-json/wp/v2/users',
-    '/xmlrpc.php', '/wp-cron.php', '/wp-links-opml.php',
-    '/wp-content/debug.log', '/readme.html',
+    "/wp-login.php",
+    "/wp-content",
+    "/wp-content/plugins",
+    "/wp-content/themes",
+    "/wp-content/uploads",
+    "/wp-includes",
+    "/wp-json",
+    "/wp-json/wp/v2/users",
+    "/xmlrpc.php",
+    "/wp-cron.php",
+    "/wp-links-opml.php",
+    "/wp-content/debug.log",
+    "/readme.html",
     # ── Laravel ──
-    '/storage', '/storage/logs', '/storage/logs/laravel.log',
-    '/storage/framework', '/bootstrap/cache',
-    '/_ide_helper.php', '/artisan',
+    "/storage",
+    "/storage/logs",
+    "/storage/logs/laravel.log",
+    "/storage/framework",
+    "/bootstrap/cache",
+    "/_ide_helper.php",
+    "/artisan",
     # ── Django ──
-    '/admin', '/static', '/media', '/__pycache__',
+    "/admin",
+    "/static",
+    "/media",
+    "/__pycache__",
     # ── Rails ──
-    '/public/assets', '/public/uploads', '/db', '/config',
-    '/config/database.yml', '/config/secrets.yml',
-    '/config/master.key',
+    "/public/assets",
+    "/public/uploads",
+    "/db",
+    "/config",
+    "/config/database.yml",
+    "/config/secrets.yml",
+    "/config/master.key",
     # ── ASP.NET ──
-    '/App_Data', '/App_Code', '/bin', '/obj',
-    '/Global.asax', '/Default.aspx', '/elmah.axd',
+    "/App_Data",
+    "/App_Code",
+    "/bin",
+    "/obj",
+    "/Global.asax",
+    "/Default.aspx",
+    "/elmah.axd",
     # ── Java / Spring / Tomcat ──
-    '/WEB-INF', '/WEB-INF/web.xml', '/META-INF',
-    '/catalina.out', '/manager/html',
+    "/WEB-INF",
+    "/WEB-INF/web.xml",
+    "/META-INF",
+    "/catalina.out",
+    "/manager/html",
     # ── Common CMS / framework paths ──
-    '/joomla', '/drupal', '/magento', '/ghost',
-    '/vendor', '/node_modules', '/bower_components',
-    '/composer.json', '/package.json',
+    "/joomla",
+    "/drupal",
+    "/magento",
+    "/ghost",
+    "/vendor",
+    "/node_modules",
+    "/bower_components",
+    "/composer.json",
+    "/package.json",
     # ── File / Media / Uploads ──
-    '/uploads', '/upload', '/files', '/media', '/static',
-    '/assets', '/images', '/img', '/css', '/js',
-    '/public', '/private', '/storage', '/data',
-    '/userfiles', '/usercontent', '/user_uploads',
-    '/attachments', '/documents', '/reports',
-    '/download', '/downloads', '/export', '/import',
+    "/uploads",
+    "/upload",
+    "/files",
+    "/media",
+    "/static",
+    "/assets",
+    "/images",
+    "/img",
+    "/css",
+    "/js",
+    "/public",
+    "/private",
+    "/storage",
+    "/data",
+    "/userfiles",
+    "/usercontent",
+    "/user_uploads",
+    "/attachments",
+    "/documents",
+    "/reports",
+    "/download",
+    "/downloads",
+    "/export",
+    "/import",
     # ── Database / Cache Tools ──
-    '/phpmyadmin', '/pma', '/adminer', '/sqladmin',
-    '/redis', '/memcached', '/elasticsearch', '/solr', '/kibana',
-    '/mongo-express', '/couchdb',
+    "/phpmyadmin",
+    "/pma",
+    "/adminer",
+    "/sqladmin",
+    "/redis",
+    "/memcached",
+    "/elasticsearch",
+    "/solr",
+    "/kibana",
+    "/mongo-express",
+    "/couchdb",
     # ── Error / Fallback ──
-    '/404', '/500', '/403', '/401', '/error', '/errors',
+    "/404",
+    "/500",
+    "/403",
+    "/401",
+    "/error",
+    "/errors",
     # ── CI/CD / Docker ──
-    '/Dockerfile', '/docker-compose.yml', '/Jenkinsfile',
-    '/.github', '/.gitlab-ci.yml', '/.circleci',
+    "/Dockerfile",
+    "/docker-compose.yml",
+    "/Jenkinsfile",
+    "/.github",
+    "/.gitlab-ci.yml",
+    "/.circleci",
     # ── Well-known / Standards ──
-    '/robots.txt', '/sitemap.xml', '/sitemap_index.xml',
-    '/crossdomain.xml', '/security.txt',
-    '/.well-known/security.txt', '/.well-known/openid-configuration',
-    '/humans.txt', '/ads.txt', '/app-ads.txt',
-    '/favicon.ico', '/manifest.json', '/browserconfig.xml',
+    "/robots.txt",
+    "/sitemap.xml",
+    "/sitemap_index.xml",
+    "/crossdomain.xml",
+    "/security.txt",
+    "/.well-known/security.txt",
+    "/.well-known/openid-configuration",
+    "/humans.txt",
+    "/ads.txt",
+    "/app-ads.txt",
+    "/favicon.ico",
+    "/manifest.json",
+    "/browserconfig.xml",
     # ── Log Files ──
-    '/logs', '/log', '/debug.log', '/error.log', '/access.log',
-    '/application.log', '/server.log',
+    "/logs",
+    "/log",
+    "/debug.log",
+    "/error.log",
+    "/access.log",
+    "/application.log",
+    "/server.log",
     # ── Source & IDE Artifacts ──
-    '/.idea', '/.vscode', '/.project', '/.classpath',
-    '/.editorconfig', '/tsconfig.json', '/webpack.config.js',
+    "/.idea",
+    "/.vscode",
+    "/.project",
+    "/.classpath",
+    "/.editorconfig",
+    "/tsconfig.json",
+    "/webpack.config.js",
     # ── Terraform / Cloud Config ──
-    '/terraform.tfstate', '/terraform.tfvars',
-    '/.aws/credentials', '/.kube/config',
-    '/credentials.json', '/service-account.json',
+    "/terraform.tfstate",
+    "/terraform.tfvars",
+    "/.aws/credentials",
+    "/.kube/config",
+    "/credentials.json",
+    "/service-account.json",
 ]
 
 
 # ── Custom-404 detection thresholds ──────────────────────────────────────
-_CUSTOM_404_LENGTH_THRESHOLD = 50       # max byte-length diff from canary
+_CUSTOM_404_LENGTH_THRESHOLD = 50  # max byte-length diff from canary
 _CUSTOM_404_SIMILARITY_THRESHOLD = 0.9  # min word-overlap ratio to consider same
 
 
@@ -156,7 +334,7 @@ class DiscoveryModule:
         self.endpoints = set()
         self.directories = set()
         self.file_paths = set()
-        self.robots_paths = {'allowed': set(), 'disallowed': set()}
+        self.robots_paths = {"allowed": set(), "disallowed": set()}
         self.sitemap_urls = set()
         self.technologies = []
         self.interesting_findings = []
@@ -195,8 +373,8 @@ class DiscoveryModule:
             self._merge_crawler(crawler, target)
 
         # 4. Directory brute-force
-        modules_cfg = self.engine.config.get('modules', {})
-        if modules_cfg.get('dir_brute', False):
+        modules_cfg = self.engine.config.get("modules", {})
+        if modules_cfg.get("dir_brute", False):
             self._dir_brute(base_url)
 
         # 5. AI-powered smart analysis
@@ -235,33 +413,33 @@ class DiscoveryModule:
         print(f"{Colors.info(f'Fetching {robots_url}...')}")
 
         try:
-            resp = self.requester.request(robots_url, 'GET')
+            resp = self.requester.request(robots_url, "GET")
             if resp and resp.status_code == 200:
                 for line in resp.text.splitlines():
                     line = line.strip()
-                    if line.lower().startswith('disallow:'):
-                        path = line.split(':', 1)[1].strip()
+                    if line.lower().startswith("disallow:"):
+                        path = line.split(":", 1)[1].strip()
                         if path:
-                            self.robots_paths['disallowed'].add(path)
+                            self.robots_paths["disallowed"].add(path)
                             self.endpoints.add(urljoin(base_url, path))
-                    elif line.lower().startswith('allow:'):
-                        path = line.split(':', 1)[1].strip()
+                    elif line.lower().startswith("allow:"):
+                        path = line.split(":", 1)[1].strip()
                         if path:
-                            self.robots_paths['allowed'].add(path)
+                            self.robots_paths["allowed"].add(path)
                             self.endpoints.add(urljoin(base_url, path))
-                    elif line.lower().startswith('sitemap:'):
-                        sitemap_url = line.split(':', 1)[1].strip()
+                    elif line.lower().startswith("sitemap:"):
+                        sitemap_url = line.split(":", 1)[1].strip()
                         # Re-attach scheme when the value looked like "//host/path"
-                        if sitemap_url.startswith('//'):
-                            sitemap_url = urlparse(base_url).scheme + ':' + sitemap_url
+                        if sitemap_url.startswith("//"):
+                            sitemap_url = urlparse(base_url).scheme + ":" + sitemap_url
                         self._parse_sitemap_url(sitemap_url)
 
-                total = len(self.robots_paths['disallowed']) + len(self.robots_paths['allowed'])
+                total = len(self.robots_paths["disallowed"]) + len(self.robots_paths["allowed"])
                 print(f"{Colors.success(f'robots.txt: {total} paths discovered')}")
             else:
                 print(f"{Colors.info('robots.txt not found or inaccessible')}")
         except Exception as e:
-            if self.engine.config.get('verbose'):
+            if self.engine.config.get("verbose"):
                 print(f"{Colors.error(f'robots.txt error: {e}')}")
 
     # ──────────────────────────────────────
@@ -277,23 +455,23 @@ class DiscoveryModule:
         """Fetch a specific sitemap URL and extract entries."""
         print(f"{Colors.info(f'Fetching {sitemap_url}...')}")
         try:
-            resp = self.requester.request(sitemap_url, 'GET')
+            resp = self.requester.request(sitemap_url, "GET")
             if resp and resp.status_code == 200 and resp.text.strip():
                 try:
                     root = ET.fromstring(resp.text)
                 except ET.ParseError:
-                    if self.engine.config.get('verbose'):
+                    if self.engine.config.get("verbose"):
                         print(f"{Colors.warning('Sitemap XML parse failed')}")
                     return
 
                 # Handle sitemap index (contains <sitemap><loc>...</loc></sitemap>)
-                ns = {'sm': 'http://www.sitemaps.org/schemas/sitemap/0.9'}
-                for sitemap_tag in root.findall('.//sm:sitemap/sm:loc', ns):
+                ns = {"sm": "http://www.sitemaps.org/schemas/sitemap/0.9"}
+                for sitemap_tag in root.findall(".//sm:sitemap/sm:loc", ns):
                     if sitemap_tag.text:
                         self._parse_sitemap_url(sitemap_tag.text.strip())
 
                 # Handle url entries
-                for url_tag in root.findall('.//sm:url/sm:loc', ns):
+                for url_tag in root.findall(".//sm:url/sm:loc", ns):
                     if url_tag.text:
                         loc = url_tag.text.strip()
                         self.sitemap_urls.add(loc)
@@ -301,7 +479,7 @@ class DiscoveryModule:
 
                 # Try without namespace (some sitemaps lack it)
                 if not self.sitemap_urls:
-                    for loc_tag in root.iter('loc'):
+                    for loc_tag in root.iter("loc"):
                         if loc_tag.text:
                             loc = loc_tag.text.strip()
                             self.sitemap_urls.add(loc)
@@ -314,7 +492,7 @@ class DiscoveryModule:
             else:
                 print(f"{Colors.info('sitemap.xml not found or inaccessible')}")
         except Exception as e:
-            if self.engine.config.get('verbose'):
+            if self.engine.config.get("verbose"):
                 print(f"{Colors.error(f'sitemap.xml error: {e}')}")
 
     # ──────────────────────────────────────
@@ -342,9 +520,10 @@ class DiscoveryModule:
         # Optionally fetch live SecLists common wordlist
         try:
             from utils.github_wordlists import fetch_wordlist
-            gh_common = fetch_wordlist('seclists_common', max_lines=300)
+
+            gh_common = fetch_wordlist("seclists_common", max_lines=300)
             for p in gh_common:
-                entry = p if p.startswith('/') else f'/{p}'
+                entry = p if p.startswith("/") else f"/{p}"
                 if entry not in _seen:
                     all_paths.append(entry)
                     _seen.add(entry)
@@ -359,8 +538,8 @@ class DiscoveryModule:
         baseline_len = 0
         baseline_words: set = set()
         try:
-            canary_url = urljoin(base_url, '/atomic_nonexistent_path_9f3a1b')
-            canary_resp = self.requester.request(canary_url, 'GET')
+            canary_url = urljoin(base_url, "/atomic_nonexistent_path_9f3a1b")
+            canary_resp = self.requester.request(canary_url, "GET")
             if canary_resp:
                 baseline_len = len(canary_resp.text)
                 baseline_words = set(canary_resp.text.lower().split()[:50])
@@ -375,7 +554,7 @@ class DiscoveryModule:
                 continue
 
             try:
-                resp = self.requester.request(full_url, 'GET')
+                resp = self.requester.request(full_url, "GET")
                 if resp and resp.status_code not in (404, 500, 502, 503, 0):
                     # Custom 404 detection: if response body is very similar
                     # to our canary, treat it as a false positive.
@@ -391,10 +570,10 @@ class DiscoveryModule:
                     self.directories.add(path)
                     found += 1
 
-                    if self.engine.config.get('verbose'):
+                    if self.engine.config.get("verbose"):
                         print(f"  {Colors.GREEN}[{resp.status_code}]{Colors.RESET} {path}")
             except Exception as e:
-                if self.engine.config.get('verbose'):
+                if self.engine.config.get("verbose"):
                     print(f"{Colors.warning(f'  Dir brute error on {path}: {e}')}")
 
         print(f"{Colors.success(f'Directory brute-force: {found} live paths found')}")
@@ -409,15 +588,13 @@ class DiscoveryModule:
             self.endpoints.add(url)
 
         for form in crawler.forms:
-            self.endpoints.add(form.get('url', ''))
+            self.endpoints.add(form.get("url", ""))
 
         # Resource references
         for category, items in crawler.resources.items():
-            if category == 'comments':
+            if category == "comments":
                 for entry in items:
-                    self.interesting_findings.append(
-                        f"HTML comment on {entry['url']}: {entry['comment'][:120]}"
-                    )
+                    self.interesting_findings.append(f"HTML comment on {entry['url']}: {entry['comment'][:120]}")
             else:
                 for item in items:
                     self.endpoints.add(item)
@@ -438,22 +615,37 @@ class DiscoveryModule:
 
         # Define high-interest keyword groups and associated weights.
         high_interest = {
-            'auth':   ('/login', '/signin', '/auth', '/oauth', '/token',
-                        '/session', '/sso', '/password', '/reset',
-                        '/forgot', '/register', '/signup'),
-            'admin':  ('/admin', '/dashboard', '/manage', '/panel',
-                        '/control', '/cpanel', '/wp-admin', '/console'),
-            'api':    ('/api', '/graphql', '/rest', '/swagger', '/openapi',
-                        '/v1/', '/v2/', '/v3/', '/api-docs'),
-            'upload': ('/upload', '/file', '/media', '/attach',
-                        '/import', '/export'),
-            'config': ('/config', '/.env', '/settings', '/debug',
-                        '/phpinfo', '/server-info', '/server-status',
-                        '/trace', '/actuator', '/health'),
-            'data':   ('/backup', '/dump', '/database', '/db',
-                        '/phpmyadmin', '/adminer', '/sql'),
-            'scm':    ('/.git', '/.svn', '/.hg', '/.DS_Store',
-                        '/web.config', '/.htaccess'),
+            "auth": (
+                "/login",
+                "/signin",
+                "/auth",
+                "/oauth",
+                "/token",
+                "/session",
+                "/sso",
+                "/password",
+                "/reset",
+                "/forgot",
+                "/register",
+                "/signup",
+            ),
+            "admin": ("/admin", "/dashboard", "/manage", "/panel", "/control", "/cpanel", "/wp-admin", "/console"),
+            "api": ("/api", "/graphql", "/rest", "/swagger", "/openapi", "/v1/", "/v2/", "/v3/", "/api-docs"),
+            "upload": ("/upload", "/file", "/media", "/attach", "/import", "/export"),
+            "config": (
+                "/config",
+                "/.env",
+                "/settings",
+                "/debug",
+                "/phpinfo",
+                "/server-info",
+                "/server-status",
+                "/trace",
+                "/actuator",
+                "/health",
+            ),
+            "data": ("/backup", "/dump", "/database", "/db", "/phpmyadmin", "/adminer", "/sql"),
+            "scm": ("/.git", "/.svn", "/.hg", "/.DS_Store", "/web.config", "/.htaccess"),
         }
 
         category_counts = Counter()
@@ -477,18 +669,18 @@ class DiscoveryModule:
         priority_endpoints = unique_priority
 
         # Derive an overall risk suggestion
-        risk_level = 'LOW'
-        if category_counts.get('config') or category_counts.get('scm'):
-            risk_level = 'CRITICAL'
-        elif category_counts.get('admin') or category_counts.get('data'):
-            risk_level = 'HIGH'
-        elif category_counts.get('api') or category_counts.get('auth'):
-            risk_level = 'MEDIUM'
+        risk_level = "LOW"
+        if category_counts.get("config") or category_counts.get("scm"):
+            risk_level = "CRITICAL"
+        elif category_counts.get("admin") or category_counts.get("data"):
+            risk_level = "HIGH"
+        elif category_counts.get("api") or category_counts.get("auth"):
+            risk_level = "MEDIUM"
 
         self._analysis_result = {
-            'category_counts': dict(category_counts),
-            'priority_endpoints': priority_endpoints,
-            'risk_level': risk_level,
+            "category_counts": dict(category_counts),
+            "priority_endpoints": priority_endpoints,
+            "risk_level": risk_level,
         }
 
     # ──────────────────────────────────────
@@ -512,13 +704,13 @@ class DiscoveryModule:
             Newly discovered URLs within the same domain scope.
         """
         if not _HAS_AIOHTTP:
-            if self.engine.config.get('verbose'):
+            if self.engine.config.get("verbose"):
                 print(f"{Colors.info('aiohttp not installed – skipping async crawl')}")
             return set()
 
         print(f"{Colors.info('Running async web crawl...')}")
 
-        target_domain = urlparse(seed_urls[0]).netloc if seed_urls else ''
+        target_domain = urlparse(seed_urls[0]).netloc if seed_urls else ""
         discovered = set()
 
         async def _fetch(session, url):
@@ -527,13 +719,12 @@ class DiscoveryModule:
                 # SSL verification disabled for security testing targets that
                 # commonly use self-signed certificates. This is intentional for
                 # a vulnerability scanner — production clients should verify SSL.
-                async with session.get(url, timeout=aiohttp.ClientTimeout(total=10),
-                                       ssl=False) as resp:
-                    if resp.status == 200 and 'text' in resp.content_type:
-                        return await resp.text(errors='replace')
+                async with session.get(url, timeout=aiohttp.ClientTimeout(total=10), ssl=False) as resp:
+                    if resp.status == 200 and "text" in resp.content_type:
+                        return await resp.text(errors="replace")
             except Exception:
                 pass
-            return ''
+            return ""
 
         async def _extract_links(html, base_url):
             """Extract same-domain links from HTML using regex."""
@@ -543,7 +734,7 @@ class DiscoveryModule:
                 link = match.group(1)
                 absolute = urljoin(base_url, link)
                 parsed = urlparse(absolute)
-                if parsed.netloc == target_domain and parsed.scheme in ('http', 'https'):
+                if parsed.netloc == target_domain and parsed.scheme in ("http", "https"):
                     links.add(absolute)
             return links
 
@@ -596,7 +787,7 @@ class DiscoveryModule:
                 print(f"{Colors.info('Async crawl: no new URLs found')}")
             return result
         except Exception as e:
-            if self.engine.config.get('verbose'):
+            if self.engine.config.get("verbose"):
                 print(f"{Colors.error(f'Async crawl error: {e}')}")
             return set()
 
@@ -618,7 +809,7 @@ class DiscoveryModule:
             The root URL to analyse for links.
         """
         if not _HAS_BS4:
-            if self.engine.config.get('verbose'):
+            if self.engine.config.get("verbose"):
                 print(f"{Colors.info('bs4 not installed – skipping enhanced link extraction')}")
             return
 
@@ -628,11 +819,11 @@ class DiscoveryModule:
         target_domain = target_parsed.netloc
 
         try:
-            resp = self.requester.request(target, 'GET')
+            resp = self.requester.request(target, "GET")
             if not resp or resp.status_code != 200:
                 return
         except Exception as e:
-            if self.engine.config.get('verbose'):
+            if self.engine.config.get("verbose"):
                 print(f"{Colors.error(f'Enhanced extraction fetch error: {e}')}")
             return
 
@@ -640,21 +831,21 @@ class DiscoveryModule:
 
         # Select parser: prefer lxml, fall back to html.parser
         try:
-            soup = BeautifulSoup(html, 'lxml')
+            soup = BeautifulSoup(html, "lxml")
         except Exception:
-            soup = BeautifulSoup(html, 'html.parser')
+            soup = BeautifulSoup(html, "html.parser")
 
         found = set()
 
         # Tag-attribute pairs to extract URLs from
         tag_attrs = [
-            ('a', 'href'),
-            ('form', 'action'),
-            ('script', 'src'),
-            ('link', 'href'),
-            ('img', 'src'),
-            ('iframe', 'src'),
-            ('area', 'href'),
+            ("a", "href"),
+            ("form", "action"),
+            ("script", "src"),
+            ("link", "href"),
+            ("img", "src"),
+            ("iframe", "src"),
+            ("area", "href"),
         ]
 
         for tag_name, attr in tag_attrs:
@@ -663,18 +854,18 @@ class DiscoveryModule:
                 if value:
                     absolute = urljoin(target, value)
                     parsed = urlparse(absolute)
-                    if parsed.netloc == target_domain and parsed.scheme in ('http', 'https'):
+                    if parsed.netloc == target_domain and parsed.scheme in ("http", "https"):
                         found.add(absolute)
 
         # meta http-equiv="refresh" content="0;url=..."
-        for meta in soup.find_all('meta', attrs={'http-equiv': re.compile(r'refresh', re.IGNORECASE)}):
-            content = meta.get('content', '')
-            match = re.search(r'url\s*=\s*(.+)', content, re.IGNORECASE)
+        for meta in soup.find_all("meta", attrs={"http-equiv": re.compile(r"refresh", re.IGNORECASE)}):
+            content = meta.get("content", "")
+            match = re.search(r"url\s*=\s*(.+)", content, re.IGNORECASE)
             if match:
-                url = match.group(1).strip().strip('\'"')
+                url = match.group(1).strip().strip("'\"")
                 absolute = urljoin(target, url)
                 parsed = urlparse(absolute)
-                if parsed.netloc == target_domain and parsed.scheme in ('http', 'https'):
+                if parsed.netloc == target_domain and parsed.scheme in ("http", "https"):
                     found.add(absolute)
 
         # Inline JavaScript URL patterns
@@ -687,14 +878,14 @@ class DiscoveryModule:
             r'XMLHttpRequest[^"\']*open\s*\(\s*["\'][^"\']*["\']\s*,\s*["\']([^"\']+)["\']',
         ]
 
-        for script in soup.find_all('script'):
-            js_text = script.string or ''
+        for script in soup.find_all("script"):
+            js_text = script.string or ""
             for pattern in js_patterns:
                 for match in re.finditer(pattern, js_text):
                     url = match.group(1)
                     absolute = urljoin(target, url)
                     parsed = urlparse(absolute)
-                    if parsed.netloc == target_domain and parsed.scheme in ('http', 'https'):
+                    if parsed.netloc == target_domain and parsed.scheme in ("http", "https"):
                         found.add(absolute)
 
         new_urls = found - self.endpoints
@@ -735,7 +926,7 @@ class DiscoveryModule:
                 link = match.group(1)
                 absolute = urljoin(target, link)
                 parsed = urlparse(absolute)
-                if parsed.netloc == target_domain and parsed.scheme in ('http', 'https'):
+                if parsed.netloc == target_domain and parsed.scheme in ("http", "https"):
                     urls.add(absolute)
             return urls
 
@@ -752,8 +943,7 @@ class DiscoveryModule:
         )
         try:
             proc = subprocess.run(
-                ['python', '-c', playwright_script, target],
-                capture_output=True, text=True, timeout=timeout
+                ["python", "-c", playwright_script, target], capture_output=True, text=True, timeout=timeout
             )
             if proc.returncode == 0 and proc.stdout.strip():
                 rendered_urls = _extract_urls_from_source(proc.stdout)
@@ -764,10 +954,10 @@ class DiscoveryModule:
         except FileNotFoundError:
             pass
         except subprocess.TimeoutExpired:
-            if self.engine.config.get('verbose'):
+            if self.engine.config.get("verbose"):
                 print(f"{Colors.warning('Playwright timed out')}")
         except Exception as e:
-            if self.engine.config.get('verbose'):
+            if self.engine.config.get("verbose"):
                 print(f"{Colors.warning(f'Playwright unavailable: {e}')}")
 
         # ── Strategy 2: Puppeteer via Node.js ──
@@ -785,8 +975,7 @@ class DiscoveryModule:
         )
         try:
             proc = subprocess.run(
-                ['node', '-e', puppeteer_script, target],
-                capture_output=True, text=True, timeout=timeout
+                ["node", "-e", puppeteer_script, target], capture_output=True, text=True, timeout=timeout
             )
             if proc.returncode == 0 and proc.stdout.strip():
                 rendered_urls = _extract_urls_from_source(proc.stdout)
@@ -797,10 +986,10 @@ class DiscoveryModule:
         except FileNotFoundError:
             pass
         except subprocess.TimeoutExpired:
-            if self.engine.config.get('verbose'):
+            if self.engine.config.get("verbose"):
                 print(f"{Colors.warning('Puppeteer timed out')}")
         except Exception as e:
-            if self.engine.config.get('verbose'):
+            if self.engine.config.get("verbose"):
                 print(f"{Colors.warning(f'Puppeteer unavailable: {e}')}")
 
         # ── Strategy 3: Selenium via Python ──
@@ -824,8 +1013,7 @@ class DiscoveryModule:
         )
         try:
             proc = subprocess.run(
-                ['python', '-c', selenium_script, target],
-                capture_output=True, text=True, timeout=timeout
+                ["python", "-c", selenium_script, target], capture_output=True, text=True, timeout=timeout
             )
             if proc.returncode == 0 and proc.stdout.strip():
                 rendered_urls = _extract_urls_from_source(proc.stdout)
@@ -836,10 +1024,10 @@ class DiscoveryModule:
         except FileNotFoundError:
             pass
         except subprocess.TimeoutExpired:
-            if self.engine.config.get('verbose'):
+            if self.engine.config.get("verbose"):
                 print(f"{Colors.warning('Selenium timed out')}")
         except Exception as e:
-            if self.engine.config.get('verbose'):
+            if self.engine.config.get("verbose"):
                 print(f"{Colors.warning(f'Selenium unavailable: {e}')}")
 
         print(f"{Colors.info('JS rendering: no supported browser engine found')}")
@@ -870,10 +1058,7 @@ class DiscoveryModule:
 
         # ── Strategy 1: gau ──
         try:
-            proc = subprocess.run(
-                ['gau', '--subs', target_domain],
-                capture_output=True, text=True, timeout=timeout
-            )
+            proc = subprocess.run(["gau", "--subs", target_domain], capture_output=True, text=True, timeout=timeout)
             if proc.returncode == 0 and proc.stdout.strip():
                 for line in proc.stdout.strip().splitlines():
                     url = line.strip()
@@ -885,21 +1070,18 @@ class DiscoveryModule:
                     print(f"{Colors.success(f'Passive (gau): {len(new_urls)} new URLs collected')}")
                     return
         except FileNotFoundError:
-            if self.engine.config.get('verbose'):
+            if self.engine.config.get("verbose"):
                 print(f"{Colors.info('gau not found, trying waybackurls...')}")
         except subprocess.TimeoutExpired:
-            if self.engine.config.get('verbose'):
+            if self.engine.config.get("verbose"):
                 print(f"{Colors.warning('gau timed out')}")
         except Exception as e:
-            if self.engine.config.get('verbose'):
+            if self.engine.config.get("verbose"):
                 print(f"{Colors.warning(f'gau error: {e}')}")
 
         # ── Strategy 2: waybackurls ──
         try:
-            proc = subprocess.run(
-                ['waybackurls', target_domain],
-                capture_output=True, text=True, timeout=timeout
-            )
+            proc = subprocess.run(["waybackurls", target_domain], capture_output=True, text=True, timeout=timeout)
             if proc.returncode == 0 and proc.stdout.strip():
                 for line in proc.stdout.strip().splitlines():
                     url = line.strip()
@@ -911,13 +1093,13 @@ class DiscoveryModule:
                     print(f"{Colors.success(f'Passive (waybackurls): {len(new_urls)} new URLs collected')}")
                     return
         except FileNotFoundError:
-            if self.engine.config.get('verbose'):
+            if self.engine.config.get("verbose"):
                 print(f"{Colors.info('waybackurls not found, using Wayback CDX API...')}")
         except subprocess.TimeoutExpired:
-            if self.engine.config.get('verbose'):
+            if self.engine.config.get("verbose"):
                 print(f"{Colors.warning('waybackurls timed out')}")
         except Exception as e:
-            if self.engine.config.get('verbose'):
+            if self.engine.config.get("verbose"):
                 print(f"{Colors.warning(f'waybackurls error: {e}')}")
 
         # ── Strategy 3: Wayback Machine CDX API direct query ──
@@ -927,11 +1109,9 @@ class DiscoveryModule:
                 f"?url={quote(target_domain, safe='')}/*"
                 f"&output=json&fl=original&collapse=urlkey&limit=500"
             )
-            req = Request(cdx_url, headers={
-                'User-Agent': 'ATOMIC-Framework/9.0'
-            })
+            req = Request(cdx_url, headers={"User-Agent": "ATOMIC-Framework/9.0"})
             with urlopen(req, timeout=timeout) as response:
-                data = json.loads(response.read().decode('utf-8', errors='replace'))
+                data = json.loads(response.read().decode("utf-8", errors="replace"))
                 # First row is the header ["original"], skip it
                 for row in data[1:]:
                     if row:
@@ -939,7 +1119,7 @@ class DiscoveryModule:
                         if target_domain in urlparse(url).netloc:
                             collected.add(url)
         except Exception as e:
-            if self.engine.config.get('verbose'):
+            if self.engine.config.get("verbose"):
                 print(f"{Colors.warning(f'Wayback CDX API error: {e}')}")
 
         if collected:
@@ -955,31 +1135,57 @@ class DiscoveryModule:
 
     def _discover_backup_files(self, base_url: str):
         """Probe for common backup files that leak source code or secrets."""
-        backup_extensions = [
-            '.bak', '.backup', '.old', '.orig', '.save', '.swp', '.swo',
-            '~', '.copy', '.tmp', '.temp', '.dist', '.sample', '.example',
-        ]
         backup_patterns = [
             # Source code archives
-            '/backup.zip', '/backup.tar.gz', '/backup.sql', '/dump.sql',
-            '/database.sql', '/db.sql', '/site.zip', '/www.zip',
-            '/public.zip', '/source.zip', '/code.zip', '/app.zip',
-            '/backup.tar', '/backup.gz', '/backup.7z', '/backup.rar',
+            "/backup.zip",
+            "/backup.tar.gz",
+            "/backup.sql",
+            "/dump.sql",
+            "/database.sql",
+            "/db.sql",
+            "/site.zip",
+            "/www.zip",
+            "/public.zip",
+            "/source.zip",
+            "/code.zip",
+            "/app.zip",
+            "/backup.tar",
+            "/backup.gz",
+            "/backup.7z",
+            "/backup.rar",
             # Config file backups
-            '/.env.bak', '/.env.backup', '/.env.old', '/.env.example',
-            '/wp-config.php.bak', '/wp-config.php.old', '/wp-config.php.save',
-            '/config.php.bak', '/config.yml.bak', '/settings.py.bak',
-            '/web.config.bak', '/web.config.old',
-            '/appsettings.json.bak', '/application.yml.bak',
+            "/.env.bak",
+            "/.env.backup",
+            "/.env.old",
+            "/.env.example",
+            "/wp-config.php.bak",
+            "/wp-config.php.old",
+            "/wp-config.php.save",
+            "/config.php.bak",
+            "/config.yml.bak",
+            "/settings.py.bak",
+            "/web.config.bak",
+            "/web.config.old",
+            "/appsettings.json.bak",
+            "/application.yml.bak",
             # Editor swap/backup files
-            '/.htaccess.bak', '/.htpasswd.bak',
-            '/index.php.bak', '/index.php~', '/index.php.swp',
+            "/.htaccess.bak",
+            "/.htpasswd.bak",
+            "/index.php.bak",
+            "/index.php~",
+            "/index.php.swp",
             # VCS leftovers
-            '/.git/config', '/.git/HEAD', '/.git/index',
-            '/.svn/entries', '/.svn/wc.db',
-            '/.hg/store/data',
+            "/.git/config",
+            "/.git/HEAD",
+            "/.git/index",
+            "/.svn/entries",
+            "/.svn/wc.db",
+            "/.hg/store/data",
             # Database dumps
-            '/mysqldump.sql', '/pgdump.sql', '/data.json', '/export.csv',
+            "/mysqldump.sql",
+            "/pgdump.sql",
+            "/data.json",
+            "/export.csv",
         ]
 
         print(f"{Colors.info('Probing for backup/source files...')}")
@@ -988,8 +1194,7 @@ class DiscoveryModule:
         # Build baseline for custom 404 detection
         baseline_len = 0
         try:
-            canary_resp = self.requester.request(
-                urljoin(base_url, '/atomic_backup_test_nonexist.bak'), 'GET')
+            canary_resp = self.requester.request(urljoin(base_url, "/atomic_backup_test_nonexist.bak"), "GET")
             if canary_resp:
                 baseline_len = len(canary_resp.text)
         except Exception:
@@ -1000,30 +1205,49 @@ class DiscoveryModule:
             if full_url in self.endpoints:
                 continue
             try:
-                resp = self.requester.request(full_url, 'GET')
+                resp = self.requester.request(full_url, "GET")
                 if resp and resp.status_code == 200:
                     # Skip custom 404 pages
                     if baseline_len and abs(len(resp.text) - baseline_len) < 100:
                         continue
                     # Check for real content indicators
-                    content_type = resp.headers.get('Content-Type', '').lower()
-                    if any(ct in content_type for ct in [
-                        'octet-stream', 'zip', 'gzip', 'tar', 'sql',
-                        'json', 'yaml', 'xml', 'text/plain',
-                    ]) or len(resp.text) > 500:
+                    content_type = resp.headers.get("Content-Type", "").lower()
+                    if (
+                        any(
+                            ct in content_type
+                            for ct in [
+                                "octet-stream",
+                                "zip",
+                                "gzip",
+                                "tar",
+                                "sql",
+                                "json",
+                                "yaml",
+                                "xml",
+                                "text/plain",
+                            ]
+                        )
+                        or len(resp.text) > 500
+                    ):
                         self.endpoints.add(full_url)
                         found += 1
                         # Report as finding
                         from core.engine import Finding
-                        severity = 'CRITICAL' if any(
-                            kw in path for kw in ['.sql', '.env', '.zip', '.tar', 'config', 'wp-config']
-                        ) else 'HIGH'
+
+                        severity = (
+                            "CRITICAL"
+                            if any(kw in path for kw in [".sql", ".env", ".zip", ".tar", "config", "wp-config"])
+                            else "HIGH"
+                        )
                         finding = Finding(
                             technique="Discovery (Backup File Exposed)",
-                            url=full_url, severity=severity, confidence=0.85,
-                            param='N/A', payload=path,
+                            url=full_url,
+                            severity=severity,
+                            confidence=0.85,
+                            param="N/A",
+                            payload=path,
                             evidence=f"Backup file accessible: {path} ({len(resp.text)} bytes, "
-                                     f"Content-Type: {content_type[:50]})",
+                            f"Content-Type: {content_type[:50]})",
                         )
                         self.engine.add_finding(finding)
             except Exception:
@@ -1043,12 +1267,12 @@ class DiscoveryModule:
         # Collect JS file URLs from already-discovered endpoints
         js_urls = set()
         for ep in self.endpoints:
-            if ep.endswith('.js') and 'jquery' not in ep.lower() and 'bootstrap' not in ep.lower():
+            if ep.endswith(".js") and "jquery" not in ep.lower() and "bootstrap" not in ep.lower():
                 js_urls.add(ep)
 
         # Also look for script tags in the main page
         try:
-            resp = self.requester.request(target, 'GET')
+            resp = self.requester.request(target, "GET")
             if resp and resp.text:
                 for match in re.finditer(r'<script[^>]*src=["\']([^"\']+\.js)["\']', resp.text, re.IGNORECASE):
                     js_url = urljoin(target, match.group(1))
@@ -1072,9 +1296,12 @@ class DiscoveryModule:
         ]
 
         secret_patterns = [
-            (r'(?:api[_-]?key|apikey|access[_-]?token|secret[_-]?key|auth[_-]?token)\s*[:=]\s*["\']([^"\']{8,})["\']', 'API Key/Secret'),
-            (r'(?:aws_access_key_id|aws_secret_access_key)\s*[:=]\s*["\']([^"\']+)["\']', 'AWS Credential'),
-            (r'(?:firebase|supabase|stripe)[\w]*\s*[:=]\s*["\']([^"\']{10,})["\']', 'Service Key'),
+            (
+                r'(?:api[_-]?key|apikey|access[_-]?token|secret[_-]?key|auth[_-]?token)\s*[:=]\s*["\']([^"\']{8,})["\']',
+                "API Key/Secret",
+            ),
+            (r'(?:aws_access_key_id|aws_secret_access_key)\s*[:=]\s*["\']([^"\']+)["\']', "AWS Credential"),
+            (r'(?:firebase|supabase|stripe)[\w]*\s*[:=]\s*["\']([^"\']{10,})["\']', "Service Key"),
         ]
 
         new_endpoints = set()
@@ -1084,7 +1311,7 @@ class DiscoveryModule:
 
         for js_url in list(js_urls)[:30]:  # Limit to 30 JS files
             try:
-                resp = self.requester.request(js_url, 'GET')
+                resp = self.requester.request(js_url, "GET")
                 if not resp or not resp.text:
                     continue
                 js_content = resp.text
@@ -1093,7 +1320,7 @@ class DiscoveryModule:
                 for pattern in endpoint_patterns:
                     for match in re.finditer(pattern, js_content):
                         path = match.group(1)
-                        if path.startswith('/') and len(path) > 2:
+                        if path.startswith("/") and len(path) > 2:
                             full_url = urljoin(base_url, path)
                             if full_url not in self.endpoints:
                                 new_endpoints.add(full_url)
@@ -1101,11 +1328,13 @@ class DiscoveryModule:
                 # Extract secrets
                 for pattern, secret_type in secret_patterns:
                     for match in re.finditer(pattern, js_content, re.IGNORECASE):
-                        secrets_found.append({
-                            'type': secret_type,
-                            'file': js_url,
-                            'value': match.group(1)[:20] + '...',
-                        })
+                        secrets_found.append(
+                            {
+                                "type": secret_type,
+                                "file": js_url,
+                                "value": match.group(1)[:20] + "...",
+                            }
+                        )
             except Exception:
                 continue
 
@@ -1115,11 +1344,15 @@ class DiscoveryModule:
 
         if secrets_found:
             from core.engine import Finding
+
             for secret in secrets_found[:5]:  # Cap findings
                 finding = Finding(
                     technique="Discovery (JS Secret Exposure)",
-                    url=secret['file'], severity='HIGH', confidence=0.75,
-                    param='N/A', payload=secret['type'],
+                    url=secret["file"],
+                    severity="HIGH",
+                    confidence=0.75,
+                    param="N/A",
+                    payload=secret["type"],
                     evidence=f"{secret['type']} found in JS: {secret['value']}",
                 )
                 self.engine.add_finding(finding)
@@ -1144,34 +1377,33 @@ class DiscoveryModule:
         print(f"    Live directories             : {len(self.directories)}")
 
         # Robots
-        if self.robots_paths['disallowed']:
+        if self.robots_paths["disallowed"]:
             print(f"\n  {Colors.BOLD}robots.txt – Disallowed Paths (potential hidden content){Colors.RESET}")
-            for path in sorted(self.robots_paths['disallowed']):
+            for path in sorted(self.robots_paths["disallowed"]):
                 print(f"    {Colors.YELLOW}{path}{Colors.RESET}")
 
         # Smart analysis
-        analysis = getattr(self, '_analysis_result', None)
+        analysis = getattr(self, "_analysis_result", None)
         if analysis:
-            risk = analysis['risk_level']
+            risk = analysis["risk_level"]
             risk_color = {
-                'CRITICAL': f"{Colors.RED}{Colors.BOLD}",
-                'HIGH':     Colors.RED,
-                'MEDIUM':   Colors.YELLOW,
-                'LOW':      Colors.GREEN,
+                "CRITICAL": f"{Colors.RED}{Colors.BOLD}",
+                "HIGH": Colors.RED,
+                "MEDIUM": Colors.YELLOW,
+                "LOW": Colors.GREEN,
             }.get(risk, Colors.WHITE)
 
             print(f"\n  {Colors.BOLD}Smart Analysis{Colors.RESET}")
             print(f"    Estimated attack surface risk: {risk_color}{risk}{Colors.RESET}")
 
-            if analysis['category_counts']:
+            if analysis["category_counts"]:
                 print(f"\n    {Colors.BOLD}Endpoint Categories:{Colors.RESET}")
-                for cat, count in sorted(analysis['category_counts'].items(),
-                                         key=lambda x: -x[1]):
+                for cat, count in sorted(analysis["category_counts"].items(), key=lambda x: -x[1]):
                     print(f"      {cat:10s} : {count}")
 
-            if analysis['priority_endpoints']:
+            if analysis["priority_endpoints"]:
                 print(f"\n    {Colors.BOLD}High-Priority Endpoints:{Colors.RESET}")
-                for cat, ep in analysis['priority_endpoints'][:20]:
+                for cat, ep in analysis["priority_endpoints"][:20]:
                     print(f"      [{cat:6s}] {ep}")
 
         # Interesting findings (e.g. HTML comments)
