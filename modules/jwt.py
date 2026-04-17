@@ -30,7 +30,7 @@ class JWTModule:
         if re.match(self.jwt_pattern, value):
             self._analyze_jwt(url, param, value)
             # Phase J2: Run advanced JWT attacks
-            self._test_kid_injection(url, method, param, value)
+            self._test_kid_injection_advanced(url, method, param, value)
             self._test_jwks_injection(url, method, param, value)
             self._test_weak_secret(url, method, param, value)
             self._test_expired_replay(url, method, param, value)
@@ -255,7 +255,7 @@ class JWTModule:
     # Phase J2: JWT Advanced Attacks
     # ------------------------------------------------------------------
 
-    def _test_kid_injection(self, url, method, param, token):
+    def _test_kid_injection_advanced(self, url, method, param, token):
         """J2: Key ID (kid) injection — path traversal / SQLi via kid header."""
         kid_payloads = [
             "../../dev/null",

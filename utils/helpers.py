@@ -214,55 +214,97 @@ def detect_waf(response):
 
 
 def extract_forms(html: str, base_url: str) -> list:
-    """Extract forms from HTML"""
+    """Extract forms from HTML.
+
+    Uses BeautifulSoup when available, falls back to regex parsing.
+    """
     try:
         from bs4 import BeautifulSoup
+        soup = BeautifulSoup(html, 'html.parser')
+        forms = []
+        for form in soup.find_all('form'):
+            form_data = {
+                'action': form.get('action', ''),
+                'method': form.get('method', 'get').upper(),
+                'inputs': []
+            }
+            for inp in form.find_all(['input', 'textarea', 'select']):
+                form_data['inputs'].append({
+                    'name': inp.get('name', ''),
+                    'type': inp.get('type', 'text'),
+                    'value': inp.get('value', ''),
+                })
+            forms.append(form_data)
+        return forms
     except ImportError:
-        return []
-    
-    soup = BeautifulSoup(html, 'html.parser')
+        pass
+
+    # Regex fallback when bs4 is not installed
+    import re
+    from urllib.parse import urljoin
+
     forms = []
-    
-    for form in soup.find_all('form'):
+    for form_match in re.finditer(
+            r'<form\b([^>]*)>(.*?)</form>', html, re.DOTALL | re.IGNORECASE):
+        attrs_str = form_match.group(1)
+        body = form_match.group(2)
+
+        action_m = re.search(r'action=["\']([^"\']*)["\']', attrs_str, re.IGNORECASE)
+        method_m = re.search(r'method=["\']([^"\']*)["\']', attrs_str, re.IGNORECASE)
+
         form_data = {
-            'action': form.get('action', ''),
-            'method': form.get('method', 'get').upper(),
-            'inputs': []
+            'action': action_m.group(1) if action_m else '',
+            'method': (method_m.group(1) if method_m else 'get').upper(),
+            'inputs': [],
         }
-        
-        for inp in form.find_all(['input', 'textarea', 'select']):
+
+        for inp_match in re.finditer(
+                r'<(?:input|textarea|select)\b([^>]*)/?>', body, re.IGNORECASE):
+            tag_attrs = inp_match.group(1)
+            name_m = re.search(r'name=["\']([^"\']*)["\']', tag_attrs, re.IGNORECASE)
+            type_m = re.search(r'type=["\']([^"\']*)["\']', tag_attrs, re.IGNORECASE)
+            val_m = re.search(r'value=["\']([^"\']*)["\']', tag_attrs, re.IGNORECASE)
             form_data['inputs'].append({
-                'name': inp.get('name', ''),
-                'type': inp.get('type', 'text'),
-                'value': inp.get('value', ''),
+                'name': name_m.group(1) if name_m else '',
+                'type': type_m.group(1) if type_m else 'text',
+                'value': val_m.group(1) if val_m else '',
             })
-        
+
         forms.append(form_data)
-    
     return forms
 
 
 def extract_links(html: str, base_url: str) -> list:
-    """Extract links from HTML"""
+    """Extract links from HTML.
+
+    Uses BeautifulSoup when available, falls back to regex parsing.
+    """
+    from urllib.parse import urljoin, urlparse
+
     try:
         from bs4 import BeautifulSoup
-        from urllib.parse import urljoin, urlparse
+        soup = BeautifulSoup(html, 'html.parser')
+        links = set()
+        base_domain = urlparse(base_url).netloc
+        for link in soup.find_all('a', href=True):
+            href = link['href']
+            full_url = urljoin(base_url, href)
+            if urlparse(full_url).netloc == base_domain:
+                links.add(full_url)
+        return list(links)
     except ImportError:
-        return []
-    
-    soup = BeautifulSoup(html, 'html.parser')
+        pass
+
+    # Regex fallback when bs4 is not installed
+    import re
+
     links = set()
-    
     base_domain = urlparse(base_url).netloc
-    
-    for link in soup.find_all('a', href=True):
-        href = link['href']
+    for match in re.finditer(r'<a\b[^>]*href=["\']([^"\']+)["\']', html, re.IGNORECASE):
+        href = match.group(1)
         full_url = urljoin(base_url, href)
-        
-        # Only keep same-domain links
         if urlparse(full_url).netloc == base_domain:
             links.add(full_url)
-    
     return list(links)
 
 
