@@ -143,11 +143,8 @@ class TestIsShellCommandAllowed(unittest.TestCase):
         self.assertFalse(_is_shell_command_allowed(""))
 
     def test_returns_false_for_only_spaces(self):
-        """Whitespace-only input causes an IndexError in the current
-        implementation (split produces an empty list).  Verify the
-        function does not silently allow it."""
-        with self.assertRaises(IndexError):
-            _is_shell_command_allowed("   ")
+        """Whitespace-only input should return False."""
+        self.assertFalse(_is_shell_command_allowed("   "))
 
     def test_allowlist_contains_expected_commands(self):
         expected = {"ls", "cat", "head", "tail", "whoami", "id", "uname", "pwd"}

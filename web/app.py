@@ -210,14 +210,17 @@ def _is_shell_command_allowed(cmd: str) -> bool:
     """Check if a shell command is in the allowlist.
 
     Only the base command (first token) is checked against the allowlist.
-    Pipe chains and semicolons are rejected outright.
+    Pipe chains, semicolons, and control characters are rejected outright.
     """
-    if not cmd:
+    if not cmd or not cmd.strip():
         return False
-    # Reject command chaining / piping attempts
-    if any(c in cmd for c in [";", "&&", "||", "|", "`", "$("]):
+    # Reject command chaining / piping / control character attempts
+    if any(c in cmd for c in [";", "&&", "||", "|", "`", "$(", "\n", "\r"]):
         return False
-    base_cmd = cmd.split()[0].strip()
+    tokens = cmd.split()
+    if not tokens:
+        return False
+    base_cmd = tokens[0].strip()
     return base_cmd in SHELL_COMMAND_ALLOWLIST
 
 

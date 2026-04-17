@@ -150,6 +150,7 @@ class AtomicEngine:
             self._phase_enum = Phase
             self._phase_partition = PHASE_PARTITION
         except ImportError:
+            logger.warning("pipeline_contract module unavailable — using basic phase tracking")
             self._phase_enum = None
             self._phase_partition = {}
 
