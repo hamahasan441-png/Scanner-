@@ -97,8 +97,33 @@ class PluginManager:
             "pre_scan": [],
             "post_scan": [],
             "on_finding": [],
+            "on_scan_start": [],
+            "on_scan_complete": [],
             "pre_report": [],
+            "post_report": [],
         }
+
+    # --- Discovery & Loading ---
+
+    def discover_and_load_all(self) -> List[str]:
+        """Discover and load all available plugins, returning loaded names.
+
+        This is the recommended entry-point for plugin initialisation at
+        engine startup.  Plugins that define lifecycle hook methods
+        (``on_scan_start``, ``on_finding``, ``on_scan_complete``) are
+        automatically registered.
+        """
+        loaded = []
+        for name in self.discover_plugins():
+            info = self.load_plugin(name)
+            if info and info.instance:
+                # Auto-register lifecycle hooks exposed by the plugin class
+                for hook_name in self._hooks:
+                    handler = getattr(info.instance, hook_name, None)
+                    if callable(handler):
+                        self.register_hook(hook_name, handler)
+                loaded.append(name)
+        return loaded
 
     # --- Discovery & Loading ---
 

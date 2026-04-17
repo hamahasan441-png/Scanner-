@@ -1,0 +1,23 @@
+# ATOMIC Framework v10.0 - Docker Compose
+# Usage:
+#   docker compose up        # Start web dashboard
+#   docker compose run atomic -t https://target.com --full
+
+services:
+  atomic:
+    build: .
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./reports:/app/reports
+      - ./shells:/app/shells
+    environment:
+      # Set API key for production use (leave empty for dev)
+      - ATOMIC_API_KEY=${ATOMIC_API_KEY:-}
+      # Secret key for Flask sessions
+      - ATOMIC_SECRET_KEY=${ATOMIC_SECRET_KEY:-}
+      # CORS allowed origins (comma-separated)
+      - ATOMIC_CORS_ORIGINS=${ATOMIC_CORS_ORIGINS:-}
+      # Scanner profile: accuracy_only, stealth, aggressive
+      - ATOMIC_PROFILE=${ATOMIC_PROFILE:-accuracy_only}
+    restart: unless-stopped
