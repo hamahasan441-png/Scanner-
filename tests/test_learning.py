@@ -70,21 +70,21 @@ class TestRecordSuccess(unittest.TestCase):
 
     def test_record_single_success(self):
         store = _make_store()
-        store.record_success("sqli", "' OR 1=1--")
+        store.record_success("sqli", "' OR 1=1--", verified=True)
         self.assertIn("sqli", store.successful_payloads)
         self.assertEqual(store.successful_payloads["sqli"]["' OR 1=1--"], 1)
 
     def test_record_success_increments_count(self):
         store = _make_store()
-        store.record_success("xss", "<script>")
-        store.record_success("xss", "<script>")
-        store.record_success("xss", "<script>")
+        store.record_success("xss", "<script>", verified=True)
+        store.record_success("xss", "<script>", verified=True)
+        store.record_success("xss", "<script>", verified=True)
         self.assertEqual(store.successful_payloads["xss"]["<script>"], 3)
 
     def test_record_success_multiple_payloads(self):
         store = _make_store()
-        store.record_success("sqli", "payload_a")
-        store.record_success("sqli", "payload_b")
+        store.record_success("sqli", "payload_a", verified=True)
+        store.record_success("sqli", "payload_b", verified=True)
         self.assertEqual(len(store.successful_payloads["sqli"]), 2)
 
 
@@ -147,7 +147,7 @@ class TestGetPriorityPayloads(unittest.TestCase):
 
     def test_successful_payloads_come_first(self):
         store = _make_store()
-        store.record_success("sqli", "good_payload")
+        store.record_success("sqli", "good_payload", verified=True)
         result = store.get_priority_payloads("sqli", ["neutral", "good_payload"])
         self.assertEqual(result[0], "good_payload")
 
@@ -375,7 +375,7 @@ class TestLearningSummary(unittest.TestCase):
 
     def test_summary_reflects_records(self):
         store = _make_store()
-        store.record_success("sqli", "payload1")
+        store.record_success("sqli", "payload1", verified=True)
         store.record_failure("xss", "payload2")
         store.record_domain_profile("example.com", set(), [])
         summary = store.get_learning_summary()

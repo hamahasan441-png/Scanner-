@@ -62,14 +62,14 @@ class _MockFinding:
 # ---------------------------------------------------------------------------
 
 
-def _make_uploader(responses=None, config=None):
+def _make_uploader(responses=None, config=None, scan_only=True):
     """Return (ShellUploader, tmpdir) with Config.SHELLS_DIR patched."""
     tmpdir = tempfile.mkdtemp()
     shells_dir = os.path.join(tmpdir, "shells")
     with patch("modules.uploader.Config") as mock_cfg:
         mock_cfg.SHELLS_DIR = shells_dir
         engine = _MockEngine(responses=responses, config=config)
-        uploader = ShellUploader(engine)
+        uploader = ShellUploader(engine, scan_only=scan_only)
     return uploader, tmpdir
 
 
@@ -140,7 +140,7 @@ class TestRunRouting(unittest.TestCase):
     """Tests for ShellUploader.run() dispatching."""
 
     def setUp(self):
-        self.uploader, self._tmpdir = _make_uploader()
+        self.uploader, self._tmpdir = _make_uploader(scan_only=False)
 
     def tearDown(self):
         shutil.rmtree(self._tmpdir)
