@@ -123,7 +123,7 @@ class OpenRedirectModule:
                 if loc_host == payload_host:
                     return True
                 # Also catch subdomains of the payload domain
-                if loc_host.endswith("." + payload_host):
+                if payload_host and loc_host.endswith("." + payload_host):
                     return True
         except Exception:
             pass

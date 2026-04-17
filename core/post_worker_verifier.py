@@ -627,10 +627,10 @@ class PostWorkerVerifier:
 
         if "ssti" in technique:
             # SSTI: require exact word boundary match for math results (not substrings of larger numbers)
-            import re as _re
+            import re as ssti_re
 
             ssti_results = ["49", "7777777", "36", "343", "16", "25", "64", "81", "100", "125"]
-            return any(_re.search(r"(?<!\d)" + _re.escape(r) + r"(?!\d)", text) for r in ssti_results)
+            return any(ssti_re.search(r"(?<!\d)" + ssti_re.escape(val) + r"(?!\d)", text) for val in ssti_results)
 
         if "lfi" in technique:
             return any(kw in text for kw in ["root:x:0:0", "[extensions]", "boot loader", "for 16-bit app support"])

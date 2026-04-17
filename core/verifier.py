@@ -223,7 +223,7 @@ class Verifier:
             return abs(len(response.text) - len(finding.evidence)) > 20, resp_len
 
         if "command" in technique_lower:
-            indicators = ["uid=", "root:x:", "/bin/sh", "volume serial"]
+            indicators = ["uid=", "root:x:0:0:", "/bin/sh", "volume serial"]
             return any(ind in response_text for ind in indicators), resp_len
 
         # Generic: require the response to differ meaningfully from a clean request

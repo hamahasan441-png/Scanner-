@@ -5,6 +5,8 @@ ATOMIC FRAMEWORK - SSTI Module
 Server-Side Template Injection detection and exploitation
 """
 
+import re
+
 from config import Payloads, Colors
 
 
@@ -106,11 +108,11 @@ class SSTIModule:
                 # 1. "49" must be present but NOT as part of a larger number
                 # 2. The raw template syntax must NOT be in the response (it was evaluated)
                 # 3. The result must NOT have been in the baseline
-                import re as _re
+                _49_pattern = re.compile(r"(?<!\d)49(?!\d)")
 
-                if _re.search(r"(?<!\d)49(?!\d)", resp_text) and "{{7*7}}" not in resp_text:
+                if _49_pattern.search(resp_text) and "{{7*7}}" not in resp_text:
                     # Verify "49" is new (not in baseline)
-                    if not _re.search(r"(?<!\d)49(?!\d)", baseline_text):
+                    if not _49_pattern.search(baseline_text):
                         from core.engine import Finding
 
                         finding = Finding(

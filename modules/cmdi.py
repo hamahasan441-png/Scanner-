@@ -174,9 +174,18 @@ class CommandInjectionModule:
                     continue
                 text = response.text.lower()
                 # Only flag if indicator is NEW (not in baseline)
-                if ("root:x:0:0:" in text and "root:x:0:0:" not in baseline_text) or (
-                    "evil.example.com" in text and "evil.example.com" not in baseline_text
-                ):
+                # Check for passwd file content indicating env variable was evaluated
+                has_passwd = "root:x:0:0:" in text and "root:x:0:0:" not in baseline_text
+                # Check for proxy injection evidence (the injected domain appears in response)
+                env_payload_lower = payload.lower()
+                has_env_evidence = False
+                if "http_proxy=" in env_payload_lower:
+                    # Extract the injected domain from the payload
+                    proxy_url = payload.split("=", 1)[1] if "=" in payload else ""
+                    proxy_domain = proxy_url.rstrip("/")
+                    if proxy_domain and proxy_domain.lower() in text and proxy_domain.lower() not in baseline_text:
+                        has_env_evidence = True
+                if has_passwd or has_env_evidence:
                     from core.engine import Finding
 
                     finding = Finding(
