@@ -66,6 +66,36 @@ class Verifier:
             if finding.severity in ('HIGH', 'CRITICAL') and finding.confidence < VERIFICATION_CONFIDENCE_THRESHOLD:
                 result = self._verify_with_correlation(finding)
                 if result == 'confirmed':
+                    # Check rules-engine reject_if before confirming
+                    if self._rules and hasattr(finding, 'technique'):
+                        evidence_tags = set()
+                        signals = finding.signals or {}
+                        # Build evidence tags from signals
+                        if signals.get('timing', 0) > 0.3 and signals.get('error', 0) <= 0.3:
+                            evidence_tags.add('single_timing_spike')
+                        if signals.get('reflection', 0) > 0.3 and signals.get('error', 0) <= 0.3 and signals.get('timing', 0) <= 0.3:
+                            evidence_tags.add('reflection_only')
+                        if signals.get('error', 0) > 0.3 and 'generic' in str(finding.evidence).lower():
+                            evidence_tags.add('generic_500_only')
+                        if signals.get('stability') == 'UNSTABLE' and signals.get('timing', 0) > 0.3:
+                            evidence_tags.add('unstable_baseline_timing_only')
+                        # Check auto_demote_rules against evidence
+                        demote_rules = set(self._auto_demote_rules)
+                        if evidence_tags & demote_rules:
+                            finding.severity = 'MEDIUM'
+                            finding.confidence = max(0.0, finding.confidence * 0.7)
+                            finding.signals = dict(finding.signals) if finding.signals else {}
+                            finding.signals['downgrade_reason'] = f'auto_demote:{",".join(evidence_tags & demote_rules)}'
+                            verified.append(finding)
+                            downgraded += 1
+                            continue
+                        # Check should_reject_finding for vuln-specific rules
+                        vuln_type = self._infer_vuln_type(finding.technique)
+                        if vuln_type and self._rules.should_reject_finding(vuln_type, evidence_tags):
+                            removed += 1
+                            if self.verbose:
+                                print(f"{Colors.warning(f'Rules-rejected: {finding.technique} @ {finding.url}')}")
+                            continue
                     verified.append(finding)
                 elif result == 'downgrade':
                     finding.severity = 'LOW'
@@ -109,7 +139,7 @@ class Verifier:
                     response_lengths.append(resp_len)
             except Exception:
                 pass
-            time.sleep(0.2)
+            time.sleep(self._get_adaptive_delay())
 
         # Check consistency of response lengths across rounds
         length_consistent = self._check_length_consistency(response_lengths)
@@ -119,6 +149,13 @@ class Verifier:
         elif confirmations >= 1:
             return 'downgrade'
         return 'removed'
+
+    def _get_adaptive_delay(self):
+        """Return adaptive delay for verification, respecting rate limiting."""
+        adaptive = getattr(self.engine, 'adaptive', None)
+        if adaptive:
+            return adaptive.get_delay()
+        return 0.2
 
     def _check_length_consistency(self, lengths):
         """Check if response lengths are consistent across verification rounds.
@@ -196,3 +233,35 @@ class Verifier:
             return acao == '*' or 'evil' in acao.lower()
 
         return True
+
+    @staticmethod
+    def _infer_vuln_type(technique):
+        """Infer vuln_type key from a finding technique string."""
+        technique_lower = technique.lower()
+        mapping = {
+            'sql': 'sqli', 'sqli': 'sqli',
+            'xss': 'xss', 'cross-site scripting': 'xss',
+            'ssrf': 'ssrf', 'server-side request': 'ssrf',
+            'idor': 'idor', 'insecure direct': 'idor',
+            'ssti': 'ssti', 'template injection': 'ssti',
+            'xxe': 'xxe', 'xml external': 'xxe',
+            'jwt': 'jwt_auth', 'json web token': 'jwt_auth',
+            'upload': 'upload', 'file upload': 'upload',
+            'command': 'cmdi', 'cmdi': 'cmdi',
+            'redirect': 'open_redirect', 'open redirect': 'open_redirect',
+            'cors': 'cors',
+            'graphql': 'graphql_authz',
+            'lfi': 'lfi', 'local file': 'lfi', 'file inclusion': 'lfi',
+            'nosql': 'nosql',
+            'crlf': 'crlf',
+            'hpp': 'hpp', 'parameter pollution': 'hpp',
+            'prototype': 'proto_pollution',
+            'race': 'race_condition',
+            'websocket': 'websocket',
+            'deserialization': 'deserialization',
+            'brute': 'brute_force',
+        }
+        for key, vuln_type in mapping.items():
+            if key in technique_lower:
+                return vuln_type
+        return None

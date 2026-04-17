@@ -71,7 +71,20 @@ class EndpointPrioritizer:
         score = 0.5  # neutral base
         path = urlparse(url).path + '?' + (urlparse(url).query or '')
 
-        # High-priority patterns
+        # Rules-engine keyword buckets (YAML-defined priorities)
+        if self._keyword_buckets and self._priority_order:
+            path_lower = path.lower()
+            param_lower = param.lower() if param else ''
+            for bucket_idx, bucket_name in enumerate(self._priority_order):
+                keywords = self._keyword_buckets.get(bucket_name, [])
+                for keyword in keywords:
+                    if keyword.lower() in path_lower or keyword.lower() in param_lower:
+                        # Higher priority buckets (earlier in order) get higher scores
+                        bucket_score = 0.95 - (bucket_idx * 0.05)
+                        score = max(score, max(0.5, bucket_score))
+                        break
+
+        # High-priority patterns (hardcoded fallback)
         for pattern, boost, tag in HIGH_PRIORITY_PATTERNS:
             if re.search(pattern, path):
                 score = max(score, boost)

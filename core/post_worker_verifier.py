@@ -378,19 +378,62 @@ class PostWorkerVerifier:
             return finding.payload in response.text if hasattr(response, 'text') else False
 
         if 'ssti' in technique:
-            return '49' in text  # 7*7 evaluation result
+            # Broaden SSTI evidence: check for multiple common expression results
+            ssti_results = ['49', '7777777', '36', '343', '16', '25', '64', '81', '100', '125']
+            return any(r in text for r in ssti_results)
 
         if 'lfi' in technique:
-            return any(kw in text for kw in ['root:x:0:0', '[extensions]', 'boot loader'])
+            return any(kw in text for kw in ['root:x:0:0', '[extensions]', 'boot loader', 'root:x:', '/bin/bash'])
 
         if 'command' in technique:
-            return any(kw in text for kw in ['uid=', 'root:', '/bin/'])
+            return any(kw in text for kw in ['uid=', 'root:', '/bin/', 'windows', 'volume serial'])
 
         if 'ssrf' in technique:
-            return response.status_code != 404 if response else False
+            # SSRF: check for cloud metadata indicators or status differential
+            if response is None:
+                return False
+            ssrf_indicators = ['ami-id', 'instance-id', 'accesskeyid', 'secretaccesskey',
+                             'computemetadata', 'security-credentials', 'local-hostname',
+                             'kubernetes', 'metadata']
+            if any(ind in text for ind in ssrf_indicators):
+                return True
+            # Status code differential (not 404/403 = potentially interesting)
+            return response.status_code not in (404, 403, 502, 503)
+
+        if 'xxe' in technique:
+            # XXE: check for entity resolution markers
+            xxe_indicators = ['root:x:', '/etc/passwd', 'SYSTEM "', 'DOCTYPE', 'ENTITY',
+                            'file:///', 'expect://', 'php://']
+            return any(ind in text for ind in xxe_indicators)
+
+        if 'nosql' in technique or 'nosqli' in technique:
+            # NoSQL: check for error patterns or data leak
+            nosql_indicators = ['mongoerror', 'bson', 'operator', '$where', '$gt',
+                              'castError', 'objectid', 'aggregation', 'unauthorized',
+                              'json parse error']
+            if any(ind in text for ind in nosql_indicators):
+                return True
+            # Check if response reveals data (status 200 with content)
+            return response.status_code == 200 and len(text) > 100
 
         if 'idor' in technique:
-            return response.status_code == 200 if response else False
+            # IDOR: check for cross-account data diff (not just status 200)
+            if response is None or response.status_code != 200:
+                return False
+            # Look for user-identifiable data patterns
+            data_indicators = ['email', 'username', 'phone', 'address', 'name',
+                             'account', 'profile', 'user_id', 'order']
+            return any(ind in text for ind in data_indicators)
+
+        if 'deserialization' in technique:
+            deser_indicators = ['classnotfound', 'unserialize', 'objectinputstream',
+                              '__wakeup', '__destruct', 'gadgetchain', 'java.lang',
+                              'aced0005', 'rO0ABX']
+            return any(ind in text for ind in deser_indicators)
+
+        if 'crlf' in technique:
+            # Check if injected header appears in response
+            return 'x-injected' in text or 'set-cookie' in text
 
         return True  # Default: assume confirmed
 

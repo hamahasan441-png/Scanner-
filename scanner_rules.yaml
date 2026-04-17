@@ -304,3 +304,98 @@ vuln_map:
       - repeatable_authz_boundary_bypass
     reject_if:
       - introspection_only_exposure
+
+  lfi:
+    paths: ["/include", "/page", "/file", "/template", "/view", "/download", "/lang"]
+    params: ["file", "page", "path", "include", "dir", "template", "doc", "folder", "lang"]
+    strong_signals:
+      - file_content_disclosure
+      - path_traversal_response
+    secondary_proof:
+      - deterministic_file_read
+    reject_if:
+      - generic_404_only
+      - parameter_echo_only
+
+  nosql:
+    paths: ["/api", "/users", "/login", "/search", "/query"]
+    params: ["username", "password", "email", "query", "filter", "search", "id", "where"]
+    strong_signals:
+      - operator_injection_behavior_change
+      - nosql_error_disclosure
+    secondary_proof:
+      - repeatable_data_leak_or_auth_bypass
+    reject_if:
+      - generic_error_only
+      - timeout_only
+
+  crlf:
+    paths: ["/redirect", "/set-cookie", "/header", "/return", "/next"]
+    params: ["url", "next", "redirect", "return", "path", "header", "callback"]
+    strong_signals:
+      - header_injection_confirmed
+    secondary_proof:
+      - injected_header_in_response
+    reject_if:
+      - url_encoded_echo_only
+
+  hpp:
+    paths: ["*"]
+    params: ["*"]
+    strong_signals:
+      - parameter_precedence_behavior_change
+    secondary_proof:
+      - privilege_or_logic_change_via_duplicate_param
+    reject_if:
+      - identical_response_only
+
+  proto_pollution:
+    paths: ["/api", "/merge", "/config", "/settings", "/update"]
+    params: ["__proto__", "constructor", "prototype"]
+    strong_signals:
+      - prototype_chain_modification
+    secondary_proof:
+      - observable_property_injection
+    reject_if:
+      - no_observable_effect
+
+  race_condition:
+    paths: ["/transfer", "/payment", "/redeem", "/apply", "/checkout", "/vote"]
+    params: ["amount", "code", "coupon", "quantity", "vote_id"]
+    strong_signals:
+      - concurrent_state_inconsistency
+    secondary_proof:
+      - repeatable_double_action
+    reject_if:
+      - single_request_only
+
+  websocket:
+    paths: ["/ws", "/socket", "/realtime", "/stream", "/chat"]
+    params: ["message", "data", "event", "channel"]
+    strong_signals:
+      - message_injection_or_auth_bypass
+    secondary_proof:
+      - cross_origin_ws_hijack
+    reject_if:
+      - connection_error_only
+
+  deserialization:
+    paths: ["/api", "/import", "/upload", "/process", "/deserialize"]
+    params: ["data", "object", "payload", "state", "viewstate", "token"]
+    strong_signals:
+      - deserialization_gadget_execution
+    secondary_proof:
+      - controlled_object_instantiation
+    reject_if:
+      - format_error_only
+
+  brute_force:
+    paths: ["/login", "/auth", "/signin", "/api/token", "/oauth/token"]
+    params: ["username", "password", "email", "pin", "otp", "code"]
+    strong_signals:
+      - credential_validation_differential
+    secondary_proof:
+      - successful_auth_with_guessed_credential
+    reject_if:
+      - account_lockout_triggered
+      - rate_limit_blocked

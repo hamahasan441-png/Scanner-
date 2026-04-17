@@ -63,6 +63,12 @@ class AdaptiveController:
         self.payload_mutation = False
         self.depth_boost = 0
 
+        # WAF progressive backoff state
+        self._waf_backoff_level = 0
+        self._waf_backoff_delays = [1.0, 2.0, 4.0, 8.0]
+        self._waf_last_block_time = 0.0
+        self._waf_block_window = 30.0  # seconds
+
         # Payload strategy tracking
         self._blocked_payloads = set()
         self._successful_payloads = set()
@@ -70,6 +76,9 @@ class AdaptiveController:
         # Rate limiting tracking
         self._rate_limit_hits = []
         self.rate_limited = False
+
+        # Per-endpoint noise tracking
+        self._endpoint_noise = {}  # structural_url → noise_level
 
         # Response pattern tracking for anomaly detection
         self._response_times = []
@@ -86,6 +95,19 @@ class AdaptiveController:
 
         if response.status_code in WAF_STATUS_CODES:
             self.blocked_count += 1
+            # Progressive WAF backoff: escalate delay when blocks continue
+            now = time.time()
+            if now - self._waf_last_block_time < self._waf_block_window:
+                self._waf_backoff_level = min(
+                    self._waf_backoff_level + 1,
+                    len(self._waf_backoff_delays) - 1
+                )
+                new_delay = self._waf_backoff_delays[self._waf_backoff_level]
+                if new_delay > self.extra_delay:
+                    self.extra_delay = new_delay
+                    if self.verbose:
+                        print(f"{Colors.warning(f'WAF blocks escalating → backoff delay {new_delay}s (level {self._waf_backoff_level})')}")
+            self._waf_last_block_time = now
 
         # Check headers for WAF fingerprints
         headers_str = ' '.join(
@@ -121,9 +143,30 @@ class AdaptiveController:
             # Gradual decay
             self.signal_strength = max(0.0, self.signal_strength - 0.01)
 
-    def record_noise(self, noise_amount=0.1):
-        """Record noise detected in a response (e.g., random tokens, dynamic content)."""
+    def record_noise(self, noise_amount=0.1, endpoint_url=None):
+        """Record noise detected in a response.
+
+        Tracks noise both globally and per-endpoint when endpoint_url is provided.
+        """
         self.noise_level = min(1.0, self.noise_level + noise_amount)
+        if endpoint_url:
+            key = self._structural_key(endpoint_url)
+            current = self._endpoint_noise.get(key, 0.0)
+            self._endpoint_noise[key] = min(1.0, current + noise_amount)
+
+    def get_endpoint_noise(self, endpoint_url):
+        """Return noise level for a specific endpoint (0.0 - 1.0)."""
+        key = self._structural_key(endpoint_url)
+        return self._endpoint_noise.get(key, 0.0)
+
+    @staticmethod
+    def _structural_key(url):
+        """Normalize URL to structural pattern for per-endpoint tracking."""
+        import re
+        from urllib.parse import urlparse
+        parsed = urlparse(url)
+        path = re.sub(r'/\d+', '/{N}', parsed.path)
+        return f"{parsed.netloc}{path}"
 
     def record_blocked_payload(self, payload):
         """Track a payload that was blocked (WAF / filter)."""
@@ -227,16 +270,41 @@ class AdaptiveController:
         if retry_after:
             if not self.rate_limited:
                 self.rate_limited = True
-                self._adapt_for_rate_limit()
+                self._adapt_for_rate_limit(retry_after)
             return True
 
         return False
 
-    def _adapt_for_rate_limit(self):
-        """Adjust parameters when rate limiting is detected."""
-        self.extra_delay = max(self.extra_delay, 3.0)
+    def _adapt_for_rate_limit(self, retry_after_value=''):
+        """Adjust parameters when rate limiting is detected.
+
+        Parses the Retry-After header value (seconds or HTTP-date) and
+        uses the actual value + 0.5s buffer instead of a flat delay.
+        """
+        delay = 3.0  # default fallback
+
+        if retry_after_value:
+            try:
+                # Try parsing as integer seconds
+                delay = float(retry_after_value) + 0.5
+            except (ValueError, TypeError):
+                try:
+                    # Try parsing as HTTP-date
+                    from email.utils import parsedate_to_datetime
+                    target_time = parsedate_to_datetime(retry_after_value)
+                    from datetime import datetime, timezone
+                    now = datetime.now(timezone.utc)
+                    delta = (target_time - now).total_seconds()
+                    if delta > 0:
+                        delay = delta + 0.5
+                except Exception:
+                    pass
+
+        # Cap at reasonable maximum
+        delay = min(delay, 60.0)
+        self.extra_delay = max(self.extra_delay, delay)
         if self.verbose:
-            print(f"{Colors.warning('Rate limiting detected → increasing delay to 3.0s')}")
+            print(f"{Colors.warning(f'Rate limiting detected → delay set to {delay:.1f}s')}")
 
     # ------------------------------------------------------------------
     # Response pattern tracking
