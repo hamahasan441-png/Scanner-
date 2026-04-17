@@ -318,9 +318,47 @@ class SignalScorer:
 
         return min(1.0, score)
 
+    def score_context_fit(self, vuln_type, url='', param=''):
+        """Score based on context intelligence predictions (E1).
+
+        Maps ContextIntelligence sink classification into a 0.0-1.0 score.
+        Represents the [0, 20] context_fit component from the scoring formula.
+        """
+        context = getattr(self.engine, 'context_intelligence', None)
+        if context is None:
+            return 0.0
+
+        try:
+            # Try to get predictions for this parameter
+            predictions = context.predict_vulns_for_param(url, param) if hasattr(context, 'predict_vulns_for_param') else {}
+            if not predictions:
+                return 0.0
+
+            # Check if the vuln_type is predicted for this context
+            score = predictions.get(vuln_type, 0.0)
+            return min(1.0, score)
+        except Exception:
+            return 0.0
+
+    def score_impact(self, vuln_type):
+        """Score based on vulnerability impact / CVSS base score (E2).
+
+        Maps the finding's vuln type to its CVSS base score from
+        CVSS_TEMPLATES, normalized to 0.0-1.0 (representing [0, 10] component).
+        """
+        try:
+            from core.post_worker_verifier import CVSS_TEMPLATES
+            for key, template in CVSS_TEMPLATES.items():
+                if key in (vuln_type or '').lower():
+                    return min(1.0, template['base'] / 10.0)
+        except Exception:
+            pass
+        return 0.3  # default moderate impact
+
     def analyze(self, baseline, elapsed, response_text, payload,
                 error_patterns=None, baseline_text='',
-                status_code=None, headers=None):
+                status_code=None, headers=None,
+                vuln_type='', url='', param=''):
         """Run all signal checks and return a :class:`SignalSet`."""
         weights = self._get_weights()
         signals = SignalSet(weights=weights, rules_engine=self._rules)
@@ -331,4 +369,7 @@ class SignalScorer:
         signals.reflection_signal = self.score_reflection(payload, response_text)
         signals.diff_signal = self.score_diff(baseline, response_text)
         signals.behavior_signal = self.score_behavior(baseline, status_code, headers)
+        # Store context_fit and impact as raw_scores for downstream consumers
+        signals.raw_scores['context_fit'] = self.score_context_fit(vuln_type, url, param)
+        signals.raw_scores['impact'] = self.score_impact(vuln_type)
         return signals
