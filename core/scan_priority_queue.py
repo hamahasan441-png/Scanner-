@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ATOMIC FRAMEWORK v9.0 - ULTIMATE EDITION
+ATOMIC FRAMEWORK v10.0 - ULTIMATE EDITION
 Phase 7 — Attack Surface Prioritization
 
 Builds a priority-sorted scan queue from the asset graph, intelligence
@@ -20,13 +20,13 @@ from urllib.parse import urlparse, parse_qs
 
 from config import Colors
 
-# ── Score weights ──────────────────────────────────────────────────────
+# ── Score weights (must sum to 1.0) ────────────────────────────────────
 
-WEIGHT_PARAM_CONTEXT = 0.35
-WEIGHT_ENDPOINT_TYPE = 0.25  # CVE match score factor
-WEIGHT_CVE_MATCH = 0.25
-WEIGHT_AGENT_HYPOTHESIS = 0.2
-WEIGHT_RESPONSE_ANOMALY = 0.1
+WEIGHT_PARAM_CONTEXT = 0.30
+WEIGHT_ENDPOINT_TYPE = 0.25
+WEIGHT_CVE_MATCH = 0.20
+WEIGHT_AGENT_HYPOTHESIS = 0.15
+WEIGHT_RESPONSE_ANOMALY = 0.10
 DEPTH_PENALTY_FACTOR = 0.05
 
 # Endpoint type scores

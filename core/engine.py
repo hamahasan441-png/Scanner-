@@ -4,22 +4,23 @@
 ATOMIC FRAMEWORK v10.0 - ULTIMATE EDITION
 Core Engine - Scan orchestration and module management
 
-CORE FLOW (regulated):
-  §0 Init & Normalize →
-  §1 Scope & Policy →
-  PHASE 0: Scan Plan Display (--show-plan) →
-  PHASE 1: Shield Detection (CDN + WAF) →
-  PHASE 2: Real IP Discovery →
-  Build effective target (origin IP when available) →
-  PHASE 5: Passive Recon & Discovery (fan-out via origin IP) →
-    OR Legacy: Crawl + Fuzzer Discovery (via origin IP) →
-  PHASE 6: Intelligence Enrichment →
-  PHASE 7: Attack Surface Prioritization →
-  PHASE 8: Vulnerability Scan Workers →
-  PHASE 9: Post-Worker Verification →
-  PHASE 4: Agent Scan →
-  PHASE 10: Commit & Report (OutputPhase) →
-  Learn → Adapt
+CORE FLOW (regulated — canonical phase sequence per ARCHITECTURE_v8_CORRECTED):
+  Phase 1:  Init & Normalize
+  Phase 2:  Scope & Policy
+  Phase 3:  Scan Plan Display (--show-plan)
+  Phase 4:  Shield Detection (CDN + WAF)
+  Phase 5:  Real IP Discovery
+            Build effective target (origin IP when available)
+  Phase 6:  Passive Recon & Discovery (fan-out via origin IP)
+            OR Legacy: Crawl + Fuzzer Discovery (via origin IP)
+  Phase 7:  Intelligence Enrichment
+  Phase 8:  Attack Surface Prioritization
+  Phase 9:  Vulnerability Scan Workers
+  Phase 10: Post-Worker Verification
+  Phase 11: Attack Map (exploit-aware attack graph — before report)
+  Phase 12: Agent Scan (autonomous goal-driven)
+  Phase 13: Commit & Report (OutputPhase)
+  Phase 14: Learn → Adapt
 """
 
 import time
@@ -141,9 +142,20 @@ class AtomicEngine:
         if "delay" not in config:
             config["delay"] = rt.get("delay_seconds", 0.25)
 
-        # --- Pipeline tracking (3-partition architecture) ---
+        # --- Pipeline tracking (granular phase tracking) ---
+        # Uses the canonical phase definitions from pipeline_contract for
+        # accurate dashboard position reporting across all 21 phases.
+        try:
+            from core.pipeline_contract import Phase, Partition, PHASE_PARTITION
+            self._phase_enum = Phase
+            self._phase_partition = PHASE_PARTITION
+        except ImportError:
+            self._phase_enum = None
+            self._phase_partition = {}
+
         self.pipeline = {
-            "phase": "init",  # init → recon → scan → exploit → collect → done
+            "phase": "init",  # current granular phase
+            "partition": "recon",  # high-level partition for dashboard
             "events": [],  # chronological event log
             "recon": {"status": "pending", "data": {}},
             "scan": {"status": "pending", "data": {}},

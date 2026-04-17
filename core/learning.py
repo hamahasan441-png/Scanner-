@@ -142,8 +142,18 @@ class LearningStore:
     # Recording
     # ------------------------------------------------------------------
 
-    def record_success(self, vuln_type, payload):
-        """Record a successful payload detection."""
+    def record_success(self, vuln_type, payload, verified=False):
+        """Record a successful payload detection.
+
+        Args:
+            vuln_type: Vulnerability type (e.g. 'sqli', 'xss').
+            payload: The payload string that triggered the detection.
+            verified: Whether the finding has been independently verified.
+                      Only verified findings are persisted to prevent false
+                      positives from polluting future scan intelligence.
+        """
+        if not verified:
+            return
         bucket = self.successful_payloads.setdefault(vuln_type, {})
         bucket[payload] = bucket.get(payload, 0) + 1
 

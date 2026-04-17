@@ -4,8 +4,8 @@
 
 | Version | Supported          |
 | ------- | ------------------ |
-| 9.0.x   | ✅ Active support  |
-| < 9.0   | ❌ End of life     |
+| 10.0.x  | ✅ Active support  |
+| < 10.0  | ❌ End of life     |
 
 ## Reporting a Vulnerability
 
