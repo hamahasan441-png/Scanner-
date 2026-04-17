@@ -1,5 +1,12 @@
 # ATOMIC FRAMEWORK v8.0 — Logic Map
 
+> **⚠️ SUPERSEDED**: This document describes the v8.0 architecture and is
+> retained for historical reference only.  The canonical architecture
+> specification is [`ARCHITECTURE_v8_CORRECTED.md`](ARCHITECTURE_v8_CORRECTED.md),
+> which defines the corrected sequential phase numbering (Phases 1–14),
+> resolved scoring formula weights, and security hardening requirements.
+> All new development should reference the corrected document.
+
 > **Auto-generated architecture documentation.**
 > Update this file whenever the framework logic changes.
 

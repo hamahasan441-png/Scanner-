@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ATOMIC FRAMEWORK v9.0 - ULTIMATE EDITION
+ATOMIC FRAMEWORK v10.0 - ULTIMATE EDITION
 Scanner Rules Engine
 
 Loads, validates, and exposes the scanner_rules.yaml configuration so
@@ -68,14 +68,37 @@ _VALID_SCORING_COMPONENTS = {
 
 
 class RulesEngine:
-    """Loads, validates, and exposes scanner rules from a YAML file."""
+    """Loads, validates, and exposes scanner rules from a YAML file.
+
+    The rules file can be overridden via:
+      - Explicit ``rules_path`` constructor argument.
+      - ``ATOMIC_PROFILE`` env var (``stealth``, ``aggressive``,
+        ``accuracy_only``) which selects a profile-specific rules file
+        from the same directory as the default rules file.
+    """
 
     def __init__(self, rules_path=None, config=None):
-        self._path = rules_path or _DEFAULT_RULES_PATH
+        self._path = rules_path or self._resolve_profile_path()
         self._raw = {}
         self._config = config or {}
         self._load()
         self._apply_config_overrides()
+
+    @staticmethod
+    def _resolve_profile_path():
+        """Resolve the rules file path based on ``ATOMIC_PROFILE`` env var.
+
+        When the env var is set and a matching file exists (e.g.
+        ``scanner_rules_stealth.yaml``), that file is used.  Otherwise
+        the default ``scanner_rules.yaml`` is returned.
+        """
+        profile = os.environ.get("ATOMIC_PROFILE", "").strip().lower()
+        if profile:
+            rules_dir = os.path.dirname(_DEFAULT_RULES_PATH)
+            candidate = os.path.join(rules_dir, f"scanner_rules_{profile}.yaml")
+            if os.path.isfile(candidate):
+                return candidate
+        return _DEFAULT_RULES_PATH
 
     # ------------------------------------------------------------------
     # Loading & validation

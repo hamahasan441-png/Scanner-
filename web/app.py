@@ -5,6 +5,7 @@ ATOMIC FRAMEWORK v10.0 - ULTIMATE EDITION
 Flask Web Dashboard
 """
 
+import hmac
 import os
 import json
 import logging
@@ -50,7 +51,16 @@ app = Flask(
 app.config["SECRET_KEY"] = os.environ.get("ATOMIC_SECRET_KEY", uuid.uuid4().hex)
 
 if FLASK_AVAILABLE:
-    CORS(app)
+    # Restrict CORS to explicitly allowed origins when configured via
+    # ATOMIC_CORS_ORIGINS (comma-separated).  When unset, default to
+    # same-origin only (no cross-origin requests).
+    _CORS_ORIGINS = os.environ.get("ATOMIC_CORS_ORIGINS", "").strip()
+    _cors_origins_list = [o.strip() for o in _CORS_ORIGINS.split(",") if o.strip()] if _CORS_ORIGINS else []
+    if _cors_origins_list:
+        CORS(app, origins=_cors_origins_list)
+    else:
+        # Same-origin only — no extra origins permitted
+        CORS(app, origins=[])
 
 # SocketIO for real-time updates (falls back to polling if unavailable)
 # Read allowed origins from env var; fall back to same-origin-only (empty list
@@ -82,19 +92,42 @@ _SAFE_SCAN_ID = re.compile(r"^[a-zA-Z0-9_-]+$")
 
 
 # ---------------------------------------------------------------------------
-# API-key authentication — REMOVED
+# API-key authentication
 # ---------------------------------------------------------------------------
-# The API key gate has been removed so the scanner works without any key.
-# The _require_api_key decorator is kept as a transparent pass-through for
-# backward compatibility (any code that still references it will keep working).
+# Set ATOMIC_API_KEY env var to enforce API key authentication on all API
+# endpoints.  When the variable is empty or unset, authentication is
+# disabled for local / development use.  In production, always set an API
+# key to prevent unauthorised access to the scanner.
 
-# Read the optional API key (used only for startup logging in run_app()).
 _API_KEY = os.environ.get("ATOMIC_API_KEY", "")
 
 
 def _require_api_key(f):
-    """No-op decorator kept for backward compatibility (key requirement removed)."""
-    return f
+    """Enforce API key authentication when ATOMIC_API_KEY is configured.
+
+    The key can be supplied via:
+      - ``X-API-Key`` request header, or
+      - ``api_key`` query parameter.
+
+    When no key is configured (empty ``ATOMIC_API_KEY``), the decorator is a
+    transparent pass-through for backward compatibility.
+    """
+
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if not _API_KEY:
+            # No key configured — allow unauthenticated access
+            return f(*args, **kwargs)
+
+        supplied = request.headers.get("X-API-Key", "") or request.args.get("api_key", "")
+        if not supplied or not hmac.compare_digest(supplied, _API_KEY):
+            return (
+                jsonify({"status": "error", "data": "Invalid or missing API key"}),
+                401,
+            )
+        return f(*args, **kwargs)
+
+    return decorated
 
 
 # ---------------------------------------------------------------------------
@@ -153,8 +186,42 @@ def _validate_shell_id(shell_id: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Security response headers
+# Shell command allowlist
 # ---------------------------------------------------------------------------
+# Only allow a limited set of safe commands for remote shell execution.
+# Set ATOMIC_SHELL_ALLOWLIST env var to a comma-separated list of allowed
+# command prefixes to override.  Empty means use the defaults below.
+_DEFAULT_SHELL_ALLOWLIST = [
+    "ls", "dir", "cat", "head", "tail", "whoami", "id", "uname",
+    "pwd", "echo", "hostname", "ifconfig", "ip", "netstat", "ps",
+    "env", "printenv", "date", "uptime", "df", "free", "which",
+    "file", "stat", "wc", "grep", "find", "type",
+]
+
+_shell_allowlist_env = os.environ.get("ATOMIC_SHELL_ALLOWLIST", "").strip()
+SHELL_COMMAND_ALLOWLIST: list = (
+    [c.strip() for c in _shell_allowlist_env.split(",") if c.strip()]
+    if _shell_allowlist_env
+    else _DEFAULT_SHELL_ALLOWLIST
+)
+
+
+def _is_shell_command_allowed(cmd: str) -> bool:
+    """Check if a shell command is in the allowlist.
+
+    Only the base command (first token) is checked against the allowlist.
+    Pipe chains, semicolons, and control characters are rejected outright.
+    """
+    if not cmd or not cmd.strip():
+        return False
+    # Reject command chaining / piping / control character attempts
+    if any(c in cmd for c in [";", "&&", "||", "|", "`", "$(", "\n", "\r"]):
+        return False
+    tokens = cmd.split()
+    if not tokens:
+        return False
+    base_cmd = tokens[0].strip()
+    return base_cmd in SHELL_COMMAND_ALLOWLIST
 
 
 @app.after_request
@@ -756,6 +823,10 @@ def execute_shell_command(shell_id):
     # Validate shell_id format (alphanumeric + dashes only)
     if not _validate_shell_id(shell_id):
         return jsonify({"status": "error", "data": "Invalid shell ID"}), 400
+
+    # Enforce command allowlist
+    if not _is_shell_command_allowed(cmd):
+        return jsonify({"status": "error", "data": "Command not allowed"}), 403
 
     try:
         from modules.shell.manager import ShellManager
@@ -2709,6 +2780,30 @@ def ollama_clear_history():
 # SocketIO event handlers (real-time WebSocket updates)
 # ---------------------------------------------------------------------------
 
+# WebSocket rate limiter — separate from REST to avoid cross-contamination.
+# Default: 30 events per 60-second window per SID.
+_WS_RATE_WINDOW = 60
+_WS_RATE_MAX = 30
+_ws_rate_counters: dict = defaultdict(list)
+_ws_rate_lock = threading.Lock()
+
+
+def _ws_rate_limited() -> bool:
+    """Return True if the current WebSocket client has exceeded its event budget."""
+    try:
+        from flask import request as _req
+        sid = _req.sid  # type: ignore[attr-defined]
+    except Exception:
+        sid = "unknown"
+    now = time.monotonic()
+    with _ws_rate_lock:
+        _ws_rate_counters[sid] = [t for t in _ws_rate_counters[sid] if now - t < _WS_RATE_WINDOW]
+        if len(_ws_rate_counters[sid]) >= _WS_RATE_MAX:
+            return True
+        _ws_rate_counters[sid].append(now)
+    return False
+
+
 if SOCKETIO_AVAILABLE and socketio is not None:
 
     @socketio.on("connect")
@@ -2730,6 +2825,9 @@ if SOCKETIO_AVAILABLE and socketio is not None:
     @socketio.on("subscribe_scan")
     def handle_subscribe(data):
         """Client wants live events for a specific scan."""
+        if _ws_rate_limited():
+            emit("error", {"message": "WebSocket rate limit exceeded"})
+            return
         scan_id = data.get("scan_id", "") if isinstance(data, dict) else ""
         if not scan_id or not _validate_shell_id(scan_id):
             return
@@ -2742,6 +2840,9 @@ if SOCKETIO_AVAILABLE and socketio is not None:
     @socketio.on("shell_command")
     def handle_shell_command(data):
         """Execute a shell command via WebSocket."""
+        if _ws_rate_limited():
+            emit("error", {"message": "WebSocket rate limit exceeded"})
+            return
         if not isinstance(data, dict):
             return
         shell_id = data.get("shell_id", "")
@@ -2751,6 +2852,10 @@ if SOCKETIO_AVAILABLE and socketio is not None:
             return
         if not _validate_shell_id(shell_id):
             emit("shell_output", {"error": "Invalid shell ID"})
+            return
+        # Enforce command allowlist
+        if not _is_shell_command_allowed(cmd):
+            emit("shell_output", {"error": "Command not allowed"})
             return
         try:
             from modules.shell.manager import ShellManager

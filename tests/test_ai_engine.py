@@ -262,16 +262,16 @@ class TestRecordFindingAndFailure(unittest.TestCase):
         self.ai = AIEngine(_MockEngine())
 
     def test_record_finding_updates_history(self):
-        self.ai.record_finding("SQL Injection", "id", "' OR 1=1 --")
+        self.ai.record_finding("SQL Injection", "id", "' OR 1=1 --", verified=True)
         self.assertEqual(self.ai.vuln_history["sqli"]["id"], 1)
 
     def test_record_finding_updates_effectiveness(self):
-        self.ai.record_finding("SQL Injection", "id", "' OR 1=1 --")
+        self.ai.record_finding("SQL Injection", "id", "' OR 1=1 --", verified=True)
         score = self.ai.payload_effectiveness["sqli"]["' OR 1=1 --"]
         self.assertAlmostEqual(score, 0.6)  # 0.5 default + 0.1
 
     def test_record_finding_appends_technique(self):
-        self.ai.record_finding("XSS", "q", "<script>alert(1)</script>")
+        self.ai.record_finding("XSS", "q", "<script>alert(1)</script>", verified=True)
         self.assertIn("xss", self.ai.successful_techniques)
 
     def test_record_failure_decreases_effectiveness(self):
@@ -285,8 +285,8 @@ class TestRecordFindingAndFailure(unittest.TestCase):
 
     def test_record_finding_checks_correlations(self):
         """Recording findings of correlated types should discover chains."""
-        self.ai.record_finding("SQL Injection", "id", "' OR 1=1")
-        self.ai.record_finding("LFI", "file", "../etc/passwd")
+        self.ai.record_finding("SQL Injection", "id", "' OR 1=1", verified=True)
+        self.ai.record_finding("LFI", "file", "../etc/passwd", verified=True)
         self.assertGreater(len(self.ai.discovered_correlations), 0)
 
 
@@ -306,7 +306,7 @@ class TestGetSmartPayloads(unittest.TestCase):
 
     def test_effective_payload_ranked_first(self):
         """A payload with recorded success should appear near the top."""
-        self.ai.record_finding("SQL Injection", "id", "1 UNION SELECT NULL")
+        self.ai.record_finding("SQL Injection", "id", "1 UNION SELECT NULL", verified=True)
         result = self.ai.get_smart_payloads("sqli", self.payloads, param_name="id")
         self.assertEqual(result[0], "1 UNION SELECT NULL")
 

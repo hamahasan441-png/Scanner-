@@ -99,6 +99,78 @@ jobs:
           # Warn on style issues (non-blocking)
           flake8 . --count --exit-zero --max-complexity=15 --max-line-length=150 --statistics
 
-      - name: Run tests
+      - name: Run unit tests
         run: |
-          python -m pytest tests/ -v --tb=short
+          python -m pytest tests/ -v --tb=short --ignore=tests/integration
+
+      - name: Run integration tests
+        run: |
+          python -m pytest tests/integration/ -v --tb=short
+
+  security:
+    name: Security Scanning
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install bandit pip-audit
+
+      - name: Run Bandit security linter
+        run: |
+          bandit -r core/ modules/ utils/ web/ -ll --exit-zero -f json -o bandit-report.json
+          bandit -r core/ modules/ utils/ web/ -ll --exit-zero
+
+      - name: Run pip-audit dependency check
+        run: |
+          pip-audit --strict --exit-zero || true
+
+      - name: Dependency version sync check
+        run: |
+          echo "Checking requirements.txt and pyproject.toml are in sync..."
+          python -c "
+          import re, sys
+          # Parse requirements.txt
+          req_deps = {}
+          with open('requirements.txt') as f:
+              for line in f:
+                  line = line.strip()
+                  if line and not line.startswith('#'):
+                      m = re.match(r'([a-zA-Z0-9_-]+)==(.+)', line)
+                      if m:
+                          req_deps[m.group(1).lower()] = m.group(2)
+          # Parse pyproject.toml dependencies
+          toml_deps = {}
+          with open('pyproject.toml') as f:
+              in_deps = False
+              for line in f:
+                  if 'dependencies' in line and '=' in line and '[' not in line:
+                      continue
+                  if in_deps:
+                      if ']' in line:
+                          break
+                      m = re.search(r'\"([a-zA-Z0-9_-]+)==(.+?)\"', line)
+                      if m:
+                          toml_deps[m.group(1).lower()] = m.group(2)
+                  if line.strip().startswith('dependencies = ['):
+                      in_deps = True
+          mismatches = []
+          for pkg, ver in req_deps.items():
+              if pkg in toml_deps and toml_deps[pkg] != ver:
+                  mismatches.append(f'{pkg}: requirements.txt={ver} vs pyproject.toml={toml_deps[pkg]}')
+          if mismatches:
+              print('Version mismatches found:')
+              for m in mismatches:
+                  print(f'  - {m}')
+              sys.exit(1)
+          print('All dependency versions are in sync.')
+          "

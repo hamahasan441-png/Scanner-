@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ATOMIC FRAMEWORK v9.0 - ULTIMATE EDITION
+ATOMIC FRAMEWORK v10.0 - ULTIMATE EDITION
 AI Intelligence Engine
 
 Pattern-based vulnerability prediction, smart payload selection,
@@ -807,8 +807,19 @@ class AIEngine:
     # Learning (called after findings)
     # ------------------------------------------------------------------
 
-    def record_finding(self, technique, param_name, payload):
-        """Record a successful finding for AI learning."""
+    def record_finding(self, technique, param_name, payload, verified=False):
+        """Record a successful finding for AI learning.
+
+        Args:
+            technique: The vulnerability technique name.
+            param_name: The vulnerable parameter name.
+            payload: The payload that triggered the finding.
+            verified: Whether the finding has been independently verified.
+                      Only verified findings update the AI model to prevent
+                      false-positive data from degrading prediction quality.
+        """
+        if not verified:
+            return
         vuln_type = self._technique_to_type(technique)
         self.vuln_history[vuln_type][param_name] += 1
         self.payload_effectiveness[vuln_type][payload] = min(

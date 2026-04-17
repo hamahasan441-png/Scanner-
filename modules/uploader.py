@@ -14,13 +14,20 @@ from config import Config, Colors
 
 
 class ShellUploader:
-    """Web Shell Upload Module"""
+    """Web Shell Upload Module
 
-    def __init__(self, engine):
+    When ``scan_only=True`` (the default during the scan phase), only
+    vulnerability *detection* methods are executed.  Actual shell
+    deployment (``run()``) is gated behind ``scan_only=False`` which is
+    set during the exploit phase.
+    """
+
+    def __init__(self, engine, scan_only=True):
         self.engine = engine
         self.requester = engine.requester
         self.name = "File Upload"
         self.shells_dir = Config.SHELLS_DIR
+        self.scan_only = scan_only
 
         # Ensure shells directory exists
         os.makedirs(self.shells_dir, exist_ok=True)
@@ -144,7 +151,17 @@ class ShellUploader:
             pass
 
     def run(self, findings: list, forms: list):
-        """Attempt to upload shells based on findings"""
+        """Attempt to upload shells based on findings.
+
+        .. note::
+
+            This method performs **exploitation** (shell deployment).  During
+            the scan phase only :meth:`test_url` should be called to *detect*
+            upload vulnerabilities.  Shell deployment is deferred to the
+            exploit phase when ``--shell`` or ``--auto-exploit`` is active.
+        """
+        if self.scan_only:
+            return
         print(f"{Colors.info('Attempting shell uploads...')}")
 
         # Try upload via file upload forms
