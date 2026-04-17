@@ -146,7 +146,7 @@ class AtomicEngine:
         # Uses the canonical phase definitions from pipeline_contract for
         # accurate dashboard position reporting across all 21 phases.
         try:
-            from core.pipeline_contract import Phase, Partition, PHASE_PARTITION
+            from core.pipeline_contract import Phase, PHASE_PARTITION
             self._phase_enum = Phase
             self._phase_partition = PHASE_PARTITION
         except ImportError:

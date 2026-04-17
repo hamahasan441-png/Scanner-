@@ -8,7 +8,7 @@ import os
 import sys
 import unittest
 from collections import defaultdict
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 # Add project root so ``web.app`` is importable.
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))

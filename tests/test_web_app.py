@@ -586,7 +586,6 @@ class TestCORSHeaders(unittest.TestCase):
 
     def test_cors_header_on_dashboard(self):
         resp = self.client.get("/")
-        header = resp.headers.get("Access-Control-Allow-Origin")
         # Same-origin policy: header may be absent when no explicit
         # origins are configured.
         self.assertIn(resp.status_code, (200, 302, 401))
