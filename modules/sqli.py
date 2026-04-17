@@ -38,7 +38,6 @@ class SQLiModule:
                 "mysqli_",
                 "warning: mysql",
                 "mysqli_error",
-                "unclosed quotation mark",
                 "quoted string not properly terminated",
                 "unknown column '",
             ],
