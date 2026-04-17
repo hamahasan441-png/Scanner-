@@ -73,6 +73,7 @@ MODULE_DESCRIPTIONS = {
     'dns_recon': ('DNS Reconnaissance', 'INFO'),
     'scapy_vuln_scan': ('Scapy Vulnerability Scan', 'HIGH'),
     'scapy_attack_chain': ('Network Attack Chains', 'CRITICAL'),
+    'request_smuggling': ('HTTP Request Smuggling', 'CRITICAL'),
 }
 
 # Exploitation modules

@@ -190,6 +190,7 @@ class TestGetSignalWeights(unittest.TestCase):
             'error': 2,
             'reflection': 2,
             'diff': 1,
+            'behavior': 2,
         })
 
     def test_learned_weights_override_defaults(self):
