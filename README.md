@@ -1,4 +1,4 @@
-# ATOMIC FRAMEWORK v9.0 — ULTIMATE EDITION
+# ATOMIC FRAMEWORK v10.0 — ULTIMATE EDITION
 
 ⚠️ **FOR AUTHORIZED TESTING ONLY** ⚠️
 
@@ -126,7 +126,7 @@ python main.py -t https://target.com --full --evasion insane --waf-bypass
 ## Installation
 
 ### Prerequisites
-- **Python 3.9** or higher
+- **Python 3.10** or higher
 - **pip** (Python package manager)
 - **Git** (for cloning)
 
@@ -506,7 +506,7 @@ Scanner-/
 │   └── test_*.py                # Unit & integration tests for all modules
 │
 └── .github/workflows/           # CI/CD pipelines
-    ├── ci.yml                   # Lint, validate, test (Python 3.9-3.12)
+    ├── ci.yml                   # Lint, validate, test (Python 3.10-3.12)
     └── security.yml             # Bandit, CodeQL, pip-audit scans
 ```
 
@@ -530,4 +530,4 @@ This project is for educational purposes only.
 
 ## Credits
 
-ATOMIC Framework v9.0 — ULTIMATE EDITION | Codename: PHOENIX
+ATOMIC Framework v10.0 — ULTIMATE EDITION | Codename: TITAN

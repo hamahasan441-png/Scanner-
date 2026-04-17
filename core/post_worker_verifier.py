@@ -178,7 +178,127 @@ CHAIN_RULES = [
         'severity': 'HIGH',
         'cvss_combined': 8.5,
     },
+    # ── G5: New Exploit Chains ──
+    {
+        'name': 'SSTI → RCE → Post-Exploit',
+        'requires': ['ssti'],
+        'condition': lambda findings: any(
+            'ssti' in f.technique.lower() and
+            any(kw in (f.evidence or '').lower() for kw in ['exec', 'system', 'popen', 'os.', 'subprocess', '__class__', '__import__'])
+            for f in findings
+        ),
+        'severity': 'CRITICAL',
+        'cvss_combined': 10.0,
+    },
+    {
+        'name': 'CMDi → Lateral Movement',
+        'requires': ['command injection'],
+        'condition': lambda findings: any(
+            'command' in f.technique.lower() and
+            any(kw in (f.evidence or '').lower() for kw in ['curl', 'wget', 'nc ', 'ncat', 'ping', 'nslookup', 'ifconfig', 'ip addr'])
+            for f in findings
+        ),
+        'severity': 'CRITICAL',
+        'cvss_combined': 9.8,
+    },
+    {
+        'name': 'XXE → SSRF → Cloud Metadata',
+        'requires': ['xxe'],
+        'condition': lambda findings: any(
+            'xxe' in f.technique.lower() and
+            any(kw in (f.evidence or '').lower() for kw in ['169.254', 'metadata', 'aws', 'gcp', 'azure', 'internal'])
+            for f in findings
+        ),
+        'severity': 'CRITICAL',
+        'cvss_combined': 9.5,
+    },
+    {
+        'name': 'Upload + LFI → RCE',
+        'requires': ['upload', 'lfi'],
+        'condition': lambda findings: (
+            any('upload' in f.technique.lower() for f in findings) and
+            any('lfi' in f.technique.lower() for f in findings)
+        ),
+        'severity': 'CRITICAL',
+        'cvss_combined': 9.8,
+    },
+    {
+        'name': 'NoSQL + IDOR → Data Breach',
+        'requires': ['nosql', 'idor'],
+        'condition': lambda findings: (
+            any('nosql' in f.technique.lower() for f in findings) and
+            any('idor' in f.technique.lower() for f in findings)
+        ),
+        'severity': 'CRITICAL',
+        'cvss_combined': 9.0,
+    },
+    {
+        'name': 'JWT None + IDOR → Full Account Takeover',
+        'requires': ['jwt', 'idor'],
+        'condition': lambda findings: (
+            any('jwt' in f.technique.lower() and 'none' in (f.evidence or '').lower() for f in findings) and
+            any('idor' in f.technique.lower() for f in findings)
+        ),
+        'severity': 'CRITICAL',
+        'cvss_combined': 10.0,
+    },
+    {
+        'name': 'Open Redirect + XSS → Credential Phishing',
+        'requires': ['open redirect', 'xss'],
+        'condition': lambda findings: (
+            any('redirect' in f.technique.lower() for f in findings) and
+            any('xss' in f.technique.lower() for f in findings)
+        ),
+        'severity': 'HIGH',
+        'cvss_combined': 8.5,
+    },
+    {
+        'name': 'Race Condition + Payment → Financial Loss',
+        'requires': ['race condition'],
+        'condition': lambda findings: any(
+            'race' in f.technique.lower() and
+            any(kw in (f.url or '').lower() for kw in ['payment', 'checkout', 'transfer', 'redeem', 'coupon', 'purchase'])
+            for f in findings
+        ),
+        'severity': 'CRITICAL',
+        'cvss_combined': 9.0,
+    },
+    # ── Phase N: Additional Exploit Chains ──
+    {
+        'name': 'Request Smuggling → WAF Bypass → Backend Exploit',
+        'requires': ['request_smuggling'],
+        'condition': lambda findings: any(
+            'smuggl' in f.technique.lower()
+            for f in findings
+        ),
+        'severity': 'CRITICAL',
+        'cvss_combined': 9.8,
+    },
+    {
+        'name': 'GraphQL Introspection + Mutation → Data Manipulation',
+        'requires': ['graphql'],
+        'condition': lambda findings: (
+            any('introspection' in f.technique.lower() for f in findings) and
+            any('mutation' in f.technique.lower() for f in findings)
+        ),
+        'severity': 'HIGH',
+        'cvss_combined': 8.5,
+    },
+    {
+        'name': 'JWT kid Injection → LFI/SQLi → Auth Bypass',
+        'requires': ['jwt'],
+        'condition': lambda findings: any(
+            'kid' in f.technique.lower() and 'jwt' in f.technique.lower()
+            for f in findings
+        ),
+        'severity': 'CRITICAL',
+        'cvss_combined': 9.5,
+    },
 ]
+
+
+# Maximum findings per vulnerability type to prevent report flood
+MAX_FINDINGS_PER_VULN_TYPE = 25
 
 
 # ── Data contracts ──────────────────────────────────────────────────────
@@ -378,19 +498,62 @@ class PostWorkerVerifier:
             return finding.payload in response.text if hasattr(response, 'text') else False
 
         if 'ssti' in technique:
-            return '49' in text  # 7*7 evaluation result
+            # Broaden SSTI evidence: check for multiple common expression results
+            ssti_results = ['49', '7777777', '36', '343', '16', '25', '64', '81', '100', '125']
+            return any(r in text for r in ssti_results)
 
         if 'lfi' in technique:
-            return any(kw in text for kw in ['root:x:0:0', '[extensions]', 'boot loader'])
+            return any(kw in text for kw in ['root:x:0:0', '[extensions]', 'boot loader', 'root:x:', '/bin/bash'])
 
         if 'command' in technique:
-            return any(kw in text for kw in ['uid=', 'root:', '/bin/'])
+            return any(kw in text for kw in ['uid=', 'root:', '/bin/', 'windows', 'volume serial'])
 
         if 'ssrf' in technique:
-            return response.status_code != 404 if response else False
+            # SSRF: check for cloud metadata indicators or status differential
+            if response is None:
+                return False
+            ssrf_indicators = ['ami-id', 'instance-id', 'accesskeyid', 'secretaccesskey',
+                             'computemetadata', 'security-credentials', 'local-hostname',
+                             'kubernetes', 'metadata']
+            if any(ind in text for ind in ssrf_indicators):
+                return True
+            # Status code differential (not 404/403 = potentially interesting)
+            return response.status_code not in (404, 403, 502, 503)
+
+        if 'xxe' in technique:
+            # XXE: check for entity resolution markers
+            xxe_indicators = ['root:x:', '/etc/passwd', 'SYSTEM "', 'DOCTYPE', 'ENTITY',
+                            'file:///', 'expect://', 'php://']
+            return any(ind in text for ind in xxe_indicators)
+
+        if 'nosql' in technique or 'nosqli' in technique:
+            # NoSQL: check for error patterns or data leak
+            nosql_indicators = ['mongoerror', 'bson', 'operator', '$where', '$gt',
+                              'castError', 'objectid', 'aggregation', 'unauthorized',
+                              'json parse error']
+            if any(ind in text for ind in nosql_indicators):
+                return True
+            # Check if response reveals data (status 200 with content)
+            return response.status_code == 200 and len(text) > 100
 
         if 'idor' in technique:
-            return response.status_code == 200 if response else False
+            # IDOR: check for cross-account data diff (not just status 200)
+            if response is None or response.status_code != 200:
+                return False
+            # Look for user-identifiable data patterns
+            data_indicators = ['email', 'username', 'phone', 'address', 'name',
+                             'account', 'profile', 'user_id', 'order']
+            return any(ind in text for ind in data_indicators)
+
+        if 'deserialization' in technique:
+            deser_indicators = ['classnotfound', 'unserialize', 'objectinputstream',
+                              '__wakeup', '__destruct', 'gadgetchain', 'java.lang',
+                              'aced0005', 'rO0ABX']
+            return any(ind in text for ind in deser_indicators)
+
+        if 'crlf' in technique:
+            # Check if injected header appears in response
+            return 'x-injected' in text or 'set-cookie' in text
 
         return True  # Default: assume confirmed
 
@@ -481,7 +644,20 @@ class PostWorkerVerifier:
             deduped.append(representative)
 
         stats['deduplicated'] = len(findings) - len(deduped)
-        return deduped
+
+        # G4: Cap findings per vulnerability type to prevent report flood
+        vuln_type_counts: Dict[str, int] = {}
+        capped = []
+        for finding in deduped:
+            technique = finding.technique.lower()
+            count = vuln_type_counts.get(technique, 0)
+            if count < MAX_FINDINGS_PER_VULN_TYPE:
+                capped.append(finding)
+                vuln_type_counts[technique] = count + 1
+            else:
+                stats['deduplicated'] = stats.get('deduplicated', 0) + 1
+
+        return capped
 
     @staticmethod
     def _structural_endpoint(url: str) -> str:

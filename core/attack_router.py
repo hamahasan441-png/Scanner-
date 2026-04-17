@@ -107,6 +107,66 @@ ROUTE_TABLE = {
         'priority': 10,
         'icon': '🎯',
     },
+    'jwt': {
+        'label': 'JWT → Token Forge / Auth Bypass',
+        'actions': ['jwt_forge_token', 'jwt_brute_secret'],
+        'priority': 7,
+        'icon': '🔐',
+    },
+    'cors': {
+        'label': 'CORS → Cross-Origin Data Theft',
+        'actions': ['cors_steal_data'],
+        'priority': 5,
+        'icon': '🌍',
+    },
+    'graphql': {
+        'label': 'GraphQL → Schema Dump / Mutation Abuse',
+        'actions': ['graphql_dump_schema', 'graphql_mutation_abuse'],
+        'priority': 7,
+        'icon': '📊',
+    },
+    'crlf': {
+        'label': 'CRLF → Header Injection / Session Fixation',
+        'actions': ['crlf_header_inject'],
+        'priority': 5,
+        'icon': '📋',
+    },
+    'hpp': {
+        'label': 'HPP → Parameter Override Attack',
+        'actions': ['hpp_param_override'],
+        'priority': 4,
+        'icon': '🔀',
+    },
+    'race_condition': {
+        'label': 'Race Condition → Double Spend / Bypass',
+        'actions': ['race_exploit'],
+        'priority': 6,
+        'icon': '⏱️',
+    },
+    'open_redirect': {
+        'label': 'Open Redirect → Phishing / Token Theft',
+        'actions': ['redirect_chain_attack'],
+        'priority': 4,
+        'icon': '↗️',
+    },
+    'request_smuggling': {
+        'label': 'Request Smuggling → WAF Bypass / Cache Poison',
+        'actions': ['smuggling_exploit'],
+        'priority': 8,
+        'icon': '🚢',
+    },
+    'proto_pollution': {
+        'label': 'Prototype Pollution → RCE / Privilege Escalation',
+        'actions': ['proto_pollution_exploit'],
+        'priority': 7,
+        'icon': '🧬',
+    },
+    'websocket': {
+        'label': 'WebSocket → Session Hijack / CSWSH',
+        'actions': ['websocket_hijack'],
+        'priority': 6,
+        'icon': '🔌',
+    },
 }
 
 # Technique string → family classification
@@ -152,6 +212,26 @@ _CLASSIFY_MAP = [
     ('cve-', 'cve'),
     ('network exploit', 'cve'),
     ('tech exploit', 'cve'),
+    ('jwt', 'jwt'),
+    ('json web token', 'jwt'),
+    ('cors', 'cors'),
+    ('cross-origin', 'cors'),
+    ('graphql', 'graphql'),
+    ('crlf', 'crlf'),
+    ('header injection', 'crlf'),
+    ('http parameter pollution', 'hpp'),
+    ('hpp', 'hpp'),
+    ('race condition', 'race_condition'),
+    ('race', 'race_condition'),
+    ('double spend', 'race_condition'),
+    ('open redirect', 'open_redirect'),
+    ('url redirect', 'open_redirect'),
+    ('request smuggling', 'request_smuggling'),
+    ('smuggling', 'request_smuggling'),
+    ('prototype pollution', 'proto_pollution'),
+    ('proto pollution', 'proto_pollution'),
+    ('websocket', 'websocket'),
+    ('cswsh', 'websocket'),
 ]
 
 

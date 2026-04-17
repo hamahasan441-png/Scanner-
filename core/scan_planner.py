@@ -33,6 +33,8 @@ PHASE_DESCRIPTIONS = {
     'chain_detect': ('Exploit Chain Detection', 'Multi-step exploit chains, CVSS auto-scoring'),
     'exploit_search': ('Exploit Reference Search', 'ExploitDB, Metasploit, Nuclei, CISA KEV'),
     'attack_map': ('Attack Map', 'Exploit-aware attack surface visualization'),
+    'cloud_scan': ('Cloud Security Scan', 'Cloud infrastructure enumeration and misconfiguration detection'),
+    'compliance_check': ('Compliance Check', 'Security header, TLS, and compliance auditing'),
 }
 
 # Module descriptions
@@ -71,6 +73,7 @@ MODULE_DESCRIPTIONS = {
     'dns_recon': ('DNS Reconnaissance', 'INFO'),
     'scapy_vuln_scan': ('Scapy Vulnerability Scan', 'HIGH'),
     'scapy_attack_chain': ('Network Attack Chains', 'CRITICAL'),
+    'request_smuggling': ('HTTP Request Smuggling', 'CRITICAL'),
 }
 
 # Exploitation modules
@@ -133,7 +136,7 @@ class ScanPlanner:
     def estimate_complexity(self):
         """Estimate scan complexity based on enabled modules and config.
 
-        Returns a dict with complexity_level (str) and details.
+        Returns a dict with complexity_level (str), ETA, and details.
         """
         enabled_modules = self.get_enabled_modules()
         enabled_exploits = self.get_enabled_exploits()
@@ -165,6 +168,19 @@ class ScanPlanner:
         else:
             level = 'LOW'
 
+        # G1: ETA calculation
+        avg_seconds_per_module = 8  # average time per module per endpoint
+        estimated_endpoints = depth * 10  # rough estimate
+        thread_factor = max(1, threads // 5)
+        total_seconds = (len(enabled_modules) * avg_seconds_per_module
+                        * estimated_endpoints) // thread_factor
+        # Add phase overhead
+        total_seconds += len(active_phases) * 15
+        # Add exploit module time
+        total_seconds += len(enabled_exploits) * 30
+
+        eta_str = self._format_eta(total_seconds)
+
         return {
             'level': level,
             'score': score,
@@ -174,7 +190,23 @@ class ScanPlanner:
             'critical_modules': critical_count,
             'depth': depth,
             'threads': threads,
+            'eta_seconds': total_seconds,
+            'eta': eta_str,
         }
+
+    @staticmethod
+    def _format_eta(total_seconds):
+        """Format seconds into human-readable ETA string."""
+        if total_seconds < 60:
+            return f'{total_seconds}s'
+        elif total_seconds < 3600:
+            minutes = total_seconds // 60
+            seconds = total_seconds % 60
+            return f'{minutes}m {seconds}s'
+        else:
+            hours = total_seconds // 3600
+            minutes = (total_seconds % 3600) // 60
+            return f'{hours}h {minutes}m'
 
     def build_plan(self, target):
         """Build a structured scan plan dict.
@@ -245,6 +277,7 @@ class ScanPlanner:
         filled = min(bar_len, int(bar_len * complexity['score'] / 100))
         bar = '█' * filled + '░' * (bar_len - filled)
         print(f"  [{cc}{bar}{Colors.RESET}]")
+        print(f"  {Colors.BOLD}Est. Time:{Colors.RESET}  {complexity['eta']}")
 
         # Pipeline flow
         if plan['phases']:

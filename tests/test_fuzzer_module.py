@@ -37,6 +37,7 @@ class _MockEngine:
     def __init__(self, responses=None, side_effect=None):
         self.requester = _MockRequester(responses, side_effect=side_effect)
         self.findings = []
+        self.config = {'verbose': False}
 
     def add_finding(self, finding):
         self.findings.append(finding)

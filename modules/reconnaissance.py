@@ -54,6 +54,8 @@ class ReconModule:
         self._detect_subdomain_takeover(domain)
         self._detect_cloud_assets(target)
         self._enumerate_api_endpoints(target)
+        self._certificate_transparency(domain)
+        self._dns_zone_transfer(domain)
 
     # ─── DNS ─────────────────────────────────────────────────────────
 
@@ -432,6 +434,93 @@ class ReconModule:
                 evidence="; ".join(found_endpoints[:5]),
             )
             self.engine.add_finding(finding)
+
+    # ─── Certificate Transparency ──────────────────────────────────
+
+    def _certificate_transparency(self, domain):
+        """Query crt.sh for subdomains via Certificate Transparency logs."""
+        try:
+            from urllib.request import urlopen, Request
+            import json as _json
+
+            url = f"https://crt.sh/?q=%25.{domain}&output=json"
+            req = Request(url, headers={'User-Agent': 'ATOMIC-Framework/10.0'})
+            with urlopen(req, timeout=15) as resp:
+                data = _json.loads(resp.read().decode('utf-8', errors='replace'))
+
+            subdomains = set()
+            for entry in data:
+                name = entry.get('name_value', '')
+                for line in name.split('\n'):
+                    line = line.strip().lower()
+                    if line and '*' not in line and domain in line:
+                        subdomains.add(line)
+
+            if subdomains:
+                print(f"{Colors.info(f'Certificate Transparency: {len(subdomains)} subdomains found')}")
+                for sub in sorted(subdomains)[:20]:
+                    print(f"  - {sub}")
+                from core.engine import Finding
+                finding = Finding(
+                    technique="Recon (Certificate Transparency)",
+                    url=f"https://{domain}", severity='INFO', confidence=0.9,
+                    param='N/A', payload=f'{len(subdomains)} subdomains',
+                    evidence=f"CT subdomains: {', '.join(sorted(subdomains)[:10])}",
+                )
+                self.engine.add_finding(finding)
+            else:
+                if self.verbose:
+                    print(f"{Colors.info('CT: no subdomains found')}")
+        except Exception as e:
+            if self.verbose:
+                print(f"{Colors.warning(f'CT lookup error: {e}')}")
+
+    # ─── DNS Zone Transfer ──────────────────────────────────────────
+
+    def _dns_zone_transfer(self, domain):
+        """Attempt DNS zone transfer (AXFR) on discovered nameservers."""
+        try:
+            import dns.resolver
+            import dns.zone
+            import dns.query
+        except ImportError:
+            if self.verbose:
+                print(f"{Colors.info('dnspython not installed — skipping zone transfer')}")
+            return
+
+        try:
+            ns_records = dns.resolver.resolve(domain, 'NS')
+            nameservers = [str(rdata.target).rstrip('.') for rdata in ns_records]
+        except Exception:
+            return
+
+        for ns in nameservers:
+            try:
+                ns_ip = socket.gethostbyname(ns)
+                zone = dns.zone.from_xfr(dns.query.xfr(ns_ip, domain, timeout=10))
+                records = []
+                for name, node in zone.nodes.items():
+                    for rdataset in node.rdatasets:
+                        for rdata in rdataset:
+                            records.append(f"{name}.{domain} {rdataset.rdtype.name} {rdata}")
+
+                if records:
+                    print(f"{Colors.success(f'DNS Zone Transfer SUCCESSFUL on {ns}!')}")
+                    for rec in records[:20]:
+                        print(f"  {rec}")
+
+                    from core.engine import Finding
+                    finding = Finding(
+                        technique="Recon (DNS Zone Transfer)",
+                        url=f"dns://{ns}", severity='HIGH', confidence=0.95,
+                        param='AXFR', payload=ns,
+                        evidence=f"Zone transfer from {ns}: {len(records)} records. "
+                                 f"Sample: {'; '.join(records[:5])}",
+                    )
+                    self.engine.add_finding(finding)
+                    return  # One successful transfer is enough
+            except Exception:
+                continue
 
     # ─── WHOIS parsing ──────────────────────────────────────────────
 

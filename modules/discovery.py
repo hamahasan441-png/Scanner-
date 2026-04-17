@@ -216,7 +216,13 @@ class DiscoveryModule:
         # 9. Passive URL collection from web archives
         self._passive_url_collection(target)
 
-        # 10. Print structured report
+        # 10. Backup file discovery
+        self._discover_backup_files(base_url)
+
+        # 11. JavaScript endpoint and secret mining
+        self._mine_js_endpoints(target)
+
+        # 12. Print structured report
         self._print_report(target)
 
     # ──────────────────────────────────────
@@ -942,6 +948,182 @@ class DiscoveryModule:
             print(f"{Colors.success(f'Passive (CDX API): {len(new_urls)} new URLs collected')}")
         else:
             print(f"{Colors.info('Passive collection: no URLs found')}")
+
+    # ──────────────────────────────────────
+    # Backup File Discovery
+    # ──────────────────────────────────────
+
+    def _discover_backup_files(self, base_url: str):
+        """Probe for common backup files that leak source code or secrets."""
+        backup_extensions = [
+            '.bak', '.backup', '.old', '.orig', '.save', '.swp', '.swo',
+            '~', '.copy', '.tmp', '.temp', '.dist', '.sample', '.example',
+        ]
+        backup_patterns = [
+            # Source code archives
+            '/backup.zip', '/backup.tar.gz', '/backup.sql', '/dump.sql',
+            '/database.sql', '/db.sql', '/site.zip', '/www.zip',
+            '/public.zip', '/source.zip', '/code.zip', '/app.zip',
+            '/backup.tar', '/backup.gz', '/backup.7z', '/backup.rar',
+            # Config file backups
+            '/.env.bak', '/.env.backup', '/.env.old', '/.env.example',
+            '/wp-config.php.bak', '/wp-config.php.old', '/wp-config.php.save',
+            '/config.php.bak', '/config.yml.bak', '/settings.py.bak',
+            '/web.config.bak', '/web.config.old',
+            '/appsettings.json.bak', '/application.yml.bak',
+            # Editor swap/backup files
+            '/.htaccess.bak', '/.htpasswd.bak',
+            '/index.php.bak', '/index.php~', '/index.php.swp',
+            # VCS leftovers
+            '/.git/config', '/.git/HEAD', '/.git/index',
+            '/.svn/entries', '/.svn/wc.db',
+            '/.hg/store/data',
+            # Database dumps
+            '/mysqldump.sql', '/pgdump.sql', '/data.json', '/export.csv',
+        ]
+
+        print(f"{Colors.info('Probing for backup/source files...')}")
+        found = 0
+
+        # Build baseline for custom 404 detection
+        baseline_len = 0
+        try:
+            canary_resp = self.requester.request(
+                urljoin(base_url, '/atomic_backup_test_nonexist.bak'), 'GET')
+            if canary_resp:
+                baseline_len = len(canary_resp.text)
+        except Exception:
+            pass
+
+        for path in backup_patterns:
+            full_url = urljoin(base_url, path)
+            if full_url in self.endpoints:
+                continue
+            try:
+                resp = self.requester.request(full_url, 'GET')
+                if resp and resp.status_code == 200:
+                    # Skip custom 404 pages
+                    if baseline_len and abs(len(resp.text) - baseline_len) < 100:
+                        continue
+                    # Check for real content indicators
+                    content_type = resp.headers.get('Content-Type', '').lower()
+                    if any(ct in content_type for ct in [
+                        'octet-stream', 'zip', 'gzip', 'tar', 'sql',
+                        'json', 'yaml', 'xml', 'text/plain',
+                    ]) or len(resp.text) > 500:
+                        self.endpoints.add(full_url)
+                        found += 1
+                        # Report as finding
+                        from core.engine import Finding
+                        severity = 'CRITICAL' if any(
+                            kw in path for kw in ['.sql', '.env', '.zip', '.tar', 'config', 'wp-config']
+                        ) else 'HIGH'
+                        finding = Finding(
+                            technique="Discovery (Backup File Exposed)",
+                            url=full_url, severity=severity, confidence=0.85,
+                            param='N/A', payload=path,
+                            evidence=f"Backup file accessible: {path} ({len(resp.text)} bytes, "
+                                     f"Content-Type: {content_type[:50]})",
+                        )
+                        self.engine.add_finding(finding)
+            except Exception:
+                continue
+
+        if found:
+            print(f"{Colors.success(f'Backup file discovery: {found} files found')}")
+
+    # ──────────────────────────────────────
+    # JavaScript Endpoint Mining
+    # ──────────────────────────────────────
+
+    def _mine_js_endpoints(self, target: str):
+        """Extract API endpoints and secrets from JavaScript files."""
+        print(f"{Colors.info('Mining JavaScript files for endpoints and secrets...')}")
+
+        # Collect JS file URLs from already-discovered endpoints
+        js_urls = set()
+        for ep in self.endpoints:
+            if ep.endswith('.js') and 'jquery' not in ep.lower() and 'bootstrap' not in ep.lower():
+                js_urls.add(ep)
+
+        # Also look for script tags in the main page
+        try:
+            resp = self.requester.request(target, 'GET')
+            if resp and resp.text:
+                for match in re.finditer(r'<script[^>]*src=["\']([^"\']+\.js)["\']', resp.text, re.IGNORECASE):
+                    js_url = urljoin(target, match.group(1))
+                    js_urls.add(js_url)
+        except Exception:
+            pass
+
+        if not js_urls:
+            return
+
+        # Patterns to extract from JS
+        endpoint_patterns = [
+            r'["\'](/api/[a-zA-Z0-9_/.-]+)["\']',
+            r'["\'](/v[1-3]/[a-zA-Z0-9_/.-]+)["\']',
+            r'["\'](?:https?://[^"\']+)?(/[a-zA-Z0-9_-]+/[a-zA-Z0-9_-]+)["\']',
+            r'fetch\s*\(\s*["\']([^"\']+)["\']',
+            r'axios\.[a-z]+\s*\(\s*["\']([^"\']+)["\']',
+            r'\.(?:get|post|put|delete|patch)\s*\(\s*["\']([^"\']+)["\']',
+            r'url\s*[:=]\s*["\']([^"\']+)["\']',
+            r'endpoint\s*[:=]\s*["\']([^"\']+)["\']',
+        ]
+
+        secret_patterns = [
+            (r'(?:api[_-]?key|apikey|access[_-]?token|secret[_-]?key|auth[_-]?token)\s*[:=]\s*["\']([^"\']{8,})["\']', 'API Key/Secret'),
+            (r'(?:aws_access_key_id|aws_secret_access_key)\s*[:=]\s*["\']([^"\']+)["\']', 'AWS Credential'),
+            (r'(?:firebase|supabase|stripe)[\w]*\s*[:=]\s*["\']([^"\']{10,})["\']', 'Service Key'),
+        ]
+
+        new_endpoints = set()
+        secrets_found = []
+
+        base_url = f"{urlparse(target).scheme}://{urlparse(target).netloc}"
+
+        for js_url in list(js_urls)[:30]:  # Limit to 30 JS files
+            try:
+                resp = self.requester.request(js_url, 'GET')
+                if not resp or not resp.text:
+                    continue
+                js_content = resp.text
+
+                # Extract endpoints
+                for pattern in endpoint_patterns:
+                    for match in re.finditer(pattern, js_content):
+                        path = match.group(1)
+                        if path.startswith('/') and len(path) > 2:
+                            full_url = urljoin(base_url, path)
+                            if full_url not in self.endpoints:
+                                new_endpoints.add(full_url)
+
+                # Extract secrets
+                for pattern, secret_type in secret_patterns:
+                    for match in re.finditer(pattern, js_content, re.IGNORECASE):
+                        secrets_found.append({
+                            'type': secret_type,
+                            'file': js_url,
+                            'value': match.group(1)[:20] + '...',
+                        })
+            except Exception:
+                continue
+
+        if new_endpoints:
+            self.endpoints.update(new_endpoints)
+            print(f"{Colors.success(f'JS mining: {len(new_endpoints)} new endpoints from {len(js_urls)} JS files')}")
+
+        if secrets_found:
+            from core.engine import Finding
+            for secret in secrets_found[:5]:  # Cap findings
+                finding = Finding(
+                    technique="Discovery (JS Secret Exposure)",
+                    url=secret['file'], severity='HIGH', confidence=0.75,
+                    param='N/A', payload=secret['type'],
+                    evidence=f"{secret['type']} found in JS: {secret['value']}",
+                )
+                self.engine.add_finding(finding)
+            print(f"{Colors.success(f'JS mining: {len(secrets_found)} secrets/keys found')}")
 
     # ──────────────────────────────────────
     # Reporting

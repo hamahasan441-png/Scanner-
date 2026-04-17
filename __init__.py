@@ -1,7 +1,9 @@
-# ATOMIC Framework v9.0 - ULTIMATE EDITION
-"""
-Modular Web Security Testing Framework
-"""
+"""Package metadata for the ATOMIC Framework."""
 
-__version__ = '9.0'
-__codename__ = 'PHOENIX'
+try:
+    from .config import Config
+except ImportError:  # pragma: no cover - fallback for repo-root execution
+    from config import Config
+
+__version__ = '10.0.0'
+__codename__ = Config.CODENAME

@@ -366,7 +366,16 @@ class TestGenerateAll(unittest.TestCase):
         )
         rg.generate_all()
 
+        # PDF requires fpdf2 which may not be installed
+        try:
+            import fpdf  # noqa: F401
+            fpdf_available = True
+        except ImportError:
+            fpdf_available = False
+
         for ext in ('html', 'json', 'csv', 'txt', 'pdf', 'xml', 'sarif'):
+            if ext == 'pdf' and not fpdf_available:
+                continue
             path = os.path.join(self.output_dir, f'report_all-1.{ext}')
             self.assertTrue(os.path.isfile(path), f'Missing {ext} report')
 

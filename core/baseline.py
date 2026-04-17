@@ -46,6 +46,7 @@ class BaselineResult:
         'time_mean', 'time_stdev', 'time_samples',
         'length_mean', 'length_stdev',
         'status_code', 'structure_hash',
+        'response_headers', 'valid',
     )
 
     def __init__(self, url, method, param, value):
@@ -60,6 +61,8 @@ class BaselineResult:
         self.length_stdev = 0.0
         self.status_code = 0
         self.structure_hash = ''
+        self.response_headers = {}
+        self.valid = False
 
     @property
     def is_noisy(self):
@@ -151,6 +154,7 @@ class BaselineEngine:
         lengths = []
         last_status = 0
         last_body = ''
+        last_headers = {}
 
         data = {param: value} if param else None
 
@@ -162,9 +166,11 @@ class BaselineEngine:
 
                 if resp is not None:
                     timings.append(elapsed)
-                    lengths.append(len(resp.text))
+                    normalized_text = normalize(resp.text)
+                    lengths.append(len(normalized_text))
                     last_status = resp.status_code
                     last_body = resp.text
+                    last_headers = dict(resp.headers)
             except Exception:
                 pass
 
@@ -172,11 +178,13 @@ class BaselineEngine:
             result.time_mean = statistics.mean(timings)
             result.time_stdev = statistics.stdev(timings) if len(timings) > 1 else 0.0
             result.time_samples = timings
+            result.valid = True
         if lengths:
             result.length_mean = statistics.mean(lengths)
             result.length_stdev = statistics.stdev(lengths) if len(lengths) > 1 else 0.0
         result.status_code = last_status
         result.structure_hash = self._structure_fingerprint(last_body)
+        result.response_headers = last_headers
 
         # Cache management (LRU eviction)
         if len(self._cache) >= MAX_CACHE_SIZE:

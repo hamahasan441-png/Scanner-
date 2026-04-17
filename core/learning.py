@@ -12,11 +12,15 @@ and endpoint behaviour profiles.
 import os
 import json
 import time
+import fcntl
 
 
 from config import Config, Colors
 
 LEARNING_FILE = os.path.join(Config.BASE_DIR, '.atomic_learning.json')
+
+# Records older than this many seconds are pruned on load (90 days)
+DATA_EXPIRY_TTL = 90 * 24 * 3600
 
 
 class LearningStore:
@@ -58,7 +62,7 @@ class LearningStore:
     # ------------------------------------------------------------------
 
     def _load(self):
-        """Load learning data from disk."""
+        """Load learning data from disk, pruning expired records."""
         if not os.path.isfile(LEARNING_FILE):
             return
         try:
@@ -72,6 +76,19 @@ class LearningStore:
             self.domain_profiles = data.get('domain_profiles', {})
             self.tech_payload_history = data.get('tech_payload_history', {})
             self.signal_accuracy = data.get('signal_accuracy', self.signal_accuracy)
+
+            # F7: Prune expired endpoint patterns
+            now = time.time()
+            self.endpoint_patterns = {
+                k: v for k, v in self.endpoint_patterns.items()
+                if now - v.get('last_seen', now) < DATA_EXPIRY_TTL
+            }
+            # F7: Prune expired domain profiles
+            self.domain_profiles = {
+                k: v for k, v in self.domain_profiles.items()
+                if now - v.get('last_scan', now) < DATA_EXPIRY_TTL
+            }
+
             if self.verbose:
                 total = sum(sum(v.values()) for v in self.successful_payloads.values())
                 domains = len(self.domain_profiles)
@@ -83,7 +100,7 @@ class LearningStore:
             pass
 
     def save(self):
-        """Persist learning data to disk (atomic write)."""
+        """Persist learning data to disk (atomic write with file locking)."""
         data = {
             'successful_payloads': self.successful_payloads,
             'failed_payloads': self.failed_payloads,
@@ -94,18 +111,29 @@ class LearningStore:
             'signal_accuracy': self.signal_accuracy,
             'updated': time.time(),
         }
+        lock_path = LEARNING_FILE + '.lock'
         try:
             import tempfile
             dir_name = os.path.dirname(LEARNING_FILE) or '.'
-            fd, tmp_path = tempfile.mkstemp(dir=dir_name, suffix='.tmp')
+            # Acquire file lock to prevent concurrent corruption
+            lock_fd = open(lock_path, 'w')
             try:
-                with os.fdopen(fd, 'w') as f:
-                    json.dump(data, f, indent=2, default=str)
-                os.replace(tmp_path, LEARNING_FILE)
-            except Exception:
-                # Clean up temp file on failure
+                fcntl.flock(lock_fd, fcntl.LOCK_EX)
+                fd, tmp_path = tempfile.mkstemp(dir=dir_name, suffix='.tmp')
                 try:
-                    os.unlink(tmp_path)
+                    with os.fdopen(fd, 'w') as f:
+                        json.dump(data, f, indent=2, default=str)
+                    os.replace(tmp_path, LEARNING_FILE)
+                except Exception:
+                    try:
+                        os.unlink(tmp_path)
+                    except OSError:
+                        pass
+            finally:
+                fcntl.flock(lock_fd, fcntl.LOCK_UN)
+                lock_fd.close()
+                try:
+                    os.unlink(lock_path)
                 except OSError:
                     pass
         except (IOError, OSError):
@@ -150,18 +178,6 @@ class LearningStore:
             return -(s - f * 0.5)  # higher success = lower key = first
 
         return sorted(all_payloads, key=sort_key)
-
-    def get_signal_weights(self):
-        """Return learned signal weights for the scorer.
-
-        Defaults are returned if no learned weights are available yet.
-        """
-        return self.thresholds.get('signal_weights', {
-            'timing': 3,
-            'error': 2,
-            'reflection': 2,
-            'diff': 1,
-        })
 
     def update_thresholds(self, findings):
         """Adjust dynamic thresholds based on scan results.
@@ -255,6 +271,7 @@ class LearningStore:
             'error': 2,
             'reflection': 2,
             'diff': 1,
+            'behavior': 2,
         }
 
         # Check if we have enough data to adjust

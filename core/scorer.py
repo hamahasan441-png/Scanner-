@@ -36,7 +36,7 @@ CONFIDENCE_HIGH = 0.75
 CONFIDENCE_MEDIUM = 0.45
 
 # Minimum number of consistent signals required to label HIGH
-MIN_SIGNALS_FOR_HIGH = 2
+MIN_SIGNALS_FOR_HIGH = 3
 
 
 class SignalSet:
@@ -44,10 +44,10 @@ class SignalSet:
 
     __slots__ = (
         'timing_signal', 'error_signal', 'reflection_signal', 'diff_signal',
-        'behavior_signal', 'raw_scores', '_weights',
+        'behavior_signal', 'raw_scores', '_weights', '_rules_engine',
     )
 
-    def __init__(self, weights=None):
+    def __init__(self, weights=None, rules_engine=None):
         self.timing_signal = 0.0     # 0.0 - 1.0
         self.error_signal = 0.0      # 0.0 - 1.0
         self.reflection_signal = 0.0  # 0.0 - 1.0
@@ -61,6 +61,7 @@ class SignalSet:
             'diff': DEFAULT_WEIGHT_DIFF,
             'behavior': DEFAULT_WEIGHT_BEHAVIOR,
         }
+        self._rules_engine = rules_engine
 
     @property
     def combined_score(self):
@@ -96,7 +97,24 @@ class SignalSet:
     def confidence_label(self):
         score = self.combined_score
         active = self.active_signal_count
-        # Require at least MIN_SIGNALS_FOR_HIGH active signals for HIGH label
+        # Delegate to rules engine when available for unified labeling
+        if self._rules_engine is not None:
+            # Convert 0-1 score to 0-100 scale for the rules engine
+            score_100 = int(score * 100)
+            rules_label = self._rules_engine.get_scoring_label(score_100)
+            # Map rules engine labels to unified output labels
+            label_map = {
+                'confirmed': 'HIGH',
+                'high': 'HIGH',
+                'likely': 'MEDIUM',
+                'suspected': 'LOW',
+            }
+            label = label_map.get(rules_label, 'LOW')
+            # Still enforce minimum active signals for HIGH
+            if label == 'HIGH' and active < MIN_SIGNALS_FOR_HIGH:
+                return 'MEDIUM'
+            return label
+        # Fallback when no rules engine: use hardcoded thresholds
         if score >= CONFIDENCE_HIGH and active >= MIN_SIGNALS_FOR_HIGH:
             return 'HIGH'
         elif score >= CONFIDENCE_MEDIUM:
@@ -300,12 +318,50 @@ class SignalScorer:
 
         return min(1.0, score)
 
+    def score_context_fit(self, vuln_type, url='', param=''):
+        """Score based on context intelligence predictions (E1).
+
+        Maps ContextIntelligence sink classification into a 0.0-1.0 score.
+        Represents the [0, 20] context_fit component from the scoring formula.
+        """
+        context = getattr(self.engine, 'context_intelligence', None)
+        if context is None:
+            return 0.0
+
+        try:
+            # Try to get predictions for this parameter
+            predictions = context.predict_vulns_for_param(url, param) if hasattr(context, 'predict_vulns_for_param') else {}
+            if not predictions:
+                return 0.0
+
+            # Check if the vuln_type is predicted for this context
+            score = predictions.get(vuln_type, 0.0)
+            return min(1.0, score)
+        except Exception:
+            return 0.0
+
+    def score_impact(self, vuln_type):
+        """Score based on vulnerability impact / CVSS base score (E2).
+
+        Maps the finding's vuln type to its CVSS base score from
+        CVSS_TEMPLATES, normalized to 0.0-1.0 (representing [0, 10] component).
+        """
+        try:
+            from core.post_worker_verifier import CVSS_TEMPLATES
+            for key, template in CVSS_TEMPLATES.items():
+                if key in (vuln_type or '').lower():
+                    return min(1.0, template['base'] / 10.0)
+        except Exception:
+            pass
+        return 0.3  # default moderate impact
+
     def analyze(self, baseline, elapsed, response_text, payload,
                 error_patterns=None, baseline_text='',
-                status_code=None, headers=None):
+                status_code=None, headers=None,
+                vuln_type='', url='', param=''):
         """Run all signal checks and return a :class:`SignalSet`."""
         weights = self._get_weights()
-        signals = SignalSet(weights=weights)
+        signals = SignalSet(weights=weights, rules_engine=self._rules)
         signals.timing_signal = self.score_timing(baseline, elapsed)
         signals.error_signal = self.score_error(
             baseline_text, response_text, error_patterns or [],
@@ -313,4 +369,7 @@ class SignalScorer:
         signals.reflection_signal = self.score_reflection(payload, response_text)
         signals.diff_signal = self.score_diff(baseline, response_text)
         signals.behavior_signal = self.score_behavior(baseline, status_code, headers)
+        # Store context_fit and impact as raw_scores for downstream consumers
+        signals.raw_scores['context_fit'] = self.score_context_fit(vuln_type, url, param)
+        signals.raw_scores['impact'] = self.score_impact(vuln_type)
         return signals
