@@ -341,7 +341,7 @@ class ReportGenerator:
         top_risks_html = ""
         for r in self._top_critical_risks():
             top_risks_html += (
-                f"<li><strong>{r.get('technique','')}</strong> (CVSS {r.get('cvss',0)}) — {r.get('url','')[:80]}</li>"
+                f"<li><strong>{r.get('technique', '')}</strong> (CVSS {r.get('cvss', 0)}) — {r.get('url', '')[:80]}</li>"
             )
 
         origin_info = self._origin_exposure_info()
@@ -392,8 +392,8 @@ class ReportGenerator:
                 steps = " → ".join(ch.get("steps", []))
                 chains_html += f"""
                 <div style="background:#16213e;padding:12px;border-radius:6px;margin:8px 0;border-left:4px solid {ch_color}">
-                    <strong style="color:{ch_color}">[{ch.get('id','')}] {ch.get('name','')}</strong>
-                    <span style="color:#aaa;margin-left:10px">CVSS {ch.get('combined_cvss',0)}</span>
+                    <strong style="color:{ch_color}">[{ch.get('id', '')}] {ch.get('name', '')}</strong>
+                    <span style="color:#aaa;margin-left:10px">CVSS {ch.get('combined_cvss', 0)}</span>
                     <p style="margin:4px 0 0;color:#ccc">Steps: {steps}</p>
                 </div>"""
 
@@ -405,7 +405,7 @@ class ReportGenerator:
             if waf_info.get("bypasses"):
                 waf_html += "<ul>"
                 for bp in waf_info["bypasses"]:
-                    waf_html += f"<li>{bp.get('technique','')} — <code>{bp.get('payload','')[:80]}</code></li>"
+                    waf_html += f"<li>{bp.get('technique', '')} — <code>{bp.get('payload', '')[:80]}</code></li>"
                 waf_html += "</ul>"
             else:
                 waf_html += '<p style="color:#aaa">No confirmed WAF bypasses.</p>'
@@ -598,12 +598,12 @@ class ReportGenerator:
             lines.append("")
             lines.append("Top Critical Risks:")
             for i, r in enumerate(top_risks, 1):
-                lines.append(f"  {i}. {r.get('technique','')} (CVSS {r.get('cvss',0)}) — {r.get('url','')[:60]}")
+                lines.append(f"  {i}. {r.get('technique', '')} (CVSS {r.get('cvss', 0)}) — {r.get('url', '')[:60]}")
 
         origin = self._origin_exposure_info()
         if origin.get("origin_ip"):
             lines.append("")
-            lines.append(f"Origin Exposure: IP {origin['origin_ip']} (confidence: {origin.get('confidence',0):.0%})")
+            lines.append(f"Origin Exposure: IP {origin['origin_ip']} (confidence: {origin.get('confidence', 0):.0%})")
 
         lines.extend(["", "FINDINGS", "=" * 60])
 
@@ -634,7 +634,7 @@ class ReportGenerator:
             lines.extend(["", "EXPLOIT CHAINS", "=" * 60])
             for ch in chains_data:
                 steps = " -> ".join(ch.get("steps", []))
-                lines.append(f"  [{ch.get('id','')}] {ch.get('name','')} (CVSS {ch.get('combined_cvss',0)})")
+                lines.append(f"  [{ch.get('id', '')}] {ch.get('name', '')} (CVSS {ch.get('combined_cvss', 0)})")
                 lines.append(f"    Steps: {steps}")
 
         # WAF bypass
@@ -643,7 +643,7 @@ class ReportGenerator:
             lines.extend(["", "WAF BYPASS DISCLOSURE", "=" * 60])
             lines.append(f"  WAF: {waf_info.get('waf_provider', 'Unknown')}")
             for bp in waf_info.get("bypasses", []):
-                lines.append(f"  Bypass: {bp.get('technique','')} — {bp.get('payload','')[:60]}")
+                lines.append(f"  Bypass: {bp.get('technique', '')} — {bp.get('payload', '')[:60]}")
 
         # Remediation plan
         rem_plan = self._remediation_plan()
@@ -709,7 +709,7 @@ class ReportGenerator:
 
         origin = self._origin_exposure_info()
         if origin.get("origin_ip"):
-            pdf.cell(0, 7, f'Origin IP: {origin["origin_ip"]} (confidence: {origin.get("confidence",0):.0%})', **NL)
+            pdf.cell(0, 7, f'Origin IP: {origin["origin_ip"]} (confidence: {origin.get("confidence", 0):.0%})', **NL)
         pdf.ln(5)
 
         # Findings
@@ -744,7 +744,7 @@ class ReportGenerator:
                     0,
                     7,
                     self._pdf_safe(
-                        f"[{chain.get('id','')}] {chain.get('name','')} (CVSS {chain.get('combined_cvss',0)})"
+                        f"[{chain.get('id', '')}] {chain.get('name', '')} (CVSS {chain.get('combined_cvss', 0)})"
                     ),
                     **NL,
                 )

@@ -313,7 +313,9 @@ class TestFuzzerGitHubIntegration(unittest.TestCase):
 
     def test_github_param_discover_detects_change(self):
         from modules.fuzzer import FuzzerModule
+
         call_count = [0]
+
         def side_effect(url, method, **kw):
             call_count[0] += 1
             if call_count[0] == 1:

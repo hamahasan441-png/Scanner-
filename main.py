@@ -475,11 +475,11 @@ def main():
             for f in result.findings:
                 if f.get("type") == "open_port":
                     print(
-                        f"  {Colors.CYAN}{f['port']}/{f['protocol']}{Colors.RESET} - {f['service']} {f.get('product','')} {f.get('version','')}"
+                        f"  {Colors.CYAN}{f['port']}/{f['protocol']}{Colors.RESET} - {f['service']} {f.get('product', '')} {f.get('version', '')}"
                     )
                 elif f.get("type") == "vulnerability":
                     print(
-                        f"  {Colors.RED}[VULN]{Colors.RESET} Port {f['port']}: {f['script']} - {f.get('details','')[:100]}"
+                        f"  {Colors.RED}[VULN]{Colors.RESET} Port {f['port']}: {f['script']} - {f.get('details', '')[:100]}"
                     )
         else:
             print(f"{Colors.error(f'Nmap failed: {result.error}')}")
@@ -530,7 +530,7 @@ def main():
             for f in result.findings:
                 sev_color = Colors.RED if f.get("severity") in ("critical", "high") else Colors.YELLOW
                 print(
-                    f"  {sev_color}[{f.get('severity','?').upper()}]{Colors.RESET} {f.get('name','')} - {f.get('matched_at','')}"
+                    f"  {sev_color}[{f.get('severity', '?').upper()}]{Colors.RESET} {f.get('name', '')} - {f.get('matched_at', '')}"
                 )
         else:
             print(f"{Colors.error(f'Nuclei failed: {result.error}')}")

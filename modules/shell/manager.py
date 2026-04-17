@@ -138,7 +138,7 @@ class ShellManager:
   {Colors.CYAN}exit/quit{Colors.RESET}         Exit shell session
   {Colors.CYAN}upload <file>{Colors.RESET}     Upload file to server
   {Colors.CYAN}download <file>{Colors.RESET}   Download file from server
-  
+
 {Colors.BOLD}Any other command will be executed on the remote server.{Colors.RESET}
 """
         print(help_text)
