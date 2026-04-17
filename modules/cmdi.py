@@ -116,7 +116,15 @@ class CommandInjectionModule:
     def _test_argument_injection(self, url: str, method: str, param: str, value: str):
         """Test argument injection"""
         payloads = ["--output=/tmp/pwned", "-exec cat /etc/passwd ;", "--config=/dev/null"]
-        indicators = ["root:x:", "/bin/bash", "pwned"]
+        indicators = ["root:x:0:0:", "/bin/bash", "pwned"]
+
+        # Get baseline to filter pre-existing content
+        try:
+            baseline_response = self.requester.request(url, method, data={param: value})
+            baseline_text = baseline_response.text.lower() if baseline_response else ""
+        except Exception:
+            baseline_text = ""
+
         for payload in payloads:
             try:
                 data = {param: payload}
@@ -124,8 +132,9 @@ class CommandInjectionModule:
                 if not response:
                     continue
                 text = response.text.lower()
+                # Only flag if indicator is NEW (not in baseline)
                 for ind in indicators:
-                    if ind in text:
+                    if ind in text and ind not in baseline_text:
                         from core.engine import Finding
 
                         finding = Finding(
@@ -149,13 +158,25 @@ class CommandInjectionModule:
             "LD_PRELOAD=/tmp/evil.so",
             "BASH_ENV=/etc/passwd",
         ]
+
+        # Get baseline to filter pre-existing content
+        try:
+            baseline_response = self.requester.request(url, method, data={param: value})
+            baseline_text = baseline_response.text.lower() if baseline_response else ""
+        except Exception:
+            baseline_text = ""
+
         for payload in payloads:
             try:
                 data = {param: payload}
                 response = self.requester.request(url, method, data=data)
                 if not response:
                     continue
-                if "root:x:" in response.text.lower() or "evil.example.com" in response.text.lower():
+                text = response.text.lower()
+                # Only flag if indicator is NEW (not in baseline)
+                if ("root:x:0:0:" in text and "root:x:0:0:" not in baseline_text) or (
+                    "evil.example.com" in text and "evil.example.com" not in baseline_text
+                ):
                     from core.engine import Finding
 
                     finding = Finding(
@@ -179,6 +200,13 @@ class CommandInjectionModule:
         """Test for basic command injection"""
         payloads = Payloads.CMDI_PAYLOADS
 
+        # Get baseline response to filter pre-existing indicators
+        try:
+            baseline_response = self.requester.request(url, method, data={param: value})
+            baseline_text = baseline_response.text if baseline_response else ""
+        except Exception:
+            baseline_text = ""
+
         for payload in payloads:
             try:
                 data = {param: f"{value}{payload}"}
@@ -189,10 +217,12 @@ class CommandInjectionModule:
 
                 response_text = response.text
 
-                # Check for command output indicators
+                # Check for command output indicators (only NEW ones)
                 for os_type, indicators in self.cmd_indicators.items():
                     for indicator in indicators:
-                        if re.search(indicator, response_text, re.IGNORECASE):
+                        match_in_response = re.search(indicator, response_text, re.IGNORECASE)
+                        match_in_baseline = re.search(indicator, baseline_text, re.IGNORECASE)
+                        if match_in_response and not match_in_baseline:
                             from core.engine import Finding
 
                             finding = Finding(

@@ -65,6 +65,13 @@ class XSSModule:
 
     def _test_mxss(self, url: str, method: str, param: str, value: str):
         """Test for mutation XSS (mXSS)"""
+        # Get baseline to filter pre-existing content
+        try:
+            baseline_response = self.requester.request(url, method, data={param: value})
+            baseline_text = baseline_response.text if baseline_response else ""
+        except Exception:
+            baseline_text = ""
+
         payloads = [
             "<math><mtext><table><mglyph><style><!--</style><img src=x onerror=alert(1)>",
             "<svg><animate onbegin=alert(1) attributeName=x>",
@@ -76,20 +83,23 @@ class XSSModule:
                 response = self.requester.request(url, method, data=data)
                 if not response:
                     continue
-                if payload in response.text or "onerror" in response.text.lower():
-                    from core.engine import Finding
+                # Only flag if the full payload is reflected and was NOT in baseline
+                if payload in response.text and payload not in baseline_text:
+                    # Verify it's not HTML-encoded
+                    if not self._is_sanitized(payload, response.text):
+                        from core.engine import Finding
 
-                    finding = Finding(
-                        technique="XSS (Mutation XSS / mXSS)",
-                        url=url,
-                        severity="HIGH",
-                        confidence=0.85,
-                        param=param,
-                        payload=payload,
-                        evidence="mXSS payload reflected in response",
-                    )
-                    self.engine.add_finding(finding)
-                    return
+                        finding = Finding(
+                            technique="XSS (Mutation XSS / mXSS)",
+                            url=url,
+                            severity="HIGH",
+                            confidence=0.85,
+                            param=param,
+                            payload=payload,
+                            evidence="mXSS payload reflected unescaped in response",
+                        )
+                        self.engine.add_finding(finding)
+                        return
             except Exception:
                 continue
 

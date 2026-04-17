@@ -30,18 +30,17 @@ class SQLiModule:
         # SQL Error signatures
         self.error_signatures = {
             "mysql": [
-                "sql syntax",
-                "mysql_fetch",
+                "you have an error in your sql syntax",
+                "mysql_fetch_array",
+                "mysql_fetch_row",
+                "mysql_num_rows",
                 "mysql_query",
                 "mysqli_",
-                "you have an error in your sql syntax",
                 "warning: mysql",
                 "mysqli_error",
-                "unclosed quote",
+                "unclosed quotation mark",
                 "quoted string not properly terminated",
-                "unknown column",
-                "table",
-                "doesn't exist",
+                "unknown column '",
             ],
             "postgresql": [
                 "pg_query",
@@ -74,14 +73,12 @@ class SQLiModule:
             ],
             "generic": [
                 "sql syntax",
-                "syntax error",
-                "unexpected",
-                "sqlstate",
-                "jdbc",
-                "odbc",
+                "sqlstate[",
+                "jdbc exception",
+                "odbc sql server driver",
             ],
-            "mariadb": ["mariadb", "maria"],
-            "cockroachdb": ["cockroachdb", "crdb", "cockroach"],
+            "mariadb": ["mariadb server", "mariadb error"],
+            "cockroachdb": ["cockroachdb", "crdb_internal"],
             "clickhouse": ["clickhouse", "code: 62"],
         }
 
@@ -126,6 +123,14 @@ class SQLiModule:
         """Test for error-based SQLi"""
         payloads = Payloads.SQLI_ERROR_BASED
 
+        # Get baseline response to filter pre-existing error strings
+        try:
+            baseline_data = {param: value}
+            baseline_response = self.requester.request(url, method, data=baseline_data)
+            baseline_text = baseline_response.text.lower() if baseline_response else ""
+        except Exception:
+            baseline_text = ""
+
         # Apply WAF bypass if enabled
         if self.engine.config.get("waf_bypass"):
             all_payloads = []
@@ -144,11 +149,15 @@ class SQLiModule:
                 # Check for SQL errors
                 response_text = response.text.lower()
                 detected_db = None
+                matched_sig = None
 
                 for db_type, signatures in self.error_signatures.items():
                     for sig in signatures:
-                        if sig.lower() in response_text:
+                        sig_lower = sig.lower()
+                        # Only flag if the error signature is NEW (not in baseline)
+                        if sig_lower in response_text and sig_lower not in baseline_text:
                             detected_db = db_type
+                            matched_sig = sig
                             break
                     if detected_db:
                         break
@@ -163,7 +172,7 @@ class SQLiModule:
                         confidence=0.9,
                         param=param,
                         payload=payload,
-                        evidence=f"Database error detected: {detected_db}",
+                        evidence=f"Database error detected: {detected_db} (signature: {matched_sig})",
                     )
                     self.engine.add_finding(finding)
                     return
@@ -320,7 +329,7 @@ class SQLiModule:
                     diff_true_false = abs(true_len - false_len)
                     diff_baseline_true = abs(baseline_len - true_len)
 
-                    if diff_true_false > 50 and diff_baseline_true < diff_true_false:
+                    if diff_true_false > 200 and diff_baseline_true < diff_true_false:
                         from core.engine import Finding
 
                         finding = Finding(

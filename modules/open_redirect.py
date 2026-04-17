@@ -106,22 +106,25 @@ class OpenRedirectModule:
         """URL-level open redirect test (not applicable)."""
 
     def _is_open_redirect(self, location, payload):
-        """Check if the Location header redirects to an external domain."""
+        """Check if the Location header actually redirects to the payload domain."""
         if not location:
             return False
-        payload_lower = payload.lower()
-        location_lower = location.lower()
 
-        # Direct match
-        if payload_lower in location_lower:
-            return True
-
-        # Check for external domain in Location
+        # Parse the Location header URL - only flag if the redirect target IS the payload
         try:
-            parsed = urlparse(location)
-            if parsed.netloc and parsed.netloc not in ("", "localhost", "127.0.0.1"):
-                evil_domains = ["evil.com", "attacker.com"]
-                return any(d in parsed.netloc.lower() for d in evil_domains)
+            parsed_location = urlparse(location)
+            parsed_payload = urlparse(payload)
+
+            # The Location header's hostname must match the payload's hostname
+            if parsed_location.netloc and parsed_payload.netloc:
+                loc_host = parsed_location.netloc.lower()
+                payload_host = parsed_payload.netloc.lower()
+                # Check if location redirects TO the payload domain (not just contains it as a parameter)
+                if loc_host == payload_host:
+                    return True
+                # Also catch subdomains of the payload domain
+                if loc_host.endswith("." + payload_host):
+                    return True
         except Exception:
             pass
 

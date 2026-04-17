@@ -19,42 +19,39 @@ class SSTIModule:
         # Template engine indicators
         self.template_engines = {
             "jinja2": [
-                "jinja2",
                 "jinja2.exceptions",
                 "undefinederror",
             ],
             "django": [
                 "django.template",
-                "template syntax error",
-                "django",
+                "templatesyntaxerror",
             ],
             "twig": [
-                "twig",
                 "twig_error",
+                "twig\\error",
             ],
             "smarty": [
-                "smarty",
                 "smarty error",
+                "smarty_internal",
             ],
             "freemarker": [
-                "freemarker",
                 "freemarker.template",
+                "freemarker.core",
             ],
             "velocity": [
-                "velocity",
                 "org.apache.velocity",
             ],
             "thymeleaf": [
-                "thymeleaf",
                 "thymeleaferrors",
+                "org.thymeleaf",
             ],
             "handlebars": [
-                "handlebars",
                 "handlebars error",
+                "handlebars.compile",
             ],
             "razor": [
-                "razor",
-                "aspnet",
+                "razorengine",
+                "microsoft.aspnetcore.razor",
             ],
         }
 
@@ -91,6 +88,13 @@ class SSTIModule:
         if not llm_payloads:
             return
 
+        # Get baseline to filter pre-existing content
+        try:
+            baseline_response = self.requester.request(url, method, data={param: value})
+            baseline_text = baseline_response.text if baseline_response else ""
+        except Exception:
+            baseline_text = ""
+
         for payload in llm_payloads:
             try:
                 data = {param: payload}
@@ -98,26 +102,34 @@ class SSTIModule:
                 if not response:
                     continue
                 resp_text = response.text
-                # Check for math eval (common SSTI confirmation)
-                if "49" in resp_text and "{{7*7}}" not in resp_text:
-                    from core.engine import Finding
+                # Check for math eval with stricter matching:
+                # 1. "49" must be present but NOT as part of a larger number
+                # 2. The raw template syntax must NOT be in the response (it was evaluated)
+                # 3. The result must NOT have been in the baseline
+                import re as _re
 
-                    finding = Finding(
-                        technique="SSTI (AI-generated)",
-                        url=url,
-                        severity="HIGH",
-                        confidence=0.80,
-                        param=param,
-                        payload=payload,
-                        evidence="AI payload triggered template expression evaluation",
-                    )
-                    self.engine.add_finding(finding)
-                    return
-                # Check for engine error messages
+                if _re.search(r"(?<!\d)49(?!\d)", resp_text) and "{{7*7}}" not in resp_text:
+                    # Verify "49" is new (not in baseline)
+                    if not _re.search(r"(?<!\d)49(?!\d)", baseline_text):
+                        from core.engine import Finding
+
+                        finding = Finding(
+                            technique="SSTI (AI-generated)",
+                            url=url,
+                            severity="HIGH",
+                            confidence=0.80,
+                            param=param,
+                            payload=payload,
+                            evidence="AI payload triggered template expression evaluation",
+                        )
+                        self.engine.add_finding(finding)
+                        return
+                # Check for engine error messages (only NEW ones)
                 resp_lower = resp_text.lower()
+                baseline_lower = baseline_text.lower()
                 for engine_name, signatures in self.template_engines.items():
                     for sig in signatures:
-                        if sig in resp_lower:
+                        if sig in resp_lower and sig not in baseline_lower:
                             from core.engine import Finding
 
                             finding = Finding(
@@ -142,26 +154,37 @@ class SSTIModule:
             "ejs": ("<%= 7*7 %>", "49"),
             "handlebars": ("{{this}}", "[object"),
         }
+
+        # Get baseline to avoid flagging pre-existing content
+        try:
+            baseline_response = self.requester.request(url, method, data={param: value})
+            baseline_text = baseline_response.text.lower() if baseline_response else ""
+        except Exception:
+            baseline_text = ""
+
         for engine_name, (payload, expected) in engine_payloads.items():
             try:
                 data = {param: payload}
                 response = self.requester.request(url, method, data=data)
                 if not response:
                     continue
-                if expected.lower() in response.text.lower():
-                    from core.engine import Finding
+                resp_lower = response.text.lower()
+                # Verify expected result is NEW and raw payload is NOT echoed back
+                if expected.lower() in resp_lower and expected.lower() not in baseline_text:
+                    if payload not in response.text:
+                        from core.engine import Finding
 
-                    finding = Finding(
-                        technique=f"SSTI ({engine_name.title()})",
-                        url=url,
-                        severity="HIGH",
-                        confidence=0.85,
-                        param=param,
-                        payload=payload,
-                        evidence=f"Engine {engine_name} detected: '{expected}' found",
-                    )
-                    self.engine.add_finding(finding)
-                    return
+                        finding = Finding(
+                            technique=f"SSTI ({engine_name.title()})",
+                            url=url,
+                            severity="HIGH",
+                            confidence=0.85,
+                            param=param,
+                            payload=payload,
+                            evidence=f"Engine {engine_name} detected: '{expected}' found",
+                        )
+                        self.engine.add_finding(finding)
+                        return
             except Exception:
                 continue
 

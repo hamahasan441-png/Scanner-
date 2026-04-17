@@ -223,11 +223,20 @@ class Verifier:
             return abs(len(response.text) - len(finding.evidence)) > 20, resp_len
 
         if "command" in technique_lower:
-            indicators = ["uid=", "root:", "bin/", "/bin/sh", "windows"]
+            indicators = ["uid=", "root:x:", "/bin/sh", "volume serial"]
             return any(ind in response_text for ind in indicators), resp_len
 
-        # Generic: check if response still differs from a clean request
-        return True, resp_len
+        # Generic: require the response to differ meaningfully from a clean request
+        try:
+            clean_data = {finding.param: "safe_test_value"}
+            clean_response = self.requester.request(finding.url, method, data=clean_data)
+            if clean_response:
+                clean_len = len(normalize(clean_response.text))
+                # Only confirm if response differs significantly from a clean request
+                return abs(resp_len - clean_len) > 200, resp_len
+        except Exception:
+            pass
+        return False, resp_len
 
     def _retest_url(self, finding):
         """Re-test a URL-level finding."""
