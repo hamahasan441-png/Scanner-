@@ -616,8 +616,8 @@ class ReconModule:
                 txt = str(rdata).strip('"')
                 if "v=spf1" in txt.lower():
                     records_found["SPF"] = txt[:200]
-                    # Check for overly permissive SPF
-                    if "+all" in txt:
+                    # Check for overly permissive SPF — match ' +all' or end with '+all'
+                    if " +all" in txt or txt.strip().endswith("+all"):
                         from core.engine import Finding
 
                         finding = Finding(

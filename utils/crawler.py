@@ -11,6 +11,9 @@ from urllib.parse import urljoin, urlparse, parse_qs
 
 from config import Colors
 
+# File extensions that indicate XML-related resources (WSDL, XSD, WADL, feeds, SVG)
+_XML_EXTENSIONS = (".wsdl", ".xsd", ".wadl", ".xml", ".svg", ".rss", ".atom", ".soap")
+
 
 class Crawler:
     """Web Crawler with endpoint graph tracking"""
@@ -524,15 +527,14 @@ class Crawler:
                 found_urls.add(urljoin(url, href))
 
         # Any link ending in common XML-related extensions
-        xml_extensions = (".wsdl", ".xsd", ".wadl", ".xml", ".svg", ".rss", ".atom", ".soap")
         for tag in soup.find_all(["a", "link", "script", "embed", "object"], href=True):
             href = tag.get("href", "") or tag.get("src", "") or tag.get("data", "")
-            if href and any(href.lower().endswith(ext) for ext in xml_extensions):
+            if href and any(href.lower().endswith(ext) for ext in _XML_EXTENSIONS):
                 found_urls.add(urljoin(url, href))
 
         for tag in soup.find_all(["a", "link", "script", "embed", "object", "img"], src=True):
             src = tag.get("src", "")
-            if src and any(src.lower().endswith(ext) for ext in xml_extensions):
+            if src and any(src.lower().endswith(ext) for ext in _XML_EXTENSIONS):
                 found_urls.add(urljoin(url, src))
 
         # Extract WSDL references from inline JavaScript
