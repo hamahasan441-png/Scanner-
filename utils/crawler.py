@@ -66,58 +66,42 @@ class Crawler:
 
             try:
                 response = self.requester.request(url, "GET")
-
                 if not response:
                     continue
 
                 soup = BeautifulSoup(response.text, "html.parser")
-
-                # Extract forms
-                self._extract_forms(soup, url)
-
-                # Extract URL parameters
-                self._extract_parameters(url)
-
-                # Extract links and resource references
-                if current_depth < depth:
-                    for link in soup.find_all("a", href=True):
-                        full_url = urljoin(url, link["href"])
-
-                        # Stay on same domain
-                        if urlparse(full_url).netloc == base_domain:
-                            if full_url not in self.visited:
-                                to_visit.append((full_url, current_depth + 1))
-
-                # Extract referenced resources (scripts, stylesheets, images, etc.)
-                self._extract_resources(soup, url)
-
-                # Extract API endpoints from scripts
-                self._extract_api_endpoints(soup, url)
-
-                # Extract hidden parameters
-                self._extract_hidden_params(soup, url)
-
-                # Extract HTML comments (may contain debug info or paths)
-                self._extract_comments(soup, url)
-
-                # Extract additional links from <link>, <base>, <area>, data-* attrs
-                self._extract_link_params(soup, url, base_domain, to_visit, current_depth, depth)
-
-                # Extract parameter names from JavaScript
-                self._extract_js_params(soup, url)
-
-                # Extract XML/WSDL/SOAP/feed links from page
-                self._extract_xml_links(soup, url, base_domain, to_visit, current_depth, depth)
-
-                # Extract source map URLs from scripts and headers
-                self._extract_source_maps(soup, url, response)
-
-                # Build graph entry for this URL
-                self._update_graph(url, response, soup)
+                self._process_page(soup, url, response, base_domain, to_visit, current_depth, depth)
 
             except Exception as e:
                 if self.engine.config.get("verbose"):
                     print(f"{Colors.error(f'Crawl error: {e}')}")
+
+        return self.visited, self.forms, self.parameters
+
+    def _process_page(self, soup, url, response, base_domain, to_visit, current_depth, depth):
+        """Extract all data from a single crawled page."""
+        self._extract_forms(soup, url)
+        self._extract_parameters(url)
+
+        if current_depth < depth:
+            self._enqueue_links(soup, url, base_domain, to_visit, current_depth, depth)
+
+        self._extract_resources(soup, url)
+        self._extract_api_endpoints(soup, url)
+        self._extract_hidden_params(soup, url)
+        self._extract_comments(soup, url)
+        self._extract_link_params(soup, url, base_domain, to_visit, current_depth, depth)
+        self._extract_js_params(soup, url)
+        self._extract_xml_links(soup, url, base_domain, to_visit, current_depth, depth)
+        self._extract_source_maps(soup, url, response)
+        self._update_graph(url, response, soup)
+
+    def _enqueue_links(self, soup, url, base_domain, to_visit, current_depth, depth):
+        """Extract <a> links and add same-domain URLs to the crawl queue."""
+        for link in soup.find_all("a", href=True):
+            full_url = urljoin(url, link["href"])
+            if urlparse(full_url).netloc == base_domain and full_url not in self.visited:
+                to_visit.append((full_url, current_depth + 1))
 
         return self.visited, self.forms, self.parameters
 
