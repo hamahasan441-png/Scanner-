@@ -6,15 +6,17 @@ Server-Side Request Forgery detection and exploitation
 """
 
 from config import Colors
+from modules.base import BaseModule
 
 
-class SSRFModule:
+class SSRFModule(BaseModule):
     """SSRF Testing Module"""
 
+    name = "SSRF"
+    vuln_type = "ssrf"
+
     def __init__(self, engine):
-        self.engine = engine
-        self.requester = engine.requester
-        self.name = "SSRF"
+        super().__init__(engine)
 
         # Cloud metadata endpoints
         self.cloud_endpoints = {

@@ -6,15 +6,17 @@ XML External Entity detection and exploitation
 """
 
 from config import Payloads, Colors
+from modules.base import BaseModule
 
 
-class XXEModule:
+class XXEModule(BaseModule):
     """XXE Testing Module"""
 
+    name = "XXE"
+    vuln_type = "xxe"
+
     def __init__(self, engine):
-        self.engine = engine
-        self.requester = engine.requester
-        self.name = "XXE"
+        super().__init__(engine)
 
         # XXE indicators – only strong indicators (actual file content
         # that proves file retrieval) count towards detection.  Weak

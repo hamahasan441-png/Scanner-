@@ -16,15 +16,17 @@ import time
 
 
 from config import Payloads, Colors
+from modules.base import BaseModule
 
 
-class CommandInjectionModule:
+class CommandInjectionModule(BaseModule):
     """Command Injection Testing Module"""
 
+    name = "Command Injection"
+    vuln_type = "cmdi"
+
     def __init__(self, engine):
-        self.engine = engine
-        self.requester = engine.requester
-        self.name = "Command Injection"
+        super().__init__(engine)
 
         # Command output indicators
         self.cmd_indicators = {
