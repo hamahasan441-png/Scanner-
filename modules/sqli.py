@@ -354,7 +354,7 @@ class SQLiModule:
                 # TRUE response should be close to baseline (same page)
                 diff_baseline_true = abs(baseline_len - avg_true)
 
-                if pct_diff > 0.15 and diff_baseline_true < diff_true_false:
+                if pct_diff > 0.25 and diff_baseline_true < diff_true_false:
                     from core.engine import Finding
 
                     finding = Finding(
@@ -378,7 +378,7 @@ class SQLiModule:
 
     @staticmethod
     def _lengths_consistent(
-        lengths: list[int], tolerance_pct: float = 0.05,
+        lengths: list[int], tolerance_pct: float = 0.08,
     ) -> bool:
         """Check if all lengths are within *tolerance_pct* of each other."""
         if not lengths:

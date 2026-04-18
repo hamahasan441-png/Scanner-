@@ -424,8 +424,8 @@ class SQLiTester(_BaseTester):
 
     Uses rigorous verification to avoid false positives:
     - 5x consistency rounds (true and false payloads)
-    - 15% minimum difference threshold between true/false
-    - TRUE response must be within 10% of baseline (same page)
+    - 25% minimum difference threshold between true/false
+    - TRUE response must be within 15% of baseline (same page)
     - Time-based fallback requires baseline timing comparison
     """
 
@@ -438,10 +438,10 @@ class SQLiTester(_BaseTester):
     ]
 
     # Minimum percentage difference between true and false responses
-    _LENGTH_DIFF_THRESHOLD = 0.15  # 15%
+    _LENGTH_DIFF_THRESHOLD = 0.25  # 25%
 
     # Maximum allowed deviation of TRUE response from baseline
-    _BASELINE_PROXIMITY_THRESHOLD = 0.10  # 10%
+    _BASELINE_PROXIMITY_THRESHOLD = 0.15  # 15%
 
     # Number of consistency rounds
     _CONSISTENCY_ROUNDS = 5
@@ -577,7 +577,7 @@ class SQLiTester(_BaseTester):
 
     @staticmethod
     def _lengths_consistent(
-        lengths: list[int], tolerance_pct: float = 0.05,
+        lengths: list[int], tolerance_pct: float = 0.08,
     ) -> bool:
         """Check if all lengths are within *tolerance_pct* of each other."""
         if not lengths:
@@ -948,8 +948,8 @@ class CMDiTester(_BaseTester):
                 elapsed = time.time() - start
                 delays.append(elapsed)
 
-            # All 3 must show > 2s increase over baseline
-            if all(d - avg_baseline > 2.0 for d in delays):
+            # All 3 must show > 3s increase over baseline
+            if all(d - avg_baseline > 3.0 for d in delays):
                 return ScanFinding(
                     vuln_class="Command Injection (Blind/Time-Based)",
                     url=url,
@@ -1054,11 +1054,11 @@ class SSRFTester(_BaseTester):
 
             # Behavioural differential: significant length/status change
             length_diff = abs(len(body) - baseline_len)
-            if baseline_len > 0 and length_diff / baseline_len > 0.3:
+            if baseline_len > 0 and length_diff / baseline_len > 0.5:
                 if resp.status_code == 200 and baseline_status == 200:
                     # Verify once more
                     resp2 = self._send(url, method, param, payload)
-                    if resp2 and abs(len(resp2.text) - baseline_len) / max(baseline_len, 1) > 0.3:
+                    if resp2 and abs(len(resp2.text) - baseline_len) / max(baseline_len, 1) > 0.5:
                         findings.append(ScanFinding(
                             vuln_class="SSRF (Server-Side Request Forgery)",
                             url=url,
