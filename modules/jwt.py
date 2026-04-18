@@ -11,15 +11,17 @@ import json
 
 
 from config import Colors
+from modules.base import BaseModule
 
 
-class JWTModule:
+class JWTModule(BaseModule):
     """JWT Testing Module"""
 
+    name = "JWT Weakness"
+    vuln_type = "jwt"
+
     def __init__(self, engine):
-        self.engine = engine
-        self.requester = engine.requester
-        self.name = "JWT Weakness"
+        super().__init__(engine)
 
         # JWT patterns
         self.jwt_pattern = r"eyJ[a-zA-Z0-9_-]*\.eyJ[a-zA-Z0-9_-]*\.[a-zA-Z0-9_-]*"

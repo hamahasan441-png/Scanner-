@@ -6,18 +6,17 @@ Detects GraphQL introspection exposure, query injection, and mutation abuse.
 """
 
 from config import Payloads, Colors
+from modules.base import BaseModule
 
 
-class GraphQLModule:
+class GraphQLModule(BaseModule):
     """GraphQL Injection Testing Module"""
 
     name = "GraphQL Injection"
     vuln_type = "graphql"
 
     def __init__(self, engine):
-        self.engine = engine
-        self.requester = engine.requester
-        self.verbose = engine.config.get("verbose", False)
+        super().__init__(engine)
 
     def test(self, url: str, method: str, param: str, value: str):
         """Test a parameter for GraphQL injection.

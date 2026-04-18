@@ -10,10 +10,14 @@ from urllib.parse import urlparse
 
 
 from config import Payloads, Colors
+from modules.base import BaseModule
 
 
-class OpenRedirectModule:
+class OpenRedirectModule(BaseModule):
     """Open Redirect Testing Module"""
+
+    name = "Open Redirect"
+    vuln_type = "open_redirect"
 
     REDIRECT_PARAMS = {
         "url",
@@ -41,9 +45,7 @@ class OpenRedirectModule:
     }
 
     def __init__(self, engine):
-        self.engine = engine
-        self.requester = engine.requester
-        self.name = "Open Redirect"
+        super().__init__(engine)
 
     def test(self, url: str, method: str, param: str, value: str):
         """Test a parameter for open redirect."""
