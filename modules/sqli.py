@@ -377,14 +377,16 @@ class SQLiModule:
                 print(f"{Colors.error(f'Boolean SQLi test error: {e}')}")
 
     @staticmethod
-    def _lengths_consistent(lengths, tolerance=0.05):
-        """Check if all lengths are within *tolerance* of each other."""
+    def _lengths_consistent(
+        lengths: list[int], tolerance_pct: float = 0.05,
+    ) -> bool:
+        """Check if all lengths are within *tolerance_pct* of each other."""
         if not lengths:
             return False
         avg = sum(lengths) / len(lengths)
         if avg == 0:
-            return all(val == 0 for val in lengths)
-        return all(abs(val - avg) / avg <= tolerance for val in lengths)
+            return all(length == 0 for length in lengths)
+        return all(abs(length - avg) / avg <= tolerance_pct for length in lengths)
 
     def _test_stacked_queries(self, url: str, method: str, param: str, value: str):
         """Test for stacked query SQL injection.

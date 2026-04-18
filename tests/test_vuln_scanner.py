@@ -340,7 +340,7 @@ class TestSQLiTester(unittest.TestCase):
 
     def test_lengths_consistent_helper(self):
         self.assertTrue(SQLiTester._lengths_consistent([100, 100, 100]))
-        self.assertTrue(SQLiTester._lengths_consistent([100, 102, 98], tolerance=0.05))
+        self.assertTrue(SQLiTester._lengths_consistent([100, 102, 98], tolerance_pct=0.05))
         self.assertFalse(SQLiTester._lengths_consistent([100, 200, 100]))
         self.assertFalse(SQLiTester._lengths_consistent([]))
 

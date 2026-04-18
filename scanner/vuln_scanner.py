@@ -576,14 +576,16 @@ class SQLiTester(_BaseTester):
         return None
 
     @staticmethod
-    def _lengths_consistent(lengths: list[int], tolerance: float = 0.05) -> bool:
-        """Check if all lengths are within *tolerance* of each other."""
+    def _lengths_consistent(
+        lengths: list[int], tolerance_pct: float = 0.05,
+    ) -> bool:
+        """Check if all lengths are within *tolerance_pct* of each other."""
         if not lengths:
             return False
         avg = sum(lengths) / len(lengths)
         if avg == 0:
-            return all(l == 0 for l in lengths)
-        return all(abs(l - avg) / avg <= tolerance for l in lengths)
+            return all(length == 0 for length in lengths)
+        return all(abs(length - avg) / avg <= tolerance_pct for length in lengths)
 
 
 # ── 3.2 Cross-Site Scripting (Reflected) ─────────────────────────────
