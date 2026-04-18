@@ -33,7 +33,7 @@
     /* Form */
     .form-group { margin-bottom: 0.8rem; }
     .form-group label { display: block; margin-bottom: 0.25rem; font-size: 0.85rem; color: var(--text-muted); }
-    input[type="text"], input[type="number"], select {
+    input[type="text"], input[type="number"], input[type="password"], select {
         width: 100%;
         padding: 0.5rem 0.7rem;
         background: var(--bg-input);
@@ -380,6 +380,8 @@
             <div class="glass-card stat-card critical"><h3>Critical</h3><div class="value" id="stat-critical">-</div></div>
             <div class="glass-card stat-card high"><h3>High</h3><div class="value" id="stat-high">-</div></div>
             <div class="glass-card stat-card medium"><h3>Medium</h3><div class="value" id="stat-medium">-</div></div>
+            <div class="glass-card stat-card low"><h3>Low</h3><div class="value" id="stat-low">-</div></div>
+            <div class="glass-card stat-card"><h3 style="color:var(--severity-info);">Info</h3><div class="value" id="stat-info" style="color:var(--severity-info);">-</div></div>
         </div>
         <!-- Severity breakdown bar -->
         <div class="glass-card" style="margin-top:1rem;">
@@ -1753,7 +1755,7 @@
         if (panel) panel.classList.add('active');
         // Highlight correct tab
         var tabs = document.querySelectorAll('.nav-tab');
-        var tabMap = {dashboard:0, scanner:1, pipeline:2, exploits:3, 'exploit-intel':4, attackmap:5, shells:6, scans:7, history:8, findings:9, rules:10, livefeed:11, auth:12, scheduler:13, compliance:14, audit:15, tools:16, plugins:17, notifications:18, 'recon-arsenal':19, chat:20, 'ai-brain':21};
+        var tabMap = {dashboard:0, scanner:1, pipeline:2, exploits:3, 'exploit-intel':4, attackmap:5, shells:6, scans:7, history:8, findings:9, rules:10, livefeed:11, auth:12, scheduler:13, compliance:14, audit:15, tools:16, plugins:17, notifications:18, 'recon-arsenal':19, discovery:20, nuclei:21, chat:22, 'ai-brain':23};
         if (tabMap[name] !== undefined && tabs[tabMap[name]]) tabs[tabMap[name]].classList.add('active');
         // Load data for active panel
         if (name === 'history') loadHistory();
@@ -1772,6 +1774,9 @@
         if (name === 'exploit-intel') window._loadExploitIntel();
         if (name === 'attackmap') window._loadAttackMap();
         if (name === 'recon-arsenal') window._arsenalLoadTools();
+        if (name === 'discovery') { window._loadDiscoveryPaths(); window._loadDiscoveryExtensions(); }
+        if (name === 'nuclei') window._loadNucleiTemplates();
+        if (name === 'compliance') _updateScanSelects();
         if (name === 'chat') window._chatLoad();
         if (name === 'ai-brain') window._aiLoadSummary();
     };
@@ -1815,6 +1820,8 @@
             document.getElementById('stat-critical').textContent = d.critical;
             document.getElementById('stat-high').textContent = d.high;
             document.getElementById('stat-medium').textContent = d.medium;
+            document.getElementById('stat-low').textContent = d.low || 0;
+            document.getElementById('stat-info').textContent = d.info || 0;
 
             /* severity bar */
             var total = (d.critical||0) + (d.high||0) + (d.medium||0) + (d.low||0) + (d.info||0);

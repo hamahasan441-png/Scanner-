@@ -2893,6 +2893,7 @@ if SOCKETIO_AVAILABLE and socketio is not None:
 
 @app.route("/api/discovery/paths", methods=["GET"])
 @_require_api_key
+@_rate_limit
 def get_discovery_paths():
     """Return the ULTIMATE discovery wordlist grouped by category."""
     from config import Payloads
@@ -3173,6 +3174,7 @@ def get_discovery_paths():
 
 @app.route("/api/discovery/extensions", methods=["GET"])
 @_require_api_key
+@_rate_limit
 def get_discovery_extensions():
     """Return the DISCOVERY_EXTENSIONS file extension list grouped by type."""
     from config import Payloads
@@ -3251,6 +3253,7 @@ def get_discovery_extensions():
 
 @app.route("/api/nuclei/templates", methods=["GET"])
 @_require_api_key
+@_rate_limit
 def list_nuclei_templates():
     """List all built-in Nuclei templates with metadata."""
     import yaml
@@ -3324,6 +3327,7 @@ def list_nuclei_templates():
 
 @app.route("/api/nuclei/template/<path:template_path>", methods=["GET"])
 @_require_api_key
+@_rate_limit
 def get_nuclei_template(template_path):
     """Return raw YAML content of a specific Nuclei template."""
     templates_dir = os.path.join(
