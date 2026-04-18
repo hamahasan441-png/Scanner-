@@ -1286,7 +1286,12 @@ class DiscoveryModule:
     # ──────────────────────────────────────
 
     def _mine_js_endpoints(self, target: str):
-        """Extract API endpoints and secrets from JavaScript files."""
+        """Extract API endpoints and secrets from JavaScript files.
+
+        Collects JS file URLs from discovered endpoints, script tags,
+        and dynamic import patterns, then applies comprehensive regex
+        patterns to extract API routes, endpoints, and leaked secrets.
+        """
         print(f"{Colors.info('Mining JavaScript files for endpoints and secrets...')}")
 
         # Collect JS file URLs from already-discovered endpoints
@@ -1295,29 +1300,65 @@ class DiscoveryModule:
             if ep.endswith(".js") and "jquery" not in ep.lower() and "bootstrap" not in ep.lower():
                 js_urls.add(ep)
 
-        # Also look for script tags in the main page
+        # Also look for script tags and dynamic imports in the main page
         try:
             resp = self.requester.request(target, "GET")
             if resp and resp.text:
+                # Standard <script src="..."> tags
                 for match in re.finditer(r'<script[^>]*src=["\']([^"\']+\.js)["\']', resp.text, re.IGNORECASE):
                     js_url = urljoin(target, match.group(1))
                     js_urls.add(js_url)
+                # Dynamic imports: import("...") / import('...')
+                for match in re.finditer(r'import\s*\(\s*["\']([^"\']+\.js)["\']', resp.text):
+                    js_url = urljoin(target, match.group(1))
+                    js_urls.add(js_url)
+                # Inline script blocks — extract endpoints directly
+                for script_match in re.finditer(
+                    r"<script[^>]*>(.*?)</script[^>]*>", resp.text, re.DOTALL | re.IGNORECASE
+                ):
+                    self._extract_js_inline_endpoints(
+                        script_match.group(1), target, js_urls
+                    )
         except Exception:
             pass
 
         if not js_urls:
             return
 
-        # Patterns to extract from JS
+        # ── Comprehensive endpoint patterns ──
         endpoint_patterns = [
-            r'["\'](/api/[a-zA-Z0-9_/.-]+)["\']',
-            r'["\'](/v[1-3]/[a-zA-Z0-9_/.-]+)["\']',
+            # API path patterns in quotes
+            r'["\'](/api/[a-zA-Z0-9_/.\-]+)["\']',
+            r'["\'](/v[1-9]/[a-zA-Z0-9_/.\-]+)["\']',
+            # Generic two-segment paths
             r'["\'](?:https?://[^"\']+)?(/[a-zA-Z0-9_-]+/[a-zA-Z0-9_-]+)["\']',
+            # HTTP client calls
             r'fetch\s*\(\s*["\']([^"\']+)["\']',
             r'axios\.[a-z]+\s*\(\s*["\']([^"\']+)["\']',
             r'\.(?:get|post|put|delete|patch)\s*\(\s*["\']([^"\']+)["\']',
+            # URL/endpoint assignment
             r'url\s*[:=]\s*["\']([^"\']+)["\']',
             r'endpoint\s*[:=]\s*["\']([^"\']+)["\']',
+            r'href\s*[:=]\s*["\']([^"\']+)["\']',
+            r'action\s*[:=]\s*["\']([^"\']+)["\']',
+            # REST/GraphQL/RPC routes
+            r'["\'](/(?:rest|graphql|gql|rpc|webhook|callback)/[a-zA-Z0-9_/.\-%]+)["\']',
+            # Auth and user management routes
+            r'["\'](/(?:auth|login|logout|register|signup|signin|signout|forgot|reset|verify'
+            r'|confirm|activate|profile|account|user|users|settings|preferences)'
+            r'(?:/[a-zA-Z0-9_\-%]+)*)["\']',
+            # CRUD operation routes
+            r'["\'](/(?:create|read|update|delete|edit|add|remove|save|publish|upload'
+            r'|download|export|import|backup|restore|migrate|deploy)'
+            r'(?:/[a-zA-Z0-9_\-%]+)*)["\']',
+            # Admin / config / debug routes
+            r'["\'](/(?:admin|manage|control|system|config|setting|debug|test|monitor'
+            r'|status|health|metrics|internal)'
+            r'(?:/[a-zA-Z0-9_\-%]+)*)["\']',
+            # Template literal paths: `${baseUrl}/api/...`
+            r'`[^`]*(/(?:api|v[1-9]|rest|graphql)/[a-zA-Z0-9_/${\-}.]+)`',
+            # XMLHttpRequest.open
+            r'\.open\s*\(\s*["\'][A-Z]+["\']\s*,\s*["\']([^"\']+)["\']',
         ]
 
         secret_patterns = [
@@ -1327,6 +1368,9 @@ class DiscoveryModule:
             ),
             (r'(?:aws_access_key_id|aws_secret_access_key)\s*[:=]\s*["\']([^"\']+)["\']', "AWS Credential"),
             (r'(?:firebase|supabase|stripe)[\w]*\s*[:=]\s*["\']([^"\']{10,})["\']', "Service Key"),
+            (r'(?:google_api_key|gcp_api_key|google_maps_key)\s*[:=]\s*["\']([^"\']{10,})["\']', "Google API Key"),
+            (r'(?:slack_token|slack_webhook)\s*[:=]\s*["\']([^"\']{10,})["\']', "Slack Token"),
+            (r'(?:twilio_sid|twilio_token|sendgrid_key)\s*[:=]\s*["\']([^"\']{10,})["\']', "Messaging Service Key"),
         ]
 
         new_endpoints = set()
@@ -1382,6 +1426,24 @@ class DiscoveryModule:
                 )
                 self.engine.add_finding(finding)
             print(f"{Colors.success(f'JS mining: {len(secrets_found)} secrets/keys found')}")
+
+    @staticmethod
+    def _extract_js_inline_endpoints(script_text, target, js_urls):
+        """Extract JS file references from inline script blocks.
+
+        Discovers dynamic imports, importScripts, and source map
+        references inside ``<script>`` tags so they can be fetched
+        and analyzed together with external JS files.
+        """
+        # Dynamic import("chunk-xxx.js")
+        for match in re.finditer(r'import\s*\(\s*["\']([^"\']+\.js)["\']', script_text):
+            js_urls.add(urljoin(target, match.group(1)))
+        # importScripts("worker.js")
+        for match in re.finditer(r'importScripts\s*\(\s*["\']([^"\']+\.js)["\']', script_text):
+            js_urls.add(urljoin(target, match.group(1)))
+        # sourceMappingURL=app.js.map (useful for source reconstruction)
+        for match in re.finditer(r'sourceMappingURL=(\S+\.js\.map)', script_text):
+            js_urls.add(urljoin(target, match.group(1)))
 
     # ──────────────────────────────────────
     # XML / WSDL / SOAP Service Discovery

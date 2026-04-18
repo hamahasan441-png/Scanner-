@@ -39,24 +39,45 @@ class OSINTModule:
         self._wayback_harvest(url)
         self._check_robots_sitemap(url)
         self._scan_response_secrets(url)
+        self._query_securitytrails(domain)
+        self._query_alienvault_otx(domain)
 
     def _generate_google_dorks(self, domain):
         """Generate Google dorking payloads"""
         dorks = [
+            # ── File exposure dorks ──
             f"site:{domain} filetype:sql",
             f"site:{domain} filetype:env",
             f"site:{domain} filetype:log",
             f"site:{domain} filetype:conf",
             f"site:{domain} filetype:bak",
+            f"site:{domain} filetype:xml sitemap",
+            # ── Combined sensitive file types dork ──
+            f"site:{domain} ext:log OR ext:sql OR ext:env OR ext:json OR ext:yaml OR ext:conf OR ext:cfg",
+            # ── Directory listing dorks ──
+            f'site:{domain} intitle:"index of" "parent directory"',
+            f'site:{domain} intitle:"index of"',
+            # ── Admin/API/config paths ──
             f"site:{domain} inurl:admin",
             f"site:{domain} inurl:login",
             f"site:{domain} inurl:api",
-            f'site:{domain} intitle:"index of"',
+            f"site:{domain} inurl:admin OR inurl:api OR inurl:config OR inurl:backup OR inurl:upload",
             f"site:{domain} inurl:wp-config",
-            f"site:{domain} ext:php intitle:phpinfo",
             f'site:{domain} inurl:".git"',
             f"site:{domain} inurl:swagger",
-            f"site:{domain} filetype:xml sitemap",
+            # ── Credential / secret dorks ──
+            f'site:{domain} "access_key" OR "secret_key" OR "api_key" OR "password" OR "token"',
+            f'site:{domain} "BEGIN RSA PRIVATE KEY"',
+            # ── Technology-specific dorks ──
+            f"site:{domain} ext:php intitle:phpinfo",
+            f"site:{domain} ext:asp OR ext:aspx OR ext:jsp",
+            f"site:{domain} inurl:wp-content OR inurl:wp-includes",
+            # ── Backup / old files ──
+            f"site:{domain} ext:bak OR ext:old OR ext:backup OR ext:zip OR ext:tar OR ext:gz",
+            f"site:{domain} ext:swp OR ext:save OR ext:orig",
+            # ── Version control exposure ──
+            f'site:{domain} inurl:".svn"',
+            f"site:{domain} inurl:.DS_Store",
         ]
         from core.engine import Finding
 
@@ -79,6 +100,10 @@ class OSINTModule:
             f'"{domain}" secret',
             f'"{domain}" token',
             f'"{domain}" AWS_ACCESS_KEY',
+            f'"{domain}" .env',
+            f'"{domain}" wp-config',
+            f'"{domain}" id_rsa',
+            f'"{domain}" private_key',
         ]
         from core.engine import Finding
 
@@ -302,3 +327,130 @@ class OSINTModule:
                 evidence="; ".join(findings_data),
             )
             self.engine.add_finding(finding)
+
+    # ─── SecurityTrails API ─────────────────────────────────────────
+
+    def _query_securitytrails(self, domain):
+        """Query SecurityTrails API for passive subdomain enumeration.
+
+        Uses the SecurityTrails REST API to discover subdomains without
+        sending any requests directly to the target. Requires a
+        SECURITYTRAILS_API_KEY environment variable.
+        """
+        if not Config.SECURITYTRAILS_API_KEY:
+            return
+
+        from core.engine import Finding
+
+        api_url = f"https://api.securitytrails.com/v1/domain/{domain}/subdomains"
+        headers = {
+            "Accept": "application/json",
+            "APIKEY": Config.SECURITYTRAILS_API_KEY,
+        }
+
+        try:
+            resp = self._api_request(api_url, headers)
+            if not resp:
+                return
+
+            data = self._safe_json(resp)
+            subdomains_list = data.get("subdomains", [])
+            if subdomains_list:
+                full_subs = [f"{s}.{domain}" for s in subdomains_list]
+                finding = Finding(
+                    technique="OSINT (SecurityTrails Subdomain Enumeration)",
+                    url=f"https://securitytrails.com/domain/{domain}",
+                    severity="INFO",
+                    confidence=0.95,
+                    param="N/A",
+                    payload=f"{len(full_subs)} subdomains discovered",
+                    evidence=f"Subdomains: {', '.join(sorted(full_subs)[:15])}",
+                )
+                self.engine.add_finding(finding)
+        except Exception:
+            pass
+
+    # ─── AlienVault OTX API ─────────────────────────────────────────
+
+    def _query_alienvault_otx(self, domain):
+        """Query AlienVault OTX for passive DNS and subdomain data.
+
+        Uses the OTX DirectConnect API to gather passive DNS records
+        and associated hostnames for the target domain. Optionally
+        uses an OTX_API_KEY for authenticated requests.
+        """
+        from core.engine import Finding
+
+        api_url = f"https://otx.alienvault.com/api/v1/indicators/domain/{domain}/passive_dns"
+        headers = {"Accept": "application/json"}
+        if Config.OTX_API_KEY:
+            headers["X-OTX-API-KEY"] = Config.OTX_API_KEY
+
+        try:
+            resp = self._api_request(api_url, headers)
+            if not resp:
+                return
+
+            data = self._safe_json(resp)
+            passive_dns = data.get("passive_dns", [])
+            if not passive_dns:
+                return
+
+            hostnames = set()
+            ip_addresses = set()
+            for record in passive_dns:
+                hostname = record.get("hostname", "")
+                address = record.get("address", "")
+                if hostname and domain in hostname:
+                    hostnames.add(hostname)
+                if address:
+                    ip_addresses.add(address)
+
+            if hostnames or ip_addresses:
+                evidence_parts = []
+                if hostnames:
+                    evidence_parts.append(
+                        f"Hostnames: {', '.join(sorted(hostnames)[:10])}"
+                    )
+                if ip_addresses:
+                    evidence_parts.append(
+                        f"IPs: {', '.join(sorted(ip_addresses)[:10])}"
+                    )
+                finding = Finding(
+                    technique="OSINT (AlienVault OTX Passive DNS)",
+                    url=f"https://otx.alienvault.com/indicator/domain/{domain}",
+                    severity="INFO",
+                    confidence=0.9,
+                    param="N/A",
+                    payload=f"{len(hostnames)} hostnames, {len(ip_addresses)} IPs",
+                    evidence="; ".join(evidence_parts),
+                )
+                self.engine.add_finding(finding)
+        except Exception:
+            pass
+
+    def _api_request(self, url, headers):
+        """Make an API request and return the response object.
+
+        The response is guaranteed to have a callable ``.json()`` method.
+        Returns ``None`` on failure.
+        """
+        try:
+            if self.requester and hasattr(self.requester, "session"):
+                return self.requester.session.get(url, headers=headers, timeout=10)
+            else:
+                import requests as _requests
+
+                return _requests.get(url, headers=headers, timeout=10)
+        except Exception:
+            return None
+
+    @staticmethod
+    def _safe_json(resp):
+        """Extract JSON body from a response, returning {} on failure."""
+        try:
+            if hasattr(resp, "json") and callable(resp.json):
+                return resp.json()
+        except Exception:
+            pass
+        return {}
