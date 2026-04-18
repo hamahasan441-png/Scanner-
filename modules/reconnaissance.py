@@ -4,12 +4,15 @@
 ATOMIC FRAMEWORK - Reconnaissance Module
 
 DNS enumeration (forward, reverse, MX, NS, TXT), technology
-detection, and structured WHOIS lookup.
+detection, structured WHOIS lookup, VHost discovery,
+and wildcard DNS detection.
 """
 
 import re
 import socket
+import string
 import subprocess
+import random
 from urllib.parse import urlparse
 from typing import Dict, List
 
@@ -56,6 +59,7 @@ class ReconModule:
         self._whois_lookup(domain)
         self._analyze_ssl_tls(domain)
         self._audit_security_headers(target)
+        self._detect_wildcard_dns(domain)
         self._detect_subdomain_takeover(domain)
         self._detect_cloud_assets(target)
         self._enumerate_api_endpoints(target)
@@ -65,6 +69,7 @@ class ReconModule:
         self._detect_http2_alpn(domain)
         self._detect_cms_version(target)
         self._cors_preflight_check(target)
+        self._discover_vhosts(target, domain)
 
     # ─── DNS ─────────────────────────────────────────────────────────
 
@@ -864,3 +869,134 @@ class ReconModule:
             print(f"{Colors.info(f'CORS: ACAO={acao or 'none'}, Methods={acam or 'none'}')}")
         elif self.verbose:
             print(f"{Colors.info('CORS: no CORS headers in preflight response')}")
+
+    # ─── Wildcard DNS Detection ─────────────────────────────────────
+
+    def _detect_wildcard_dns(self, domain):
+        """Detect wildcard DNS to avoid false positives in subdomain enumeration.
+
+        Resolves several randomly generated subdomain names. If they all
+        resolve to the same IP address the domain very likely has a DNS
+        wildcard record.  The finding is informational but important for
+        downstream subdomain enumeration accuracy.
+        """
+        _RANDOM_LABELS = 3
+        resolved_ips: Dict[str, str] = {}
+
+        for _ in range(_RANDOM_LABELS):
+            label = "".join(random.choices(string.ascii_lowercase + string.digits, k=16))
+            fqdn = f"{label}.{domain}"
+            try:
+                ip = socket.gethostbyname(fqdn)
+                resolved_ips[fqdn] = ip
+            except socket.gaierror:
+                pass
+
+        if len(resolved_ips) >= 2:
+            unique_ips = set(resolved_ips.values())
+            if len(unique_ips) == 1:
+                wildcard_ip = unique_ips.pop()
+                print(f"{Colors.warning(f'Wildcard DNS detected: *.{domain} → {wildcard_ip}')}")
+                from core.engine import Finding
+
+                finding = Finding(
+                    technique="Recon (Wildcard DNS Detection)",
+                    url=f"https://{domain}",
+                    severity="INFO",
+                    confidence=0.95,
+                    param="DNS",
+                    payload=f"*.{domain} → {wildcard_ip}",
+                    evidence=f"Random subdomains resolve to {wildcard_ip}: "
+                    f"{', '.join(resolved_ips.keys())}",
+                )
+                self.engine.add_finding(finding)
+                return True
+        elif self.verbose:
+            print(f"{Colors.info('Wildcard DNS: not detected')}")
+        return False
+
+    # ─── VHost Discovery ────────────────────────────────────────────
+
+    def _discover_vhosts(self, target, domain):
+        """Discover virtual hosts by fuzzing the Host header.
+
+        Sends HTTP requests to the target IP with different Host header
+        values.  Responses that differ significantly from the baseline
+        (different status code or substantially different content length)
+        indicate a distinct virtual host.
+        """
+        vhost_wordlist = [
+            "www", "mail", "remote", "vpn", "dev", "staging", "api",
+            "admin", "cdn", "static", "assets", "jenkins", "gitlab",
+            "jira", "confluence", "test", "uat", "prod", "backup",
+            "portal", "intranet", "internal", "beta", "alpha", "demo",
+            "docs", "wiki", "support", "helpdesk", "monitor", "grafana",
+            "kibana", "elastic", "prometheus", "ci", "cd", "build",
+        ]
+
+        parsed = urlparse(target)
+        base_url = f"{parsed.scheme}://{parsed.netloc}"
+
+        # Get baseline response for the known host
+        try:
+            baseline_resp = self.requester.request(base_url, "GET")
+            if not baseline_resp:
+                return
+            baseline_status = baseline_resp.status_code
+            baseline_length = len(baseline_resp.text) if baseline_resp.text else 0
+        except Exception:
+            return
+
+        discovered_vhosts = []
+
+        for vhost_name in vhost_wordlist:
+            fqdn = f"{vhost_name}.{domain}"
+            try:
+                resp = self.requester.request(
+                    base_url, "GET", headers={"Host": fqdn}
+                )
+                if not resp:
+                    continue
+
+                resp_length = len(resp.text) if resp.text else 0
+                status = resp.status_code
+
+                # A different status or significantly different body length
+                # indicates a real virtual host
+                length_diff = abs(resp_length - baseline_length)
+                length_threshold = max(100, baseline_length * 0.1)
+
+                if (
+                    status != baseline_status
+                    or length_diff > length_threshold
+                ) and status != 400:
+                    discovered_vhosts.append(
+                        {
+                            "host": fqdn,
+                            "status": status,
+                            "length": resp_length,
+                        }
+                    )
+            except Exception:
+                continue
+
+        if discovered_vhosts:
+            from core.engine import Finding
+
+            hosts_str = ", ".join(
+                f"{v['host']} ({v['status']}, {v['length']}B)"
+                for v in discovered_vhosts[:10]
+            )
+            print(f"{Colors.success(f'VHost discovery: {len(discovered_vhosts)} virtual hosts found')}")
+            finding = Finding(
+                technique="Recon (Virtual Host Discovery)",
+                url=target,
+                severity="INFO",
+                confidence=0.7,
+                param="Host header",
+                payload=f"{len(discovered_vhosts)} virtual hosts",
+                evidence=f"Discovered VHosts: {hosts_str}",
+            )
+            self.engine.add_finding(finding)
+        elif self.verbose:
+            print(f"{Colors.info('VHost discovery: no additional virtual hosts found')}")

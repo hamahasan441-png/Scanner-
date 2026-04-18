@@ -29,6 +29,12 @@ class Config:
     # GitHub API — optional token for higher rate limits (60 → 5000 req/hr)
     GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
 
+    # SecurityTrails API — optional key for passive subdomain enumeration
+    SECURITYTRAILS_API_KEY = os.environ.get("SECURITYTRAILS_API_KEY", "")
+
+    # AlienVault OTX API — optional key for passive DNS/subdomain data
+    OTX_API_KEY = os.environ.get("OTX_API_KEY", "")
+
     # Threading
     MAX_THREADS = min(100, (os.cpu_count() or 4) * 10)
     TIMEOUT = 15
