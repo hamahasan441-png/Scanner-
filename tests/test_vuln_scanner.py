@@ -847,23 +847,24 @@ class TestOpenRedirectTester(unittest.TestCase):
         self.assertEqual(len(findings), 0)
 
     def test_is_external_redirect_helper(self):
+        canary = "evil.example.com"
         self.assertTrue(
             OpenRedirectTester._is_external_redirect(
-                "https://evil.example.com/x"
+                "https://evil.example.com/x", canary,
             )
         )
         self.assertTrue(
             OpenRedirectTester._is_external_redirect(
-                "//evil.example.com/x"
+                "//evil.example.com/x", canary,
             )
         )
         self.assertFalse(
             OpenRedirectTester._is_external_redirect(
-                "http://safe.com/page"
+                "http://safe.com/page", canary,
             )
         )
         self.assertFalse(
-            OpenRedirectTester._is_external_redirect("")
+            OpenRedirectTester._is_external_redirect("", canary)
         )
 
     def test_severity_is_medium(self):

@@ -565,7 +565,12 @@ class XSSTester(_BaseTester):
 
     @staticmethod
     def _generate_token() -> str:
-        """Generate a random unique token per test to avoid WAF filtering."""
+        """Generate a unique random token for XSS reflection testing.
+
+        Returns a string in the format ``XSS_TEST_<hex>`` using
+        :func:`secrets.token_hex` for cryptographic randomness so that
+        WAFs cannot predict and filter the marker.
+        """
         import secrets
         return f"XSS_TEST_{secrets.token_hex(6)}"
 
@@ -1138,6 +1143,9 @@ class SSTITester(_BaseTester):
 class OpenRedirectTester(_BaseTester):
     """Detect open redirect vulnerabilities."""
 
+    # Canary domain used in redirect payloads — must NOT be a real domain
+    _CANARY_DOMAIN = "evil.example.com"
+
     # External domains that should never be redirected to
     _REDIRECT_PAYLOADS = [
         "https://evil.example.com",
@@ -1187,7 +1195,7 @@ class OpenRedirectTester(_BaseTester):
         # Check for 3xx redirect
         if 300 <= resp.status_code < 400:
             location = resp.headers.get("Location", "")
-            if self._is_external_redirect(location):
+            if self._is_external_redirect(location, self._CANARY_DOMAIN):
                 # Verify: send again
                 try:
                     if method.upper() == "GET":
@@ -1205,7 +1213,7 @@ class OpenRedirectTester(_BaseTester):
 
                 if resp2 and 300 <= resp2.status_code < 400:
                     loc2 = resp2.headers.get("Location", "")
-                    if self._is_external_redirect(loc2):
+                    if self._is_external_redirect(loc2, self._CANARY_DOMAIN):
                         return ScanFinding(
                             vuln_class="Open Redirect",
                             url=url,
@@ -1223,7 +1231,8 @@ class OpenRedirectTester(_BaseTester):
         # Also check response body for meta-refresh or JS redirects
         if resp.status_code == 200:
             body = resp.text.lower()
-            if "evil.example.com" in body:
+            canary = self._CANARY_DOMAIN.lower()
+            if canary in body:
                 if re.search(
                     r'(window\.location|location\.href|http-equiv=["\']refresh)',
                     body,
@@ -1242,18 +1251,27 @@ class OpenRedirectTester(_BaseTester):
         return None
 
     @staticmethod
-    def _is_external_redirect(location: str) -> bool:
-        """Check if a Location header points to an external domain."""
+    def _is_external_redirect(location: str, canary_domain: str) -> bool:
+        """Check if a Location header redirects to the canary domain.
+
+        Uses strict netloc comparison via URL parsing rather than
+        substring matching to avoid false positives from partial
+        domain matches.
+        """
         if not location:
             return False
-        # Protocol-relative URLs
+        # Protocol-relative URLs (e.g. //evil.example.com/path)
         if location.startswith("//"):
-            return "evil.example.com" in location
+            try:
+                parsed = urllib.parse.urlparse("https:" + location)
+                return parsed.netloc == canary_domain
+            except ValueError:
+                return False
         # Absolute URLs
         try:
             parsed = urllib.parse.urlparse(location)
-            if parsed.netloc and "evil.example.com" in parsed.netloc:
-                return True
+            if parsed.netloc:
+                return parsed.netloc == canary_domain
         except ValueError:
             pass
         return False
