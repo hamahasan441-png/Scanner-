@@ -1314,7 +1314,7 @@ class DiscoveryModule:
                     js_urls.add(js_url)
                 # Inline script blocks — extract endpoints directly
                 for script_match in re.finditer(
-                    r"<script[^>]*>(.*?)</script>", resp.text, re.DOTALL | re.IGNORECASE
+                    r"<script[^>]*>(.*?)</script\s*>", resp.text, re.DOTALL | re.IGNORECASE
                 ):
                     self._extract_js_inline_endpoints(
                         script_match.group(1), target, js_urls
@@ -1433,7 +1433,7 @@ class DiscoveryModule:
 
         Discovers dynamic imports, importScripts, and source map
         references inside ``<script>`` tags so they can be fetched
-        and analysed together with external JS files.
+        and analyzed together with external JS files.
         """
         # Dynamic import("chunk-xxx.js")
         for match in re.finditer(r'import\s*\(\s*["\']([^"\']+\.js)["\']', script_text):

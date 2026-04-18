@@ -53,7 +53,7 @@ class OSINTModule:
             f"site:{domain} filetype:bak",
             f"site:{domain} filetype:xml sitemap",
             # ── Extended sensitive file types ──
-            f"site:{domain} ext:log | ext:sql | ext:env | ext:json | ext:yaml | ext:conf | ext:cfg",
+            f"site:{domain} ext:log OR ext:sql OR ext:env OR ext:json OR ext:yaml OR ext:conf OR ext:cfg",
             # ── Directory listing dorks ──
             f'site:{domain} intitle:"index of" "parent directory"',
             f'site:{domain} intitle:"index of"',
@@ -61,20 +61,20 @@ class OSINTModule:
             f"site:{domain} inurl:admin",
             f"site:{domain} inurl:login",
             f"site:{domain} inurl:api",
-            f"site:{domain} inurl:admin | inurl:api | inurl:config | inurl:backup | inurl:upload",
+            f"site:{domain} inurl:admin OR inurl:api OR inurl:config OR inurl:backup OR inurl:upload",
             f"site:{domain} inurl:wp-config",
             f'site:{domain} inurl:".git"',
             f"site:{domain} inurl:swagger",
             # ── Credential / secret dorks ──
-            f'site:{domain} "access_key" | "secret_key" | "api_key" | "password" | "token"',
+            f'site:{domain} "access_key" OR "secret_key" OR "api_key" OR "password" OR "token"',
             f'site:{domain} "BEGIN RSA PRIVATE KEY"',
             # ── Technology-specific dorks ──
             f"site:{domain} ext:php intitle:phpinfo",
-            f"site:{domain} ext:asp | ext:aspx | ext:jsp",
-            f"site:{domain} inurl:wp-content | inurl:wp-includes",
+            f"site:{domain} ext:asp OR ext:aspx OR ext:jsp",
+            f"site:{domain} inurl:wp-content OR inurl:wp-includes",
             # ── Backup / old files ──
-            f"site:{domain} ext:bak | ext:old | ext:backup | ext:zip | ext:tar | ext:gz",
-            f"site:{domain} ext:swp | ext:save | ext:orig",
+            f"site:{domain} ext:bak OR ext:old OR ext:backup OR ext:zip OR ext:tar OR ext:gz",
+            f"site:{domain} ext:swp OR ext:save OR ext:orig",
             # ── Version control exposure ──
             f'site:{domain} inurl:".svn"',
             f"site:{domain} inurl:.DS_Store",

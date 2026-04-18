@@ -77,8 +77,7 @@ class TestEnhancedGoogleDorks(unittest.TestCase):
         from modules.osint import OSINTModule
         mod = OSINTModule(engine)
         mod._generate_google_dorks("example.com")
-        # Evidence shows first 5 dorks; the dork count should be 25+
-        # which means the expanded list includes directory listing dorks
+        # Verify the expanded list contains 20+ dorks (was 14)
         payload = engine.findings[0].payload
         count = int(payload.split()[0])
         self.assertGreaterEqual(count, 20)

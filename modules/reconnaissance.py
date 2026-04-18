@@ -876,7 +876,7 @@ class ReconModule:
         """Detect wildcard DNS to avoid false positives in subdomain enumeration.
 
         Resolves several randomly generated subdomain names. If they all
-        resolve to the same IP address the domain very likely has a DNS
+        resolve to the same IP address, the domain very likely has a DNS
         wildcard record.  The finding is informational but important for
         downstream subdomain enumeration accuracy.
         """
