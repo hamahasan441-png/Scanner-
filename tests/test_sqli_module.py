@@ -341,8 +341,9 @@ class TestSQLiBooleanBased(unittest.TestCase):
 
         baseline = _MockResponse(text="A" * 500)
         true_resp = _MockResponse(text="A" * 500)
-        false_resp = _MockResponse(text="B" * 50)  # diff = 450 > 200
-        engine = _MockEngine([baseline, true_resp, false_resp])
+        false_resp = _MockResponse(text="B" * 50)  # diff = 450, pct > 15%
+        # baseline + 3x(true, false) for consistency rounds
+        engine = _MockEngine([baseline] + [true_resp, false_resp] * 3)
         mod = SQLiModule(engine)
         mod._test_boolean_based("http://target.com", "GET", "id", "1")
         self.assertEqual(len(engine.findings), 1)
@@ -355,7 +356,7 @@ class TestSQLiBooleanBased(unittest.TestCase):
         baseline = _MockResponse(text="A" * 200)
         true_resp = _MockResponse(text="A" * 200)
         false_resp = _MockResponse(text="B" * 199)
-        engine = _MockEngine([baseline, true_resp, false_resp])
+        engine = _MockEngine([baseline] + [true_resp, false_resp] * 3)
         mod = SQLiModule(engine)
         mod._test_boolean_based("http://target.com", "GET", "id", "1")
         self.assertEqual(len(engine.findings), 0)
@@ -373,7 +374,7 @@ class TestSQLiBooleanBased(unittest.TestCase):
 
         baseline = _MockResponse(text="A" * 200)
         true_resp = _MockResponse(text="A" * 200)
-        # false response is None (exhausted)
+        # Only 1 true response, rest are None — not enough for 3 rounds
         engine = _MockEngine([baseline, true_resp])
         mod = SQLiModule(engine)
         mod._test_boolean_based("http://target.com", "GET", "id", "1")
@@ -384,11 +385,26 @@ class TestSQLiBooleanBased(unittest.TestCase):
 
         baseline = _MockResponse(text="A" * 500)
         true_resp = _MockResponse(text="A" * 500)
-        false_resp = _MockResponse(text="B" * 50)  # diff = 450 > 200
-        engine = _MockEngine([baseline, true_resp, false_resp])
+        false_resp = _MockResponse(text="B" * 50)
+        engine = _MockEngine([baseline] + [true_resp, false_resp] * 3)
         mod = SQLiModule(engine)
         mod._test_boolean_based("http://target.com", "GET", "id", "1")
-        self.assertEqual(engine.findings[0].confidence, 0.75)
+        self.assertGreaterEqual(engine.findings[0].confidence, 0.8)
+
+    def test_boolean_inconsistent_true_no_finding(self):
+        """Inconsistent TRUE responses across rounds → no finding."""
+        from modules.sqli import SQLiModule
+
+        baseline = _MockResponse(text="A" * 500)
+        false_resp = _MockResponse(text="B" * 50)
+        # TRUE responses have wildly different lengths
+        true1 = _MockResponse(text="X" * 500)
+        true2 = _MockResponse(text="Y" * 100)
+        true3 = _MockResponse(text="Z" * 800)
+        engine = _MockEngine([baseline, true1, false_resp, true2, false_resp, true3, false_resp])
+        mod = SQLiModule(engine)
+        mod._test_boolean_based("http://target.com", "GET", "id", "1")
+        self.assertEqual(len(engine.findings), 0)
 
 
 # ===========================================================================
@@ -418,7 +434,7 @@ class TestSQLiFalsePositives(unittest.TestCase):
         baseline = _MockResponse(text=text)
         true_resp = _MockResponse(text=text)
         false_resp = _MockResponse(text=text)
-        engine = _MockEngine([baseline, true_resp, false_resp])
+        engine = _MockEngine([baseline] + [true_resp, false_resp] * 3)
         mod = SQLiModule(engine)
         mod._test_boolean_based("http://target.com", "GET", "q", "test")
         self.assertEqual(len(engine.findings), 0)
@@ -785,10 +801,15 @@ class TestSQLiDumpDatabase(unittest.TestCase):
 
 
 class TestSQLiSecondOrder(unittest.TestCase):
-    def test_second_order_detects_error(self):
+    def test_second_order_detects_new_error(self):
+        """Error NEW on secondary endpoint after injection triggers finding."""
         from modules.sqli import SQLiModule
 
-        responses = [_MockResponse()] * 5 + [_MockResponse(text="you have an error in your sql syntax")] * 30
+        normal = _MockResponse(text="OK normal page")
+        error = _MockResponse(text="you have an error in your sql syntax")
+        # 3 baseline requests for secondary endpoints (all normal)
+        # + injection + 3 secondary checks (first returns error)
+        responses = [normal] * 3 + [normal] + [error] * 20
         engine = _MockEngine(responses)
         mod = SQLiModule(engine)
         mod._test_second_order("http://target.com/register", "POST", "username", "admin")
@@ -802,26 +823,78 @@ class TestSQLiSecondOrder(unittest.TestCase):
         mod._test_second_order("http://target.com/register", "POST", "username", "admin")
         self.assertEqual(len([f for f in engine.findings if "Second-Order" in f.technique]), 0)
 
-
-class TestSQLiOOB(unittest.TestCase):
-    def test_oob_payload_sent(self):
+    def test_second_order_error_in_baseline_no_finding(self):
+        """Error already present in baseline should NOT trigger finding."""
         from modules.sqli import SQLiModule
 
-        engine = _MockEngine([_MockResponse()] * 5)
+        # Baseline AND payload response both have the same error
+        error_text = "Powered by mysql community edition"
+        resp = _MockResponse(text=error_text)
+        engine = _MockEngine([resp] * 50)
+        mod = SQLiModule(engine)
+        mod._test_second_order("http://target.com/register", "POST", "username", "admin")
+        self.assertEqual(len([f for f in engine.findings if "Second-Order" in f.technique]), 0)
+
+
+class TestSQLiOOB(unittest.TestCase):
+    def test_oob_default_domain_no_finding(self):
+        """Default placeholder domain should NOT produce findings."""
+        from modules.sqli import SQLiModule
+
+        engine = _MockEngine([_MockResponse()] * 10)
+        mod = SQLiModule(engine)
+        mod._test_oob_sqli("http://target.com/", "GET", "id", "1")
+        self.assertEqual(len([f for f in engine.findings if "OOB" in f.technique]), 0)
+
+    def test_oob_with_real_domain_and_error_triggers_finding(self):
+        """Real OOB domain + new SQL error in response triggers finding."""
+        from modules.sqli import SQLiModule
+
+        baseline = _MockResponse(text="Normal page")
+        error_resp = _MockResponse(text="ORA-00933: SQL command not properly ended")
+        # baseline + 1 payload response with error
+        engine = _MockEngine([baseline, error_resp] + [_MockResponse()] * 10,
+                             config={"verbose": False, "waf_bypass": False,
+                                     "oob_domain": "real-oob.attacker.com"})
         mod = SQLiModule(engine)
         mod._test_oob_sqli("http://target.com/", "GET", "id", "1")
         self.assertTrue(any("OOB" in f.technique for f in engine.findings))
 
-
-class TestSQLiWAFBypass(unittest.TestCase):
-    def test_waf_bypass_detects_error(self):
+    def test_oob_with_real_domain_no_error_no_finding(self):
+        """Real OOB domain but no SQL error → no finding."""
         from modules.sqli import SQLiModule
 
+        engine = _MockEngine([_MockResponse(text="OK")] * 10,
+                             config={"verbose": False, "waf_bypass": False,
+                                     "oob_domain": "real-oob.attacker.com"})
+        mod = SQLiModule(engine)
+        mod._test_oob_sqli("http://target.com/", "GET", "id", "1")
+        self.assertEqual(len([f for f in engine.findings if "OOB" in f.technique]), 0)
+
+
+class TestSQLiWAFBypass(unittest.TestCase):
+    def test_waf_bypass_detects_new_error(self):
+        """WAF bypass finds a NEW error not present in baseline."""
+        from modules.sqli import SQLiModule
+
+        baseline = _MockResponse(text="Normal page content")
         resp = _MockResponse(text="you have an error in your sql syntax near UNION")
-        engine = _MockEngine([resp] * 20)
+        # baseline + payload responses
+        engine = _MockEngine([baseline] + [resp] * 20)
         mod = SQLiModule(engine)
         mod._test_waf_bypass_payloads("http://target.com/", "GET", "id", "1")
         self.assertTrue(any("WAF Bypass" in f.technique for f in engine.findings))
+
+    def test_waf_bypass_baseline_error_no_finding(self):
+        """Error already in baseline should NOT trigger finding."""
+        from modules.sqli import SQLiModule
+
+        error_text = "Warning: mysql_query(): You have an error in your SQL syntax"
+        resp = _MockResponse(text=error_text)
+        engine = _MockEngine([resp] * 20)  # same text in baseline and payload
+        mod = SQLiModule(engine)
+        mod._test_waf_bypass_payloads("http://target.com/", "GET", "id", "1")
+        self.assertEqual(len([f for f in engine.findings if "WAF Bypass" in f.technique]), 0)
 
     def test_new_db_signatures(self):
         from modules.sqli import SQLiModule

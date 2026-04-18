@@ -1256,7 +1256,8 @@ class TestSQLiBooleanBased(unittest.TestCase):
         baseline = _MockResponse(text="A" * 500)
         true_resp = _MockResponse(text="A" * 500)
         false_resp = _MockResponse(text="A" * 50)
-        mod, engine = self._make_module([baseline, true_resp, false_resp])
+        # Need 3x consistency rounds: baseline + 3x(true, false)
+        mod, engine = self._make_module([baseline] + [true_resp, false_resp] * 3)
         mod._test_boolean_based("http://t.co", "GET", "id", "1")
         self.assertEqual(len(engine.findings), 1)
         self.assertIn("Boolean", engine.findings[0].technique)
@@ -1267,7 +1268,7 @@ class TestSQLiBooleanBased(unittest.TestCase):
         baseline = _MockResponse(text=text)
         true_resp = _MockResponse(text=text)
         false_resp = _MockResponse(text=text)
-        mod, engine = self._make_module([baseline, true_resp, false_resp])
+        mod, engine = self._make_module([baseline] + [true_resp, false_resp] * 3)
         mod._test_boolean_based("http://t.co", "GET", "id", "1")
         self.assertEqual(len(engine.findings), 0)
 

@@ -316,11 +316,11 @@ class TestSQLiTester(unittest.TestCase):
 
     def test_confirmed_when_true_false_differ(self):
         """True/false payloads produce consistently different lengths."""
-        baseline = MockResponse(text="normal page content")
-        true_resp = MockResponse(text="normal page content with data shown")
-        false_resp = MockResponse(text="err")
-        # baseline + 3x(true,false)
-        responses = [baseline] + [true_resp, false_resp] * 3
+        baseline = MockResponse(text="normal page content here")  # 24 chars
+        true_resp = MockResponse(text="normal page content here!")  # 25 chars (~4% from baseline)
+        false_resp = MockResponse(text="e")  # 1 char — 96% diff from true
+        # baseline + 5x(true,false) for _CONSISTENCY_ROUNDS=5
+        responses = [baseline] + [true_resp, false_resp] * 5
         session = MockSession(responses=responses)
         tester = self._make_tester(session)
         findings = tester.test("http://t.com", "GET", "id", "1")
@@ -331,7 +331,7 @@ class TestSQLiTester(unittest.TestCase):
     def test_no_finding_when_same_response(self):
         """No finding when true and false return identical content."""
         resp = MockResponse(text="same content for everything")
-        responses = [resp] * 30
+        responses = [resp] * 50
         session = MockSession(responses=responses)
         tester = self._make_tester(session)
         findings = tester.test("http://t.com", "GET", "id", "1")
@@ -368,16 +368,31 @@ class TestSQLiTester(unittest.TestCase):
         self.assertGreater(len(expanded), 1)
 
     def test_severity_is_high(self):
-        baseline = MockResponse(text="normal")
-        true_resp = MockResponse(text="normal with data visible here more")
-        false_resp = MockResponse(text="e")
-        responses = [baseline] + [true_resp, false_resp] * 3
+        baseline = MockResponse(text="normal page content here")  # 24 chars
+        true_resp = MockResponse(text="normal page content here!")  # close to baseline
+        false_resp = MockResponse(text="e")  # dramatically different
+        # 5 rounds needed for _CONSISTENCY_ROUNDS=5
+        responses = [baseline] + [true_resp, false_resp] * 5
         session = MockSession(responses=responses)
         tester = self._make_tester(session)
         findings = tester.test("http://t.com", "GET", "id", "1")
         for f in findings:
             if "SQL Injection" in f.vuln_class:
                 self.assertEqual(f.severity, "HIGH")
+
+    def test_no_finding_when_true_far_from_baseline(self):
+        """TRUE response very different from baseline should NOT confirm."""
+        baseline = MockResponse(text="A" * 100)
+        # TRUE response is 500 chars — very far from 100 baseline
+        true_resp = MockResponse(text="B" * 500)
+        false_resp = MockResponse(text="C" * 10)
+        responses = [baseline] + [true_resp, false_resp] * 5
+        session = MockSession(responses=responses)
+        tester = self._make_tester(session)
+        findings = tester.test("http://t.com", "GET", "id", "1")
+        confirmed = [f for f in findings
+                     if "Boolean-Blind" in f.vuln_class and f.status == "confirmed"]
+        self.assertEqual(len(confirmed), 0)
 
 
 # ═══════════════════════════════════════════════════════════════════════════

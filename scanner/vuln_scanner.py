@@ -420,7 +420,14 @@ class _BaseTester:
 
 
 class SQLiTester(_BaseTester):
-    """Detect SQL injection via boolean-blind with time-based fallback."""
+    """Detect SQL injection via boolean-blind with time-based fallback.
+
+    Uses rigorous verification to avoid false positives:
+    - 5x consistency rounds (true and false payloads)
+    - 15% minimum difference threshold between true/false
+    - TRUE response must be within 10% of baseline (same page)
+    - Time-based fallback requires baseline timing comparison
+    """
 
     _TRUE_PAYLOADS = ["' AND 1=1 --", "' AND 'a'='a' --"]
     _FALSE_PAYLOADS = ["' AND 1=2 --", "' AND 'a'='b' --"]
@@ -430,8 +437,14 @@ class SQLiTester(_BaseTester):
         "' OR WAITFOR DELAY '0:0:5' --",
     ]
 
-    # Threshold for declaring length difference significant
-    _LENGTH_DIFF_THRESHOLD = 0.05  # 5%
+    # Minimum percentage difference between true and false responses
+    _LENGTH_DIFF_THRESHOLD = 0.15  # 15%
+
+    # Maximum allowed deviation of TRUE response from baseline
+    _BASELINE_PROXIMITY_THRESHOLD = 0.10  # 10%
+
+    # Number of consistency rounds
+    _CONSISTENCY_ROUNDS = 5
 
     def test(
         self, url: str, method: str, param: str, value: str,
@@ -469,11 +482,11 @@ class SQLiTester(_BaseTester):
         baseline_text: str,
         baseline_len: int,
     ) -> ScanFinding | None:
-        """Run boolean-blind verification with 3x consistency check."""
+        """Run boolean-blind verification with Nx consistency check."""
         true_lengths: list[int] = []
         false_lengths: list[int] = []
 
-        for _ in range(3):
+        for _ in range(self._CONSISTENCY_ROUNDS):
             tr = self._send(url, method, param, f"{value}{true_payload}")
             fr = self._send(url, method, param, f"{value}{false_payload}")
             if tr is None or fr is None:
@@ -487,37 +500,55 @@ class SQLiTester(_BaseTester):
         if not self._lengths_consistent(false_lengths):
             return None
 
-        avg_true = sum(true_lengths) / 3
-        avg_false = sum(false_lengths) / 3
+        n = self._CONSISTENCY_ROUNDS
+        avg_true = sum(true_lengths) / n
+        avg_false = sum(false_lengths) / n
 
         # Must have a noticeable difference between true and false
         diff = abs(avg_true - avg_false)
         max_len = max(avg_true, avg_false, 1)
         pct_diff = diff / max_len
 
-        if pct_diff > self._LENGTH_DIFF_THRESHOLD:
-            return ScanFinding(
-                vuln_class="SQL Injection (Boolean-Blind)",
-                url=url,
-                param=param,
-                payload=true_payload,
-                evidence=(
-                    f"Consistent difference: true avg={avg_true:.0f}, "
-                    f"false avg={avg_false:.0f} ({pct_diff:.1%} diff)"
-                ),
-                severity="HIGH",
-                confidence=0.9,
-                status="confirmed",
-            )
+        if pct_diff <= self._LENGTH_DIFF_THRESHOLD:
+            # Ambiguous — fall back to time-based
+            return self._time_based_fallback(url, method, param, value)
 
-        # Ambiguous — fall back to time-based
-        return self._time_based_fallback(url, method, param, value)
+        # TRUE response must be close to baseline (same page content)
+        if baseline_len > 0:
+            baseline_deviation = abs(avg_true - baseline_len) / baseline_len
+            if baseline_deviation > self._BASELINE_PROXIMITY_THRESHOLD:
+                # TRUE response is also very different from baseline —
+                # likely the app just shows different error pages, not SQLi
+                return self._time_based_fallback(url, method, param, value)
+
+        return ScanFinding(
+            vuln_class="SQL Injection (Boolean-Blind)",
+            url=url,
+            param=param,
+            payload=true_payload,
+            evidence=(
+                f"Consistent {n}x difference: true avg={avg_true:.0f}, "
+                f"false avg={avg_false:.0f} ({pct_diff:.1%} diff, "
+                f"baseline={baseline_len})"
+            ),
+            severity="HIGH",
+            confidence=0.9,
+            status="confirmed",
+        )
 
     def _time_based_fallback(
         self, url: str, method: str, param: str, value: str,
     ) -> ScanFinding | None:
-        """Confirm SQLi via time-based payloads."""
+        """Confirm SQLi via time-based payloads with baseline comparison."""
         time_payloads = self._get_payloads(self._TIME_PAYLOADS)
+
+        # Measure baseline timing
+        baseline_times: list[float] = []
+        for _ in range(2):
+            start = time.time()
+            self._send(url, method, param, value)
+            baseline_times.append(time.time() - start)
+        avg_baseline = sum(baseline_times) / max(len(baseline_times), 1)
 
         for payload in time_payloads:
             delays: list[float] = []
@@ -527,13 +558,17 @@ class SQLiTester(_BaseTester):
                 elapsed = time.time() - start
                 delays.append(elapsed)
 
-            if all(d >= 4.5 for d in delays):
+            # All 3 must show > 3s increase over baseline
+            if all(d - avg_baseline > 3.0 for d in delays):
                 return ScanFinding(
                     vuln_class="SQL Injection (Time-Based Blind)",
                     url=url,
                     param=param,
                     payload=payload,
-                    evidence=f"Consistent delay: {delays}",
+                    evidence=(
+                        f"Consistent delay: {[f'{d:.2f}s' for d in delays]} "
+                        f"(baseline: {avg_baseline:.2f}s)"
+                    ),
                     severity="HIGH",
                     confidence=0.85,
                     status="confirmed",
