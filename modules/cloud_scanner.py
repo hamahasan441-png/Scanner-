@@ -12,6 +12,8 @@ vulnerabilities across AWS, GCP, Azure, DigitalOcean, and Alibaba Cloud.
 import re
 from urllib.parse import urlparse
 
+from modules.base import BaseModule
+
 # ── Cloud storage bucket name patterns ────────────────────────────────────
 _BUCKET_PATTERNS = {
     "s3": [
@@ -164,7 +166,7 @@ CLOUD_SECRET_PATTERNS = {
 }
 
 
-class CloudScannerModule:
+class CloudScannerModule(BaseModule):
     """Cloud Security Scanner — detects cloud misconfigurations.
 
     Checks performed:
@@ -179,10 +181,7 @@ class CloudScannerModule:
     vuln_type = "cloud"
 
     def __init__(self, engine):
-        self.engine = engine
-        self.requester = engine.requester
-        self.config = engine.config if isinstance(engine.config, dict) else {}
-        self.verbose = self.config.get("verbose", False)
+        super().__init__(engine)
         self._checked_buckets = set()
         self._checked_paths = set()
 

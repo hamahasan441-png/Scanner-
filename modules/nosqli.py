@@ -6,15 +6,17 @@ NoSQL Injection detection and exploitation
 """
 
 from config import Payloads, Colors
+from modules.base import BaseModule
 
 
-class NoSQLModule:
+class NoSQLModule(BaseModule):
     """NoSQL Injection Testing Module"""
 
+    name = "NoSQL Injection"
+    vuln_type = "nosqli"
+
     def __init__(self, engine):
-        self.engine = engine
-        self.requester = engine.requester
-        self.name = "NoSQL Injection"
+        super().__init__(engine)
 
         # NoSQL indicators
         self.nosql_indicators = [

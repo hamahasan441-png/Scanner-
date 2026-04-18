@@ -6,13 +6,17 @@ Cross-Site WebSocket Hijacking and message injection
 """
 
 
-class WebSocketModule:
+from modules.base import BaseModule
+
+
+class WebSocketModule(BaseModule):
     """WebSocket Injection Testing Module"""
 
+    name = "WebSocket Injection"
+    vuln_type = "websocket"
+
     def __init__(self, engine):
-        self.engine = engine
-        self.requester = engine.requester
-        self.name = "WebSocket Injection"
+        super().__init__(engine)
 
     def test(self, url, method, param, value):
         """Test for WebSocket vulnerabilities in parameters"""

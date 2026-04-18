@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ATOMIC FRAMEWORK v9.0 - Report Runner
+ATOMIC FRAMEWORK v10.0 - Report Runner
 Encapsulates the reporting / output portion of the pipeline:
   - PHASE 10: Commit & Report (OutputPhase, compliance, audit)
   - PHASE 11: Attack Map (exploit-aware visualization)

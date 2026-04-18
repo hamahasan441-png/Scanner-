@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ATOMIC FRAMEWORK v9.0 - External Security Tools Downloader
+ATOMIC FRAMEWORK v10.0 - External Security Tools Downloader
 
 Provides automated installation of all 20 external security tools
 integrated by the framework (5 from ToolIntegrator + 15 from ReconArsenal).
@@ -372,6 +372,40 @@ def check_tools() -> Dict[str, Dict]:
     return results
 
 
+def _print_no_install_method(tool_name: str, info):
+    """Print manual install instructions when no automatic method is available."""
+    print(f"  {Colors.YELLOW}[!]{Colors.RESET} {tool_name} — no install method available")
+    print(f"      Manual install: {info.github}")
+    for method, method_cmd in info.install_methods.items():
+        print(f"      {method}: {method_cmd}")
+
+
+def _run_install_command(cmd: str, tool_name: str, info, verbose: bool) -> bool:
+    """Execute an install command and return whether the tool was installed."""
+    try:
+        cmd_list = shlex.split(cmd)
+        result = subprocess.run(cmd_list, capture_output=True, text=True, timeout=600)
+        if result.returncode == 0 and _is_tool_installed(tool_name):
+            if verbose:
+                print(f"  {Colors.GREEN}[✓]{Colors.RESET} {tool_name} — installed successfully")
+            return True
+        if verbose:
+            print(f"  {Colors.RED}[✗]{Colors.RESET} {tool_name} — installation failed")
+            if result.stderr:
+                for line in result.stderr.strip().split("\n")[-3:]:
+                    print(f"      {line}")
+            print(f"      Manual install: {info.github}")
+        return False
+    except subprocess.TimeoutExpired:
+        if verbose:
+            print(f"  {Colors.RED}[✗]{Colors.RESET} {tool_name} — installation timed out")
+        return False
+    except Exception as exc:
+        if verbose:
+            print(f"  {Colors.RED}[✗]{Colors.RESET} {tool_name} — {exc}")
+        return False
+
+
 def install_tool(tool_name: str, verbose: bool = True) -> bool:
     """Install a single external tool.
 
@@ -391,47 +425,14 @@ def install_tool(tool_name: str, verbose: bool = True) -> bool:
     cmd = get_install_command(tool_name)
     if not cmd:
         if verbose:
-            print(f"  {Colors.YELLOW}[!]{Colors.RESET} {tool_name} — no install method available")
-            print(f"      Manual install: {info.github}")
-            for method, method_cmd in info.install_methods.items():
-                print(f"      {method}: {method_cmd}")
+            _print_no_install_method(tool_name, info)
         return False
 
     if verbose:
         print(f"  {Colors.CYAN}[*]{Colors.RESET} Installing {tool_name}...")
         print(f"      Command: {cmd}")
 
-    try:
-        # Use shlex.split to avoid shell=True and prevent command injection.
-        # Install commands come from the hard-coded TOOL_REGISTRY, not from
-        # user input, but avoiding shell=True is a defence-in-depth measure.
-        cmd_list = shlex.split(cmd)
-        result = subprocess.run(
-            cmd_list,
-            capture_output=True,
-            text=True,
-            timeout=600,
-        )
-        if result.returncode == 0 and _is_tool_installed(tool_name):
-            if verbose:
-                print(f"  {Colors.GREEN}[✓]{Colors.RESET} {tool_name} — installed successfully")
-            return True
-        else:
-            if verbose:
-                print(f"  {Colors.RED}[✗]{Colors.RESET} {tool_name} — installation failed")
-                if result.stderr:
-                    for line in result.stderr.strip().split("\n")[-3:]:
-                        print(f"      {line}")
-                print(f"      Manual install: {info.github}")
-            return False
-    except subprocess.TimeoutExpired:
-        if verbose:
-            print(f"  {Colors.RED}[✗]{Colors.RESET} {tool_name} — installation timed out")
-        return False
-    except Exception as exc:
-        if verbose:
-            print(f"  {Colors.RED}[✗]{Colors.RESET} {tool_name} — {exc}")
-        return False
+    return _run_install_command(cmd, tool_name, info, verbose)
 
 
 def install_all_tools(verbose: bool = True) -> Dict[str, bool]:

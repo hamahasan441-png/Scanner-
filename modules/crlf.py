@@ -7,10 +7,14 @@ that allow HTTP response splitting and header injection.
 """
 
 from config import Payloads, Colors
+from modules.base import BaseModule
 
 
-class CRLFModule:
+class CRLFModule(BaseModule):
     """CRLF Injection Testing Module"""
+
+    name = "CRLF Injection"
+    vuln_type = "crlf"
 
     CRLF_PAYLOADS = Payloads.CRLF_PAYLOADS + [
         "%0d%0aX-Injected: crlf-test",
@@ -27,9 +31,7 @@ class CRLFModule:
     COOKIE_MARKER = "crlfinjection=true"
 
     def __init__(self, engine):
-        self.engine = engine
-        self.requester = engine.requester
-        self.name = "CRLF Injection"
+        super().__init__(engine)
 
     def test(self, url: str, method: str, param: str, value: str):
         """Test a parameter for CRLF injection."""

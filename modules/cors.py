@@ -9,15 +9,17 @@ from urllib.parse import urlparse
 
 
 from config import Colors
+from modules.base import BaseModule
 
 
-class CORSModule:
+class CORSModule(BaseModule):
     """CORS Testing Module"""
 
+    name = "CORS Misconfiguration"
+    vuln_type = "cors"
+
     def __init__(self, engine):
-        self.engine = engine
-        self.requester = engine.requester
-        self.name = "CORS Misconfiguration"
+        super().__init__(engine)
 
     def test(self, url: str, method: str, param: str, value: str):
         """Test for CORS misconfiguration"""

@@ -53,7 +53,7 @@ def _check_pipeline_contract_vs_rules(errors: list):
     """Verify scanner_rules.yaml stages are a subset of pipeline contract phases."""
     try:
         from core.pipeline_contract import Phase
-        phase_values = {p.value for p in Phase}
+        phase_values = {p.value for p in Phase}  # noqa: F841
     except ImportError:
         errors.append('[contract] core/pipeline_contract.py could not be imported')
         return

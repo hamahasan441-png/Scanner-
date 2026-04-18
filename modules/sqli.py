@@ -17,15 +17,17 @@ import time
 
 
 from config import Payloads, Colors
+from modules.base import BaseModule
 
 
-class SQLiModule:
+class SQLiModule(BaseModule):
     """SQL Injection Testing Module"""
 
+    name = "SQL Injection"
+    vuln_type = "sqli"
+
     def __init__(self, engine):
-        self.engine = engine
-        self.requester = engine.requester
-        self.name = "SQL Injection"
+        super().__init__(engine)
 
         # SQL Error signatures
         self.error_signatures = {

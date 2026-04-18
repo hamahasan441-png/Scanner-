@@ -655,7 +655,7 @@ class ReconModule:
                             confidence=0.9,
                             param="DMARC",
                             payload=txt[:100],
-                            evidence=f"DMARC policy is 'none' — emails failing auth are still delivered",
+                            evidence="DMARC policy is 'none' — emails failing auth are still delivered",
                         )
                         self.engine.add_finding(finding)
         except Exception:
@@ -835,7 +835,7 @@ class ReconModule:
         acao = headers.get("Access-Control-Allow-Origin", "")
         acac = headers.get("Access-Control-Allow-Credentials", "").lower()
         acam = headers.get("Access-Control-Allow-Methods", "")
-        acah = headers.get("Access-Control-Allow-Headers", "")
+        acah = headers.get("Access-Control-Allow-Headers", "")  # noqa: F841
 
         issues = []
 

@@ -8,15 +8,17 @@ Server-Side Template Injection detection and exploitation
 import re
 
 from config import Payloads, Colors
+from modules.base import BaseModule
 
 
-class SSTIModule:
+class SSTIModule(BaseModule):
     """SSTI Testing Module"""
 
+    name = "SSTI"
+    vuln_type = "ssti"
+
     def __init__(self, engine):
-        self.engine = engine
-        self.requester = engine.requester
-        self.name = "SSTI"
+        super().__init__(engine)
 
         # Template engine indicators
         self.template_engines = {

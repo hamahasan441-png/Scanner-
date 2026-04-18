@@ -2,10 +2,8 @@
 # -*- coding: utf-8 -*-
 """Comprehensive unit tests for scanner/vuln_scanner.py."""
 
-import re
-import time
 import unittest
-from unittest.mock import MagicMock, patch, PropertyMock
+from unittest.mock import MagicMock, patch
 
 from scanner.vuln_scanner import (
     CMDiTester,

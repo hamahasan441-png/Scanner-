@@ -7,14 +7,17 @@ TOCTOU and concurrent request testing
 
 import concurrent.futures
 
+from modules.base import BaseModule
 
-class RaceConditionModule:
+
+class RaceConditionModule(BaseModule):
     """Race Condition Testing Module"""
 
+    name = "Race Condition"
+    vuln_type = "race_condition"
+
     def __init__(self, engine):
-        self.engine = engine
-        self.requester = engine.requester
-        self.name = "Race Condition"
+        super().__init__(engine)
 
     def test(self, url, method, param, value):
         """Test for race conditions"""

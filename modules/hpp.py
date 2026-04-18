@@ -11,10 +11,14 @@ from urllib.parse import urlparse, urlunparse
 
 
 from config import Payloads, Colors
+from modules.base import BaseModule
 
 
-class HPPModule:
+class HPPModule(BaseModule):
     """HTTP Parameter Pollution Testing Module"""
+
+    name = "HTTP Parameter Pollution"
+    vuln_type = "hpp"
 
     HPP_PAYLOADS = Payloads.HPP_PAYLOADS + [
         "&admin=1",
@@ -26,9 +30,7 @@ class HPPModule:
     ]
 
     def __init__(self, engine):
-        self.engine = engine
-        self.requester = engine.requester
-        self.name = "HTTP Parameter Pollution"
+        super().__init__(engine)
 
     def test(self, url: str, method: str, param: str, value: str):
         """Test a parameter for HPP by sending duplicate parameters."""

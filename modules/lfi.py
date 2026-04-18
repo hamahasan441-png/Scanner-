@@ -9,15 +9,17 @@ import base64
 
 
 from config import Payloads, Colors
+from modules.base import BaseModule
 
 
-class LFIModule:
+class LFIModule(BaseModule):
     """LFI/RFI Testing Module"""
 
+    name = "LFI/RFI"
+    vuln_type = "lfi"
+
     def __init__(self, engine):
-        self.engine = engine
-        self.requester = engine.requester
-        self.name = "LFI/RFI"
+        super().__init__(engine)
 
         # File content indicators
         self.file_indicators = {

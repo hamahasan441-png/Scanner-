@@ -9,15 +9,17 @@ import re
 
 
 from config import Payloads, Colors
+from modules.base import BaseModule
 
 
-class XSSModule:
+class XSSModule(BaseModule):
     """XSS Testing Module"""
 
+    name = "XSS"
+    vuln_type = "xss"
+
     def __init__(self, engine):
-        self.engine = engine
-        self.requester = engine.requester
-        self.name = "XSS"
+        super().__init__(engine)
 
         # XSS signatures
         self.xss_signatures = [

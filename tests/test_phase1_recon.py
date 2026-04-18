@@ -88,7 +88,7 @@ class TestEnhancedGoogleDorks(unittest.TestCase):
         mod = OSINTModule(engine)
         mod._generate_google_dorks("example.com")
         # The dork list should include access_key/secret_key/api_key dork
-        evidence = engine.findings[0].evidence
+        evidence = engine.findings[0].evidence  # noqa: F841
         payload = engine.findings[0].payload
         # Verify we have more dorks now (was 14, now 23+)
         count = int(payload.split()[0])
@@ -126,8 +126,7 @@ class TestEnhancedGitHubLeaks(unittest.TestCase):
         from modules.osint import OSINTModule
         mod = OSINTModule(engine)
         mod._check_github_leaks("example.com")
-        evidence = engine.findings[0].evidence
-        # Evidence shows first 3 queries
+        evidence = engine.findings[0].evidence  # noqa: F841
         count = int(engine.findings[0].payload.split()[0])
         self.assertGreaterEqual(count, 9)
 

@@ -11,9 +11,10 @@ import time
 
 
 from config import Config, Colors
+from modules.base import BaseModule
 
 
-class ShellUploader:
+class ShellUploader(BaseModule):
     """Web Shell Upload Module
 
     When ``scan_only=True`` (the default during the scan phase), only
@@ -22,12 +23,13 @@ class ShellUploader:
     set during the exploit phase.
     """
 
+    name = "File Upload"
+    vuln_type = "upload"
+
     def __init__(self, engine, scan_only=True):
-        self.engine = engine
-        self.requester = engine.requester
-        self.name = "File Upload"
-        self.shells_dir = Config.SHELLS_DIR
+        super().__init__(engine)
         self.scan_only = scan_only
+        self.shells_dir = Config.SHELLS_DIR
 
         # Ensure shells directory exists
         os.makedirs(self.shells_dir, exist_ok=True)

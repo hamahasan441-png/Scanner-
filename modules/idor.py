@@ -9,15 +9,17 @@ import re
 
 
 from config import Colors
+from modules.base import BaseModule
 
 
-class IDORModule:
+class IDORModule(BaseModule):
     """IDOR Testing Module"""
 
+    name = "IDOR"
+    vuln_type = "idor"
+
     def __init__(self, engine):
-        self.engine = engine
-        self.requester = engine.requester
-        self.name = "IDOR"
+        super().__init__(engine)
 
         # IDOR patterns
         self.id_patterns = [
