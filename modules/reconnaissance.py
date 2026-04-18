@@ -725,7 +725,8 @@ class ReconModule:
                         protocols.append(f"TLS: {tls_version}")
 
                     if protocols:
-                        print(f"{Colors.info(f'Protocol support: {', '.join(protocols)}')}")
+                        proto_str = ", ".join(protocols)
+                        print(f"{Colors.info(f'Protocol support: {proto_str}')}")
 
                     # Flag old TLS versions
                     if tls_version and tls_version in ("TLSv1", "TLSv1.1"):
@@ -795,7 +796,8 @@ class ReconModule:
                     match = re.search(check["pattern"], resp.text)
                     if match:
                         version = match.group(1)
-                        print(f"{Colors.info(f'CMS Detected: {check['cms']} v{version}')}")
+                        cms_name = check["cms"]
+                        print(f"{Colors.info(f'CMS Detected: {cms_name} v{version}')}")
                         from core.engine import Finding
 
                         finding = Finding(
@@ -866,7 +868,9 @@ class ReconModule:
             self.engine.add_finding(finding)
 
         if acao or acam:
-            print(f"{Colors.info(f'CORS: ACAO={acao or 'none'}, Methods={acam or 'none'}')}")
+            acao_val = acao or "none"
+            acam_val = acam or "none"
+            print(f"{Colors.info(f'CORS: ACAO={acao_val}, Methods={acam_val}')}")
         elif self.verbose:
             print(f"{Colors.info('CORS: no CORS headers in preflight response')}")
 
