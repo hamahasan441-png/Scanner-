@@ -31,8 +31,8 @@ jobs:
 
       - name: Run Bandit security scan
         run: |
-          bandit -r core/ utils/ web/ -f json -o bandit-results.json --exit-zero
-          bandit -r core/ utils/ web/ -f screen --exit-zero
+          bandit -r core/ modules/ utils/ web/ scanner/ -f json -o bandit-results.json --exit-zero
+          bandit -r core/ modules/ utils/ web/ scanner/ -f screen --exit-zero
         continue-on-error: true
 
       - name: Upload Bandit results

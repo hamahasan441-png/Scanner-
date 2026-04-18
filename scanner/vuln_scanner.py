@@ -924,6 +924,341 @@ class CMDiTester(_BaseTester):
         return None
 
 
+# ── 3.5 Server-Side Request Forgery (SSRF) ──────────────────────────
+
+
+class SSRFTester(_BaseTester):
+    """Detect SSRF via behavioural response differentials and known indicators."""
+
+    # Payloads that target internal/cloud metadata endpoints
+    _PAYLOADS = [
+        "http://127.0.0.1/",
+        "http://localhost/",
+        "http://[::1]/",
+        "http://169.254.169.254/latest/meta-data/",
+        "http://metadata.google.internal/computeMetadata/v1/",
+        "http://100.100.100.200/latest/meta-data/",
+    ]
+
+    # Indicators that the backend fetched an internal resource
+    _INTERNAL_INDICATORS = [
+        "ami-id", "instance-id", "local-ipv4", "public-hostname",     # AWS
+        "computeMetadata",                                              # GCP
+        "root:x:", "/bin/bash",                                         # /etc/passwd
+        "127.0.0.1", "localhost",                                       # generic loopback echo
+    ]
+
+    # Patterns that indicate a generic error (not a true fetch)
+    _ERROR_PATTERNS = [
+        "could not connect",
+        "connection refused",
+        "name or service not known",
+        "invalid url",
+        "malformed",
+    ]
+
+    def test(
+        self, url: str, method: str, param: str, value: str,
+    ) -> list[ScanFinding]:
+        findings: list[ScanFinding] = []
+
+        baseline_text, baseline_status, baseline_len = self._baseline(
+            url, method, param, value,
+        )
+        if baseline_status == 0:
+            return findings
+
+        payloads = self._get_payloads(self._PAYLOADS)
+        for payload in payloads:
+            resp = self._send(url, method, param, payload)
+            if resp is None:
+                continue
+            body = resp.text
+
+            # Reject if it's just an error page
+            if self._is_error_response(body):
+                continue
+
+            # Check for internal/metadata indicators NOT in baseline
+            new_indicators = [
+                ind for ind in self._INTERNAL_INDICATORS
+                if ind in body and ind not in baseline_text
+            ]
+
+            if len(new_indicators) >= 1:
+                # Verify with a second request for consistency
+                resp2 = self._send(url, method, param, payload)
+                if resp2 is None:
+                    continue
+                confirmed = [
+                    ind for ind in new_indicators
+                    if ind in resp2.text
+                ]
+                if confirmed:
+                    findings.append(ScanFinding(
+                        vuln_class="SSRF (Server-Side Request Forgery)",
+                        url=url,
+                        param=param,
+                        payload=payload,
+                        evidence=(
+                            f"Internal resource indicators detected: "
+                            f"{confirmed[:3]}"
+                        ),
+                        severity="HIGH",
+                        confidence=0.9,
+                        status="confirmed",
+                    ))
+                    return findings
+
+            # Behavioural differential: significant length/status change
+            length_diff = abs(len(body) - baseline_len)
+            if baseline_len > 0 and length_diff / baseline_len > 0.3:
+                if resp.status_code == 200 and baseline_status == 200:
+                    # Verify once more
+                    resp2 = self._send(url, method, param, payload)
+                    if resp2 and abs(len(resp2.text) - baseline_len) / max(baseline_len, 1) > 0.3:
+                        findings.append(ScanFinding(
+                            vuln_class="SSRF (Server-Side Request Forgery)",
+                            url=url,
+                            param=param,
+                            payload=payload,
+                            evidence=(
+                                f"Significant response difference: "
+                                f"baseline={baseline_len}, "
+                                f"payload={len(body)}"
+                            ),
+                            severity="MEDIUM",
+                            confidence=0.6,
+                            status="likely",
+                        ))
+                        return findings
+
+        return findings
+
+    @classmethod
+    def _is_error_response(cls, body: str) -> bool:
+        body_lower = body.lower()
+        return any(pat in body_lower for pat in cls._ERROR_PATTERNS)
+
+
+# ── 3.6 Server-Side Template Injection (SSTI) ───────────────────────
+
+
+class SSTITester(_BaseTester):
+    """Detect SSTI by injecting template expressions and checking evaluation."""
+
+    # Pairs of (payload, expected_output) — deterministic math expressions
+    _EXPRESSION_TESTS = [
+        ("{{7*7}}", "49"),
+        ("${7*7}", "49"),
+        ("<%= 7*7 %>", "49"),
+        ("{{7*'7'}}", "7777777"),       # Jinja2-specific
+        ("#{7*7}", "49"),               # Ruby ERB / Java EL
+    ]
+
+    # Error patterns that indicate template parsing (potential SSTI)
+    _TEMPLATE_ERROR_PATTERNS = [
+        "templateerror",
+        "jinja2.exceptions",
+        "mako.exceptions",
+        "freemarker.core",
+        "velocity",
+        "twig",
+        "django.template",
+        "smarty",
+        "pebble",
+    ]
+
+    def test(
+        self, url: str, method: str, param: str, value: str,
+    ) -> list[ScanFinding]:
+        findings: list[ScanFinding] = []
+
+        baseline_text, baseline_status, _ = self._baseline(
+            url, method, param, value,
+        )
+        if baseline_status == 0:
+            return findings
+
+        # ── Expression evaluation tests ──
+        for payload, expected in self._EXPRESSION_TESTS:
+            payloads = self._get_payloads([payload])
+            for p in payloads:
+                resp = self._send(url, method, param, p)
+                if resp is None:
+                    continue
+                body = resp.text
+
+                if expected in body and expected not in baseline_text:
+                    # Verify: send again to confirm deterministic evaluation
+                    resp2 = self._send(url, method, param, p)
+                    if resp2 and expected in resp2.text:
+                        findings.append(ScanFinding(
+                            vuln_class="SSTI (Server-Side Template Injection)",
+                            url=url,
+                            param=param,
+                            payload=p,
+                            evidence=(
+                                f"Expression '{payload}' evaluated to "
+                                f"'{expected}' in response"
+                            ),
+                            severity="CRITICAL",
+                            confidence=0.95,
+                            status="confirmed",
+                        ))
+                        return findings
+
+        # ── Template error detection ──
+        probe_payloads = self._get_payloads(["{{", "${", "<%"])
+        for p in probe_payloads:
+            resp = self._send(url, method, param, p)
+            if resp is None:
+                continue
+            body_lower = resp.text.lower()
+            for err_pat in self._TEMPLATE_ERROR_PATTERNS:
+                if err_pat in body_lower and err_pat not in baseline_text.lower():
+                    findings.append(ScanFinding(
+                        vuln_class="SSTI (Server-Side Template Injection)",
+                        url=url,
+                        param=param,
+                        payload=p,
+                        evidence=f"Template error detected: {err_pat}",
+                        severity="HIGH",
+                        confidence=0.7,
+                        status="likely",
+                    ))
+                    return findings
+
+        return findings
+
+
+# ── 3.7 Open Redirect ───────────────────────────────────────────────
+
+
+class OpenRedirectTester(_BaseTester):
+    """Detect open redirect vulnerabilities."""
+
+    # External domains that should never be redirected to
+    _REDIRECT_PAYLOADS = [
+        "https://evil.example.com",
+        "//evil.example.com",
+        "https://evil.example.com/%2f%2e%2e",
+        "/\\evil.example.com",
+        "https:evil.example.com",
+    ]
+
+    def test(
+        self, url: str, method: str, param: str, value: str,
+    ) -> list[ScanFinding]:
+        findings: list[ScanFinding] = []
+
+        payloads = self._get_payloads(self._REDIRECT_PAYLOADS)
+        for payload in payloads:
+            finding = self._check_redirect(url, method, param, payload)
+            if finding:
+                findings.append(finding)
+                return findings
+
+        return findings
+
+    def _check_redirect(
+        self, url: str, method: str, param: str, payload: str,
+    ) -> ScanFinding | None:
+        """Send request without following redirects to inspect Location header."""
+        time.sleep(random.uniform(*self._delay_range))
+        self._session.headers["User-Agent"] = random.choice(_USER_AGENTS)
+        try:
+            if method.upper() == "GET":
+                resp = self._session.get(
+                    url, params={param: payload},
+                    timeout=self._timeout, allow_redirects=False,
+                )
+            else:
+                resp = self._session.post(
+                    url, data={param: payload},
+                    timeout=self._timeout, allow_redirects=False,
+                )
+        except requests.RequestException:
+            return None
+
+        if resp is None:
+            return None
+
+        # Check for 3xx redirect
+        if 300 <= resp.status_code < 400:
+            location = resp.headers.get("Location", "")
+            if self._is_external_redirect(location):
+                # Verify: send again
+                try:
+                    if method.upper() == "GET":
+                        resp2 = self._session.get(
+                            url, params={param: payload},
+                            timeout=self._timeout, allow_redirects=False,
+                        )
+                    else:
+                        resp2 = self._session.post(
+                            url, data={param: payload},
+                            timeout=self._timeout, allow_redirects=False,
+                        )
+                except requests.RequestException:
+                    return None
+
+                if resp2 and 300 <= resp2.status_code < 400:
+                    loc2 = resp2.headers.get("Location", "")
+                    if self._is_external_redirect(loc2):
+                        return ScanFinding(
+                            vuln_class="Open Redirect",
+                            url=url,
+                            param=param,
+                            payload=payload,
+                            evidence=(
+                                f"Redirects to external domain: "
+                                f"{location}"
+                            ),
+                            severity="MEDIUM",
+                            confidence=0.9,
+                            status="confirmed",
+                        )
+
+        # Also check response body for meta-refresh or JS redirects
+        if resp.status_code == 200:
+            body = resp.text.lower()
+            if "evil.example.com" in body:
+                if re.search(
+                    r'(window\.location|location\.href|http-equiv=["\']refresh)',
+                    body,
+                ):
+                    return ScanFinding(
+                        vuln_class="Open Redirect",
+                        url=url,
+                        param=param,
+                        payload=payload,
+                        evidence="Client-side redirect to external domain detected",
+                        severity="MEDIUM",
+                        confidence=0.75,
+                        status="likely",
+                    )
+
+        return None
+
+    @staticmethod
+    def _is_external_redirect(location: str) -> bool:
+        """Check if a Location header points to an external domain."""
+        if not location:
+            return False
+        # Protocol-relative URLs
+        if location.startswith("//"):
+            return "evil.example.com" in location
+        # Absolute URLs
+        try:
+            parsed = urllib.parse.urlparse(location)
+            if parsed.netloc and "evil.example.com" in parsed.netloc:
+                return True
+        except ValueError:
+            pass
+        return False
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # Phase 4: Output Formatter
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1050,6 +1385,18 @@ class VulnScanner:
                 self._timeout, self._delay_range,
             ),
             CMDiTester(
+                self._session, bypass, self._waf_detected,
+                self._timeout, self._delay_range,
+            ),
+            SSRFTester(
+                self._session, bypass, self._waf_detected,
+                self._timeout, self._delay_range,
+            ),
+            SSTITester(
+                self._session, bypass, self._waf_detected,
+                self._timeout, self._delay_range,
+            ),
+            OpenRedirectTester(
                 self._session, bypass, self._waf_detected,
                 self._timeout, self._delay_range,
             ),

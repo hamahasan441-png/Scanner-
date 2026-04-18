@@ -45,7 +45,7 @@ jobs:
           echo "Validating Python syntax across all modules..."
           python -m py_compile main.py
           python -m py_compile config.py
-          for dir in core modules utils web; do
+          for dir in core modules utils web scanner; do
             if [ -d "$dir" ]; then
               find "$dir" -name '*.py' -exec python -m py_compile {} +
             fi
@@ -84,6 +84,11 @@ jobs:
           python -c "from modules.scapy_crawler import DNSReconScanner"
           python -c "from modules.scapy_crawler import ScapyVulnScanner, SCAPY_VULN_DB"
           python -c "from modules.scapy_crawler import ScapyAttackChain, NETWORK_CHAIN_TEMPLATES"
+          echo "Validating scanner module imports..."
+          python -c "from scanner.vuln_scanner import VulnScanner, WAFDetector, WAFBypassEngine"
+          python -c "from scanner.vuln_scanner import SQLiTester, XSSTester, LFITester, CMDiTester"
+          python -c "from scanner.vuln_scanner import SSRFTester, SSTITester, OpenRedirectTester"
+          python -c "from scanner.vuln_scanner import ScanFinding, format_findings"
           echo "Validating utility imports..."
           python -c "from utils.requester import Requester"
           python -c "from utils.crawler import Crawler"
@@ -127,8 +132,8 @@ jobs:
 
       - name: Run Bandit security linter
         run: |
-          bandit -r core/ modules/ utils/ web/ -ll --exit-zero -f json -o bandit-report.json
-          bandit -r core/ modules/ utils/ web/ -ll --exit-zero
+          bandit -r core/ modules/ utils/ web/ scanner/ -ll --exit-zero -f json -o bandit-report.json
+          bandit -r core/ modules/ utils/ web/ scanner/ -ll --exit-zero
 
       - name: Run pip-audit dependency check
         run: |

@@ -10,8 +10,11 @@ from unittest.mock import MagicMock, patch, PropertyMock
 from scanner.vuln_scanner import (
     CMDiTester,
     LFITester,
+    OpenRedirectTester,
     ScanFinding,
     SQLiTester,
+    SSRFTester,
+    SSTITester,
     VulnScanner,
     WAFBypassEngine,
     WAFDetector,
@@ -638,6 +641,254 @@ class TestCMDiTester(unittest.TestCase):
         for f in findings:
             if "Command Injection" in f.vuln_class:
                 self.assertEqual(f.severity, "CRITICAL")
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Phase 3.5: SSRF Tester tests
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestSSRFTester(unittest.TestCase):
+    """Tests for SSRF detection."""
+
+    def _make_tester(self, session):
+        return SSRFTester(
+            session=session,
+            bypass_engine=None,
+            waf_detected=False,
+            timeout=5,
+            delay_range=(0.0, 0.0),
+        )
+
+    def test_metadata_endpoint_detected(self):
+        """AWS metadata indicators in response triggers finding."""
+        baseline = MockResponse(text="<html>normal page</html>")
+        metadata_resp = MockResponse(text="ami-id\ninstance-id\nlocal-ipv4")
+        # baseline + 6 payloads, first returns metadata + verification
+        responses = [baseline, metadata_resp, metadata_resp] + [MockResponse(text="")] * 20
+        session = MockSession(responses=responses)
+        tester = self._make_tester(session)
+        findings = tester.test("http://t.com", "GET", "url", "http://example.com")
+        self.assertTrue(any("SSRF" in f.vuln_class for f in findings))
+
+    def test_no_finding_on_error_response(self):
+        """Connection error responses should not trigger findings."""
+        baseline = MockResponse(text="normal")
+        error_resp = MockResponse(text="could not connect to host")
+        responses = [baseline] + [error_resp] * 20
+        session = MockSession(responses=responses)
+        tester = self._make_tester(session)
+        findings = tester.test("http://t.com", "GET", "url", "http://example.com")
+        ssrf = [f for f in findings if "SSRF" in f.vuln_class]
+        self.assertEqual(len(ssrf), 0)
+
+    def test_no_finding_on_clean_response(self):
+        """Normal responses produce no findings."""
+        resp = MockResponse(text="Hello World")
+        responses = [resp] * 30
+        session = MockSession(responses=responses)
+        tester = self._make_tester(session)
+        findings = tester.test("http://t.com", "GET", "url", "http://example.com")
+        self.assertEqual(len(findings), 0)
+
+    def test_baseline_indicators_not_flagged(self):
+        """Indicators already in baseline are not counted."""
+        text = "ami-id instance-id"
+        baseline = MockResponse(text=text)
+        same = MockResponse(text=text)
+        responses = [baseline] + [same] * 30
+        session = MockSession(responses=responses)
+        tester = self._make_tester(session)
+        findings = tester.test("http://t.com", "GET", "url", "http://example.com")
+        ssrf = [f for f in findings if "SSRF" in f.vuln_class]
+        self.assertEqual(len(ssrf), 0)
+
+    def test_is_error_response(self):
+        self.assertTrue(SSRFTester._is_error_response("Could not connect"))
+        self.assertTrue(SSRFTester._is_error_response("connection refused"))
+        self.assertFalse(SSRFTester._is_error_response("Hello World"))
+
+    def test_severity_is_high(self):
+        baseline = MockResponse(text="normal")
+        metadata = MockResponse(text="ami-id\ninstance-id")
+        responses = [baseline, metadata, metadata] + [MockResponse(text="")] * 20
+        session = MockSession(responses=responses)
+        tester = self._make_tester(session)
+        findings = tester.test("http://t.com", "GET", "url", "http://example.com")
+        for f in findings:
+            if "SSRF" in f.vuln_class and f.status == "confirmed":
+                self.assertEqual(f.severity, "HIGH")
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Phase 3.6: SSTI Tester tests
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestSSTITester(unittest.TestCase):
+    """Tests for SSTI detection."""
+
+    def _make_tester(self, session):
+        return SSTITester(
+            session=session,
+            bypass_engine=None,
+            waf_detected=False,
+            timeout=5,
+            delay_range=(0.0, 0.0),
+        )
+
+    def test_expression_evaluation_detected(self):
+        """{{7*7}} evaluating to 49 triggers finding."""
+        baseline = MockResponse(text="<html>normal page</html>")
+        eval_resp = MockResponse(text="Result: 49")
+        # baseline + first expression payload + verification
+        responses = [baseline, eval_resp, eval_resp] + [MockResponse(text="")] * 30
+        session = MockSession(responses=responses)
+        tester = self._make_tester(session)
+        findings = tester.test("http://t.com", "GET", "template", "hello")
+        self.assertTrue(any("SSTI" in f.vuln_class for f in findings))
+
+    def test_no_finding_when_49_in_baseline(self):
+        """49 already in baseline should not trigger finding."""
+        baseline = MockResponse(text="Product #49 details")
+        same = MockResponse(text="Product #49 details")
+        responses = [baseline] + [same] * 40
+        session = MockSession(responses=responses)
+        tester = self._make_tester(session)
+        findings = tester.test("http://t.com", "GET", "template", "hello")
+        ssti = [f for f in findings if "SSTI" in f.vuln_class]
+        self.assertEqual(len(ssti), 0)
+
+    def test_template_error_detected(self):
+        """Template engine error in response triggers likely finding."""
+        baseline = MockResponse(text="normal")
+        normal = MockResponse(text="normal")
+        error_resp = MockResponse(text="Error: jinja2.exceptions.TemplateSyntaxError")
+        # baseline (1) + 5 expression payloads (5 normal, no match) +
+        # 3 error probes (first one hits error)
+        responses = [baseline] + [normal] * 5 + [error_resp] + [normal] * 10
+        session = MockSession(responses=responses)
+        tester = self._make_tester(session)
+        findings = tester.test("http://t.com", "GET", "template", "hello")
+        ssti = [f for f in findings if "SSTI" in f.vuln_class]
+        self.assertTrue(len(ssti) > 0)
+
+    def test_no_finding_on_clean_response(self):
+        """Clean responses produce no findings."""
+        resp = MockResponse(text="Hello World")
+        responses = [resp] * 50
+        session = MockSession(responses=responses)
+        tester = self._make_tester(session)
+        findings = tester.test("http://t.com", "GET", "template", "hello")
+        self.assertEqual(len(findings), 0)
+
+    def test_severity_is_critical_for_confirmed(self):
+        baseline = MockResponse(text="normal")
+        eval_resp = MockResponse(text="Computed: 49")
+        responses = [baseline, eval_resp, eval_resp] + [MockResponse(text="")] * 30
+        session = MockSession(responses=responses)
+        tester = self._make_tester(session)
+        findings = tester.test("http://t.com", "GET", "template", "hello")
+        for f in findings:
+            if "SSTI" in f.vuln_class and f.status == "confirmed":
+                self.assertEqual(f.severity, "CRITICAL")
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Phase 3.7: Open Redirect Tester tests
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestOpenRedirectTester(unittest.TestCase):
+    """Tests for open redirect detection."""
+
+    def _make_tester(self, session):
+        return OpenRedirectTester(
+            session=session,
+            bypass_engine=None,
+            waf_detected=False,
+            timeout=5,
+            delay_range=(0.0, 0.0),
+        )
+
+    def test_302_redirect_to_external_detected(self):
+        """302 with external Location header triggers finding."""
+        redirect_resp = MockResponse(
+            text="", status_code=302,
+            headers={"Location": "https://evil.example.com/phish"},
+        )
+        # first redirect + verification redirect (5 payloads × 2)
+        responses = [redirect_resp, redirect_resp] + [MockResponse(text="")] * 20
+        session = MockSession(responses=responses)
+        tester = self._make_tester(session)
+        findings = tester.test("http://t.com", "GET", "next", "/home")
+        self.assertTrue(any("Open Redirect" in f.vuln_class for f in findings))
+
+    def test_no_finding_for_same_domain_redirect(self):
+        """Redirect to same domain should not trigger finding."""
+        redirect_resp = MockResponse(
+            text="", status_code=302,
+            headers={"Location": "http://t.com/other-page"},
+        )
+        responses = [redirect_resp] * 20
+        session = MockSession(responses=responses)
+        tester = self._make_tester(session)
+        findings = tester.test("http://t.com", "GET", "next", "/home")
+        redirect_findings = [f for f in findings if "Open Redirect" in f.vuln_class]
+        self.assertEqual(len(redirect_findings), 0)
+
+    def test_no_finding_on_200_clean(self):
+        """200 response with no redirect indicators produces no finding."""
+        resp = MockResponse(text="Hello World")
+        responses = [resp] * 20
+        session = MockSession(responses=responses)
+        tester = self._make_tester(session)
+        findings = tester.test("http://t.com", "GET", "next", "/home")
+        self.assertEqual(len(findings), 0)
+
+    def test_is_external_redirect_helper(self):
+        self.assertTrue(
+            OpenRedirectTester._is_external_redirect(
+                "https://evil.example.com/x"
+            )
+        )
+        self.assertTrue(
+            OpenRedirectTester._is_external_redirect(
+                "//evil.example.com/x"
+            )
+        )
+        self.assertFalse(
+            OpenRedirectTester._is_external_redirect(
+                "http://safe.com/page"
+            )
+        )
+        self.assertFalse(
+            OpenRedirectTester._is_external_redirect("")
+        )
+
+    def test_severity_is_medium(self):
+        redirect_resp = MockResponse(
+            text="", status_code=302,
+            headers={"Location": "https://evil.example.com/"},
+        )
+        responses = [redirect_resp, redirect_resp] + [MockResponse(text="")] * 20
+        session = MockSession(responses=responses)
+        tester = self._make_tester(session)
+        findings = tester.test("http://t.com", "GET", "next", "/home")
+        for f in findings:
+            if "Open Redirect" in f.vuln_class:
+                self.assertEqual(f.severity, "MEDIUM")
+
+    def test_client_side_redirect_detected(self):
+        """JS redirect with evil domain in body triggers finding."""
+        body = '<html><script>window.location="https://evil.example.com"</script></html>'
+        resp = MockResponse(text=body, status_code=200)
+        responses = [resp] * 20
+        session = MockSession(responses=responses)
+        tester = self._make_tester(session)
+        findings = tester.test("http://t.com", "GET", "next", "/home")
+        redirect_findings = [f for f in findings if "Open Redirect" in f.vuln_class]
+        self.assertTrue(len(redirect_findings) > 0)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
