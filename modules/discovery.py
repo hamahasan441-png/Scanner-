@@ -1578,7 +1578,8 @@ class DiscoveryModule:
                     operations.add(op_name)
 
         if operations and self.engine.config.get("verbose"):
-            print(f"{Colors.info(f'  WSDL operations: {', '.join(sorted(operations)[:10])}')}")
+            ops_str = ", ".join(sorted(operations)[:10])
+            print(f"{Colors.info(f'  WSDL operations: {ops_str}')}")
 
         # Extract schema imports (XSD URLs)
         for elem in root.iter():

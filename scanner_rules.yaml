@@ -127,6 +127,9 @@ context_classification:
     - redirect_target
     - cors_policy
     - graphql_authz
+    - ssrf_url_fetch
+    - open_redirect_target
+    - ssti_template_input
 
 verification:
   min_repro_runs_for_high_or_confirmed: 3
