@@ -563,8 +563,11 @@ class XSSTester(_BaseTester):
         "javascript:alert(1)",
     ]
 
-    # Unique token for unsanitised reflection checks
-    _UNIQUE_TOKEN = "XSS_TEST_473829"
+    @staticmethod
+    def _generate_token() -> str:
+        """Generate a random unique token per test to avoid WAF filtering."""
+        import secrets
+        return f"XSS_TEST_{secrets.token_hex(6)}"
 
     # Patterns that indicate the payload is inside a safe (non-exec) context
     _SAFE_CONTEXTS = [
@@ -627,12 +630,13 @@ class XSSTester(_BaseTester):
         self, url: str, method: str, param: str,
     ) -> ScanFinding | None:
         """Inject a unique token and verify it appears unsanitised."""
-        resp = self._send(url, method, param, self._UNIQUE_TOKEN)
+        token = self._generate_token()
+        resp = self._send(url, method, param, token)
         if resp is None:
             return None
-        if self._UNIQUE_TOKEN in resp.text:
+        if token in resp.text:
             # Token reflected — now wrap it in a script tag
-            attack = f"<script>{self._UNIQUE_TOKEN}</script>"
+            attack = f"<script>{token}</script>"
             resp2 = self._send(url, method, param, attack)
             if resp2 and attack in resp2.text:
                 if not self._is_sanitised(attack, resp2.text):
@@ -642,7 +646,7 @@ class XSSTester(_BaseTester):
                         param=param,
                         payload=attack,
                         evidence=(
-                            f"Unique token {self._UNIQUE_TOKEN!r} reflected "
+                            f"Unique token {token!r} reflected "
                             "inside <script> tag without sanitisation"
                         ),
                         severity="HIGH",

@@ -34,13 +34,11 @@ class MockResponse:
         status_code: int = 200,
         headers: dict | None = None,
         cookies: list | None = None,
-        elapsed: float = 0.1,
     ):
         self.text = text
         self.status_code = status_code
         self.headers = headers or {}
         self._cookies = cookies or []
-        self._elapsed = elapsed
 
     @property
     def cookies(self):
@@ -146,7 +144,8 @@ class TestWAFDetectorSignatures(unittest.TestCase):
 
     def test_detect_no_waf(self):
         resp = MockResponse(text="hello world", headers={"Server": "nginx"})
-        session = MockSession(responses=[resp] * 5)
+        # 1 passive + 3 active probes = 4 responses needed
+        session = MockSession(responses=[resp] * 4)
         detector = WAFDetector(session)
         detected = detector.detect("http://example.com")
         self.assertEqual(detected, [])
@@ -436,7 +435,8 @@ class TestXSSTester(unittest.TestCase):
 
     def test_unique_token_reflected_in_script(self):
         """Unique token inside script tags = high confidence."""
-        token = XSSTester._UNIQUE_TOKEN
+        # Patch _generate_token to return a predictable value for testing
+        token = "XSS_TEST_abc123"
         attack = f"<script>{token}</script>"
         responses = [
             MockResponse(text=f"<p>{token}</p>"),  # token reflected
@@ -444,7 +444,8 @@ class TestXSSTester(unittest.TestCase):
         ]
         session = MockSession(responses=responses)
         tester = self._make_tester(session)
-        findings = tester.test("http://t.com", "GET", "q", "test")
+        with patch.object(XSSTester, '_generate_token', return_value=token):
+            findings = tester.test("http://t.com", "GET", "q", "test")
         self.assertTrue(any(f.confidence >= 0.9 for f in findings))
 
     def test_is_sanitised_checks_entities(self):
