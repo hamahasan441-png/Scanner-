@@ -10,15 +10,17 @@ import re
 from urllib.parse import urlparse, quote_plus
 
 from config import Config, Payloads
+from modules.base import BaseModule
 
 
-class OSINTModule:
+class OSINTModule(BaseModule):
     """OSINT Reconnaissance Module"""
 
+    name = "OSINT Recon"
+    vuln_type = "osint"
+
     def __init__(self, engine):
-        self.engine = engine
-        self.requester = engine.requester
-        self.name = "OSINT Recon"
+        super().__init__(engine)
         # Compile secret patterns once for reuse
         self._secret_regexes = []
         for name, pattern in Payloads.SECRET_PATTERNS:

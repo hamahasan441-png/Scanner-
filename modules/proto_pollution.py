@@ -7,18 +7,17 @@ injection in HTTP parameters and JSON bodies.
 """
 
 from config import Payloads, Colors
+from modules.base import BaseModule
 
 
-class ProtoPollutionModule:
+class ProtoPollutionModule(BaseModule):
     """Prototype Pollution Testing Module"""
 
     name = "Prototype Pollution"
     vuln_type = "proto_pollution"
 
     def __init__(self, engine):
-        self.engine = engine
-        self.requester = engine.requester
-        self.verbose = engine.config.get("verbose", False)
+        super().__init__(engine)
 
     def test(self, url: str, method: str, param: str, value: str):
         """Test a parameter for prototype pollution.

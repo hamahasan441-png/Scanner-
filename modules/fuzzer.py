@@ -18,9 +18,10 @@ import tempfile
 from urllib.parse import urlparse, urljoin, parse_qs
 
 from config import Colors, Payloads
+from modules.base import BaseModule
 
 
-class FuzzerModule:
+class FuzzerModule(BaseModule):
     """Fuzzer Module for parameter, header, method, and vhost enumeration.
 
     Combines built-in parameter lists with curated payloads from top
@@ -28,10 +29,11 @@ class FuzzerModule:
     optionally fetches live wordlists via ``utils.github_wordlists``.
     """
 
+    name = "Fuzzer"
+    vuln_type = "fuzzer"
+
     def __init__(self, engine):
-        self.engine = engine
-        self.requester = engine.requester
-        self.name = "Fuzzer"
+        super().__init__(engine)
 
         self.common_params = [
             # Original params

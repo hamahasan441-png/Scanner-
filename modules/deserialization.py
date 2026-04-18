@@ -7,14 +7,17 @@ Java, PHP, Python, .NET deserialization vulnerability detection
 
 import base64
 
+from modules.base import BaseModule
 
-class DeserializationModule:
+
+class DeserializationModule(BaseModule):
     """Deserialization Vulnerability Testing Module"""
 
+    name = "Deserialization"
+    vuln_type = "deserialization"
+
     def __init__(self, engine):
-        self.engine = engine
-        self.requester = engine.requester
-        self.name = "Deserialization"
+        super().__init__(engine)
 
         # Deserialization indicators
         self.deser_indicators = {
