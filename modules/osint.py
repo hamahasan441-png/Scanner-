@@ -52,7 +52,7 @@ class OSINTModule:
             f"site:{domain} filetype:conf",
             f"site:{domain} filetype:bak",
             f"site:{domain} filetype:xml sitemap",
-            # ── Extended sensitive file types ──
+            # ── Combined sensitive file types dork ──
             f"site:{domain} ext:log OR ext:sql OR ext:env OR ext:json OR ext:yaml OR ext:conf OR ext:cfg",
             # ── Directory listing dorks ──
             f'site:{domain} intitle:"index of" "parent directory"',
@@ -353,7 +353,7 @@ class OSINTModule:
             if not resp:
                 return
 
-            data = resp.json() if hasattr(resp, "json") and callable(resp.json) else {}
+            data = self._safe_json(resp)
             subdomains_list = data.get("subdomains", [])
             if subdomains_list:
                 full_subs = [f"{s}.{domain}" for s in subdomains_list]
@@ -391,7 +391,7 @@ class OSINTModule:
             if not resp:
                 return
 
-            data = resp.json() if hasattr(resp, "json") and callable(resp.json) else {}
+            data = self._safe_json(resp)
             passive_dns = data.get("passive_dns", [])
             if not passive_dns:
                 return
@@ -430,7 +430,11 @@ class OSINTModule:
             pass
 
     def _api_request(self, url, headers):
-        """Make an API request using the engine requester or requests lib."""
+        """Make an API request and return the response object.
+
+        The response is guaranteed to have a callable ``.json()`` method.
+        Returns ``None`` on failure.
+        """
         try:
             if self.requester and hasattr(self.requester, "session"):
                 return self.requester.session.get(url, headers=headers, timeout=10)
@@ -440,3 +444,13 @@ class OSINTModule:
                 return _requests.get(url, headers=headers, timeout=10)
         except Exception:
             return None
+
+    @staticmethod
+    def _safe_json(resp):
+        """Extract JSON body from a response, returning {} on failure."""
+        try:
+            if hasattr(resp, "json") and callable(resp.json):
+                return resp.json()
+        except Exception:
+            pass
+        return {}
