@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ATOMIC FRAMEWORK v9.0 - Scan Runner
+ATOMIC FRAMEWORK v10.0 - Scan Runner
 Encapsulates the active scanning portion of the pipeline:
   - Context intelligence & enrichment
   - Attack surface prioritization

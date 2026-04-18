@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""ATOMIC FRAMEWORK v9.0 - ULTIMATE EDITION
+"""ATOMIC FRAMEWORK v10.0 - ULTIMATE EDITION
 Intercepting Proxy - HTTP/HTTPS Traffic Intercept & Modify"""
 
 import json

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ATOMIC FRAMEWORK v9.0 — GitHub Wordlist Fetcher
+ATOMIC FRAMEWORK v10.0 — GitHub Wordlist Fetcher
 
 Fetches wordlists and payloads **live** from top GitHub security
 repositories via ``raw.githubusercontent.com``.  Results are cached

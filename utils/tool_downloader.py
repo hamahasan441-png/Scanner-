@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ATOMIC FRAMEWORK v9.0 - External Security Tools Downloader
+ATOMIC FRAMEWORK v10.0 - External Security Tools Downloader
 
 Provides automated installation of all 20 external security tools
 integrated by the framework (5 from ToolIntegrator + 15 from ReconArsenal).

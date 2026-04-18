@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""ATOMIC FRAMEWORK v9.0 - ULTIMATE EDITION
+"""ATOMIC FRAMEWORK v10.0 - ULTIMATE EDITION
 Comparer Utility - Burp Suite Style Response Diff Tool"""
 
 import difflib
