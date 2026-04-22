@@ -3393,7 +3393,7 @@ def get_kill_chains(scan_id):
         logger.debug("Kill chain mapping error: %s", exc)
         # Build a simple chain representation from findings
         for f in findings[:20]:
-            sev = getattr(f, "severity", getattr(f, "severity", "INFO")) if not isinstance(f, dict) else f.get("severity", "INFO")
+            sev = getattr(f, "severity", "INFO") if not isinstance(f, dict) else f.get("severity", "INFO")
             technique = getattr(f, "technique", "") if not isinstance(f, dict) else f.get("technique", "")
             url = getattr(f, "url", "") if not isinstance(f, dict) else f.get("url", "")
             if technique:
@@ -3558,7 +3558,8 @@ def get_config_file():
                     content = fh.read()
                 return jsonify({"status": "success", "data": {"content": content, "path": path}})
             except Exception as exc:
-                return jsonify({"status": "error", "data": str(exc)}), 500
+                logger.error("Failed to read config file: %s", exc)
+                return jsonify({"status": "error", "data": "Failed to read config file"}), 500
     return jsonify({"status": "success", "data": {"content": "# atomic.yaml not found — create it in the project root\n", "path": ""}})
 
 
@@ -3577,7 +3578,8 @@ def save_config_file():
     try:
         _yaml.safe_load(content)
     except _yaml.YAMLError as exc:
-        return jsonify({"status": "error", "data": f"Invalid YAML: {exc}"}), 400
+        logger.debug("YAML validation error: %s", exc)
+        return jsonify({"status": "error", "data": "Invalid YAML syntax — check your configuration"}), 400
 
     config_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "atomic.yaml")
     try:
@@ -3585,7 +3587,8 @@ def save_config_file():
             fh.write(content)
         return jsonify({"status": "success", "data": "Config saved and applied"})
     except Exception as exc:
-        return jsonify({"status": "error", "data": str(exc)}), 500
+        logger.error("Failed to write config file: %s", exc)
+        return jsonify({"status": "error", "data": "Failed to write config file"}), 500
 
 
 # ---------------------------------------------------------------------------
