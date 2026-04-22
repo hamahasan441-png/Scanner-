@@ -1,0 +1,128 @@
+{
+  "end_time": "",
+  "findings": [
+    {
+      "confidence": 0.85,
+      "cvss": 8.5,
+      "cwe_id": "CWE-89",
+      "evidence": {
+        "injection_point": "query",
+        "payload_used": "' OR 1=1 --",
+        "raw_response_snippet": "SQL syntax error near",
+        "request_fingerprint": {
+          "canonical_url_hash": "abc123",
+          "method": "GET",
+          "payload_hash": "def456"
+        },
+        "snippets": [
+          {
+            "context": "SQL syntax error",
+            "mime_hint": "text",
+            "offset": 0
+          }
+        ]
+      },
+      "finding_id": "2b91b1bc90817ea96569636c",
+      "group_id": "056474a57248a4968643",
+      "method": "GET",
+      "mitre_id": "T1190",
+      "param": "id",
+      "payload": "' OR 1=1 --",
+      "remediation": "Use parameterized queries.",
+      "repro": {
+        "body_template": "",
+        "headers": {},
+        "method": "GET",
+        "notes": "",
+        "url_template": "https://example.com/page?id={PAYLOAD}"
+      },
+      "severity": "HIGH",
+      "signals": {},
+      "technique": "SQL Injection (Error-based)",
+      "url": "https://example.com/page",
+      "verification": {
+        "confirmations": 3,
+        "context_classification": "",
+        "diff_similarity": 0.0,
+        "method": "control_vs_injected",
+        "notes": "",
+        "rounds": 3,
+        "stability": "UNKNOWN",
+        "timing_variance": 0.0,
+        "verified": true
+      }
+    },
+    {
+      "confidence": 0.7,
+      "cvss": 7.0,
+      "cwe_id": "CWE-79",
+      "evidence": {
+        "injection_point": "query",
+        "payload_used": "<script>alert(1)</script>",
+        "raw_response_snippet": "<script>alert(1)</script>",
+        "request_fingerprint": {
+          "canonical_url_hash": "xyz789",
+          "method": "GET",
+          "payload_hash": "ghi012"
+        },
+        "snippets": [
+          {
+            "context": "<script>alert(1)</script>",
+            "mime_hint": "text",
+            "offset": 0
+          }
+        ]
+      },
+      "finding_id": "000bebc04c53fc7b68aa7ca5",
+      "group_id": "056474a57248a4968643",
+      "method": "GET",
+      "mitre_id": "T1059.007",
+      "param": "q",
+      "payload": "<script>alert(1)</script>",
+      "remediation": "Encode output contextually.",
+      "repro": {
+        "body_template": "",
+        "headers": {},
+        "method": "GET",
+        "notes": "",
+        "url_template": "https://example.com/search?q={PAYLOAD}"
+      },
+      "severity": "MEDIUM",
+      "signals": {},
+      "technique": "Reflected XSS",
+      "url": "https://example.com/search",
+      "verification": {
+        "confirmations": 2,
+        "context_classification": "",
+        "diff_similarity": 0.0,
+        "method": "reflection_context",
+        "notes": "",
+        "rounds": 3,
+        "stability": "UNKNOWN",
+        "timing_variance": 0.0,
+        "verified": true
+      }
+    }
+  ],
+  "groups": [
+    {
+      "affected_endpoints": [
+        "https://example.com/page",
+        "https://example.com/search"
+      ],
+      "group_confidence": 0.77,
+      "group_id": "056474a57248a4968643",
+      "recommended_next_check": "Manual confirmation recommended",
+      "root_cause_hypothesis": "Example group for golden test",
+      "supporting_finding_ids": [
+        "000bebc04c53fc7b68aa7ca5",
+        "2b91b1bc90817ea96569636c"
+      ]
+    }
+  ],
+  "scan_id": "golden_scan_01",
+  "start_time": "",
+  "surface": null,
+  "target": "https://example.com",
+  "total_requests": 0
+}

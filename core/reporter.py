@@ -944,3 +944,188 @@ class ReportGenerator:
             return None
 
         return filepath
+
+    # ------------------------------------------------------------------
+    # Canonical transforms (Commits 11+12)
+    # Pure transforms from ScanResult — no field invention.
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def scan_result_to_canonical_json(scan_result, indent: int = 2) -> str:
+        """Lossless canonical JSON dump of a ``ScanResult``.
+
+        Contract:
+        * Every field present in ``ScanResult``, ``CanonicalFinding``,
+          ``Evidence``, ``Repro``, ``VerificationResult``, and
+          ``FindingGroup`` is serialized using their ``to_dict()`` methods.
+        * Dict keys are sorted for stable byte-identical output.
+        * No fields are invented — only what the model provides.
+
+        Args:
+            scan_result: A ``core.models.ScanResult`` instance.
+            indent:      JSON indentation level (default 2).
+
+        Returns:
+            A JSON string.
+        """
+        return json.dumps(scan_result.to_dict(), sort_keys=True, indent=indent, default=str)
+
+    @staticmethod
+    def scan_result_to_canonical_sarif(scan_result) -> dict:
+        """Pure canonical SARIF v2.1.0 object from a ``ScanResult``.
+
+        Differences from the legacy ``_generate_sarif``:
+        * ``ruleId`` is derived from ``finding.technique`` → stable slug
+          (same technique always produces the same ``ruleId``).
+        * ``fingerprints`` uses ``finding.finding_id`` (canonical hash),
+          not the raw payload (which changes across scans and payloads).
+        * Severity mapping uses the canonical ``finding.severity`` and
+          ``finding.confidence`` from the model, not heuristic inference.
+        * No runtime enrichment or field invention.
+
+        Args:
+            scan_result: A ``core.models.ScanResult`` instance.
+
+        Returns:
+            A dict that can be JSON-serialized to a valid SARIF 2.1.0 file.
+        """
+        _severity_to_sarif = {
+            "CRITICAL": "error",
+            "HIGH": "error",
+            "MEDIUM": "warning",
+            "LOW": "note",
+            "INFO": "note",
+        }
+
+        rules = {}   # rule_id → rule_entry (deduped)
+        results = []
+
+        for finding in scan_result.findings:
+            technique = finding.technique or "UnknownTechnique"
+
+            # Stable rule ID: lowercase, spaces→underscores, alphanum+_- only
+            rule_id = re.sub(r"[^a-zA-Z0-9_-]", "_", technique.lower()).strip("_")
+            rule_id = re.sub(r"_+", "_", rule_id)
+
+            sarif_level = _severity_to_sarif.get(finding.severity, "note")
+            security_severity = str(round(finding.cvss or (finding.confidence * 10.0), 1))
+
+            if rule_id not in rules:
+                rule_entry = {
+                    "id": rule_id,
+                    "name": technique,
+                    "shortDescription": {"text": technique},
+                    "fullDescription": {"text": finding.remediation or technique},
+                    "defaultConfiguration": {"level": sarif_level},
+                    "properties": {
+                        "tags": ["security"],
+                        "security-severity": security_severity,
+                    },
+                }
+                if finding.cwe_id:
+                    rule_entry["relationships"] = [
+                        {
+                            "target": {
+                                "id": finding.cwe_id,
+                                "toolComponent": {"name": "CWE"},
+                            },
+                            "kinds": ["superset"],
+                        }
+                    ]
+                rules[rule_id] = rule_entry
+
+            result_entry = {
+                "ruleId": rule_id,
+                "level": sarif_level,
+                "message": {
+                    "text": (
+                        f"{technique} at {finding.url or 'unknown'}"
+                        + (f" (param: {finding.param})" if finding.param else "")
+                    ),
+                },
+                "locations": [
+                    {
+                        "physicalLocation": {
+                            "artifactLocation": {
+                                "uri": finding.url or "",
+                                "uriBaseId": "TARGETROOT",
+                            },
+                        },
+                    }
+                ],
+                # Stable fingerprint: canonical finding_id, not payload
+                "fingerprints": {
+                    "finding_id/v1": finding.finding_id,
+                },
+                "properties": {
+                    "confidence": finding.confidence,
+                    "severity": finding.severity,
+                    "mitre_id": finding.mitre_id,
+                    "cwe_id": finding.cwe_id,
+                    "group_id": finding.group_id,
+                },
+            }
+            results.append(result_entry)
+
+        sarif = {
+            "$schema": (
+                "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/"
+                "main/sarif-2.1/schema/sarif-schema-2.1.0.json"
+            ),
+            "version": "2.1.0",
+            "runs": [
+                {
+                    "tool": {
+                        "driver": {
+                            "name": "ATOMIC Framework",
+                            "rules": sorted(rules.values(), key=lambda r: r["id"]),
+                        },
+                    },
+                    "results": results,
+                    "columnKind": "utf16CodeUnits",
+                }
+            ],
+        }
+        return sarif
+
+    def generate_canonical_json(self, scan_result, filepath: str = None) -> str:
+        """Write canonical JSON to *filepath* and return the path.
+
+        Args:
+            scan_result: A ``core.models.ScanResult`` instance.
+            filepath:    Output path.  Defaults to
+                         ``<output_dir>/canonical_<scan_id>.json``.
+        """
+        if filepath is None:
+            filepath = os.path.join(
+                self.output_dir, f"canonical_{self.scan_id}.json"
+            )
+        json_str = self.scan_result_to_canonical_json(scan_result)
+        try:
+            with open(filepath, "w", encoding="utf-8") as fh:
+                fh.write(json_str)
+        except (IOError, OSError) as e:
+            print(f"{Colors.error(f'Cannot write canonical JSON to {filepath}: {e}')}")
+            return None
+        return filepath
+
+    def generate_canonical_sarif(self, scan_result, filepath: str = None) -> str:
+        """Write canonical SARIF to *filepath* and return the path.
+
+        Args:
+            scan_result: A ``core.models.ScanResult`` instance.
+            filepath:    Output path.  Defaults to
+                         ``<output_dir>/canonical_<scan_id>.sarif``.
+        """
+        if filepath is None:
+            filepath = os.path.join(
+                self.output_dir, f"canonical_{self.scan_id}.sarif"
+            )
+        sarif = self.scan_result_to_canonical_sarif(scan_result)
+        try:
+            with open(filepath, "w", encoding="utf-8") as fh:
+                json.dump(sarif, fh, indent=2, sort_keys=True)
+        except (IOError, OSError) as e:
+            print(f"{Colors.error(f'Cannot write canonical SARIF to {filepath}: {e}')}")
+            return None
+        return filepath
