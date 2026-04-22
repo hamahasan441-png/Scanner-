@@ -65,7 +65,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_REPEAT_N = 3
 MIN_CONFIRMATIONS_RATIO = 0.66   # >= 2/3 of repeats must confirm
 MAX_LENGTH_VARIANCE_RATIO = 0.20 # ≤20% variance is "stable"
-MIN_TIMING_DEVIATION_STDDEVS = 2.0  # timing must be 2σ above baseline
+MIN_TIMING_DEVIATION_STDDEVS = 2.0  # timing must be 2 stddev above baseline
 MIN_ABSOLUTE_TIMING_DELAY = 3.5     # seconds (for time-based techniques)
 MAX_TIMING_CV = 0.50                # coefficient of variation threshold
 

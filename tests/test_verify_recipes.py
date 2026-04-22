@@ -194,12 +194,9 @@ class TestRepeatabilityVerifier(unittest.TestCase):
                 self.text = "x" * n
                 self.status_code = 200
 
-        req = MagicMock()
-        req.request.side_effect = lambda *a, **kw: VarResp(lengths[call_count[0] % 3]) if not call_count.__setitem__(0, call_count[0] + 1) else None  # noqa
-
-        # Use fixed returns instead
-        req.request.side_effect = None
         responses = [VarResp(100), VarResp(5000), VarResp(50)]
+
+        req = MagicMock()
         req.request.side_effect = lambda *a, **kw: responses.pop(0) if responses else None
 
         result = RepeatabilityVerifier(n=3, indicator="").verify(_make_signal(), req)

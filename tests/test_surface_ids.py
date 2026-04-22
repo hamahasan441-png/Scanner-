@@ -138,11 +138,10 @@ class TestBuildTargetSurfaceDeterminism(unittest.TestCase):
         cfg = self._config()
         s = build_target_surface(cfg, "https://example.com")
         urls = [e.url for e in s.endpoints]
-        # normalize_url("https://example.com") may produce "https://example.com/"
-        # so check that at least one URL has the expected host
+        from urllib.parse import urlparse
         self.assertTrue(
-            any("example.com" in u for u in urls),
-            f"Expected example.com in surface URLs, got: {urls}",
+            any(urlparse(u).netloc.endswith("example.com") for u in urls),
+            f"Expected example.com host in surface URLs, got: {urls}",
         )
 
     def test_max_surface_endpoints_cap(self):
