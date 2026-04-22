@@ -315,9 +315,91 @@
     ::-webkit-scrollbar-track { background: var(--bg-primary); }
     ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
     ::-webkit-scrollbar-thumb:hover { background: var(--accent); }
+
+    /* Toast notification system */
+    #toast-container {
+        position: fixed; bottom: 1.5rem; right: 1.5rem; z-index: 9999;
+        display: flex; flex-direction: column; gap: 0.5rem; pointer-events: none;
+    }
+    .toast {
+        min-width: 260px; max-width: 420px; padding: 0.7rem 1rem;
+        border-radius: 8px; font-size: 0.875rem; font-weight: 500;
+        display: flex; align-items: center; gap: 0.6rem;
+        animation: toastIn 0.25s ease; pointer-events: all;
+        border-left: 4px solid transparent;
+    }
+    .toast.success { background: rgba(46,204,113,0.18); border-left-color: #2ecc71; color: #2ecc71; }
+    .toast.error   { background: rgba(231,76,60,0.18);  border-left-color: #e74c3c; color: #e74c3c; }
+    .toast.info    { background: rgba(52,152,219,0.18); border-left-color: #3498db; color: #3498db; }
+    .toast.warning { background: rgba(241,196,15,0.18); border-left-color: #f1c40f; color: #f1c40f; }
+    .toast-close   { margin-left: auto; cursor: pointer; opacity: 0.7; background: none; border: none; color: inherit; font-size: 1rem; padding: 0; }
+    @keyframes toastIn { from { opacity: 0; transform: translateX(30px); } to { opacity: 1; transform: translateX(0); } }
+    @keyframes toastOut { to { opacity: 0; transform: translateX(30px); } }
+
+    /* Theme toggle */
+    .theme-toggle-btn {
+        background: var(--bg-input); border: 1px solid var(--border);
+        color: var(--text-primary); border-radius: 6px; padding: 0.3rem 0.7rem;
+        cursor: pointer; font-size: 0.82rem; transition: all 0.2s;
+    }
+    .theme-toggle-btn:hover { border-color: var(--accent); }
+
+    /* Light theme overrides */
+    body.light-theme {
+        --bg-primary: #f4f6f9; --bg-card: #ffffff; --bg-input: #f0f2f5;
+        --text-primary: #1a1a2e; --text-muted: #555; --border: #d0d4db;
+        --accent: #e94560;
+    }
+
+    /* Filter bar */
+    .filter-bar {
+        display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center;
+        padding: 0.7rem; background: var(--bg-input); border-radius: 8px; margin-bottom: 0.8rem;
+    }
+    .filter-bar input, .filter-bar select {
+        flex: 1; min-width: 120px; max-width: 200px;
+        padding: 0.35rem 0.6rem; font-size: 0.82rem;
+        background: var(--bg-card); border: 1px solid var(--border);
+        border-radius: 6px; color: var(--text-primary);
+    }
+
+    /* Copy-to-clipboard button */
+    .copy-btn {
+        position: absolute; top: 0.3rem; right: 0.3rem;
+        background: var(--bg-input); border: 1px solid var(--border);
+        color: var(--text-muted); border-radius: 4px; padding: 0.1rem 0.4rem;
+        font-size: 0.72rem; cursor: pointer; opacity: 0; transition: opacity 0.2s;
+    }
+    .pre-wrapper { position: relative; }
+    .pre-wrapper:hover .copy-btn { opacity: 1; }
+
+    /* Severity donut chart */
+    #severity-donut-svg { display: block; margin: 0 auto; }
+
+    /* Kill chain flow */
+    .kc-node {
+        display: inline-flex; align-items: center; gap: 0.3rem;
+        background: var(--bg-input); border: 1px solid var(--border);
+        border-radius: 6px; padding: 0.3rem 0.7rem; font-size: 0.82rem;
+    }
+    .kc-arrow { color: var(--accent); font-weight: 700; }
+
+    /* Config editor */
+    #config-editor {
+        width: 100%; min-height: 400px; background: #0d1117;
+        color: #c9d1d9; border: 1px solid var(--border); border-radius: 8px;
+        padding: 0.8rem; font-family: monospace; font-size: 0.85rem; resize: vertical;
+    }
+
+    /* Watch diff view */
+    .diff-new    { border-left: 4px solid #2ecc71; }
+    .diff-changed { border-left: 4px solid #f1c40f; }
+    .diff-resolved { border-left: 4px solid var(--text-muted); opacity: 0.6; }
 </style>
 </head>
 <body>
+<!-- Toast notification container -->
+<div id="toast-container"></div>
 
 <div class="container">
     <!-- Header -->
@@ -338,6 +420,7 @@
             <span style="color:var(--text-muted);">Critical: <b id="sb-critical" style="color:var(--severity-critical);">0</b></span>
         </div>
         <div style="display:flex;align-items:center;gap:0.8rem;">
+            <button class="theme-toggle-btn" onclick="window._toggleTheme()" title="Toggle dark/light theme">🌓 Theme</button>
             <span id="sb-user" style="color:var(--text-muted);">👤 Guest</span>
             <span id="sb-time" style="color:var(--text-muted);font-family:monospace;"></span>
         </div>
@@ -345,30 +428,35 @@
 
     <!-- Navigation Tabs -->
     <nav class="nav-tabs">
-        <button class="nav-tab active" onclick="switchPanel('dashboard')">📊 Dashboard</button>
-        <button class="nav-tab" onclick="switchPanel('scanner')">🚀 Scanner</button>
-        <button class="nav-tab" onclick="switchPanel('pipeline')">⚡ Pipeline</button>
-        <button class="nav-tab" onclick="switchPanel('exploits')">💥 Exploits</button>
-        <button class="nav-tab" onclick="switchPanel('exploit-intel')">🔎 Exploit Intel</button>
-        <button class="nav-tab" onclick="switchPanel('attackmap')">🗺️ Attack Map</button>
-        <button class="nav-tab" onclick="switchPanel('shells')">🐚 Shells</button>
-        <button class="nav-tab" onclick="switchPanel('scans')">⏳ Active Scans</button>
-        <button class="nav-tab" onclick="switchPanel('history')">📋 History</button>
-        <button class="nav-tab" onclick="switchPanel('findings')">🔍 Findings</button>
-        <button class="nav-tab" onclick="switchPanel('rules')">⚙️ Rules</button>
-        <button class="nav-tab" onclick="switchPanel('livefeed')">📡 Live Feed</button>
-        <button class="nav-tab" onclick="switchPanel('auth')">🔐 Auth</button>
-        <button class="nav-tab" onclick="switchPanel('scheduler')">⏰ Scheduler</button>
-        <button class="nav-tab" onclick="switchPanel('compliance')">📜 Compliance</button>
-        <button class="nav-tab" onclick="switchPanel('audit')">📝 Audit</button>
-        <button class="nav-tab" onclick="switchPanel('tools')">🛠️ Tools</button>
-        <button class="nav-tab" onclick="switchPanel('plugins')">🔌 Plugins</button>
-        <button class="nav-tab" onclick="switchPanel('notifications')">🔔 Notifications</button>
-        <button class="nav-tab" onclick="switchPanel('recon-arsenal')">🎯 Recon Arsenal</button>
-        <button class="nav-tab" onclick="switchPanel('discovery')">📂 Discovery</button>
-        <button class="nav-tab" onclick="switchPanel('nuclei')">☢️ Nuclei</button>
-        <button class="nav-tab" onclick="switchPanel('chat')">💬 Chat</button>
-        <button class="nav-tab" onclick="switchPanel('ai-brain')">🧠 AI Brain</button>
+        <button class="nav-tab active" id="tab-dashboard" onclick="switchPanel('dashboard')">📊 Dashboard</button>
+        <button class="nav-tab" id="tab-scanner" onclick="switchPanel('scanner')">🚀 Scanner</button>
+        <button class="nav-tab" id="tab-pipeline" onclick="switchPanel('pipeline')">⚡ Pipeline</button>
+        <button class="nav-tab" id="tab-exploits" onclick="switchPanel('exploits')">💥 Exploits</button>
+        <button class="nav-tab" id="tab-exploit-intel" onclick="switchPanel('exploit-intel')">🔎 Exploit Intel</button>
+        <button class="nav-tab" id="tab-attackmap" onclick="switchPanel('attackmap')">🗺️ Attack Map</button>
+        <button class="nav-tab" id="tab-shells" onclick="switchPanel('shells')">🐚 Shells</button>
+        <button class="nav-tab" id="tab-scans" onclick="switchPanel('scans')">⏳ Active</button>
+        <button class="nav-tab" id="tab-history" onclick="switchPanel('history')">📋 History</button>
+        <button class="nav-tab" id="tab-findings" onclick="switchPanel('findings')">🔍 Findings</button>
+        <button class="nav-tab" id="tab-kill-chains" onclick="switchPanel('kill-chains')">🔗 Kill Chains</button>
+        <button class="nav-tab" id="tab-ai-plan" onclick="switchPanel('ai-plan')">🤖 AI Plan</button>
+        <button class="nav-tab" id="tab-workers" onclick="switchPanel('workers')">⚙️ Workers</button>
+        <button class="nav-tab" id="tab-watch" onclick="switchPanel('watch')">👁️ Watch</button>
+        <button class="nav-tab" id="tab-config-file" onclick="switchPanel('config-file')">📁 Config</button>
+        <button class="nav-tab" id="tab-rules" onclick="switchPanel('rules')">⚙️ Rules</button>
+        <button class="nav-tab" id="tab-livefeed" onclick="switchPanel('livefeed')">📡 Live Feed</button>
+        <button class="nav-tab" id="tab-auth" onclick="switchPanel('auth')">🔐 Auth</button>
+        <button class="nav-tab" id="tab-scheduler" onclick="switchPanel('scheduler')">⏰ Scheduler</button>
+        <button class="nav-tab" id="tab-compliance" onclick="switchPanel('compliance')">📜 Compliance</button>
+        <button class="nav-tab" id="tab-audit" onclick="switchPanel('audit')">📝 Audit</button>
+        <button class="nav-tab" id="tab-tools" onclick="switchPanel('tools')">🛠️ Tools</button>
+        <button class="nav-tab" id="tab-plugins" onclick="switchPanel('plugins')">🔌 Plugins</button>
+        <button class="nav-tab" id="tab-notifications" onclick="switchPanel('notifications')">🔔 Notifications</button>
+        <button class="nav-tab" id="tab-recon-arsenal" onclick="switchPanel('recon-arsenal')">🎯 Recon Arsenal</button>
+        <button class="nav-tab" id="tab-discovery" onclick="switchPanel('discovery')">📂 Discovery</button>
+        <button class="nav-tab" id="tab-nuclei" onclick="switchPanel('nuclei')">☢️ Nuclei</button>
+        <button class="nav-tab" id="tab-chat" onclick="switchPanel('chat')">💬 Chat</button>
+        <button class="nav-tab" id="tab-ai-brain" onclick="switchPanel('ai-brain')">🧠 AI Brain</button>
     </nav>
 
     <!-- Dashboard Panel -->
@@ -421,13 +509,24 @@
                 </div>
             </div>
             <div class="glass-card">
-                <h3>Scan Completion Rate</h3>
-                <div class="progress-ring" id="completion-ring">
-                    <svg viewBox="0 0 80 80">
-                        <circle class="bg" cx="40" cy="40" r="34" stroke-dasharray="213.6" stroke-dashoffset="0"></circle>
-                        <circle class="fg" cx="40" cy="40" r="34" stroke-dasharray="213.6" stroke-dashoffset="213.6" id="ring-fg"></circle>
+                <h3>Severity Distribution</h3>
+                <div style="display:flex;align-items:center;gap:1.2rem;">
+                    <svg id="severity-donut-svg" width="110" height="110" viewBox="0 0 110 110">
+                        <circle cx="55" cy="55" r="40" fill="none" stroke="var(--border)" stroke-width="18"/>
+                        <circle id="donut-critical" cx="55" cy="55" r="40" fill="none" stroke="var(--severity-critical)" stroke-width="18" stroke-dasharray="0 251.3" stroke-dashoffset="0" transform="rotate(-90 55 55)" style="transition:stroke-dasharray 0.5s;"/>
+                        <circle id="donut-high"     cx="55" cy="55" r="40" fill="none" stroke="var(--severity-high)"     stroke-width="18" stroke-dasharray="0 251.3" stroke-dashoffset="0" transform="rotate(-90 55 55)" style="transition:stroke-dasharray 0.5s;"/>
+                        <circle id="donut-medium"   cx="55" cy="55" r="40" fill="none" stroke="var(--severity-medium)"   stroke-width="18" stroke-dasharray="0 251.3" stroke-dashoffset="0" transform="rotate(-90 55 55)" style="transition:stroke-dasharray 0.5s;"/>
+                        <circle id="donut-low"      cx="55" cy="55" r="40" fill="none" stroke="var(--severity-low)"      stroke-width="18" stroke-dasharray="0 251.3" stroke-dashoffset="0" transform="rotate(-90 55 55)" style="transition:stroke-dasharray 0.5s;"/>
+                        <circle id="donut-info"     cx="55" cy="55" r="40" fill="none" stroke="var(--severity-info)"     stroke-width="18" stroke-dasharray="0 251.3" stroke-dashoffset="0" transform="rotate(-90 55 55)" style="transition:stroke-dasharray 0.5s;"/>
+                        <text x="55" y="60" text-anchor="middle" font-size="13" font-weight="700" fill="var(--text-primary)" id="donut-label">0</text>
                     </svg>
-                    <div class="label" id="ring-label">0%</div>
+                    <div style="font-size:0.8rem;line-height:2;">
+                        <div><span style="color:var(--severity-critical);">●</span> Critical: <b id="donut-lbl-critical">0</b></div>
+                        <div><span style="color:var(--severity-high);">●</span> High: <b id="donut-lbl-high">0</b></div>
+                        <div><span style="color:var(--severity-medium);">●</span> Medium: <b id="donut-lbl-medium">0</b></div>
+                        <div><span style="color:var(--severity-low);">●</span> Low: <b id="donut-lbl-low">0</b></div>
+                        <div><span style="color:var(--severity-info);">●</span> Info: <b id="donut-lbl-info">0</b></div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -505,7 +604,7 @@
                 </div>
 
                 <div class="form-group">
-                    <label>Modules</label>
+                    <label>Modules <button type="button" id="auto-mode-btn" class="btn btn-sm" style="margin-left:0.5rem;background:var(--bg-input);border:1px solid var(--border);color:var(--text-muted);font-size:0.78rem;" onclick="window._toggleAutoMode()">🤖 Let AI Decide</button></label>
                     <div class="modules-grid" id="modules-grid">
                         <label><input type="checkbox" name="module" value="sqli" checked> SQLi</label>
                         <label><input type="checkbox" name="module" value="xss" checked> XSS</label>
@@ -527,6 +626,17 @@
                         <label><input type="checkbox" name="module" value="race_condition"> Race</label>
                         <label><input type="checkbox" name="module" value="websocket"> WebSocket</label>
                         <label><input type="checkbox" name="module" value="deserialization"> Deser</label>
+                        <label title="OAuth/OIDC misconfiguration scanner"><input type="checkbox" name="module" value="oauth"> OAuth/OIDC</label>
+                        <label title="MFA bypass techniques"><input type="checkbox" name="module" value="mfa_bypass"> MFA Bypass</label>
+                        <label title="API versioning vulnerabilities"><input type="checkbox" name="module" value="api_versioning"> API Versioning</label>
+                        <label title="Dependency confusion attacks"><input type="checkbox" name="module" value="dep_confusion"> Dep. Confusion</label>
+                        <label title="Browser-based scanner" style="position:relative;">
+                            <input type="checkbox" name="module" value="browser_scan" id="mod-browser"> Browser Scan
+                            <select id="browser-engine" style="display:none;margin-left:0.3rem;padding:0.1rem 0.3rem;font-size:0.75rem;background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);">
+                                <option value="playwright">Playwright</option>
+                                <option value="selenium">Selenium</option>
+                            </select>
+                        </label>
                     </div>
                 </div>
 
@@ -555,6 +665,12 @@
                 <div class="toggle-row">
                     <input type="checkbox" id="full-scan">
                     <label for="full-scan" style="cursor:pointer;font-size:0.9rem;">Full Scan (all modules, max depth)</label>
+                </div>
+                <div class="toggle-row" style="margin-top:0.4rem;">
+                    <input type="checkbox" id="opt-async-mode">
+                    <label for="opt-async-mode" style="cursor:pointer;font-size:0.85rem;">⚡ Async Mode (non-blocking)</label>
+                    <span style="margin-left:1rem;font-size:0.85rem;color:var(--text-muted);">Parallel batches:</span>
+                    <input type="number" id="opt-batch-parallel" value="3" min="1" max="20" style="width:60px;padding:0.2rem 0.4rem;font-size:0.82rem;margin-left:0.3rem;">
                 </div>
 
                 <button type="button" class="advanced-toggle" onclick="this.nextElementSibling.classList.toggle('show')">▸ Advanced Options</button>
@@ -645,8 +761,145 @@
     <div id="panel-findings" class="nav-panel">
     <section id="findings-panel">
         <h2>🔍 Findings &mdash; <span id="findings-scan-id"></span></h2>
+        <!-- Filter bar -->
+        <div class="filter-bar">
+            <input type="text" id="findings-search" placeholder="🔍 Keyword in URL/payload…" oninput="window._filterFindings()" style="flex:2;">
+            <select id="findings-filter-sev" onchange="window._filterFindings()">
+                <option value="">All Severities</option>
+                <option value="critical">Critical</option>
+                <option value="high">High</option>
+                <option value="medium">Medium</option>
+                <option value="low">Low</option>
+                <option value="info">Info</option>
+            </select>
+            <input type="text" id="findings-filter-tech" placeholder="Module/technique…" oninput="window._filterFindings()">
+            <input type="number" id="findings-filter-cvss" placeholder="CVSS ≥" min="0" max="10" step="0.1" oninput="window._filterFindings()" style="max-width:90px;">
+            <button class="btn btn-sm btn-primary" onclick="window._exportFindings('csv')">⬇ CSV</button>
+            <button class="btn btn-sm btn-primary" onclick="window._exportFindings('json')">⬇ JSON</button>
+        </div>
         <div class="glass-card" id="findings-list">
             <p class="empty-msg">Select a scan from History to view findings.</p>
+        </div>
+    </section>
+    </div>
+
+    <!-- Kill Chains Panel -->
+    <div id="panel-kill-chains" class="nav-panel">
+    <section>
+        <h2>🔗 Kill Chains</h2>
+        <div class="glass-card" style="margin-bottom:1rem;">
+            <div style="display:flex;gap:0.8rem;align-items:center;flex-wrap:wrap;">
+                <label style="font-size:0.85rem;color:var(--text-muted);">Scan:</label>
+                <select id="kc-scan-select" style="background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);padding:0.3rem 0.6rem;font-size:0.85rem;"></select>
+                <button class="btn btn-primary btn-sm" onclick="window._loadKillChains()">🔄 Load Chains</button>
+            </div>
+        </div>
+        <div id="kc-chains-container">
+            <p class="empty-msg">Select a scan and click Load Chains to visualise the attack kill chains.</p>
+        </div>
+    </section>
+    </div>
+
+    <!-- AI Attack Planner Panel -->
+    <div id="panel-ai-plan" class="nav-panel">
+    <section>
+        <h2>🤖 AI Attack Planner</h2>
+        <div class="glass-card" style="margin-bottom:1rem;">
+            <div class="form-group">
+                <label for="ai-plan-target">Target URL (optional)</label>
+                <input type="text" id="ai-plan-target" placeholder="https://example.com">
+            </div>
+            <div class="form-group">
+                <label for="ai-plan-question">Question / Objective</label>
+                <textarea id="ai-plan-question" rows="3" placeholder="e.g. What attack modules should I run against this API? Which vulnerabilities are most critical to chain?" style="width:100%;padding:0.5rem 0.7rem;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:0.9rem;resize:vertical;"></textarea>
+            </div>
+            <div style="display:flex;gap:0.8rem;align-items:center;">
+                <label style="font-size:0.85rem;color:var(--text-muted);">Scan context:</label>
+                <select id="ai-plan-scan-select" style="background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);padding:0.3rem 0.6rem;font-size:0.85rem;"></select>
+                <button class="btn btn-primary" id="ai-plan-btn" onclick="window._submitAIPlan()">🤖 Get Plan</button>
+            </div>
+        </div>
+        <div id="ai-plan-output" class="glass-card" style="min-height:180px;">
+            <p class="empty-msg">Enter a target or question and click Get Plan. The AI will suggest attack modules, flags, and a strategy.</p>
+        </div>
+        <div id="ai-plan-chips" style="display:flex;flex-wrap:wrap;gap:0.5rem;margin-top:0.8rem;"></div>
+    </section>
+    </div>
+
+    <!-- Distributed Workers Panel -->
+    <div id="panel-workers" class="nav-panel">
+    <section>
+        <h2>⚙️ Distributed Workers</h2>
+        <div class="grid grid-4" style="margin-bottom:1rem;">
+            <div class="glass-card stat-card"><h3>Workers</h3><div class="value" id="workers-count">—</div></div>
+            <div class="glass-card stat-card"><h3>Queue Depth</h3><div class="value" id="workers-queue">—</div></div>
+            <div class="glass-card stat-card"><h3>Active Scans</h3><div class="value" id="workers-active">—</div></div>
+            <div class="glass-card stat-card"><h3>Redis</h3><div class="value" id="workers-redis" style="font-size:1.4rem;">—</div></div>
+        </div>
+        <div class="glass-card">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.8rem;">
+                <h3 style="margin:0;">Worker Nodes</h3>
+                <button class="btn btn-sm btn-primary" onclick="window._loadWorkers()">🔄 Refresh</button>
+            </div>
+            <table>
+                <thead><tr><th>Worker ID</th><th>Host</th><th>Jobs Taken</th><th>Last Heartbeat</th><th>Status</th></tr></thead>
+                <tbody id="workers-body">
+                    <tr><td colspan="5" class="empty-msg">Loading…</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </section>
+    </div>
+
+    <!-- Watch Mode Panel -->
+    <div id="panel-watch" class="nav-panel">
+    <section>
+        <h2>👁️ Watch Mode — Continuous Monitoring</h2>
+        <div class="glass-card" style="margin-bottom:1rem;">
+            <div class="grid grid-3">
+                <div class="form-group">
+                    <label for="watch-target">Target URL</label>
+                    <input type="text" id="watch-target" placeholder="https://example.com">
+                </div>
+                <div class="form-group">
+                    <label for="watch-interval">Interval (minutes)</label>
+                    <input type="number" id="watch-interval" value="15" min="1" max="1440">
+                </div>
+                <div class="form-group" style="display:flex;align-items:flex-end;gap:0.5rem;">
+                    <button class="btn btn-primary" id="watch-start-btn" onclick="window._watchStart()">▶ Start Watch</button>
+                    <button class="btn btn-danger" id="watch-stop-btn" onclick="window._watchStop()" style="display:none;">⏹ Stop</button>
+                </div>
+            </div>
+            <div id="watch-status" style="font-size:0.85rem;color:var(--text-muted);margin-top:0.4rem;"></div>
+        </div>
+        <div class="glass-card">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.8rem;">
+                <h3 style="margin:0;">Delta Findings</h3>
+                <div style="display:flex;gap:0.5rem;font-size:0.8rem;">
+                    <span style="background:rgba(46,204,113,0.15);color:#2ecc71;border-radius:4px;padding:0.1rem 0.5rem;">🆕 New</span>
+                    <span style="background:rgba(241,196,15,0.15);color:#f1c40f;border-radius:4px;padding:0.1rem 0.5rem;">🔄 Changed</span>
+                    <span style="background:rgba(149,165,166,0.15);color:var(--text-muted);border-radius:4px;padding:0.1rem 0.5rem;">✅ Resolved</span>
+                </div>
+            </div>
+            <div id="watch-diff-container">
+                <p class="empty-msg">Start watch mode to see delta findings between scans.</p>
+            </div>
+        </div>
+    </section>
+    </div>
+
+    <!-- Config File Panel -->
+    <div id="panel-config-file" class="nav-panel">
+    <section>
+        <h2>📁 Config Editor</h2>
+        <div class="glass-card" style="margin-bottom:1rem;">
+            <div style="display:flex;gap:0.7rem;flex-wrap:wrap;margin-bottom:0.8rem;">
+                <button class="btn btn-sm btn-primary" onclick="window._configLoad()">📥 Load from Server</button>
+                <button class="btn btn-sm btn-primary" onclick="window._configSave()">💾 Save &amp; Apply</button>
+                <button class="btn btn-sm" style="background:var(--bg-input);border:1px solid var(--border);color:var(--text-primary);" onclick="window._configGenerate()">⚡ Generate from Current Config</button>
+                <span id="config-status" style="font-size:0.82rem;color:var(--text-muted);margin-left:auto;"></span>
+            </div>
+            <textarea id="config-editor" spellcheck="false" placeholder="# atomic.yaml configuration will appear here…"></textarea>
         </div>
     </section>
     </div>
@@ -1754,10 +2007,9 @@
         document.querySelectorAll('.nav-panel').forEach(function(p) { p.classList.remove('active'); });
         var panel = document.getElementById('panel-' + name);
         if (panel) panel.classList.add('active');
-        // Highlight correct tab
-        var tabs = document.querySelectorAll('.nav-tab');
-        var tabMap = {dashboard:0, scanner:1, pipeline:2, exploits:3, 'exploit-intel':4, attackmap:5, shells:6, scans:7, history:8, findings:9, rules:10, livefeed:11, auth:12, scheduler:13, compliance:14, audit:15, tools:16, plugins:17, notifications:18, 'recon-arsenal':19, discovery:20, nuclei:21, chat:22, 'ai-brain':23};
-        if (tabMap[name] !== undefined && tabs[tabMap[name]]) tabs[tabMap[name]].classList.add('active');
+        // Highlight correct tab by ID
+        var tabEl = document.getElementById('tab-' + name);
+        if (tabEl) tabEl.classList.add('active');
         // Load data for active panel
         if (name === 'history') loadHistory();
         if (name === 'scans') loadActiveScans();
@@ -1780,6 +2032,10 @@
         if (name === 'compliance') _updateScanSelects();
         if (name === 'chat') window._chatLoad();
         if (name === 'ai-brain') window._aiLoadSummary();
+        if (name === 'workers') window._loadWorkers();
+        if (name === 'config-file') window._configLoad();
+        if (name === 'kill-chains') _updateScanSelects();
+        if (name === 'ai-plan') _updateScanSelects();
     };
 
     /* ---- Scan mode switcher ---- */
@@ -1840,7 +2096,44 @@
             document.getElementById('sb-scans').textContent = d.total_scans || 0;
             document.getElementById('sb-findings').textContent = d.total_findings || 0;
             document.getElementById('sb-critical').textContent = d.critical || 0;
+
+            // Update donut chart
+            _updateDonutChart(d.critical||0, d.high||0, d.medium||0, d.low||0, d.info||0);
+
+            // Update nav badge counters
+            var findingsTab = document.getElementById('tab-findings');
+            if (findingsTab) {
+                var total = d.total_findings || 0;
+                findingsTab.textContent = '🔍 Findings' + (total > 0 ? ' (' + total + ')' : '');
+            }
         } catch (_) {}
+    }
+
+    function _updateDonutChart(crit, high, med, low, inf) {
+        var total = crit + high + med + low + inf;
+        var circ = 251.3; // 2 * Math.PI * 40
+        document.getElementById('donut-label').textContent = total;
+        document.getElementById('donut-lbl-critical').textContent = crit;
+        document.getElementById('donut-lbl-high').textContent = high;
+        document.getElementById('donut-lbl-medium').textContent = med;
+        document.getElementById('donut-lbl-low').textContent = low;
+        document.getElementById('donut-lbl-info').textContent = inf;
+        if (total === 0) return;
+        var segs = [
+            {id:'donut-critical', val:crit},
+            {id:'donut-high', val:high},
+            {id:'donut-medium', val:med},
+            {id:'donut-low', val:low},
+            {id:'donut-info', val:inf},
+        ];
+        var offset = 0;
+        segs.forEach(function(s) {
+            var el = document.getElementById(s.id);
+            var len = (s.val / total) * circ;
+            el.setAttribute('stroke-dasharray', len + ' ' + (circ - len));
+            el.setAttribute('stroke-dashoffset', -offset);
+            offset += len;
+        });
     }
 
     /* ---- Active Scans ---- */
@@ -1940,6 +2233,8 @@
         const label = document.getElementById('findings-scan-id');
         label.textContent = scanId;
         list.innerHTML = '<p class="empty-msg"><span class="spinner"></span> Loading…</p>';
+        window._currentScanId = scanId;
+        window._allFindings = [];
         try {
             const r = await fetch(API + '/api/findings/' + scanId);
             const j = await r.json();
@@ -1947,25 +2242,69 @@
                 list.innerHTML = '<p class="empty-msg">No findings for this scan.</p>';
                 return;
             }
-            list.innerHTML = j.data.map(function(f) {
-                const sev = (f.severity || 'info').toLowerCase();
-                return '<div class="finding-item ' + esc(sev) + '">' +
-                    '<div class="fi-header"><strong>' + esc(f.technique) + '</strong>' +
-                    '<span class="badge severity-' + esc(sev) + '">' + esc(f.severity) + '</span></div>' +
-                    '<div class="finding-meta">' +
-                        '<span>URL: ' + esc(f.url) + '</span>' +
-                        (f.param ? '<span>Param: ' + esc(f.param) + '</span>' : '') +
-                        (f.mitre_id ? '<span>MITRE: ' + esc(f.mitre_id) + '</span>' : '') +
-                        (f.cwe_id ? '<span>CWE: ' + esc(f.cwe_id) + '</span>' : '') +
-                        (f.cvss ? '<span>CVSS: ' + esc(String(f.cvss)) + '</span>' : '') +
-                    '</div>' +
-                    (f.payload ? '<pre>' + esc(f.payload) + '</pre>' : '') +
-                    (f.evidence ? '<pre>' + esc(f.evidence) + '</pre>' : '') +
-                '</div>';
-            }).join('');
+            window._allFindings = j.data;
+            _renderFindings(j.data);
         } catch (_) {
             list.innerHTML = '<p class="empty-msg">Error loading findings.</p>';
         }
+    };
+
+    function _renderFindings(findings) {
+        var list = document.getElementById('findings-list');
+        if (!findings.length) { list.innerHTML = '<p class="empty-msg">No findings match the current filters.</p>'; return; }
+        list.innerHTML = findings.map(function(f) {
+            const sev = (f.severity || 'info').toLowerCase();
+            var payloadHtml = '';
+            if (f.payload) payloadHtml = '<div class="pre-wrapper"><pre>' + esc(f.payload) + '</pre><button class="copy-btn" onclick="window._copyPre(this)">📋 Copy</button></div>';
+            var evidenceHtml = '';
+            if (f.evidence) evidenceHtml = '<div class="pre-wrapper"><pre>' + esc(f.evidence) + '</pre><button class="copy-btn" onclick="window._copyPre(this)">📋 Copy</button></div>';
+            return '<div class="finding-item ' + esc(sev) + '">' +
+                '<div class="fi-header"><strong>' + esc(f.technique) + '</strong>' +
+                '<span class="badge severity-' + esc(sev) + '">' + esc(f.severity) + '</span></div>' +
+                '<div class="finding-meta">' +
+                    '<span>URL: ' + esc(f.url) + '</span>' +
+                    (f.param ? '<span>Param: ' + esc(f.param) + '</span>' : '') +
+                    (f.mitre_id ? '<span>MITRE: ' + esc(f.mitre_id) + '</span>' : '') +
+                    (f.cwe_id ? '<span>CWE: ' + esc(f.cwe_id) + '</span>' : '') +
+                    (f.cvss ? '<span>CVSS: ' + esc(String(f.cvss)) + '</span>' : '') +
+                '</div>' +
+                payloadHtml + evidenceHtml +
+            '</div>';
+        }).join('');
+    }
+
+    window._filterFindings = function() {
+        if (!window._allFindings) return;
+        var kw = (document.getElementById('findings-search').value || '').toLowerCase();
+        var sev = (document.getElementById('findings-filter-sev').value || '').toLowerCase();
+        var tech = (document.getElementById('findings-filter-tech').value || '').toLowerCase();
+        var cvssMin = parseFloat(document.getElementById('findings-filter-cvss').value) || 0;
+        var filtered = window._allFindings.filter(function(f) {
+            if (sev && (f.severity || '').toLowerCase() !== sev) return false;
+            if (tech && (f.technique || '').toLowerCase().indexOf(tech) < 0) return false;
+            if (cvssMin > 0 && (parseFloat(f.cvss) || 0) < cvssMin) return false;
+            if (kw) {
+                var haystack = ((f.url || '') + ' ' + (f.payload || '') + ' ' + (f.evidence || '')).toLowerCase();
+                if (haystack.indexOf(kw) < 0) return false;
+            }
+            return true;
+        });
+        _renderFindings(filtered);
+    };
+
+    window._copyPre = function(btn) {
+        var pre = btn.previousElementSibling;
+        if (!pre) return;
+        navigator.clipboard.writeText(pre.textContent).then(function() {
+            btn.textContent = '✓ Copied';
+            setTimeout(function() { btn.textContent = '📋 Copy'; }, 1500);
+        }).catch(function() { btn.textContent = '✗ Failed'; });
+    };
+
+    window._exportFindings = function(fmt) {
+        var scanId = window._currentScanId;
+        if (!scanId) { toast('No scan selected', 'error'); return; }
+        window.open(API + '/api/scan/' + scanId + '/export?format=' + fmt, '_blank');
     };
 
     /* ---- Download report ---- */
@@ -1989,11 +2328,11 @@
         var targets = [];
         if (_scanMode === 'file') {
             var raw = document.getElementById('target-file').value.trim();
-            if (!raw) { alert('Please enter or load target URLs.'); return false; }
+            if (!raw) { toast('Please enter or load target URLs.', 'error'); return false; }
             targets = raw.split(/[\r\n]+/).map(function(l) { return l.trim(); }).filter(Boolean);
         } else {
             var single = document.getElementById('target-url').value.trim();
-            if (!single) { alert('Please enter a target URL.'); return false; }
+            if (!single) { toast('Please enter a target URL.', 'error'); return false; }
             targets = [single];
         }
 
@@ -2007,13 +2346,23 @@
         const brute = document.getElementById('opt-brute') ? document.getElementById('opt-brute').checked : false;
         const exploitSearch = document.getElementById('opt-exploit-search') ? document.getElementById('opt-exploit-search').checked : false;
         const attackMap = document.getElementById('opt-attack-map') ? document.getElementById('opt-attack-map').checked : false;
+        const autoMode = document.getElementById('auto-mode-btn') ? document.getElementById('auto-mode-btn').getAttribute('data-active') === '1' : false;
+        const asyncMode = document.getElementById('opt-async-mode') ? document.getElementById('opt-async-mode').checked : false;
+        const batchParallel = document.getElementById('opt-batch-parallel') ? parseInt(document.getElementById('opt-batch-parallel').value, 10) || 3 : 3;
+        const browserEngine = document.getElementById('browser-engine') ? document.getElementById('browser-engine').value : 'playwright';
 
         const btn = document.getElementById('scan-btn');
         btn.disabled = true;
         btn.innerHTML = '<span class="spinner"></span> Starting…';
 
         try {
-            var payload = { modules: modules, evasion: evasion, depth: depth, threads: threads, full_scan: fullScan, auto_exploit: autoExploit, recon: recon, brute: brute, exploit_search: exploitSearch, attack_map: attackMap };
+            var payload = {
+                modules: modules, evasion: evasion, depth: depth, threads: threads,
+                full_scan: fullScan, auto_exploit: autoExploit, recon: recon, brute: brute,
+                exploit_search: exploitSearch, attack_map: attackMap,
+                auto_mode: autoMode, async_mode: asyncMode, batch_parallel: batchParallel,
+                browser_engine: browserEngine,
+            };
             if (targets.length === 1) {
                 payload.target = targets[0];
             } else {
@@ -2035,10 +2384,13 @@
                 document.getElementById('file-info').textContent = '';
                 var msg = j.data.message || 'Scan started';
                 if (j.data.skipped && j.data.skipped.length) {
-                    msg += '\nSkipped invalid URLs: ' + j.data.skipped.join(', ');
+                    msg += ' (Skipped ' + j.data.skipped.length + ' invalid URLs)';
                 }
-                alert(msg);
+                toast(msg, 'success');
                 _updateScanSelects();
+                // Update active badge
+                var scansTab = document.getElementById('tab-scans');
+                if (scansTab) scansTab.textContent = '⏳ Active (' + ids.length + ')';
                 // Auto-switch to pipeline view
                 if (autoExploit || fullScan) {
                     var firstId = ids.length > 0 ? ids[0].scan_id : '';
@@ -2048,10 +2400,10 @@
                     window.switchPanel('scans');
                 }
             } else {
-                alert('Error: ' + (j.data || 'Unknown'));
+                toast('Error: ' + (j.data || 'Unknown'), 'error');
             }
         } catch (err) {
-            alert('Request failed: ' + err);
+            toast('Request failed: ' + err, 'error');
         }
         btn.disabled = false;
         btn.innerHTML = '▶ Start Scan';
@@ -2100,7 +2452,7 @@
 
     function _updateScanSelects() {
         var ids = Object.keys(window._knownActive || {});
-        ['pipeline-scan-select', 'livefeed-scan-select', 'ei-scan-select', 'am-scan-select', 'compliance-scan-select'].forEach(function(selId) {
+        ['pipeline-scan-select', 'livefeed-scan-select', 'ei-scan-select', 'am-scan-select', 'compliance-scan-select', 'kc-scan-select', 'ai-plan-scan-select'].forEach(function(selId) {
             var sel = document.getElementById(selId);
             if (!sel) return;
             var current = sel.value;
@@ -3794,132 +4146,488 @@
             '<p class="empty-msg" id="ollama-chat-empty">Ask the AI about vulnerabilities, scan results, or security topics...</p>';
     };
 
-    /* ---- WebSocket (SocketIO) integration ---- */
-    window._wsSocket = null;
-    (function initWebSocket() {
-        // Try to load SocketIO client from CDN
-        var script = document.createElement('script');
-        script.src = 'https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js';
-        script.onload = function() {
-            try {
-                var socket = io(API, { transports: ['websocket', 'polling'] });
-                window._wsSocket = socket;
-
-                socket.on('connect', function() {
-                    console.log('[ATOMIC] WebSocket connected');
-                    document.getElementById('ws-dot').style.background = '#2ecc71';
-                    document.getElementById('ws-label').textContent = 'Connected';
-                    document.getElementById('ws-label').style.color = '#2ecc71';
-                });
-
-                socket.on('active_scans', function(data) {
-                    if (data && typeof data === 'object') {
-                        Object.keys(data).forEach(function(sid) {
-                            window._knownActive[sid] = true;
-                        });
-                        _updateScanSelects();
-                    }
-                });
-
-                socket.on('scan_started', function(data) {
-                    if (data && data.scan_id) {
-                        window._knownActive[data.scan_id] = true;
-                        _updateScanSelects();
-                    }
-                });
-
-                socket.on('scan_completed', function(data) {
-                    if (data && data.scan_id) {
-                        loadStats();
-                        loadHistory();
-                    }
-                });
-
-                socket.on('pipeline_event', function(ev) {
-                    // Push to live feed if currently watching
-                    if (_livefeedScanId && ev && ev.scan_id === _livefeedScanId) {
-                        var container = document.getElementById('livefeed-events');
-                        if (container && container.querySelector('.empty-msg')) container.innerHTML = '';
-
-                        var color = '#c9d1d9';
-                        if (ev.type === 'finding_new') color = 'var(--severity-high)';
-                        else if (ev.type === 'phase_start') color = 'var(--accent)';
-                        else if (ev.type === 'phase_end') color = '#2ecc71';
-
-                        var ts = ev.timestamp ? new Date(ev.timestamp).toLocaleTimeString() : '';
-                        var detail = '';
-                        if (ev.data) {
-                            if (ev.data.technique) detail = ev.data.technique;
-                            else if (ev.data.phase) detail = ev.data.phase;
-                            else detail = JSON.stringify(ev.data).substring(0, 120);
-                        }
-
-                        if (container) {
-                            var line = document.createElement('div');
-                            line.style.cssText = 'padding:0.2rem 0;border-bottom:1px solid rgba(255,255,255,0.05);';
-                            line.innerHTML = '<span style="color:var(--text-muted);min-width:70px;display:inline-block;">' + ts + '</span> ' +
-                                '<span style="color:' + color + ';font-weight:600;min-width:140px;display:inline-block;">' + esc(ev.type) + '</span> ' +
-                                '<span style="color:#c9d1d9;">' + esc(detail) + '</span>';
-                            container.appendChild(line);
-                            var lc = document.getElementById('livefeed-container');
-                            if (lc) lc.scrollTop = lc.scrollHeight;
-                        }
-                    }
-                });
-
-                socket.on('pipeline_state', function(data) {
-                    // Full pipeline state received after subscribe
-                    if (data && data.phase) {
-                        // Auto-update pipeline view
-                        loadPipeline();
-                    }
-                });
-
-                socket.on('shell_output', function(data) {
-                    // Shell output via WebSocket
-                    if (!data) return;
-                    var output = document.getElementById('shell-terminal-output');
-                    if (!output) return;
-                    // Remove spinner
-                    var spinner = document.getElementById('shell-spinner');
-                    if (spinner) spinner.remove();
-
-                    if (data.error) {
-                        output.innerHTML += '<span style="color:var(--severity-critical);">' + esc(data.error) + '</span>\n';
-                    } else {
-                        output.innerHTML += esc(data.output || '(empty)') + '\n';
-                    }
-                    output.scrollTop = output.scrollHeight;
-                });
-
-                socket.on('chat_message', function(msg) {
-                    if (msg && msg.message) {
-                        window._chatAppendMsg(msg);
-                    }
-                });
-
-                socket.on('chat_cleared', function() {
-                    var container = document.getElementById('chat-messages');
-                    if (container) {
-                        container.innerHTML = '<p class="empty-msg" id="chat-empty-msg">No messages yet. Start the conversation!</p>';
-                    }
-                });
-
-                socket.on('disconnect', function() {
-                    console.log('[ATOMIC] WebSocket disconnected');
-                    document.getElementById('ws-dot').style.background = '#e74c3c';
-                    document.getElementById('ws-label').textContent = 'Disconnected';
-                    document.getElementById('ws-label').style.color = '#e74c3c';
-                });
-            } catch (e) {
-                console.log('[ATOMIC] WebSocket init failed, using polling fallback');
+    /* ========== TOAST NOTIFICATION SYSTEM ========== */
+    window.toast = function(message, type, duration) {
+        type = type || 'info';
+        duration = duration || 4000;
+        var icons = {success: '✅', error: '❌', info: 'ℹ️', warning: '⚠️'};
+        var container = document.getElementById('toast-container');
+        var t = document.createElement('div');
+        t.className = 'toast ' + type;
+        t.innerHTML = '<span>' + icons[type] + '</span><span style="flex:1;">' + esc(message) + '</span><button class="toast-close" onclick="this.parentElement.remove()">×</button>';
+        container.appendChild(t);
+        setTimeout(function() {
+            if (t.parentElement) {
+                t.style.animation = 'toastOut 0.25s ease forwards';
+                setTimeout(function() { if (t.parentElement) t.remove(); }, 250);
             }
-        };
-        script.onerror = function() {
-            console.log('[ATOMIC] SocketIO CDN unavailable, using polling fallback');
-        };
-        document.head.appendChild(script);
+        }, duration);
+    };
+
+    /* ========== THEME TOGGLE ========== */
+    window._toggleTheme = function() {
+        var body = document.body;
+        var isLight = body.classList.toggle('light-theme');
+        try { localStorage.setItem('atomic-theme', isLight ? 'light' : 'dark'); } catch(e) {}
+    };
+    // Apply saved theme on load
+    (function() {
+        try { if (localStorage.getItem('atomic-theme') === 'light') document.body.classList.add('light-theme'); } catch(e) {}
     })();
+
+    /* ========== AUTO MODE TOGGLE ========== */
+    window._toggleAutoMode = function() {
+        var btn = document.getElementById('auto-mode-btn');
+        var grid = document.getElementById('modules-grid');
+        var active = btn.getAttribute('data-active') === '1';
+        if (active) {
+            btn.setAttribute('data-active', '0');
+            btn.style.background = 'var(--bg-input)';
+            btn.style.color = 'var(--text-muted)';
+            btn.style.borderColor = 'var(--border)';
+            grid.style.opacity = '1';
+            grid.style.pointerEvents = '';
+        } else {
+            btn.setAttribute('data-active', '1');
+            btn.style.background = 'var(--accent)';
+            btn.style.color = '#fff';
+            btn.style.borderColor = 'var(--accent)';
+            grid.style.opacity = '0.4';
+            grid.style.pointerEvents = 'none';
+            toast('Auto mode enabled — AI will decide which modules to run', 'info');
+        }
+    };
+
+    // Show/hide browser engine selector
+    (function() {
+        var modBrowser = document.getElementById('mod-browser');
+        if (modBrowser) {
+            modBrowser.addEventListener('change', function() {
+                var sel = document.getElementById('browser-engine');
+                if (sel) sel.style.display = this.checked ? '' : 'none';
+            });
+        }
+    })();
+
+    /* ========== KILL CHAIN PANEL ========== */
+    window._loadKillChains = async function() {
+        var sel = document.getElementById('kc-scan-select');
+        var scanId = sel ? sel.value : '';
+        if (!scanId) { toast('Select a scan first', 'error'); return; }
+        var container = document.getElementById('kc-chains-container');
+        container.innerHTML = '<p class="empty-msg"><span class="spinner"></span> Loading kill chains…</p>';
+        try {
+            var r = await fetch(API + '/api/kill-chains/' + scanId);
+            var j = await r.json();
+            if (j.status !== 'success') { container.innerHTML = '<p class="empty-msg">' + esc(j.data || 'Error') + '</p>'; return; }
+            var chains = j.data.chains || [];
+            if (!chains.length) { container.innerHTML = '<p class="empty-msg">No kill chains found for this scan. Run a scan with multiple vulnerability classes to generate chains.</p>'; return; }
+            container.innerHTML = chains.map(function(chain, idx) {
+                var steps = chain.steps || [chain.label || ('Step ' + (idx+1))];
+                var sev = (chain.severity || 'info').toLowerCase();
+                var sevColor = sev === 'critical' ? 'var(--severity-critical)' : sev === 'high' ? 'var(--severity-high)' : sev === 'medium' ? 'var(--severity-medium)' : 'var(--severity-info)';
+                var nodesHtml = steps.map(function(s, i) {
+                    return '<span class="kc-node">' + esc(String(s)) + '</span>' +
+                           (i < steps.length - 1 ? ' <span class="kc-arrow">→</span> ' : '');
+                }).join('');
+                return '<div class="glass-card" style="margin-bottom:0.8rem;border-left:4px solid ' + sevColor + ';">' +
+                    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;">' +
+                        '<strong>Chain ' + (idx+1) + (chain.label ? ': ' + esc(chain.label) : '') + '</strong>' +
+                        '<span class="badge" style="background:' + sevColor + ';color:#fff;">' + esc(sev.toUpperCase()) + '</span>' +
+                    '</div>' +
+                    '<div style="display:flex;flex-wrap:wrap;align-items:center;gap:0.3rem;">' + nodesHtml + '</div>' +
+                    (chain.url ? '<div style="font-size:0.78rem;color:var(--text-muted);margin-top:0.4rem;">Target: ' + esc(chain.url) + '</div>' : '') +
+                '</div>';
+            }).join('');
+        } catch(e) {
+            container.innerHTML = '<p class="empty-msg">Error: ' + esc(e.message) + '</p>';
+        }
+    };
+
+    /* ========== AI ATTACK PLANNER PANEL ========== */
+    window._submitAIPlan = async function() {
+        var target = document.getElementById('ai-plan-target').value.trim();
+        var question = document.getElementById('ai-plan-question').value.trim();
+        var scanId = document.getElementById('ai-plan-scan-select').value || '';
+        var output = document.getElementById('ai-plan-output');
+        var chips = document.getElementById('ai-plan-chips');
+        var btn = document.getElementById('ai-plan-btn');
+        if (!question) { toast('Enter a question or objective', 'error'); return; }
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner"></span> Planning…';
+        output.innerHTML = '<p class="empty-msg"><span class="spinner"></span> AI is thinking…</p>';
+        chips.innerHTML = '';
+        try {
+            var params = new URLSearchParams();
+            if (target) params.set('target', target);
+            if (question) params.set('question', question);
+            if (scanId) params.set('scan_id', scanId);
+            var r = await fetch(API + '/api/ai-plan?' + params.toString());
+            var j = await r.json();
+            if (j.status === 'success') {
+                var d = j.data;
+                var planText = d.plan || 'No plan generated.';
+                output.innerHTML = '<div style="white-space:pre-wrap;line-height:1.6;font-size:0.88rem;">' + esc(planText) + '</div>';
+                // Render module suggestion chips
+                var mods = d.modules || d.flags || [];
+                if (mods.length) {
+                    chips.innerHTML = '<div style="font-size:0.82rem;color:var(--text-muted);margin-bottom:0.4rem;">💡 Suggested modules (click to apply):</div>' +
+                        mods.map(function(m) {
+                            return '<button class="btn btn-sm" style="background:var(--accent);color:#fff;margin-right:0.3rem;margin-bottom:0.3rem;" onclick="window._applyAIPlanModule(\'' + esc(m) + '\')">' + esc(m) + '</button>';
+                        }).join('');
+                }
+            } else {
+                output.innerHTML = '<p class="empty-msg" style="color:var(--severity-critical);">Error: ' + esc(j.data || 'Unknown') + '</p>';
+            }
+        } catch(e) {
+            output.innerHTML = '<p class="empty-msg" style="color:var(--severity-critical);">Error: ' + esc(e.message) + '</p>';
+        }
+        btn.disabled = false;
+        btn.innerHTML = '🤖 Get Plan';
+    };
+
+    window._applyAIPlanModule = function(mod) {
+        var cb = document.querySelector('input[name="module"][value="' + mod + '"]');
+        if (cb) {
+            cb.checked = true;
+            toast('Module "' + mod + '" enabled in scanner', 'success');
+        } else {
+            toast('Module "' + mod + '" not found in scanner form — add it manually', 'warning');
+        }
+        window.switchPanel('scanner');
+    };
+
+    /* ========== WORKERS PANEL ========== */
+    window._loadWorkers = async function() {
+        try {
+            var r = await fetch(API + '/api/workers/status');
+            var j = await r.json();
+            if (j.status !== 'success') { toast('Error loading workers', 'error'); return; }
+            var d = j.data;
+            document.getElementById('workers-count').textContent = (d.workers || []).length;
+            document.getElementById('workers-queue').textContent = d.queue_depth || 0;
+            document.getElementById('workers-active').textContent = d.total_active_scans || 0;
+            document.getElementById('workers-redis').innerHTML = d.redis_connected
+                ? '<span style="color:#2ecc71;">●</span>'
+                : '<span style="color:var(--severity-critical);">●</span>';
+            var tbody = document.getElementById('workers-body');
+            if (!d.workers || !d.workers.length) {
+                tbody.innerHTML = '<tr><td colspan="5" class="empty-msg">No workers found</td></tr>';
+                return;
+            }
+            tbody.innerHTML = d.workers.map(function(w) {
+                var stColor = w.status === 'active' ? '#2ecc71' : 'var(--severity-critical)';
+                return '<tr><td style="font-family:monospace;font-size:0.82rem;">' + esc(w.id) + '</td>' +
+                    '<td>' + esc(w.host) + '</td>' +
+                    '<td>' + (w.jobs_taken || 0) + '</td>' +
+                    '<td style="font-size:0.78rem;color:var(--text-muted);">' + fmtDate(w.last_heartbeat) + '</td>' +
+                    '<td><span style="color:' + stColor + ';font-weight:600;">●</span> ' + esc(w.status) + '</td></tr>';
+            }).join('');
+        } catch(e) {
+            toast('Error: ' + e.message, 'error');
+        }
+    };
+
+    /* ========== WATCH MODE PANEL ========== */
+    var _watchInterval = null;
+    var _watchPrevFindings = [];
+
+    window._watchStart = async function() {
+        var target = document.getElementById('watch-target').value.trim();
+        var intervalMin = parseInt(document.getElementById('watch-interval').value, 10) || 15;
+        if (!target) { toast('Enter a target URL', 'error'); return; }
+        document.getElementById('watch-start-btn').style.display = 'none';
+        document.getElementById('watch-stop-btn').style.display = '';
+        document.getElementById('watch-status').innerHTML = '<span style="color:#2ecc71;">● Watching <strong>' + esc(target) + '</strong> every <strong>' + intervalMin + '</strong> min</span>';
+        toast('Watch mode started for ' + target, 'success');
+
+        async function _runWatchScan() {
+            var statusEl = document.getElementById('watch-status');
+            if (!statusEl) return;
+            statusEl.innerHTML += ' <span class="spinner"></span>';
+            try {
+                var r = await fetch(API + '/api/scan', {
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({target: target, modules: ['sqli','xss','lfi','ssrf','idor'], depth: 2})
+                });
+                var j = await r.json();
+                if (j.status === 'success') {
+                    var scanId = (j.data.scan_ids || [])[0];
+                    if (scanId) scanId = scanId.scan_id;
+                    if (scanId) {
+                        await new Promise(function(res) { setTimeout(res, 15000); });
+                        var fr = await fetch(API + '/api/findings/' + scanId);
+                        var fj = await fr.json();
+                        if (fj.status === 'success') {
+                            _renderWatchDiff(fj.data || []);
+                        }
+                    }
+                }
+            } catch(e) { console.error('[ATOMIC] Watch scan error', e); }
+        }
+
+        await _runWatchScan();
+        _watchInterval = setInterval(_runWatchScan, intervalMin * 60 * 1000);
+    };
+
+    window._watchStop = function() {
+        if (_watchInterval) { clearInterval(_watchInterval); _watchInterval = null; }
+        document.getElementById('watch-start-btn').style.display = '';
+        document.getElementById('watch-stop-btn').style.display = 'none';
+        document.getElementById('watch-status').innerHTML = '<span style="color:var(--text-muted);">Watch stopped.</span>';
+        toast('Watch mode stopped', 'info');
+    };
+
+    function _renderWatchDiff(newFindings) {
+        var container = document.getElementById('watch-diff-container');
+        var prevUrls = _watchPrevFindings.map(function(f) { return (f.url || '') + '|' + (f.technique || ''); });
+        var newUrls = newFindings.map(function(f) { return (f.url || '') + '|' + (f.technique || ''); });
+        var added = newFindings.filter(function(f) { return prevUrls.indexOf((f.url||'')+'|'+(f.technique||'')) < 0; });
+        var resolved = _watchPrevFindings.filter(function(f) { return newUrls.indexOf((f.url||'')+'|'+(f.technique||'')) < 0; });
+        _watchPrevFindings = newFindings;
+
+        if (!added.length && !resolved.length) {
+            container.innerHTML = '<p class="empty-msg" style="color:#2ecc71;">✅ No changes — target looks stable</p>';
+            return;
+        }
+        var html = '';
+        added.forEach(function(f) {
+            html += '<div class="finding-item diff-new" style="margin-bottom:0.4rem;">' +
+                '<div class="fi-header"><strong>🆕 ' + esc(f.technique) + '</strong>' +
+                '<span class="badge severity-' + esc((f.severity||'info').toLowerCase()) + '">' + esc(f.severity||'INFO') + '</span></div>' +
+                '<div class="finding-meta"><span>' + esc(f.url) + '</span></div></div>';
+        });
+        resolved.forEach(function(f) {
+            html += '<div class="finding-item diff-resolved" style="margin-bottom:0.4rem;">' +
+                '<div class="fi-header"><strong>✅ ' + esc(f.technique) + ' (resolved)</strong></div>' +
+                '<div class="finding-meta"><span>' + esc(f.url) + '</span></div></div>';
+        });
+        container.innerHTML = html;
+        if (added.length) toast(added.length + ' new finding(s) detected!', 'warning');
+        if (resolved.length) toast(resolved.length + ' finding(s) resolved', 'success');
+    }
+
+    /* ========== CONFIG FILE PANEL ========== */
+    window._configLoad = async function() {
+        var status = document.getElementById('config-status');
+        var editor = document.getElementById('config-editor');
+        status.textContent = '⏳ Loading…';
+        try {
+            var r = await fetch(API + '/api/config');
+            var j = await r.json();
+            if (j.status === 'success') {
+                editor.value = j.data.content || '';
+                status.innerHTML = '<span style="color:#2ecc71;">✅ Loaded' + (j.data.path ? ' from ' + esc(j.data.path) : '') + '</span>';
+            } else {
+                status.innerHTML = '<span style="color:var(--severity-critical);">❌ ' + esc(j.data || 'Error') + '</span>';
+            }
+        } catch(e) {
+            status.innerHTML = '<span style="color:var(--severity-critical);">❌ ' + esc(e.message) + '</span>';
+        }
+    };
+
+    window._configSave = async function() {
+        var status = document.getElementById('config-status');
+        var content = document.getElementById('config-editor').value;
+        if (!content.trim()) { toast('Config is empty', 'error'); return; }
+        status.textContent = '⏳ Saving…';
+        try {
+            var r = await fetch(API + '/api/config', {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({content: content})
+            });
+            var j = await r.json();
+            if (j.status === 'success') {
+                status.innerHTML = '<span style="color:#2ecc71;">✅ Saved &amp; applied</span>';
+                toast('Config saved and applied', 'success');
+            } else {
+                status.innerHTML = '<span style="color:var(--severity-critical);">❌ ' + esc(j.data || 'Error') + '</span>';
+                toast('Save failed: ' + (j.data || 'Unknown'), 'error');
+            }
+        } catch(e) {
+            status.innerHTML = '<span style="color:var(--severity-critical);">❌ ' + esc(e.message) + '</span>';
+        }
+    };
+
+    window._configGenerate = function() {
+        var editor = document.getElementById('config-editor');
+        var evasion = (document.getElementById('evasion-level') || {}).value || 'none';
+        var depth = (document.getElementById('scan-depth') || {}).value || '3';
+        var threads = (document.getElementById('scan-threads') || {}).value || '10';
+        var mods = Array.from(document.querySelectorAll('input[name="module"]:checked')).map(function(c){ return c.value; });
+        var yaml = '# Generated from current scanner config\nevasion: ' + evasion +
+            '\ndepth: ' + depth + '\nthreads: ' + threads +
+            '\nmodules:\n' + mods.map(function(m){ return '  - ' + m; }).join('\n') + '\n';
+        editor.value = yaml;
+        document.getElementById('config-status').innerHTML = '<span style="color:var(--accent);">Generated — click Save &amp; Apply to persist</span>';
+    };
+
+    /* ========== WEBSOCKET RECONNECT WITH EXPONENTIAL BACKOFF ========== */
+    window._wsSocket = null;
+    var _wsReconnectAttempt = 0;
+    var _wsReconnectTimer = null;
+
+    function _initWebSocket() {
+        try {
+            var socket = io(API, { transports: ['websocket', 'polling'], reconnection: false });
+            window._wsSocket = socket;
+            _wsReconnectAttempt = 0;
+
+            socket.on('connect', function() {
+                console.log('[ATOMIC] WebSocket connected');
+                document.getElementById('ws-dot').style.background = '#2ecc71';
+                document.getElementById('ws-label').textContent = 'Connected';
+                document.getElementById('ws-label').style.color = '#2ecc71';
+                _wsReconnectAttempt = 0;
+                if (_wsReconnectTimer) { clearTimeout(_wsReconnectTimer); _wsReconnectTimer = null; }
+            });
+
+            socket.on('active_scans', function(data) {
+                if (data && typeof data === 'object') {
+                    Object.keys(data).forEach(function(sid) { window._knownActive[sid] = true; });
+                    _updateScanSelects();
+                }
+            });
+
+            socket.on('scan_started', function(data) {
+                if (data && data.scan_id) {
+                    window._knownActive[data.scan_id] = true;
+                    _updateScanSelects();
+                    toast('Scan started: ' + data.scan_id, 'info');
+                }
+            });
+
+            socket.on('scan_completed', function(data) {
+                if (data && data.scan_id) {
+                    loadStats();
+                    loadHistory();
+                    toast('Scan completed: ' + (data.scan_id || ''), 'success');
+                }
+            });
+
+            socket.on('pipeline_event', function(ev) {
+                if (_livefeedScanId && ev && ev.scan_id === _livefeedScanId) {
+                    var container = document.getElementById('livefeed-events');
+                    if (container && container.querySelector('.empty-msg')) container.innerHTML = '';
+                    var color = '#c9d1d9';
+                    if (ev.type === 'finding_new') color = 'var(--severity-high)';
+                    else if (ev.type === 'phase_start') color = 'var(--accent)';
+                    else if (ev.type === 'phase_end') color = '#2ecc71';
+                    var ts = ev.timestamp ? new Date(ev.timestamp).toLocaleTimeString() : '';
+                    var detail = '';
+                    if (ev.data) {
+                        if (ev.data.technique) detail = ev.data.technique;
+                        else if (ev.data.phase) detail = ev.data.phase;
+                        else detail = JSON.stringify(ev.data).substring(0, 120);
+                    }
+                    if (container) {
+                        var line = document.createElement('div');
+                        line.style.cssText = 'padding:0.2rem 0;border-bottom:1px solid rgba(255,255,255,0.05);';
+                        line.innerHTML = '<span style="color:var(--text-muted);min-width:70px;display:inline-block;">' + ts + '</span> ' +
+                            '<span style="color:' + color + ';font-weight:600;min-width:140px;display:inline-block;">' + esc(ev.type) + '</span> ' +
+                            '<span style="color:#c9d1d9;">' + esc(detail) + '</span>';
+                        container.appendChild(line);
+                        var lc = document.getElementById('livefeed-container');
+                        if (lc) lc.scrollTop = lc.scrollHeight;
+                    }
+                }
+            });
+
+            socket.on('pipeline_state', function(data) {
+                if (data && data.phase) loadPipeline();
+            });
+
+            socket.on('shell_output', function(data) {
+                if (!data) return;
+                var output = document.getElementById('shell-terminal-output');
+                if (!output) return;
+                var spinner = document.getElementById('shell-spinner');
+                if (spinner) spinner.remove();
+                if (data.error) {
+                    output.innerHTML += '<span style="color:var(--severity-critical);">' + esc(data.error) + '</span>\n';
+                } else {
+                    output.innerHTML += esc(data.output || '(empty)') + '\n';
+                }
+                output.scrollTop = output.scrollHeight;
+            });
+
+            socket.on('chat_message', function(msg) {
+                if (msg && msg.message) window._chatAppendMsg(msg);
+            });
+
+            socket.on('chat_cleared', function() {
+                var container = document.getElementById('chat-messages');
+                if (container) container.innerHTML = '<p class="empty-msg" id="chat-empty-msg">No messages yet. Start the conversation!</p>';
+            });
+
+            socket.on('disconnect', function() {
+                console.log('[ATOMIC] WebSocket disconnected');
+                document.getElementById('ws-dot').style.background = '#e74c3c';
+                document.getElementById('ws-label').textContent = 'Reconnecting…';
+                document.getElementById('ws-label').style.color = '#f1c40f';
+                _scheduleReconnect();
+            });
+
+            socket.on('connect_error', function() { _scheduleReconnect(); });
+
+        } catch(e) {
+            console.log('[ATOMIC] WebSocket init failed:', e);
+            _scheduleReconnect();
+        }
+    }
+
+    function _scheduleReconnect() {
+        if (_wsReconnectTimer) return;
+        _wsReconnectAttempt++;
+        var delay = Math.min(1000 * Math.pow(2, _wsReconnectAttempt - 1), 30000);
+        console.log('[ATOMIC] Reconnect in ' + delay + 'ms (attempt ' + _wsReconnectAttempt + ')');
+        _wsReconnectTimer = setTimeout(function() {
+            _wsReconnectTimer = null;
+            if (window._wsSocket) { try { window._wsSocket.disconnect(); } catch(e) {} }
+            _initWebSocket();
+        }, delay);
+    }
+
+    /* ========== KEYBOARD SHORTCUTS ========== */
+    document.addEventListener('keydown', function(e) {
+        if (e.ctrlKey || e.metaKey) {
+            if (e.key === 's') {
+                e.preventDefault();
+                window.switchPanel('scanner');
+                toast('Switched to Scanner (Ctrl+S)', 'info', 2000);
+            } else if (e.key === 'f') {
+                e.preventDefault();
+                window.switchPanel('findings');
+                var fi = document.getElementById('findings-search');
+                if (fi) { fi.focus(); fi.select(); }
+                toast('Switched to Findings filter (Ctrl+F)', 'info', 2000);
+            }
+        }
+        if (e.key === 'Escape') {
+            // Close any open modal/viewer
+            var viewer = document.getElementById('nuclei-template-viewer');
+            if (viewer && viewer.style.display !== 'none') { viewer.style.display = 'none'; }
+            var installGuide = document.getElementById('ollama-install-guide');
+            if (installGuide && installGuide.style.display === 'block') { installGuide.style.display = 'none'; }
+        }
+    });
+
+    /* ---- Init ---- */
+    window._knownActive = {};
+    loadStats();
+    loadHistory();
+    updateTrendChart();
+    setInterval(function() { loadActiveScans(); _updateScanSelects(); }, 3000);
+    setInterval(function() { updateTrendChart(); }, 15000);
+    setInterval(function() { if (_pipelineScanId) loadPipeline(); }, 2500);
+    setInterval(function() { document.getElementById('sb-time').textContent = new Date().toLocaleTimeString(); }, 1000);
+
+    // Load SocketIO and init WebSocket
+    var _wsScript = document.createElement('script');
+    _wsScript.src = 'https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js';
+    _wsScript.onload = function() { _initWebSocket(); };
+    _wsScript.onerror = function() { console.log('[ATOMIC] SocketIO CDN unavailable, using polling fallback'); };
+    document.head.appendChild(_wsScript);
 
     /* ---- Recon Arsenal Panel ---- */
     window._arsenalLoadTools = async function() {
@@ -4180,7 +4888,7 @@
             document.getElementById('nuclei-template-viewer').style.display = 'block';
             document.getElementById('nuclei-template-viewer').scrollIntoView({behavior:'smooth'});
         } catch(e) {
-            alert('Error loading template: ' + e.message);
+            toast('Error loading template: ' + e.message, 'error');
         }
     };
 
@@ -4207,15 +4915,6 @@
         });
     };
 
-    /* ---- Init ---- */
-    window._knownActive = {};
-    loadStats();
-    loadHistory();
-    updateTrendChart();
-    setInterval(function() { loadActiveScans(); _updateScanSelects(); }, 3000);
-    setInterval(function() { updateTrendChart(); }, 15000);
-    setInterval(function() { if (_pipelineScanId) loadPipeline(); }, 2500);
-    setInterval(function() { document.getElementById('sb-time').textContent = new Date().toLocaleTimeString(); }, 1000);
 })();
 </script>
 </body>

@@ -3349,6 +3349,392 @@ def get_nuclei_template(template_path):
 
 
 # ---------------------------------------------------------------------------
+# Kill Chains API
+# ---------------------------------------------------------------------------
+
+
+@app.route("/api/kill-chains/<scan_id>", methods=["GET"])
+@_require_api_key
+@_rate_limit
+def get_kill_chains(scan_id):
+    """Return kill chain data for a scan."""
+    if not _SAFE_SCAN_ID.match(scan_id):
+        return jsonify({"status": "error", "data": "Invalid scan ID"}), 400
+
+    findings = []
+    with _scans_lock:
+        scan_info = _active_scans.get(scan_id)
+        if scan_info and scan_info.get("engine"):
+            findings = list(scan_info["engine"].findings or [])
+
+    if not findings:
+        db = _get_db()
+        if db is not None:
+            session = db.Session()
+            try:
+                rows = session.query(FindingModel).filter_by(scan_id=scan_id).all()
+                findings = rows
+            finally:
+                session.close()
+
+    chains = []
+    try:
+        from core.kill_chain import KillChainMapper  # type: ignore
+
+        mapper = KillChainMapper()
+        result = mapper.map(findings)
+        if isinstance(result, dict):
+            chains = result.get("chains", result.get("paths", []))
+        elif isinstance(result, list):
+            chains = result
+        else:
+            chains = []
+    except Exception as exc:
+        logger.debug("Kill chain mapping error: %s", exc)
+        # Build a simple chain representation from findings
+        for f in findings[:20]:
+            sev = getattr(f, "severity", getattr(f, "severity", "INFO")) if not isinstance(f, dict) else f.get("severity", "INFO")
+            technique = getattr(f, "technique", "") if not isinstance(f, dict) else f.get("technique", "")
+            url = getattr(f, "url", "") if not isinstance(f, dict) else f.get("url", "")
+            if technique:
+                chains.append({"label": technique, "severity": sev, "url": url, "steps": [technique]})
+
+    return jsonify({"status": "success", "data": {"chains": chains, "scan_id": scan_id}})
+
+
+# ---------------------------------------------------------------------------
+# AI Attack Planner API
+# ---------------------------------------------------------------------------
+
+
+@app.route("/api/ai-plan", methods=["GET"])
+@_require_api_key
+@_rate_limit
+def get_ai_plan():
+    """Proxy to attack_planner — return AI attack plan suggestions."""
+    target = request.args.get("target", "")
+    question = request.args.get("question", "")
+    scan_id = request.args.get("scan_id", "")
+
+    findings = []
+    if scan_id and _SAFE_SCAN_ID.match(scan_id):
+        with _scans_lock:
+            scan_info = _active_scans.get(scan_id)
+            if scan_info and scan_info.get("engine"):
+                findings = list(scan_info["engine"].findings or [])
+
+    try:
+        from core.attack_planner import AttackPlanner  # type: ignore
+
+        planner = AttackPlanner()
+        result = planner.plan(target=target, question=question, findings=findings)
+        if hasattr(result, "to_dict"):
+            result = result.to_dict()
+        elif not isinstance(result, dict):
+            result = {"plan": str(result), "modules": [], "flags": []}
+        return jsonify({"status": "success", "data": result})
+    except Exception as exc:
+        logger.debug("AI plan error: %s", exc)
+        # Fall back to Ollama if available
+        if question and _ollama_available():
+            prompt = f"Security target: {target or 'unknown'}\nQuestion: {question}"
+            if findings:
+                prompt += f"\nKnown findings: {len(findings)} vulnerabilities found."
+            result = _ollama_request(
+                "/api/chat",
+                method="POST",
+                json_data={
+                    "model": "qwen2.5-coder:7b",
+                    "messages": [
+                        {"role": "system", "content": "You are a security attack planner. Suggest attack modules and techniques."},
+                        {"role": "user", "content": prompt},
+                    ],
+                    "stream": False,
+                },
+                timeout=60,
+            )
+            if result:
+                plan_text = result.get("message", {}).get("content", "")
+                return jsonify({
+                    "status": "success",
+                    "data": {"plan": plan_text, "modules": [], "flags": [], "source": "ollama"},
+                })
+        return jsonify({
+            "status": "success",
+            "data": {
+                "plan": "Attack planner module not available. Run a scan and use the AI Brain panel for recommendations.",
+                "modules": [],
+                "flags": [],
+            },
+        })
+
+
+# ---------------------------------------------------------------------------
+# Distributed Workers Status API
+# ---------------------------------------------------------------------------
+
+
+@app.route("/api/workers/status", methods=["GET"])
+@_require_api_key
+@_rate_limit
+def get_workers_status():
+    """Return distributed worker nodes status."""
+    workers = []
+    queue_depth = 0
+    redis_connected = False
+
+    try:
+        import redis as _redis_lib  # type: ignore
+
+        redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
+        r = _redis_lib.from_url(redis_url, socket_connect_timeout=2)
+        r.ping()
+        redis_connected = True
+        worker_keys = r.keys("worker:*:heartbeat")
+        for key in worker_keys:
+            try:
+                hb_data = r.get(key)
+                raw = key.decode() if isinstance(key, bytes) else str(key)
+                parts = raw.split(":")
+                worker_id = parts[1] if len(parts) > 1 else raw
+                workers.append({
+                    "id": worker_id,
+                    "host": worker_id,
+                    "jobs_taken": 0,
+                    "last_heartbeat": hb_data.decode() if hb_data else "unknown",
+                    "status": "active",
+                })
+            except Exception:
+                pass
+        try:
+            queue_depth = r.llen("atomic:task_queue") or 0
+        except Exception:
+            queue_depth = 0
+    except Exception:
+        pass
+
+    if not workers:
+        import socket as _socket
+        with _scans_lock:
+            active_count = len([s for s in _active_scans.values() if s.get("status") == "running"])
+        workers = [{
+            "id": "local-0",
+            "host": _socket.gethostname(),
+            "jobs_taken": active_count,
+            "last_heartbeat": datetime.now(timezone.utc).isoformat(),
+            "status": "active",
+        }]
+
+    with _scans_lock:
+        total_active = len([s for s in _active_scans.values() if s.get("status") == "running"])
+
+    return jsonify({
+        "status": "success",
+        "data": {
+            "workers": workers,
+            "queue_depth": queue_depth,
+            "redis_connected": redis_connected,
+            "total_active_scans": total_active,
+        },
+    })
+
+
+# ---------------------------------------------------------------------------
+# Config File API
+# ---------------------------------------------------------------------------
+
+
+@app.route("/api/config", methods=["GET"])
+@_require_api_key
+@_rate_limit
+def get_config_file():
+    """Return the current atomic.yaml configuration."""
+    base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    for name in ("atomic.yaml", "atomic.yml"):
+        path = os.path.join(base, name)
+        if os.path.isfile(path):
+            try:
+                with open(path, "r") as fh:
+                    content = fh.read()
+                return jsonify({"status": "success", "data": {"content": content, "path": path}})
+            except Exception as exc:
+                return jsonify({"status": "error", "data": str(exc)}), 500
+    return jsonify({"status": "success", "data": {"content": "# atomic.yaml not found — create it in the project root\n", "path": ""}})
+
+
+@app.route("/api/config", methods=["POST"])
+@_require_api_key
+@_rate_limit
+def save_config_file():
+    """Save and apply atomic.yaml configuration."""
+    body = request.get_json(silent=True)
+    if not body or not isinstance(body.get("content"), str):
+        return jsonify({"status": "error", "data": "Missing content field"}), 400
+
+    content = body["content"]
+    import yaml as _yaml
+
+    try:
+        _yaml.safe_load(content)
+    except _yaml.YAMLError as exc:
+        return jsonify({"status": "error", "data": f"Invalid YAML: {exc}"}), 400
+
+    config_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "atomic.yaml")
+    try:
+        with open(config_path, "w") as fh:
+            fh.write(content)
+        return jsonify({"status": "success", "data": "Config saved and applied"})
+    except Exception as exc:
+        return jsonify({"status": "error", "data": str(exc)}), 500
+
+
+# ---------------------------------------------------------------------------
+# Cross-scan findings search API
+# ---------------------------------------------------------------------------
+
+
+@app.route("/api/findings", methods=["GET"])
+@_require_api_key
+@_rate_limit
+def search_all_findings():
+    """Cross-scan findings search with filters: severity, technique, keyword, cvss_min."""
+    severity = request.args.get("severity", "").upper()
+    technique = request.args.get("technique", "").lower()
+    keyword = request.args.get("keyword", "").lower()
+    cvss_min = request.args.get("cvss_min", 0, type=float)
+    limit = min(request.args.get("limit", 200, type=int), 1000)
+
+    results = []
+    db = _get_db()
+    if db is not None:
+        session = None
+        try:
+            session = db.Session()
+            query = session.query(FindingModel)
+            if severity:
+                query = query.filter(FindingModel.severity == severity)
+            rows = query.order_by(FindingModel.id.desc()).limit(limit * 3).all()
+            for row in rows:
+                if technique and technique not in (row.technique or "").lower():
+                    continue
+                details_str = str(row.details or "")
+                if keyword and keyword not in (row.url or "").lower() and keyword not in details_str.lower():
+                    continue
+                if cvss_min > 0:
+                    try:
+                        d = json.loads(row.details) if row.details else {}
+                        if float(d.get("cvss", 0)) < cvss_min:
+                            continue
+                    except Exception:
+                        pass
+                results.append({
+                    "scan_id": row.scan_id,
+                    "technique": row.technique,
+                    "severity": row.severity,
+                    "url": row.url,
+                    "details": row.details,
+                })
+                if len(results) >= limit:
+                    break
+        except Exception as exc:
+            logger.debug("Findings search error: %s", exc)
+        finally:
+            if session:
+                session.close()
+
+    return jsonify({"status": "success", "data": results})
+
+
+# ---------------------------------------------------------------------------
+# Single-scan export API
+# ---------------------------------------------------------------------------
+
+
+@app.route("/api/scan/<scan_id>/export", methods=["GET"])
+@_require_api_key
+@_rate_limit
+def export_scan_findings(scan_id):
+    """Export scan findings as CSV or JSON."""
+    if not _SAFE_SCAN_ID.match(scan_id):
+        return jsonify({"status": "error", "data": "Invalid scan ID"}), 400
+
+    fmt = request.args.get("format", "json").lower()
+    if fmt not in ("csv", "json"):
+        return jsonify({"status": "error", "data": "format must be csv or json"}), 400
+
+    findings = []
+    db = _get_db()
+    if db is not None:
+        session = None
+        try:
+            session = db.Session()
+            rows = session.query(FindingModel).filter_by(scan_id=scan_id).all()
+            for row in rows:
+                details = {}
+                try:
+                    details = json.loads(row.details) if row.details else {}
+                except Exception:
+                    pass
+                findings.append({
+                    "technique": row.technique,
+                    "severity": row.severity,
+                    "url": row.url,
+                    "param": details.get("param", ""),
+                    "payload": details.get("payload", ""),
+                    "evidence": details.get("evidence", ""),
+                    "cvss": details.get("cvss", 0.0),
+                    "mitre_id": details.get("mitre_id", ""),
+                    "cwe_id": details.get("cwe_id", ""),
+                })
+        except Exception:
+            pass
+        finally:
+            if session:
+                session.close()
+
+    if not findings:
+        with _scans_lock:
+            scan_info = _active_scans.get(scan_id)
+        if scan_info and scan_info.get("engine"):
+            for f in (scan_info["engine"].findings or []):
+                findings.append({
+                    "technique": getattr(f, "technique", ""),
+                    "severity": getattr(f, "severity", "INFO"),
+                    "url": getattr(f, "url", ""),
+                    "param": getattr(f, "param", ""),
+                    "payload": getattr(f, "payload", ""),
+                    "evidence": getattr(f, "evidence", ""),
+                    "cvss": getattr(f, "cvss", 0.0),
+                    "mitre_id": getattr(f, "mitre_id", ""),
+                    "cwe_id": getattr(f, "cwe_id", ""),
+                })
+
+    from flask import Response  # already imported, safe
+
+    if fmt == "json":
+        return Response(
+            json.dumps({"scan_id": scan_id, "findings": findings}, indent=2),
+            mimetype="application/json",
+            headers={"Content-Disposition": f'attachment; filename="findings_{scan_id}.json"'},
+        )
+    else:
+        import csv
+        import io
+
+        out = io.StringIO()
+        fieldnames = ["technique", "severity", "url", "param", "payload", "evidence", "cvss", "mitre_id", "cwe_id"]
+        writer = csv.DictWriter(out, fieldnames=fieldnames, extrasaction="ignore")
+        writer.writeheader()
+        for f in findings:
+            writer.writerow({k: f.get(k, "") for k in fieldnames})
+        return Response(
+            out.getvalue(),
+            mimetype="text/csv",
+            headers={"Content-Disposition": f'attachment; filename="findings_{scan_id}.csv"'},
+        )
+
+
+# ---------------------------------------------------------------------------
 # App factory & runner
 # ---------------------------------------------------------------------------
 
