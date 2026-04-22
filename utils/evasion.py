@@ -273,7 +273,7 @@ class TimingEvasion:
         self.max_backoff = 60.0
 
     def get_delay(self):
-        delay = max(0, random.gauss(self.base_delay * self.backoff_factor, self.jitter_range))
+        delay = max(0.0, random.gauss(self.base_delay * self.backoff_factor, self.jitter_range))
         self.request_count += 1
 
         if self.request_count % self.burst_size == 0:
@@ -286,7 +286,7 @@ class TimingEvasion:
     def apply_jitter(self):
         jitter = random.uniform(-self.jitter_range, self.jitter_range)
         micro_pause = random.expovariate(10)
-        delay = max(0, self.base_delay + jitter + micro_pause)
+        delay = max(0.0, self.base_delay + jitter + micro_pause)
         time.sleep(delay)
         return delay
 
