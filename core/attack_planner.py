@@ -27,7 +27,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from typing import TYPE_CHECKING, Dict, List, Optional, Set
+from typing import TYPE_CHECKING, Dict, List, Optional, Set, Tuple
 
 from config import Colors
 
@@ -230,7 +230,7 @@ class AttackPlanner:
 
         return sorted(modules)
 
-    def _rule_based_plan(self, context: str) -> tuple[str, List[str]]:
+    def _rule_based_plan(self, context: str) -> Tuple[str, List[str]]:
         """Generate a plan using built-in rules (LLM fallback)."""
         tech_str = ""
         if hasattr(self.engine, "context") and self.engine.context:

@@ -95,7 +95,7 @@ class PluginHotReloader:
         self.plugin_manager = plugin_manager
         self._plugin_dir = plugin_manager._plugin_dir
         self._known_plugins: Set[str] = set(plugin_manager._plugins.keys())
-        self._thread: threading.Thread | None = None
+        self._thread: Optional[threading.Thread] = None
         self._observer = None
         self._stop_event = threading.Event()
 
