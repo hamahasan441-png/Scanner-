@@ -420,13 +420,300 @@ def main():
         help="Webhook notification format (default: generic)",
     )
 
+    # ── v11.0: Autonomous Orchestrator ───────────────────────────────
+    parser.add_argument(
+        "--auto",
+        action="store_true",
+        help="Autonomous scan mode: self-selects modules from tech stack, "
+             "runs feedback loops, and escalates based on findings",
+    )
+    parser.add_argument(
+        "--auto-budget",
+        type=int,
+        default=3600,
+        metavar="SECONDS",
+        help="Time budget (seconds) for --auto mode (default: 3600)",
+    )
+
+    # ── v11.0: Watch Mode ────────────────────────────────────────────
+    parser.add_argument(
+        "--watch",
+        action="store_true",
+        help="Continuous watch mode: poll target at interval, alert on new findings",
+    )
+    parser.add_argument(
+        "--watch-interval",
+        type=int,
+        default=300,
+        metavar="SECONDS",
+        help="Poll interval for --watch mode in seconds (default: 300)",
+    )
+    parser.add_argument(
+        "--watch-max",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Maximum number of watch iterations (default: unlimited)",
+    )
+
+    # ── v11.0: Batch Parallel ────────────────────────────────────────
+    parser.add_argument(
+        "--batch-parallel",
+        type=int,
+        default=1,
+        metavar="N",
+        help="Run N targets in parallel using ThreadPoolExecutor (default: 1 = sequential)",
+    )
+
+    # ── v11.0: AI Attack Planning ────────────────────────────────────
+    parser.add_argument(
+        "--ai-plan",
+        action="store_true",
+        help="Generate an LLM-driven attack plan from recon output",
+    )
+    parser.add_argument(
+        "--ai-plan-auto",
+        action="store_true",
+        help="Automatically apply --ai-plan recommendations without prompting",
+    )
+
+    # ── v11.0: Show Learned ──────────────────────────────────────────
+    parser.add_argument(
+        "--show-learned",
+        action="store_true",
+        help="Display what the framework has learned per domain/vuln type",
+    )
+
+    # ── v11.0: Async HTTP Engine ─────────────────────────────────────
+    parser.add_argument(
+        "--async-mode",
+        action="store_true",
+        help="Use httpx async HTTP engine for higher throughput (requires: pip install httpx)",
+    )
+
+    # ── v11.0: Distributed Workers ───────────────────────────────────
+    parser.add_argument(
+        "--distribute",
+        metavar="REDIS_URL",
+        help="Distribute scan targets via Redis task queue (controller mode). "
+             "Example: --distribute redis://localhost:6379",
+    )
+    parser.add_argument(
+        "--worker",
+        metavar="REDIS_URL",
+        help="Start as a distributed scan worker pulling from Redis. "
+             "Example: --worker redis://localhost:6379",
+    )
+    parser.add_argument(
+        "--worker-id",
+        default=None,
+        help="Custom worker ID for --worker mode",
+    )
+
+    # ── v11.0: CI/CD Mode ────────────────────────────────────────────
+    parser.add_argument(
+        "--ci-mode",
+        action="store_true",
+        help="CI/CD mode: emit JUnit XML, GitHub annotations, non-zero exit on findings",
+    )
+    parser.add_argument(
+        "--fail-on",
+        choices=["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"],
+        default=None,
+        metavar="SEVERITY",
+        help="Exit with code 1 if any finding at or above this severity is found "
+             "(used with --ci-mode). Example: --fail-on HIGH",
+    )
+
+    # ── v11.0: Burp Suite Export ─────────────────────────────────────
+    parser.add_argument(
+        "--burp-export",
+        action="store_true",
+        help="Export findings as a Burp Suite XML project file",
+    )
+
+    # ── v11.0: New Attack Modules ────────────────────────────────────
+    parser.add_argument("--oauth", action="store_true", help="Enable OAuth/OIDC security testing module")
+    parser.add_argument("--mfa-bypass", action="store_true", help="Enable 2FA/MFA bypass testing module")
+    parser.add_argument(
+        "--api-versioning",
+        action="store_true",
+        help="Enable API versioning abuse / deprecated endpoint detection",
+    )
+    parser.add_argument(
+        "--dep-confusion",
+        action="store_true",
+        help="Enable dependency confusion / supply chain attack surface detection",
+    )
+
+    # ── v11.0: WAF AI Bypass ─────────────────────────────────────────
+    parser.add_argument(
+        "--waf-ai-bypass",
+        action="store_true",
+        help="Use LLM to generate novel WAF bypass mutations when payloads are blocked",
+    )
+
+    # ── v11.0: Browser Scanner ───────────────────────────────────────
+    parser.add_argument(
+        "--browser",
+        action="store_true",
+        help="Enable headless browser scanning (Playwright/Selenium) for DOM-XSS and SPAs",
+    )
+    parser.add_argument(
+        "--browser-engine",
+        choices=["auto", "playwright", "selenium"],
+        default="auto",
+        help="Headless browser engine to use (default: auto)",
+    )
+
+    # ── v11.0: Plugin Hot-Reload ─────────────────────────────────────
+    parser.add_argument(
+        "--hot-reload",
+        action="store_true",
+        help="Enable plugin hot-reload (watchdog or polling the plugins/ directory)",
+    )
+
+    # ── v11.0: Config File ───────────────────────────────────────────
+    parser.add_argument(
+        "--config",
+        metavar="PATH",
+        default=None,
+        help="Path to YAML or TOML config file (default: auto-discover atomic.yaml/atomic.toml)",
+    )
+    parser.add_argument(
+        "--gen-config",
+        metavar="PATH",
+        nargs="?",
+        const="atomic.yaml",
+        help="Generate a starter config file (default: atomic.yaml)",
+    )
+
+    # ── v11.0: Structured Logging ────────────────────────────────────
+    parser.add_argument(
+        "--log-json",
+        action="store_true",
+        help="Emit structured JSON log records (NDJSON) to stderr",
+    )
+    parser.add_argument(
+        "--log-file",
+        metavar="PATH",
+        default=None,
+        help="Write JSON log output to file",
+    )
+
+    # ── v11.0: Kill Chain Report ─────────────────────────────────────
+    parser.add_argument(
+        "--kill-chains",
+        action="store_true",
+        help="Generate attack kill chain analysis from findings at end of scan",
+    )
+
+    # ── v11.0: OpenAPI Spec ──────────────────────────────────────────
+    parser.add_argument(
+        "--api-spec",
+        action="store_true",
+        help="Generate OpenAPI 3.0 spec for the REST API and exit",
+    )
+
     args = parser.parse_args()
 
     # Print banner
     if not args.quiet:
         print_banner()
 
-    # Check external tools availability
+    # ── v11.0: Structured logging setup ─────────────────────────────
+    if getattr(args, "log_json", False) or getattr(args, "log_file", None):
+        import logging
+        from core.structured_logger import setup_structured_logging
+        setup_structured_logging(
+            log_json=getattr(args, "log_json", False),
+            log_file=getattr(args, "log_file", None),
+            level=logging.DEBUG if getattr(args, "verbose", False) else logging.INFO,
+        )
+
+    # ── v11.0: Config file loading (lowest priority, CLI overrides) ──
+    if getattr(args, "gen_config", None):
+        from core.config_loader import generate_starter_config
+        generate_starter_config(args.gen_config)
+        return
+
+    if getattr(args, "config", None) or True:
+        try:
+            from core.config_loader import find_config_file, load_config, apply_to_argparse_namespace
+            cfg_path = find_config_file(getattr(args, "config", None))
+            if cfg_path:
+                file_cfg = load_config(cfg_path)
+                apply_to_argparse_namespace(file_cfg, args)
+        except Exception:
+            pass
+
+    # ── v11.0: Distributed worker mode ──────────────────────────────
+    if getattr(args, "worker", None):
+        from core.distributed import DistributedWorker
+        worker = DistributedWorker(
+            redis_url=args.worker,
+            worker_id=getattr(args, "worker_id", None),
+        )
+        worker.run()
+        return
+
+    # ── v11.0: OpenAPI spec generation ──────────────────────────────
+    if getattr(args, "api_spec", False):
+        try:
+            from web.openapi import generate_openapi_spec, print_openapi_spec
+            print_openapi_spec()
+        except ImportError:
+            try:
+                import json
+                spec = {
+                    "openapi": "3.0.0",
+                    "info": {
+                        "title": "ATOMIC Framework REST API",
+                        "version": "11.0.0",
+                        "description": "ATOMIC security scanning framework REST API"
+                    },
+                    "paths": {
+                        "/api/scan": {
+                            "post": {
+                                "summary": "Start a scan",
+                                "requestBody": {
+                                    "content": {"application/json": {"schema": {"type": "object"}}}
+                                },
+                                "responses": {"200": {"description": "Scan started"}}
+                            }
+                        },
+                        "/api/findings": {
+                            "get": {
+                                "summary": "Get findings",
+                                "responses": {"200": {"description": "List of findings"}}
+                            }
+                        },
+                        "/api/report/{scan_id}": {
+                            "get": {
+                                "summary": "Get report",
+                                "parameters": [{"name": "scan_id", "in": "path", "required": True, "schema": {"type": "string"}}],
+                                "responses": {"200": {"description": "Report data"}}
+                            }
+                        }
+                    }
+                }
+                print(json.dumps(spec, indent=2))
+            except Exception as exc:
+                print(f"OpenAPI spec generation failed: {exc}")
+        return
+
+    # ── v11.0: Show learned payloads ─────────────────────────────────
+    if getattr(args, "show_learned", False):
+        try:
+            from core.learning import LearningStore
+            store = LearningStore()
+            store.load()
+            store.show()
+        except Exception as exc:
+            print(f"{Colors.error(f'Learning store error: {exc}')}")
+        return
+
+
     if args.tools_check:
         from utils.tool_downloader import print_tools_status
 
@@ -965,6 +1252,8 @@ def main():
 
     # --point-to-point enables absolutely everything for complete coverage
     p2p = getattr(args, "point_to_point", False)
+    full = args.full or p2p
+    _auto = getattr(args, "auto", False)
 
     # Build module configuration
     modules = {
@@ -1021,6 +1310,11 @@ def main():
         "dns_recon": getattr(args, "dns_recon", False) or p2p,
         "scapy_vuln_scan": getattr(args, "scapy_vuln_scan", False) or p2p,
         "scapy_attack_chain": getattr(args, "scapy_attack_chain", False) or p2p,
+        # ── v11.0 new modules ────────────────────────────────────────
+        "oauth": getattr(args, "oauth", False) or full,
+        "mfa_bypass": getattr(args, "mfa_bypass", False) or full,
+        "api_versioning": getattr(args, "api_versioning", False) or full,
+        "dep_confusion": getattr(args, "dep_confusion", False) or full,
     }
 
     if args.regulated_mission:
@@ -1074,6 +1368,18 @@ def main():
     config["llm_ctx"] = getattr(args, "llm_ctx", None)
     config["llm_gpu_layers"] = getattr(args, "llm_gpu_layers", 0)
 
+    # ── v11.0 extra config keys ──────────────────────────────────────
+    config["async_mode"] = getattr(args, "async_mode", False)
+    config["waf_ai_bypass"] = getattr(args, "waf_ai_bypass", False)
+    config["browser"] = getattr(args, "browser", False)
+    config["browser_engine"] = getattr(args, "browser_engine", "auto")
+    config["hot_reload"] = getattr(args, "hot_reload", False)
+    config["auto_budget_seconds"] = getattr(args, "auto_budget", 3600)
+    config["ai_plan"] = getattr(args, "ai_plan", False)
+    config["ai_plan_auto"] = getattr(args, "ai_plan_auto", False)
+    config["batch_parallel"] = getattr(args, "batch_parallel", 1)
+
+
     # Notification configuration
     if getattr(args, "notify_webhook", None):
         config["notify_webhook"] = args.notify_webhook
@@ -1120,6 +1426,50 @@ def main():
         print(f"{Colors.error(f'Cannot create output directory {output_dir}: {e}')}")
         sys.exit(1)
 
+    # ── v11.0: Distributed controller mode ──────────────────────────
+    if getattr(args, "distribute", None):
+        try:
+            from core.distributed import DistributedController
+            controller = DistributedController(redis_url=args.distribute, config=config)
+            task_ids = controller.dispatch(targets)
+            results = controller.collect_results(task_ids)
+            print(f"\n{Colors.success(f'Distributed scan complete: {len(results)} results')}")
+        except Exception as exc:
+            print(f"{Colors.error(f'Distributed scan failed: {exc}')}")
+            sys.exit(1)
+        return
+
+    # ── v11.0: Batch parallel scanning ──────────────────────────────
+    if getattr(args, "batch_parallel", 1) > 1 and len(targets) > 1:
+        try:
+            from core.batch_scanner import BatchScanner
+            scanner = BatchScanner(config, max_workers=args.batch_parallel)
+            batch_result = scanner.scan(targets)
+            scanner.generate_consolidated_report(
+                batch_result, fmt=args.format if args.format != "all" else "json",
+                output_dir=output_dir,
+            )
+            if getattr(args, "ci_mode", False):
+                all_batch_findings = [
+                    f for r in batch_result.target_results for f in r.findings
+                ]
+                from core.ci_mode import write_ci_summary
+                exit_code = write_ci_summary(
+                    all_batch_findings,
+                    target="batch",
+                    scan_id="batch",
+                    threshold=getattr(args, "fail_on", None) or "MEDIUM",
+                    output_dir=output_dir,
+                )
+                if exit_code != 0:
+                    sys.exit(exit_code)
+        except Exception as exc:
+            print(f"{Colors.error(f'Batch scan failed: {exc}')}")
+            if args.verbose:
+                import traceback
+                traceback.print_exc()
+        return
+
     # Run scan — one engine per target to isolate scan_id, findings & timing
     try:
         all_findings = []
@@ -1141,6 +1491,15 @@ def main():
         for target in targets:
             print(f"\n{Colors.info(f'Target: {target}')}")
             engine = AtomicEngine(config)
+
+            # ── v11.0: Plugin hot-reload ──────────────────────────────
+            if config.get("hot_reload") and hasattr(engine, "plugin_manager"):
+                try:
+                    from core.plugin_hotreload import PluginHotReloader
+                    _hotreloader = PluginHotReloader(engine.plugin_manager)
+                    _hotreloader.start()
+                except Exception:
+                    pass
 
             # ── Initialize Local LLM if enabled ──────────────────────
             local_llm = None
@@ -1178,12 +1537,110 @@ def main():
             if notification_mgr:
                 engine.notifications = notification_mgr
 
-            engine.scan(target)
+            # ── v11.0: AI Attack Planning ─────────────────────────────
+            if config.get("ai_plan"):
+                try:
+                    from core.attack_planner import AttackPlanner
+                    planner = AttackPlanner(engine)
+                    plan = planner.generate_plan()
+                    planner.print_plan(plan)
+                    if config.get("ai_plan_auto"):
+                        planner.apply_plan(plan)
+                    else:
+                        resp = input(f"{Colors.YELLOW}Apply plan? [y/N] {Colors.RESET}").strip().lower()
+                        if resp == "y":
+                            planner.apply_plan(plan)
+                except Exception as exc:
+                    if args.verbose:
+                        print(f"{Colors.warning(f'AI plan error: {exc}')}")
+
+            # ── v11.0: Autonomous Orchestrator (--auto) ───────────────
+            if _auto:
+                try:
+                    from core.orchestrator import ScanOrchestrator
+                    orchestrator = ScanOrchestrator(engine)
+                    orchestrator.run(target)
+                except Exception as exc:
+                    print(f"{Colors.warning(f'Orchestrator error: {exc} — falling back to standard scan')}")
+                    engine.scan(target)
+            # ── v11.0: Watch Mode (--watch) ───────────────────────────
+            elif getattr(args, "watch", False):
+                try:
+                    from core.watch_mode import WatchSession
+                    session = WatchSession(
+                        engine=engine,
+                        target=target,
+                        interval=getattr(args, "watch_interval", 300),
+                        max_iterations=getattr(args, "watch_max", None),
+                    )
+                    session.run()
+                except Exception as exc:
+                    print(f"{Colors.error(f'Watch mode error: {exc}')}")
+            else:
+                engine.scan(target)
+
+            # ── v11.0: Browser Scanner (--browser) ────────────────────
+            if config.get("browser") and not _auto and not getattr(args, "watch", False):
+                try:
+                    from core.browser_scanner import BrowserScanner
+                    bscanner = BrowserScanner(engine, engine_type=config.get("browser_engine", "auto"))
+                    if bscanner.is_available():
+                        from urllib.parse import urlparse as _up
+                        all_urls = list(getattr(engine, "_scanned_urls", set()) or {target})
+                        bscanner.scan(all_urls[:20])
+                    else:
+                        print(f"{Colors.warning('[BROWSER] No browser engine available — skipping')}")
+                except Exception as exc:
+                    if args.verbose:
+                        print(f"{Colors.warning(f'Browser scan error: {exc}')}")
 
             # Generate reports only after ALL modules finished for this target
             if not args.quiet:
                 print(f"\n{Colors.info('Generating reports...')}")
             engine.generate_reports()
+
+            # ── v11.0: Kill Chain Analysis ────────────────────────────
+            if getattr(args, "kill_chains", False) or full:
+                try:
+                    from core.kill_chain import generate_kill_chains, format_kill_chains_html
+                    chains = generate_kill_chains(engine.findings)
+                    if chains:
+                        print(f"\n{Colors.BOLD}{Colors.RED}[KILL CHAINS]{Colors.RESET}")
+                        for chain in chains:
+                            print(
+                                f"  {Colors.RED}⛓ {chain.name}{Colors.RESET}  "
+                                f"CVSS={chain.combined_cvss}  {chain.combined_severity}"
+                            )
+                            print(f"    {' → '.join(chain.steps)}")
+                except Exception as exc:
+                    if args.verbose:
+                        print(f"{Colors.warning(f'Kill chain error: {exc}')}")
+
+            # ── v11.0: Burp Suite Export ──────────────────────────────
+            if getattr(args, "burp_export", False) and engine.findings:
+                try:
+                    from core.burp_exporter import export_burp_xml
+                    export_burp_xml(engine.findings, target, engine.scan_id, output_dir)
+                except Exception as exc:
+                    if args.verbose:
+                        print(f"{Colors.warning(f'Burp export error: {exc}')}")
+
+            # ── v11.0: CI/CD Mode ─────────────────────────────────────
+            _ci_exit_code = 0
+            if getattr(args, "ci_mode", False):
+                try:
+                    from core.ci_mode import write_ci_summary
+                    _ci_threshold = getattr(args, "fail_on", None) or "MEDIUM"
+                    _ci_exit_code = write_ci_summary(
+                        engine.findings,
+                        target=target,
+                        scan_id=engine.scan_id,
+                        threshold=_ci_threshold,
+                        output_dir=output_dir,
+                    )
+                except Exception as exc:
+                    if args.verbose:
+                        print(f"{Colors.warning(f'CI mode error: {exc}')}")
 
             # Compliance analysis
             if getattr(args, "compliance", False) and engine.findings:
@@ -1313,6 +1770,12 @@ def main():
             print(f"{Colors.BOLD}{'='*60}{Colors.RESET}")
 
         print(f"\n{Colors.success('Scan completed!')}")
+
+        # ── v11.0: CI/CD exit code ─────────────────────────────────
+        if getattr(args, "ci_mode", False) and getattr(args, "fail_on", None) and all_findings:
+            from core.ci_mode import should_fail
+            if should_fail(all_findings, args.fail_on):
+                sys.exit(1)
 
     except KeyboardInterrupt:
         print(f"\n{Colors.warning('Interrupted by user')}")
