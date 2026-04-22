@@ -26,7 +26,7 @@ import logging
 import os
 import threading
 import time
-from typing import TYPE_CHECKING, Set
+from typing import TYPE_CHECKING, Optional, Set
 
 if TYPE_CHECKING:
     from core.plugin_system import PluginManager
