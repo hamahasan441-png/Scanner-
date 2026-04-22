@@ -1,0 +1,136 @@
+{
+  "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/main/sarif-2.1/schema/sarif-schema-2.1.0.json",
+  "runs": [
+    {
+      "columnKind": "utf16CodeUnits",
+      "results": [
+        {
+          "fingerprints": {
+            "finding_id/v1": "2b91b1bc90817ea96569636c"
+          },
+          "level": "error",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "https://example.com/page",
+                  "uriBaseId": "TARGETROOT"
+                }
+              }
+            }
+          ],
+          "message": {
+            "text": "SQL Injection (Error-based) at https://example.com/page (param: id)"
+          },
+          "properties": {
+            "confidence": 0.85,
+            "cwe_id": "CWE-89",
+            "group_id": "056474a57248a4968643",
+            "mitre_id": "T1190",
+            "severity": "HIGH"
+          },
+          "ruleId": "sql_injection_error-based"
+        },
+        {
+          "fingerprints": {
+            "finding_id/v1": "000bebc04c53fc7b68aa7ca5"
+          },
+          "level": "warning",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "https://example.com/search",
+                  "uriBaseId": "TARGETROOT"
+                }
+              }
+            }
+          ],
+          "message": {
+            "text": "Reflected XSS at https://example.com/search (param: q)"
+          },
+          "properties": {
+            "confidence": 0.7,
+            "cwe_id": "CWE-79",
+            "group_id": "056474a57248a4968643",
+            "mitre_id": "T1059.007",
+            "severity": "MEDIUM"
+          },
+          "ruleId": "reflected_xss"
+        }
+      ],
+      "tool": {
+        "driver": {
+          "name": "ATOMIC Framework",
+          "rules": [
+            {
+              "defaultConfiguration": {
+                "level": "warning"
+              },
+              "fullDescription": {
+                "text": "Encode output contextually."
+              },
+              "id": "reflected_xss",
+              "name": "Reflected XSS",
+              "properties": {
+                "security-severity": "7.0",
+                "tags": [
+                  "security"
+                ]
+              },
+              "relationships": [
+                {
+                  "kinds": [
+                    "superset"
+                  ],
+                  "target": {
+                    "id": "CWE-79",
+                    "toolComponent": {
+                      "name": "CWE"
+                    }
+                  }
+                }
+              ],
+              "shortDescription": {
+                "text": "Reflected XSS"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "Use parameterized queries."
+              },
+              "id": "sql_injection_error-based",
+              "name": "SQL Injection (Error-based)",
+              "properties": {
+                "security-severity": "8.5",
+                "tags": [
+                  "security"
+                ]
+              },
+              "relationships": [
+                {
+                  "kinds": [
+                    "superset"
+                  ],
+                  "target": {
+                    "id": "CWE-89",
+                    "toolComponent": {
+                      "name": "CWE"
+                    }
+                  }
+                }
+              ],
+              "shortDescription": {
+                "text": "SQL Injection (Error-based)"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "version": "2.1.0"
+}

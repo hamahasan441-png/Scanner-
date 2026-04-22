@@ -128,6 +128,10 @@ class AtomicEngine:
         self.end_time = None
         self.target = None
         self.post_exploit_results = []
+        # Canonical findings store (populated by core.emit.emit_signal)
+        self._canonical_findings: dict = {}
+        # TargetSurface (populated by build_surface during scan)
+        self.surface = None
 
         # --- Scanner rules engine ---
         rules_path = config.get("rules_path")
@@ -711,6 +715,15 @@ class AtomicEngine:
             # Scope filter: remove out-of-scope URLs
             urls = self.scope.filter_urls(urls)
             parameters = self.scope.filter_parameters(parameters)
+
+            # ── Build canonical TargetSurface from crawler artifacts ──
+            # Runs after scope filtering so the surface only contains
+            # in-scope endpoints.  Errors are non-fatal.
+            try:
+                robots_text = getattr(getattr(self, "scope", None), "_robots_text", "") or ""
+                self.build_surface(effective_target, crawler=crawler, robots_text=robots_text)
+            except Exception as _surf_exc:
+                logger.debug("TargetSurface build skipped: %s", _surf_exc)
 
             # ── Fuzzer discovery (uses origin IP target) ──────────────
             if modules_config.get("fuzzer", False) or modules_config.get("discovery", False):
@@ -1433,6 +1446,62 @@ class AtomicEngine:
                         print(f"    {Colors.CYAN}[AI]{Colors.RESET} {analysis['llm_analysis'][:120]}")
             except Exception:
                 pass
+
+    def build_surface(
+        self,
+        target: str,
+        *,
+        crawler=None,
+        robots_text: str = "",
+        sitemap_text: str = "",
+        openapi_spec: dict = None,
+        js_texts: list = None,
+        responses: list = None,
+    ):
+        """Build (or rebuild) the canonical ``TargetSurface`` for this scan.
+
+        Stores the result as ``self.surface`` and emits a pipeline event
+        so the web dashboard can report the number of discovered endpoints.
+
+        This is called automatically from ``scan()`` after crawling completes,
+        but can also be called from tests or runners directly.
+
+        Returns the built ``TargetSurface``.
+        """
+        from core.surface import build_target_surface
+        from core.models import ScanConfig
+
+        scan_config = ScanConfig.from_raw(self.config)
+        scan_config.target = target
+
+        self.surface = build_target_surface(
+            scan_config,
+            target,
+            crawler=crawler,
+            robots_text=robots_text,
+            sitemap_text=sitemap_text,
+            openapi_spec=openapi_spec,
+            js_texts=js_texts,
+            responses=responses,
+        )
+
+        self.emit_pipeline_event(
+            "surface_built",
+            {
+                "surface_id": self.surface.surface_id,
+                "endpoint_count": len(self.surface.endpoints),
+                "target": target,
+            },
+        )
+        return self.surface
+
+    def get_canonical_findings(self) -> list:
+        """Return all ``CanonicalFinding`` objects registered via ``core.emit``.
+
+        These are richer than the legacy ``self.findings`` list and include
+        full evidence, repro, and verification metadata.
+        """
+        return list(self._canonical_findings.values())
 
     def _print_attack_results(self):
         """Display rich attack/exploitation results in the console."""
