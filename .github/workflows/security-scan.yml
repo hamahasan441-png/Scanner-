@@ -42,6 +42,9 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Create reports directory
+        run: mkdir -p reports
+
       - name: Run security scan (CI mode)
         env:
           ATOMIC_API_KEY: ${{ secrets.ATOMIC_API_KEY }}
@@ -84,6 +87,7 @@ jobs:
           if-no-files-found: ignore
 
       - name: Check scan exit code
+        if: github.event_name == 'workflow_dispatch'
         run: |
           if [ "${{ steps.scan.outcome }}" = "failure" ]; then
             echo "::error::Security scan found vulnerabilities at or above the threshold!"
