@@ -337,6 +337,29 @@ class AtomicEngine:
             except Exception as exc:
                 logger.debug("WebSocket callback failed: %s", exc)
 
+    def add_finding_dict(self, finding_dict: dict):
+        """Add a raw finding dict to self.findings (used by browser scanner and plugins).
+
+        Converts the dict to a CanonicalFinding if possible, otherwise stores as-is.
+        """
+        try:
+            from core.models import CanonicalFinding
+            f = CanonicalFinding(
+                technique=finding_dict.get("technique", "Unknown"),
+                url=finding_dict.get("url", ""),
+                method=finding_dict.get("method", "GET"),
+                param=finding_dict.get("param", ""),
+                payload=finding_dict.get("payload", ""),
+                severity=finding_dict.get("severity", "INFO"),
+                confidence=float(finding_dict.get("confidence", 0.5)),
+                cvss=float(finding_dict.get("cvss", 0.0)),
+            )
+            self.findings.append(f)
+        except Exception:
+            # Fallback: store the raw dict
+            self.findings.append(finding_dict)
+
+
     def get_pipeline_state(self) -> dict:
         """Return the current pipeline state for the dashboard."""
         attack_routes = None

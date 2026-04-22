@@ -1,4 +1,4 @@
-# ATOMIC Framework v10.0 - Requirements
+# ATOMIC Framework v11.0 - Requirements
 # Termux Compatible (no C-extension builds required)
 # Versions pinned to tested releases — update with care
 
@@ -37,6 +37,32 @@ scapy==2.7.0
 # YAML configuration
 PyYAML==6.0.3
 
+# ── v11.0 new optional dependencies ──────────────────────────────────
+# Async HTTP engine (--async-mode)
+#   pip install httpx>=0.27.0
+
+# Distributed workers (--distribute / --worker)
+#   pip install redis>=5.0.0
+
+# Browser scanner (--browser with Playwright)
+#   pip install playwright>=1.40.0 && playwright install chromium
+# Or with Selenium:
+#   pip install selenium>=4.16.0
+
+# Plugin hot-reload (--hot-reload)
+#   pip install watchdog>=4.0.0
+
+# TOML config support on Python < 3.11
+#   pip install tomli>=2.0.0
+
+# OpenTelemetry tracing (structured logging spans)
+#   pip install opentelemetry-api>=1.20.0 opentelemetry-sdk>=1.20.0
+#   pip install opentelemetry-exporter-otlp>=1.20.0  # for Jaeger/Grafana
+
+# Testing
+pytest>=8.0.0
+pytest-timeout>=2.3.1
+
 # Optional: C-extension packages (may require compilation on some platforms)
 # Install separately if needed:
 #   pip install lxml>=4.9.0 cryptography>=38.0.0 paramiko>=2.12.0
@@ -46,3 +72,4 @@ PyYAML==6.0.3
 
 # Optional: Enhanced HTML parsing (discovery module uses lxml as BeautifulSoup backend)
 #   pip install lxml>=4.9.0
+

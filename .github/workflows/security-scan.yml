@@ -1,0 +1,136 @@
+name: ATOMIC Security Scan
+
+on:
+  push:
+    branches: [main, master, develop]
+  pull_request:
+    branches: [main, master]
+  schedule:
+    # Run every day at 02:00 UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'Target URL to scan'
+        required: true
+        default: 'https://example.com'
+      fail_on:
+        description: 'Fail on minimum severity (CRITICAL|HIGH|MEDIUM|LOW)'
+        required: false
+        default: 'CRITICAL'
+
+jobs:
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write  # required to upload SARIF
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Create reports directory
+        run: mkdir -p reports
+
+      - name: Run security scan (CI mode)
+        env:
+          ATOMIC_API_KEY: ${{ secrets.ATOMIC_API_KEY }}
+          ATOMIC_WEBHOOK_URL: ${{ secrets.ATOMIC_WEBHOOK_URL }}
+        run: |
+          TARGET="${{ github.event.inputs.target || 'https://example.com' }}"
+          FAIL_ON="${{ github.event.inputs.fail_on || 'CRITICAL' }}"
+          python main.py \
+            --target "$TARGET" \
+            --ci-mode \
+            --fail-on "$FAIL_ON" \
+            --format sarif \
+            --output reports/ \
+            --cors --xss --sqli --headers \
+            --quiet
+        continue-on-error: true
+        id: scan
+
+      - name: Upload SARIF to GitHub Security tab
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: reports/
+        continue-on-error: true
+
+      - name: Upload JUnit XML test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-scan-junit
+          path: reports/*_junit.xml
+          if-no-files-found: ignore
+
+      - name: Upload full scan reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-scan-reports
+          path: reports/
+          if-no-files-found: ignore
+
+      - name: Check scan exit code
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          if [ "${{ steps.scan.outcome }}" = "failure" ]; then
+            echo "::error::Security scan found vulnerabilities at or above the threshold!"
+            exit 1
+          fi
+
+  # Optional: run a full autonomous scan on schedule
+  autonomous-scan:
+    name: Autonomous Scheduled Scan
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule'
+    permissions:
+      contents: read
+      security-events: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run autonomous scan
+        env:
+          ATOMIC_WEBHOOK_URL: ${{ secrets.ATOMIC_WEBHOOK_URL }}
+        run: |
+          python main.py \
+            --target "${{ vars.SCAN_TARGET || 'https://example.com' }}" \
+            --auto \
+            --ci-mode \
+            --fail-on HIGH \
+            --format all \
+            --output reports/
+        continue-on-error: true
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: autonomous-scan-reports
+          path: reports/
+          retention-days: 30
