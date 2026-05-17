@@ -82,6 +82,14 @@ def main():
         "--authorized", action="store_true", help="Confirm you are authorized to test the specified targets"
     )
     parser.add_argument(
+        "--unsafe-mode",
+        action="store_true",
+        help="Per-run: lift the per-technique findings cap (default 25) "
+             "and lower the auto-attack severity floor to LOW. Reverts to "
+             "safe defaults on the next invocation. Requires --authorized; "
+             "the flag itself is the audit trail.",
+    )
+    parser.add_argument(
         "--strict-scope", action="store_true", help="Enforce strict target scope (do not auto-expand from target host)"
     )
     parser.add_argument("--allow-domain", help="Comma-separated allowed domains for strict scope enforcement")
@@ -1463,6 +1471,30 @@ def main():
             f"{Colors.info('Re-run with --authorized to confirm you have written permission to test the listed targets.')}"
         )
         sys.exit(1)
+
+    # --unsafe-mode is gated on --authorized. It is per-run only: it
+    # lifts the per-technique findings cap and lowers the auto-attack
+    # severity floor to LOW for this invocation. The flag itself is the
+    # audit trail; defaults are restored on the next run.
+    unsafe_mode = bool(getattr(args, "unsafe_mode", False))
+    if unsafe_mode and not args.authorized:
+        # argparse won't reach here (the auth gate above exits first),
+        # but keep the explicit check so future refactors can't drop it.
+        print(f"{Colors.error('--unsafe-mode requires --authorized.')}")
+        sys.exit(1)
+    if unsafe_mode:
+        print(
+            f"{Colors.warning('UNSAFE MODE ENABLED for this run:')} "
+            f"per-technique findings cap lifted, auto-attack severity "
+            f"floor lowered to LOW. Reverts to safe defaults on next "
+            f"invocation."
+        )
+    config["unsafe_mode"] = unsafe_mode
+    if unsafe_mode:
+        # Override severity floor unless the operator already set one
+        # explicitly via --attack-severity-floor.
+        if getattr(args, "attack_severity_floor", "HIGH") == "HIGH":
+            config["attack_severity_floor"] = "LOW"
 
     config["modules"] = modules
 

@@ -485,6 +485,18 @@ class AtomicEngine:
         # ── Audit & Notifications: scan started ──────────────────────
         if self.audit:
             self.audit.log_scan("scan.started", target=target, details={"scan_id": self.scan_id})
+            # Audit-trail --unsafe-mode at scan start: the flag is the
+            # operator's explicit acknowledgement that report-flood and
+            # severity-floor caps are lifted for this run only.
+            if self.config.get("unsafe_mode"):
+                self.audit.log_config(
+                    "scan.unsafe_mode",
+                    result="enabled",
+                    scan_id=self.scan_id,
+                    target=target,
+                    severity_floor=self.config.get("attack_severity_floor", "LOW"),
+                    per_type_cap="lifted",
+                )
         if self.notifications:
             self.notifications.notify_scan_started(self.scan_id, target)
 
