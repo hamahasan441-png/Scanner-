@@ -26,7 +26,14 @@ class CORSModule(BaseModule):
         pass  # CORS is tested at URL level
 
     def test_url(self, url: str):
-        """Test URL for CORS misconfiguration"""
+        """Test URL for CORS misconfiguration.
+
+        Iterates through every malicious origin class so that a single
+        permissive response does not mask additional weaknesses (null,
+        file://, subdomain takeover patterns, etc.). Each origin produces
+        at most one finding for this URL via ``_seen`` so reports stay
+        readable.
+        """
         # Test with malicious origin
         malicious_origins = [
             "https://evil.com",
@@ -38,6 +45,26 @@ class CORSModule(BaseModule):
             "http://127.0.0.1",
             "https://" + urlparse(url).netloc + ".evil.com",
         ]
+
+        seen_findings = set()  # (technique, severity) per-URL dedup
+
+        def _record(technique: str, severity: str, confidence: float, origin: str, evidence: str):
+            key = (technique, severity)
+            if key in seen_findings:
+                return
+            seen_findings.add(key)
+            from core.engine import Finding
+
+            finding = Finding(
+                technique=technique,
+                url=url,
+                severity=severity,
+                confidence=confidence,
+                param="",
+                payload="Origin: " + origin,
+                evidence=evidence,
+            )
+            self.engine.add_finding(finding)
 
         for origin in malicious_origins:
             try:
@@ -56,64 +83,41 @@ class CORSModule(BaseModule):
                     # Wildcard ACAO is only a real issue if credentials are also allowed
                     # Public APIs intentionally use ACAO:* which is safe without credentials
                     if acac.lower() == "true":
-                        from core.engine import Finding
-
-                        finding = Finding(
-                            technique="CORS Misconfiguration (Wildcard + Credentials)",
-                            url=url,
-                            severity="HIGH",
-                            confidence=0.9,
-                            param="",
-                            payload="Origin: " + origin,
-                            evidence="Access-Control-Allow-Origin: *\nAccess-Control-Allow-Credentials: true",
+                        _record(
+                            "CORS Misconfiguration (Wildcard + Credentials)",
+                            "HIGH",
+                            0.9,
+                            origin,
+                            "Access-Control-Allow-Origin: *\nAccess-Control-Allow-Credentials: true",
                         )
-                        self.engine.add_finding(finding)
-                        return
                     else:
                         # Wildcard without credentials is informational, not a vulnerability
-                        from core.engine import Finding
-
-                        finding = Finding(
-                            technique="CORS Misconfiguration (Wildcard)",
-                            url=url,
-                            severity="INFO",
-                            confidence=0.5,
-                            param="",
-                            payload="Origin: " + origin,
-                            evidence="Access-Control-Allow-Origin: * (no credentials)",
+                        _record(
+                            "CORS Misconfiguration (Wildcard)",
+                            "INFO",
+                            0.5,
+                            origin,
+                            "Access-Control-Allow-Origin: * (no credentials)",
                         )
-                        self.engine.add_finding(finding)
-                        return
+                    continue  # next origin — wildcard observed, no point retrying same class
 
                 if acao == origin:
                     if acac.lower() == "true":
-                        from core.engine import Finding
-
-                        finding = Finding(
-                            technique="CORS Misconfiguration (Credentials)",
-                            url=url,
-                            severity="HIGH",
-                            confidence=0.9,
-                            param="",
-                            payload="Origin: " + origin,
-                            evidence=f"Access-Control-Allow-Origin: {acao}\nAccess-Control-Allow-Credentials: true",
+                        _record(
+                            "CORS Misconfiguration (Credentials)",
+                            "HIGH",
+                            0.9,
+                            origin,
+                            f"Access-Control-Allow-Origin: {acao}\nAccess-Control-Allow-Credentials: true",
                         )
-                        self.engine.add_finding(finding)
-                        return
                     else:
-                        from core.engine import Finding
-
-                        finding = Finding(
-                            technique="CORS Misconfiguration (Reflected Origin)",
-                            url=url,
-                            severity="MEDIUM",
-                            confidence=0.7,
-                            param="",
-                            payload="Origin: " + origin,
-                            evidence=f"Access-Control-Allow-Origin: {acao}",
+                        _record(
+                            "CORS Misconfiguration (Reflected Origin)",
+                            "MEDIUM",
+                            0.7,
+                            origin,
+                            f"Access-Control-Allow-Origin: {acao}",
                         )
-                        self.engine.add_finding(finding)
-                        return
 
             except Exception as e:
                 if self.engine.config.get("verbose"):

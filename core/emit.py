@@ -148,7 +148,7 @@ def emit_signal(signal: ModuleSignal, engine) -> Optional[CanonicalFinding]:
         payload=norm_signal.payload,
         severity=severity,
         confidence=confidence,
-        cvss=_confidence_to_cvss(confidence),
+        cvss=_confidence_to_cvss(confidence, norm_signal.vuln_type),
         mitre_id=mitre_id,
         cwe_id=cwe_id,
         evidence=evidence,
@@ -328,9 +328,49 @@ def _lookup_mitre_cwe(vuln_type: str) -> tuple:
     return entry
 
 
-def _confidence_to_cvss(confidence: float) -> float:
-    """Map confidence (0-1) to a rough CVSS base score."""
-    return round(confidence * 10.0, 1)
+def _confidence_to_cvss(confidence: float, vuln_type: str = "") -> float:
+    """Compute a coarse CVSS-v3.1 base-score estimate.
+
+    The previous implementation used ``confidence * 10`` which is not
+    CVSS at all — a 0.5-confidence finding became "5.0" regardless of
+    impact. This version starts from a per-vuln-class baseline that
+    reflects typical exploitability + impact for that family, then
+    attenuates by confidence so that low-confidence signals cannot
+    masquerade as high-severity issues. The result is still a coarse
+    estimate (an authoritative score requires a real CVSS vector built
+    from the concrete environment), but it no longer pretends accuracy
+    it doesn't have.
+    """
+    # Baseline severity per vuln family (CVSS v3.1 ranges): roughly the
+    # median observed for confirmed instances of the class.
+    BASELINE = {
+        "sqli": 9.0,                # CWE-89: full DB compromise common
+        "cmdi": 9.8,                # CWE-78: arbitrary OS command
+        "ssti": 9.8,                # CWE-94: typically RCE
+        "deserialization": 9.0,     # CWE-502: typically RCE
+        "xxe": 8.0,                 # CWE-611: SSRF + file read
+        "ssrf": 7.5,                # CWE-918: internal exposure
+        "lfi": 7.5,                 # CWE-22: file disclosure → RCE
+        "upload": 8.5,              # CWE-434: shell upload
+        "proto_pollution": 7.5,
+        "xss": 6.1,                 # CWE-79: typical reflected
+        "jwt": 7.5,                 # CWE-287: auth bypass
+        "idor": 6.5,                # CWE-639: data exposure
+        "nosql": 7.5,
+        "open_redirect": 6.1,
+        "cors": 6.5,
+        "crlf": 5.4,
+        "hpp": 5.0,
+        "race_condition": 5.0,
+        "websocket": 5.4,
+    }
+    base = BASELINE.get((vuln_type or "").lower(), 5.0)
+    confidence = max(0.0, min(1.0, float(confidence or 0.0)))
+    # Attenuate by confidence with a floor so a high-impact-but-low-
+    # confidence finding still surfaces above noise.  At confidence 1.0
+    # the score equals the baseline; at confidence 0.25 it's halved.
+    attenuated = base * (0.5 + 0.5 * confidence)
+    return round(min(10.0, attenuated), 1)
 
 
 def _build_request_fingerprint(signal: ModuleSignal) -> dict:

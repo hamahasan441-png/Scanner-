@@ -11,6 +11,18 @@ from config import Config, Colors
 from utils.database import Database
 
 
+def _shell_tls_verify() -> bool:
+    """Whether shell-control HTTP traffic should verify TLS certificates.
+
+    Defaults to True (verify). Opt out via the ATOMIC_INSECURE_TLS env var
+    (set by main.py when --insecure-tls is passed) — never disable
+    silently.  TLS verification is especially important here because the
+    shell manager is controlling a *deployed* shell.
+    """
+    flag = os.environ.get("ATOMIC_INSECURE_TLS", "").strip().lower()
+    return flag not in ("1", "true", "yes", "on")
+
+
 class ShellManager:
     """Interactive Shell Manager"""
 
@@ -117,7 +129,7 @@ class ShellManager:
             else:
                 full_url = f"{url}?{password_param}={requests.utils.quote(cmd)}"
 
-            response = requests.get(full_url, timeout=30, verify=False)
+            response = requests.get(full_url, timeout=30, verify=_shell_tls_verify())
 
             # Update last used
             from datetime import datetime, timezone
@@ -172,7 +184,7 @@ class ShellManager:
 
             # Try to upload via PHP file upload
             files = {"file": (filename, content)}
-            requests.post(url, files=files, timeout=30, verify=False)
+            requests.post(url, files=files, timeout=30, verify=_shell_tls_verify())
 
             print(f"{Colors.success(f'File uploaded: {filename}')}")
 

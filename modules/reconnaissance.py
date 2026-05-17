@@ -74,7 +74,17 @@ class ReconModule:
     # ─── DNS ─────────────────────────────────────────────────────────
 
     def _dns_lookup(self, domain: str):
-        """DNS enumeration — A, reverse, MX, NS, TXT records."""
+        """DNS enumeration — A, reverse, MX, NS, TXT records.
+
+        Uses a bounded DNS timeout so a slow resolver does not stall the
+        whole recon phase.  Python's blocking ``gethostbyname`` does not
+        accept a timeout argument, so we apply ``socket.setdefaulttimeout``
+        scoped to this call only.
+        """
+        # 5 seconds is plenty for any normal DNS resolution.
+        DNS_TIMEOUT = 5.0
+        prev_timeout = socket.getdefaulttimeout()
+        socket.setdefaulttimeout(DNS_TIMEOUT)
         try:
             ip = socket.gethostbyname(domain)
             print(f"{Colors.info(f'DNS A: {domain} → {ip}')}")
@@ -90,11 +100,15 @@ class ReconModule:
             # Additional records via dnspython (optional dependency)
             self._dns_extra_records(domain)
 
+        except socket.timeout:
+            print(f"{Colors.warning(f'DNS lookup timed out after {DNS_TIMEOUT}s for {domain}')}")
         except socket.gaierror as e:
             print(f"{Colors.warning(f'DNS lookup failed: {e}')}")
         except Exception as e:
             if self.verbose:
                 print(f"{Colors.error(f'DNS lookup error: {e}')}")
+        finally:
+            socket.setdefaulttimeout(prev_timeout)
 
     def _dns_extra_records(self, domain: str):
         """Query MX, NS, and TXT records (requires dnspython)."""

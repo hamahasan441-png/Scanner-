@@ -144,10 +144,18 @@ class AsyncRequester:
         self._semaphore = asyncio.Semaphore(concurrency)
         headers = Config.get_random_headers()
         proxy = self.config.get("proxy")
+        # TLS verification: ON by default; opt-in to insecure mode only via
+        # explicit --insecure-tls flag for self-signed-cert engagements.
+        verify_tls = not bool(self.config.get("insecure_tls", False))
+        if not verify_tls:
+            logger.warning(
+                "TLS certificate verification DISABLED (--insecure-tls). "
+                "Async HTTP traffic is vulnerable to MITM."
+            )
         self._client = httpx.AsyncClient(
             headers=headers,
             timeout=self.timeout,
-            verify=False,  # noqa: S501 — intentional for security testing
+            verify=verify_tls,
             follow_redirects=True,
             **({"proxy": proxy} if proxy else {}),
         )

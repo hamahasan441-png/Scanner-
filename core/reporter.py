@@ -51,6 +51,10 @@ class ReportGenerator:
         self.shield_profile = shield_profile or {}
         self.origin_result = origin_result or {}
         self.agent_result = agent_result or {}
+        # Finding groups (correlated clusters). Optional — empty by
+        # default; OutputPhase populates this attribute after running
+        # the deterministic correlator.
+        self.finding_groups = []
 
         # If no findings provided, try to load from database
         if not self.findings:
