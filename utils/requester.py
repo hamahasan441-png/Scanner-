@@ -6,6 +6,7 @@ Advanced HTTP request handler with evasion, response caching, and metrics
 """
 
 import logging
+import os
 import random
 import re
 import time
@@ -214,16 +215,41 @@ class Requester:
         self._rate_limited = False
         self._consecutive_429 = 0
 
-        # Warn once when SSL verification is disabled (the default for a
-        # scanner, but callers should be aware of the MITM risk).
+        # TLS verification is ON by default. Opt out via either:
+        #   - config["insecure_tls"] = True  (set by main.py from --insecure-tls)
+        #   - config["verify_ssl"] = False  (legacy alias kept for back-compat)
+        # The async requester already obeyed this contract; the sync
+        # requester silently disabled verification regardless of flags.
+        # That defaulted every scan to MITM-vulnerable HTTPS, including
+        # shell-control traffic.
+        self._verify_tls = self._resolve_verify_tls(config)
         self._ssl_warned = False
-        if not config.get("verify_ssl", False):
+        if not self._verify_tls:
             _logger.warning(
-                "SSL certificate verification is DISABLED. "
-                "Connections are vulnerable to MITM attacks. "
-                "Set verify_ssl=True or --verify-ssl flag for secure operation."
+                "TLS certificate verification is DISABLED (insecure_tls=True). "
+                "Connections are vulnerable to MITM attacks — only use this "
+                "for self-signed-cert engagements with explicit authorization."
             )
             self._ssl_warned = True
+
+    @staticmethod
+    def _resolve_verify_tls(config: dict) -> bool:
+        """Resolve TLS-verify preference with secure-by-default semantics.
+
+        Precedence (first match wins):
+            1. ``insecure_tls=True``  -> verify off
+            2. ``verify_ssl=False``   -> verify off (legacy alias)
+            3. ATOMIC_INSECURE_TLS=1  -> verify off (env propagation)
+            4. otherwise              -> verify on
+        """
+        if config.get("insecure_tls", False):
+            return False
+        if "verify_ssl" in config and not config.get("verify_ssl"):
+            return False
+        env_flag = os.environ.get("ATOMIC_INSECURE_TLS", "").strip().lower()
+        if env_flag in ("1", "true", "yes", "on"):
+            return False
+        return True
 
         # Response cache — only caches baseline/recon GET requests
         cache_size = config.get("cache_size", 2000)
@@ -242,8 +268,25 @@ class Requester:
         except Exception:
             self._evasion_engine = None
 
+        # Optional bypass orchestrator (set by AtomicEngine when
+        # --full-bypass/--waf-bypass is on). When attached, every
+        # outbound request gets a chance to pick up adaptive spoofing
+        # headers — no payload mutation at this layer; payload variants
+        # are produced at the module call-site via
+        # ``orchestrator.payload_variants(...)``.
+        self._bypass = None
+
         if self.session:
             self._setup_session()
+
+    def attach_bypass(self, orchestrator) -> None:
+        """Attach a :class:`core.bypass.BypassOrchestrator` instance.
+
+        The requester does not import the orchestrator class — duck
+        typing keeps ``utils.requester`` decoupled from ``core.bypass``
+        so each can be unit-tested without the other.
+        """
+        self._bypass = orchestrator
 
     def _setup_session(self):
         """Configure session with connection pooling"""
@@ -505,6 +548,25 @@ class Requester:
         if headers:
             req_headers.update(headers)
 
+        # Bypass orchestrator overlay (adaptive spoofing headers, no
+        # payload mutation). Attached via :meth:`attach_bypass` when
+        # the engine has --full-bypass/--waf-bypass on. Caller-supplied
+        # headers always win over orchestrator-suggested ones.
+        if self._bypass is not None:
+            try:
+                overlay = self._bypass.apply(
+                    {"url": url, "method": "GET", "headers": dict(req_headers)},
+                    family="rate_limit",
+                )
+                bypass_headers = overlay.get("headers") or {}
+                for k, v in bypass_headers.items():
+                    req_headers.setdefault(k, v)
+                bypass_delay = overlay.get("_bypass_delay")
+                if bypass_delay:
+                    time.sleep(min(2.0, float(bypass_delay)))
+            except Exception:
+                pass
+
         if data and isinstance(data, dict):
             evaded_data = {}
             for k, v in data.items():
@@ -522,7 +584,7 @@ class Requester:
 
     def _dispatch_request(self, url, method, data, req_headers, files, timeout, allow_redirects):
         """Dispatch the HTTP request to the appropriate session method."""
-        verify_ssl = self.config.get("verify_ssl", False)
+        verify_ssl = self._verify_tls
         effective_timeout = timeout or self.timeout
         common = dict(headers=req_headers, timeout=effective_timeout, allow_redirects=allow_redirects, verify=verify_ssl)
 

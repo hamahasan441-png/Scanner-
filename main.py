@@ -197,6 +197,38 @@ def main():
         help="Evasion level (default: none)",
     )
     parser.add_argument("--waf-bypass", action="store_true", help="Enable WAF bypass techniques")
+    parser.add_argument(
+        "--full-bypass",
+        action="store_true",
+        help="Activate the universal BypassOrchestrator: adaptive WAF "
+             "evasion ladder (URL/double-URL/HTML/Unicode/SQL-comment "
+             "encoders, mixed case, whitespace swap, IP spoofing, "
+             "origin spoof, method override) with per-host learning "
+             "ledger so successful techniques bubble to the top of "
+             "future attempts. Implies --waf-bypass.",
+    )
+    parser.add_argument(
+        "--full-attack",
+        action="store_true",
+        help="Streaming auto-exploitation: every confirmed HIGH/"
+             "CRITICAL finding (confidence >= 0.7) is routed to the "
+             "AttackRouter / PostExploitEngine the moment it's added, "
+             "instead of waiting for end-of-scan. Requires "
+             "--authorized.",
+    )
+    parser.add_argument(
+        "--attack-confidence",
+        type=float,
+        default=0.7,
+        help="Minimum finding confidence for --full-attack to chain "
+             "into post-exploitation (default: 0.7)",
+    )
+    parser.add_argument(
+        "--attack-severity-floor",
+        choices=["CRITICAL", "HIGH", "MEDIUM", "LOW"],
+        default="HIGH",
+        help="Lowest severity --full-attack will exploit (default: HIGH)",
+    )
     parser.add_argument("--tor", action="store_true", help="Route through Tor network")
     parser.add_argument("--proxy", help="Use proxy (format: http://host:port)")
     parser.add_argument("--rotate-proxy", action="store_true", help="Rotate proxies automatically")
@@ -1286,7 +1318,12 @@ def main():
         "timeout": args.timeout,
         "delay": args.delay,
         "evasion": args.evasion,
-        "waf_bypass": args.waf_bypass,
+        "waf_bypass": args.waf_bypass or getattr(args, "full_bypass", False),
+        "full_bypass": getattr(args, "full_bypass", False),
+        "full_attack": getattr(args, "full_attack", False),
+        "attack_confidence": getattr(args, "attack_confidence", 0.7),
+        "attack_severity_floor": getattr(args, "attack_severity_floor", "HIGH"),
+        "authorized": bool(args.authorized),
         "tor": args.tor,
         "proxy": args.proxy,
         "rotate_proxy": args.rotate_proxy,
@@ -1342,7 +1379,14 @@ def main():
         # Auto-route HIGH/CRITICAL findings to AttackRouter — must be
         # explicitly requested. Previously defaulted to True inside the
         # engine, which silently triggered post-exploitation.
-        "smart_attack": getattr(args, "smart_attack", False) or args.auto_exploit or p2p,
+        # --full-attack also opts in for the end-of-scan sweep so any
+        # finding promoted late (after correlation) still gets handled.
+        "smart_attack": (
+            getattr(args, "smart_attack", False)
+            or args.auto_exploit
+            or p2p
+            or getattr(args, "full_attack", False)
+        ),
         "recon": args.recon or args.full or p2p,
         "subdomains": args.subdomains or args.full or p2p,
         "ports": args.ports or ("1-65535" if p2p else None),

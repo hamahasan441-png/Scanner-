@@ -160,6 +160,17 @@ class AtomicEngine:
         self.attack_router = None
         self._ws_callback = None  # WebSocket event callback (set by web app)
 
+        # Universal bypass orchestrator (lazy: only built when something
+        # asks for it via build_orchestrator). Modules check
+        # ``self.bypass`` to grab payload-variant ladders or to hook
+        # extra headers onto outgoing requests. ``None`` means "no
+        # bypass active"; the requester degrades to the legacy WAF
+        # encodings already shipped with utils.requester.Requester.
+        self.bypass = None
+        # Streaming auto-exploiter (installed only when
+        # --full-attack/--smart-attack and --authorized are both on).
+        self.full_attacker = None
+
         # Initialize evasion engine
         try:
             from utils.evasion import EvasionEngine
@@ -173,7 +184,6 @@ class AtomicEngine:
         from utils.requester import Requester
 
         self.requester = Requester(config)
-
         # Initialize database
         try:
             from utils.database import Database
@@ -262,6 +272,52 @@ class AtomicEngine:
         # Initialize modules
         self._modules = {}
         self._load_modules()
+
+        # ── Universal Bypass Orchestrator ─────────────────────────────
+        # Activated when --full-bypass or --waf-bypass is set. Modules
+        # consult ``self.bypass`` for adaptive payload variant lists
+        # (pre-prioritised by per-host learning ledger) instead of
+        # rolling their own one-shot encoding tables. The requester
+        # also pipes outbound scan traffic through ``bypass.apply()``
+        # to inject IP-spoofing / origin-spoofing headers when
+        # WAF-class blocks are detected.
+        if config.get("full_bypass") or config.get("waf_bypass"):
+            try:
+                from core.bypass import build_orchestrator
+
+                self.bypass = build_orchestrator(config)
+                logger.debug(
+                    "BypassOrchestrator active (max_attempts=%s)",
+                    self.bypass.max_attempts,
+                )
+                # Make the orchestrator visible to the requester so
+                # every outbound scan request can pick up adaptive
+                # spoofing headers and jitter.
+                if hasattr(self.requester, "attach_bypass"):
+                    self.requester.attach_bypass(self.bypass)
+            except Exception as exc:
+                logger.debug("BypassOrchestrator init failed: %s", exc)
+                self.bypass = None
+
+        # ── Streaming Auto-Exploiter (Full Attacker) ──────────────────
+        # Hooks into ``add_finding`` so confirmed HIGH/CRITICAL vulns
+        # trigger exploitation immediately rather than waiting for the
+        # end-of-scan AttackRouter pass. Gated by --authorized AND
+        # one of --full-attack/--smart-attack/--auto-exploit.
+        try:
+            from core.full_attacker import install as _install_attacker
+
+            self.full_attacker = _install_attacker(self)
+            if self.full_attacker:
+                logger.debug(
+                    "FullAttacker active (severity_floor=%s, conf>=%s, max=%s)",
+                    self.full_attacker.policy.severity_floor,
+                    self.full_attacker.policy.confidence_threshold,
+                    self.full_attacker.policy.max_exploits_per_scan,
+                )
+        except Exception as exc:
+            logger.debug("FullAttacker install failed: %s", exc)
+            self.full_attacker = None
 
     def _load_modules(self):
         """Load enabled scanning modules"""
@@ -1466,6 +1522,29 @@ class AtomicEngine:
         # Save to database
         if self.db:
             self.db.save_finding(self.scan_id, finding)
+
+        # ── Streaming auto-exploitation ───────────────────────────
+        # If the FullAttacker is installed (--full-attack / --smart-
+        # attack with --authorized), give it a chance to chain into
+        # post-exploitation immediately. Do this AFTER persisting the
+        # finding so the exploit attempt and its results land in the
+        # same scan record. Failures here must not block the scan.
+        if self.full_attacker is not None and finding.severity in ("CRITICAL", "HIGH"):
+            try:
+                rec = self.full_attacker.maybe_attack(finding)
+                if rec is not None:
+                    self.emit_pipeline_event(
+                        "auto_exploit_streamed",
+                        {
+                            "family": rec.family,
+                            "url": rec.url,
+                            "param": rec.param,
+                            "actions": rec.actions_attempted,
+                            "success": rec.success,
+                        },
+                    )
+            except Exception as exc:
+                logger.debug("FullAttacker.maybe_attack failed: %s", exc)
 
         # LLM real-time enrichment: attach AI analysis to high-severity findings.
         # Only runs when --local-llm is active; skipped during high-volume scans
