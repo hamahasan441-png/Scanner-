@@ -258,8 +258,11 @@ class ScanPriorityQueue:
                     )
                 )
 
-        # Structural deduplication
-        items = StructuralDeduplicator.deduplicate(items)
+        # Structural deduplication.  --unsafe-mode lifts this so each
+        # structurally-equivalent endpoint is tested independently
+        # (operator-tuning only; scope/auth checks elsewhere unchanged).
+        if not self.engine.config.get("unsafe_mode"):
+            items = StructuralDeduplicator.deduplicate(items)
 
         # Sort by priority DESC
         items.sort(key=lambda x: x.priority, reverse=True)

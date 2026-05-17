@@ -739,6 +739,12 @@ class PostWorkerVerifier:
 
     def _is_false_positive(self, finding) -> bool:
         """Check if finding is a likely false positive."""
+        # --unsafe-mode disables the confidence-floor heuristics so
+        # weak-but-real findings reach the report. Operator-tuning
+        # only; scope/auth checks elsewhere unchanged.
+        if self.engine.config.get("unsafe_mode"):
+            return False
+
         technique = finding.technique.lower()
 
         # XSS: require payload actually in response, not just echo

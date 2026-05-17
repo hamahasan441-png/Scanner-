@@ -84,10 +84,17 @@ def main():
     parser.add_argument(
         "--unsafe-mode",
         action="store_true",
-        help="Per-run: lift the per-technique findings cap (default 25) "
-             "and lower the auto-attack severity floor to LOW. Reverts to "
-             "safe defaults on the next invocation. Requires --authorized; "
-             "the flag itself is the audit trail.",
+        help="Per-run operator-tuning lift. Disables noise-control "
+             "caps for the current invocation only: lifts the per-"
+             "technique findings cap, lowers auto-attack severity "
+             "floor to LOW, lifts the FullAttacker exploits-per-scan "
+             "ceiling, drops the auto-attack confidence threshold to "
+             "0.0, skips structural endpoint deduplication, and "
+             "disables the FP confidence-floor heuristics. Reverts "
+             "to safe defaults on the next invocation. Does NOT "
+             "weaken --authorized, scope policy, or auth gates. "
+             "Requires --authorized; the flag itself is the audit "
+             "trail.",
     )
     parser.add_argument(
         "--strict-scope", action="store_true", help="Enforce strict target scope (do not auto-expand from target host)"
@@ -1486,8 +1493,11 @@ def main():
         print(
             f"{Colors.warning('UNSAFE MODE ENABLED for this run:')} "
             f"per-technique findings cap lifted, auto-attack severity "
-            f"floor lowered to LOW. Reverts to safe defaults on next "
-            f"invocation."
+            f"floor lowered to LOW, FullAttacker exploit ceiling lifted, "
+            f"attack confidence threshold lowered to 0.0, structural "
+            f"endpoint dedup skipped, FP confidence-floor filter "
+            f"disabled. Scope and auth gates UNCHANGED. Reverts to safe "
+            f"defaults on next invocation."
         )
     config["unsafe_mode"] = unsafe_mode
     if unsafe_mode:
