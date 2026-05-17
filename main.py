@@ -159,6 +159,16 @@ def main():
         action="store_true",
         help="AI-driven post-exploitation: auto extract data, upload shells, enumerate systems",
     )
+    # Smart auto-attack: previously enabled by default and silently
+    # triggered post-exploitation on any HIGH/CRITICAL finding. Now
+    # OFF by default — users must opt in explicitly.
+    parser.add_argument(
+        "--smart-attack",
+        action="store_true",
+        help="Auto-route HIGH/CRITICAL verified findings to the AttackRouter "
+             "for post-exploitation (data extraction, shell upload, system "
+             "enumeration). Requires --authorized.",
+    )
 
     # Local LLM options (Qwen2.5-7B)
     parser.add_argument(
@@ -191,6 +201,21 @@ def main():
     parser.add_argument("--proxy", help="Use proxy (format: http://host:port)")
     parser.add_argument("--rotate-proxy", action="store_true", help="Rotate proxies automatically")
     parser.add_argument("--rotate-ua", action="store_true", help="Rotate User-Agent automatically")
+    parser.add_argument(
+        "--insecure-tls",
+        action="store_true",
+        help="Disable TLS certificate verification for outbound HTTP requests. "
+             "USE WITH CAUTION — needed only when scanning hosts with self-signed "
+             "or expired certificates. Defaults to verifying TLS.",
+    )
+    parser.add_argument(
+        "--rate-limit",
+        type=float,
+        default=10.0,
+        metavar="RPS",
+        help="Maximum requests per second across all modules (default: 10.0). "
+             "Set to 0 to disable. Polite default protects unsuspecting targets.",
+    )
 
     # Reconnaissance options
     parser.add_argument("--recon", action="store_true", help="Enable reconnaissance")
@@ -290,7 +315,19 @@ def main():
 
     # Web dashboard
     parser.add_argument("--web", action="store_true", help="Launch Flask web dashboard")
-    parser.add_argument("--web-host", default="0.0.0.0", help="Web dashboard host (default: 0.0.0.0)")
+    parser.add_argument(
+        "--web-host",
+        default="127.0.0.1",
+        help="Web dashboard bind address (default: 127.0.0.1, loopback only). "
+             "Use --web-public to bind on all interfaces.",
+    )
+    parser.add_argument(
+        "--web-public",
+        action="store_true",
+        help="Bind the web dashboard to 0.0.0.0 (reachable on the network). "
+             "Only use this on trusted networks; the dashboard exposes scan "
+             "control endpoints.",
+    )
     parser.add_argument("--web-port", type=int, default=5000, help="Web dashboard port (default: 5000)")
 
     # Burp Suite-style tools
@@ -637,15 +674,22 @@ def main():
         generate_starter_config(args.gen_config)
         return
 
-    if getattr(args, "config", None) or True:
-        try:
-            from core.config_loader import find_config_file, load_config, apply_to_argparse_namespace
-            cfg_path = find_config_file(getattr(args, "config", None))
-            if cfg_path:
-                file_cfg = load_config(cfg_path)
-                apply_to_argparse_namespace(file_cfg, args)
-        except Exception:
-            pass
+    # Auto-discover atomic.yaml/atomic.toml unless --config explicitly disables.
+    # Errors are reported (not silently swallowed) so misconfigured files
+    # are visible to the user instead of producing surprising behaviour.
+    try:
+        from core.config_loader import find_config_file, load_config, apply_to_argparse_namespace
+        cfg_path = find_config_file(getattr(args, "config", None))
+        if cfg_path:
+            file_cfg = load_config(cfg_path)
+            apply_to_argparse_namespace(file_cfg, args)
+            if not getattr(args, "quiet", False):
+                print(f"{Colors.info(f'Loaded config: {cfg_path}')}")
+    except FileNotFoundError as exc:
+        print(f"{Colors.error(f'Config file not found: {exc}')}")
+        sys.exit(1)
+    except Exception as exc:
+        print(f"{Colors.warning(f'Config load failed ({type(exc).__name__}): {exc} — continuing with CLI args only')}")
 
     # ── Distributed worker mode ──────────────────────────────
     if getattr(args, "worker", None):
@@ -1002,7 +1046,13 @@ def main():
         try:
             from web.app import create_app
 
-            _, run_app = create_app(host=args.web_host, port=args.web_port)
+            web_host = "0.0.0.0" if getattr(args, "web_public", False) else args.web_host
+            if web_host == "0.0.0.0":
+                print(
+                    f"{Colors.warning('Web dashboard binding to 0.0.0.0 — reachable on all interfaces. ')}"
+                    f"{Colors.warning('Ensure the network is trusted.')}"
+                )
+            _, run_app = create_app(host=web_host, port=args.web_port)
             run_app()
         except ImportError:
             print(f"{Colors.error('Flask not installed. Run: pip install flask flask-cors')}")
@@ -1241,6 +1291,8 @@ def main():
         "proxy": args.proxy,
         "rotate_proxy": args.rotate_proxy,
         "rotate_ua": args.rotate_ua,
+        "insecure_tls": getattr(args, "insecure_tls", False),
+        "rate_limit": getattr(args, "rate_limit", 10.0),
         "verbose": args.verbose,
         "quiet": args.quiet,
         "output_dir": args.output or Config.REPORTS_DIR,
@@ -1287,6 +1339,10 @@ def main():
         "brute": args.brute or p2p,
         "exploit_chain": args.exploit_chain or p2p,
         "auto_exploit": args.auto_exploit or p2p,
+        # Auto-route HIGH/CRITICAL findings to AttackRouter — must be
+        # explicitly requested. Previously defaulted to True inside the
+        # engine, which silently triggered post-exploitation.
+        "smart_attack": getattr(args, "smart_attack", False) or args.auto_exploit or p2p,
         "recon": args.recon or args.full or p2p,
         "subdomains": args.subdomains or args.full or p2p,
         "ports": args.ports or ("1-65535" if p2p else None),
@@ -1353,13 +1409,25 @@ def main():
     if config["scope"]["allowed_domains"]:
         config["strict_scope"] = True
 
-    # Governance guard: potentially intrusive scan modes require explicit
-    # authorization confirmation.
-    if args.regulated_mission and not args.authorized:
-        print(f"{Colors.error('Authorization confirmation required: add --authorized for --regulated-mission')}")
+    # Governance guard: scanning requires explicit authorization
+    # confirmation. The framework is for AUTHORIZED testing only, so the
+    # gate applies to every scan, not just regulated-mission runs.
+    if not args.authorized:
+        print(
+            f"{Colors.error('Authorization confirmation required.')}\n"
+            f"{Colors.warning('This framework is for AUTHORIZED security testing only.')}\n"
+            f"{Colors.info('Re-run with --authorized to confirm you have written permission to test the listed targets.')}"
+        )
         sys.exit(1)
 
     config["modules"] = modules
+
+    # Surface TLS-verify preference to non-engine subprocesses (e.g. the
+    # shell manager which has no engine reference).
+    if config.get("insecure_tls"):
+        os.environ["ATOMIC_INSECURE_TLS"] = "1"
+    else:
+        os.environ.pop("ATOMIC_INSECURE_TLS", None)
 
     # Local LLM configuration
     config["local_llm"] = getattr(args, "local_llm", False) or p2p

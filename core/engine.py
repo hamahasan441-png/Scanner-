@@ -289,6 +289,12 @@ class AtomicEngine:
             "osint": ("modules.osint", "OSINTModule"),
             "fuzzer": ("modules.fuzzer", "FuzzerModule"),
             "cloud_scan": ("modules.cloud_scanner", "CloudScannerModule"),
+            # Previously declared in CLI but missing from the module map —
+            # `--full` / `--oauth` etc. silently did nothing before this fix.
+            "oauth": ("modules.oauth", "OAuthModule"),
+            "mfa_bypass": ("modules.mfa_bypass", "MFABypassModule"),
+            "api_versioning": ("modules.api_versioning", "APIVersioningModule"),
+            "dep_confusion": ("modules.dep_confusion", "DependencyConfusionModule"),
         }
 
         modules_config = self.config.get("modules", {})
@@ -895,9 +901,16 @@ class AtomicEngine:
 
         # ── Reflection Gate ──────────────────────────────────────────
         # Modules that only make sense when user input is reflected in
-        # the response body.  If no reflection is detected for a param,
-        # these modules are skipped to avoid useless payload spam.
-        REFLECTION_DEPENDENT_MODULES = {"xss", "ssti"}
+        # the response body. We honour the per-module declaration on
+        # ``BaseModule.requires_reflection`` so that new modules can opt
+        # into the gate without editing the engine.  XSS and SSTI are
+        # included as a baseline for backward compatibility.
+        REFLECTION_DEPENDENT_MODULES = {
+            mkey
+            for mkey, minst in self._modules.items()
+            if getattr(minst, "requires_reflection", False)
+        }
+        REFLECTION_DEPENDENT_MODULES.update({"xss", "ssti"})
         reflection_cache = {}  # (url, method, param) → bool
 
         for ep in enriched_params:
@@ -1125,11 +1138,12 @@ class AtomicEngine:
 
         # AI-driven auto-exploit: orchestrates data extraction, shell
         # upload, and system enumeration based on confirmed findings.
-        # Auto-attack is triggered when auto_exploit is ON, or when there
-        # are HIGH/CRITICAL verified findings (smart auto-attack).
+        # Auto-attack runs ONLY when explicitly opted-in via --auto-exploit
+        # or --smart-attack. Previously `smart_attack` defaulted to True,
+        # which silently fired post-exploitation on any HIGH finding.
         exploitable_findings = [f for f in self.findings if f.severity in ("CRITICAL", "HIGH") and f.confidence >= 0.6]
         should_auto_attack = modules_config.get("auto_exploit", False) or (
-            exploitable_findings and modules_config.get("smart_attack", True)
+            exploitable_findings and modules_config.get("smart_attack", False)
         )
         if should_auto_attack and self.findings:
             try:
@@ -1387,13 +1401,33 @@ class AtomicEngine:
                 print(f"{Colors.warning('Skipping invalid finding: missing technique or url')}")
             return
 
-        # Skip duplicate findings (same technique + url + param)
+        # Skip duplicate findings.
+        # The dedup key intentionally includes a payload fingerprint so
+        # that distinct techniques against the same (url, param) — e.g.
+        # error-based vs. boolean vs. time-based SQLi — remain separate
+        # records during triage. Pure (technique,url,param) collapsed
+        # them into one and lost evidence.
+        import hashlib
+
+        def _payload_fingerprint(value: str) -> str:
+            if not value:
+                return ""
+            return hashlib.sha1(value.encode("utf-8", "replace")).hexdigest()[:8]
+
+        new_key = (
+            finding.technique,
+            finding.url,
+            finding.param,
+            _payload_fingerprint(finding.payload or ""),
+        )
         for existing in self.findings:
-            if (
-                existing.technique == finding.technique
-                and existing.url == finding.url
-                and existing.param == finding.param
-            ):
+            existing_key = (
+                existing.technique,
+                existing.url,
+                existing.param,
+                _payload_fingerprint(existing.payload or ""),
+            )
+            if existing_key == new_key:
                 return
 
         self.findings.append(finding)

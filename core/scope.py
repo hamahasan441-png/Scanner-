@@ -21,8 +21,10 @@ from config import Colors
 # Default user-agent name for robots.txt compliance
 SCANNER_USER_AGENT = "AtomicScanner"
 
-# Maximum allowed requests per second (0 = unlimited)
-DEFAULT_RATE_LIMIT = 0
+# Polite default: 10 requests per second across all modules.
+# 0 = unlimited.  Override via --rate-limit on the CLI or
+# config["rate_limit"].
+DEFAULT_RATE_LIMIT = 10.0
 
 
 class ScopePolicy:

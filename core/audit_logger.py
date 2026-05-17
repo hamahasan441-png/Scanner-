@@ -84,16 +84,116 @@ class AuditEntry:
 class AuditLogger:
     """Tamper-proof audit logging system."""
 
+    # Sensitive substrings — keys whose value should be redacted before
+    # storage.  Matched case-insensitively against keys in ``details``.
+    _REDACT_KEY_PATTERNS = (
+        "password", "passwd", "pwd",
+        "secret", "token", "api_key", "apikey",
+        "authorization", "auth", "bearer",
+        "cookie", "session", "sessid", "csrf",
+        "private_key", "privatekey",
+        "credit_card", "card_number", "cvv",
+        "ssn",
+    )
+    _REDACTED = "***REDACTED***"
+
+    @classmethod
+    def _resolve_secret(cls, explicit: str) -> tuple:
+        """Return (secret, source) for HMAC computation.
+
+        Resolution order:
+            1. ``explicit`` argument (test-only path).
+            2. ``ATOMIC_AUDIT_SECRET`` environment variable.
+            3. ``~/.atomic/audit.key`` — read or created with mode 0600.
+
+        A persisted key is essential: with a fresh per-process random
+        key, checksums computed in run 1 cannot be verified in run 2,
+        which silently breaks tamper detection.
+        """
+        if explicit:
+            return explicit, "explicit"
+
+        env = os.environ.get("ATOMIC_AUDIT_SECRET", "").strip()
+        if env:
+            return env, "env"
+
+        # Persist a key under ATOMIC_HOME so checksums survive restarts.
+        try:
+            from config import Config as _Cfg
+            atomic_home = getattr(_Cfg, "ATOMIC_HOME", os.path.expanduser("~/.atomic"))
+        except Exception:
+            atomic_home = os.path.expanduser("~/.atomic")
+
+        key_path = os.path.join(atomic_home, "audit.key")
+        try:
+            os.makedirs(atomic_home, exist_ok=True)
+            if os.path.exists(key_path):
+                with open(key_path, "r") as fh:
+                    persisted = fh.read().strip()
+                if persisted:
+                    return persisted, "file"
+            # Generate, persist with restrictive permissions, then return.
+            generated = secrets.token_hex(32)
+            fd = os.open(key_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            try:
+                os.write(fd, generated.encode())
+            finally:
+                os.close(fd)
+            try:
+                os.chmod(key_path, 0o600)
+            except OSError:
+                pass
+            return generated, "file_new"
+        except OSError as exc:
+            _logger.warning(
+                "Could not persist audit key (%s) — falling back to a "
+                "process-local random key. Tamper detection will NOT "
+                "survive restarts. Set ATOMIC_AUDIT_SECRET to fix this.",
+                exc,
+            )
+            return secrets.token_hex(32), "ephemeral"
+
+    @classmethod
+    def _redact_details(cls, details: Optional[dict]) -> dict:
+        """Return a redacted copy of *details*.
+
+        Recursively walks dicts/lists and replaces values whose key
+        matches one of ``_REDACT_KEY_PATTERNS``. Non-mapping values
+        (str, int, etc.) are returned untouched.
+        """
+        if not details:
+            return {}
+
+        def _walk(node):
+            if isinstance(node, dict):
+                clean = {}
+                for k, v in node.items():
+                    key_lower = str(k).lower()
+                    if any(p in key_lower for p in cls._REDACT_KEY_PATTERNS):
+                        clean[k] = cls._REDACTED
+                    else:
+                        clean[k] = _walk(v)
+                return clean
+            if isinstance(node, list):
+                return [_walk(x) for x in node]
+            if isinstance(node, tuple):
+                return tuple(_walk(x) for x in node)
+            return node
+
+        return _walk(details)
+
     def __init__(self, max_entries: int = 10000, secret: str = ""):
         self._entries: List[AuditEntry] = []
         self._lock = threading.Lock()
         self._max_entries = max_entries
-        self._secret = secret or os.environ.get("ATOMIC_AUDIT_SECRET", "") or secrets.token_hex(32)
-        if not secret and not os.environ.get("ATOMIC_AUDIT_SECRET"):
+        resolved_secret, secret_source = self._resolve_secret(secret)
+        self._secret = resolved_secret
+        self._secret_source = secret_source
+        if secret_source == "ephemeral":
             _logger.warning(
-                "ATOMIC_AUDIT_SECRET not set — using random key. "
-                "Audit checksums will NOT survive restarts. "
-                "Set ATOMIC_AUDIT_SECRET env var for persistent tamper detection."
+                "Audit secret is ephemeral — checksums will not survive "
+                "restarts. Set ATOMIC_AUDIT_SECRET or ensure ATOMIC_HOME "
+                "is writable to enable persistent tamper detection."
             )
         self._counter = 0
         self._callbacks: List = []
@@ -109,7 +209,11 @@ class AuditLogger:
         ip_address: str = "",
         details: Optional[dict] = None,
     ) -> AuditEntry:
-        """Record an audit event."""
+        """Record an audit event.
+
+        ``details`` is redacted before storage so secrets/cookies/tokens
+        captured in passing don't leak into the audit trail.
+        """
         with self._lock:
             self._counter += 1
             entry_id = f"AE-{self._counter:06d}"
@@ -124,7 +228,7 @@ class AuditLogger:
             target=target,
             result=result,
             ip_address=ip_address,
-            details=details or {},
+            details=self._redact_details(details),
         )
 
         # Compute tamper-detection checksum

@@ -22,13 +22,38 @@ class Config:
     AUTHOR = "Atomic Security"
 
     # Paths
+    # Source-tree paths only used when ATOMIC_HOME is not set or when the
+    # framework is run from a checkout for development.
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-    REPORTS_DIR = os.path.join(BASE_DIR, "reports")
-    SHELLS_DIR = os.path.join(BASE_DIR, "shells")
-    WORDLISTS_DIR = os.path.join(BASE_DIR, "wordlists")
+
+    # User data root: env var ATOMIC_HOME → ~/.atomic → fallback to BASE_DIR.
+    # Reports, shells, and the SQLite DB live here so that nothing the
+    # framework writes ends up inside the source tree (which may be
+    # served by a webserver in some deployments).
+    _ATOMIC_HOME_ENV = os.environ.get("ATOMIC_HOME", "").strip()
+    if _ATOMIC_HOME_ENV:
+        ATOMIC_HOME = _ATOMIC_HOME_ENV
+    else:
+        try:
+            ATOMIC_HOME = os.path.join(os.path.expanduser("~"), ".atomic")
+        except Exception:
+            ATOMIC_HOME = BASE_DIR
+
+    try:
+        os.makedirs(ATOMIC_HOME, exist_ok=True)
+    except OSError:
+        # Fall back to source tree if the user's home is unwritable.
+        ATOMIC_HOME = BASE_DIR
+
+    REPORTS_DIR = os.path.join(ATOMIC_HOME, "reports")
+    SHELLS_DIR = os.path.join(ATOMIC_HOME, "shells")
+    WORDLISTS_DIR = os.path.join(BASE_DIR, "wordlists")  # ships with code, read-only
 
     # Database
-    DB_URL = os.environ.get("ATOMIC_DB_URL", f"sqlite:///{BASE_DIR}/atomic_framework.db")
+    DB_URL = os.environ.get(
+        "ATOMIC_DB_URL",
+        f"sqlite:///{os.path.join(ATOMIC_HOME, 'atomic_framework.db')}",
+    )
 
     # GitHub API — optional token for higher rate limits (60 → 5000 req/hr)
     GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
