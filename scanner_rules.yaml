@@ -1,4 +1,4 @@
-# ATOMIC FRAMEWORK v10.0 - Scanner Rules
+# ATOMIC FRAMEWORK - Scanner Rules
 # Profile: accuracy_only — prioritize precision over speed
 # This file configures the entire scanning pipeline, from discovery
 # through scoring and reporting, including per-vulnerability-type

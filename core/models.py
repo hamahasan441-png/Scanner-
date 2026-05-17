@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ATOMIC FRAMEWORK v10.0 - Canonical Security Models
+ATOMIC FRAMEWORK - Canonical Security Models
 ===================================================
 
 Single source-of-truth dataclasses shared across the entire pipeline:

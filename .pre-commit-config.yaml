@@ -1,4 +1,4 @@
-# ATOMIC Framework v10.0 - Pre-commit hooks
+# ATOMIC FRAMEWORK - Pre-commit hooks
 # Install: pip install pre-commit && pre-commit install
 
 repos:

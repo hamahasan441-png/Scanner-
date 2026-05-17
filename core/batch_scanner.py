@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ATOMIC FRAMEWORK v11.0 — Batch Parallel Multi-Target Pipeline
+ATOMIC FRAMEWORK - Batch Parallel Multi-Target Pipeline
 =============================================================
 
 Runs N targets concurrently using ``asyncio`` + ``concurrent.futures``.

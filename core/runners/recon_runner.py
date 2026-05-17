@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ATOMIC FRAMEWORK v10.0 - Recon Runner
+ATOMIC FRAMEWORK - Recon Runner
 Encapsulates the reconnaissance portion of the scan pipeline:
   - Shield detection (CDN/WAF)
   - Real IP discovery

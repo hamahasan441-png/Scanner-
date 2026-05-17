@@ -1,26 +1,16 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ATOMIC FRAMEWORK v10.0 - ULTIMATE EDITION
+ATOMIC FRAMEWORK
 Core Engine - Scan orchestration and module management
 
-CORE FLOW (regulated — canonical phase sequence per ARCHITECTURE_v8_CORRECTED):
-  Phase 1:  Init & Normalize
-  Phase 2:  Scope & Policy
-  Phase 3:  Scan Plan Display (--show-plan)
-  Phase 4:  Shield Detection (CDN + WAF)
-  Phase 5:  Real IP Discovery
-            Build effective target (origin IP when available)
-  Phase 6:  Passive Recon & Discovery (fan-out via origin IP)
-            OR Legacy: Crawl + Fuzzer Discovery (via origin IP)
-  Phase 7:  Intelligence Enrichment
-  Phase 8:  Attack Surface Prioritization
-  Phase 9:  Vulnerability Scan Workers
-  Phase 10: Post-Worker Verification
-  Phase 11: Attack Map (exploit-aware attack graph — before report)
-  Phase 12: Agent Scan (autonomous goal-driven)
-  Phase 13: Commit & Report (OutputPhase)
-  Phase 14: Learn → Adapt
+The canonical pipeline is defined in ``core/pipeline_contract.py``
+(see :class:`Phase` and :data:`PHASE_ORDER`).  Twenty-one phases run in
+strict forward order from ``init`` to ``done``; partition mapping for the
+dashboard is in :data:`PHASE_PARTITION`.
+
+For an end-to-end description of how the engine drives each phase,
+see ``LOGIC_MAP.md``.
 """
 
 import time

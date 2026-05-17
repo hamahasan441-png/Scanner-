@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ATOMIC FRAMEWORK v10.0 - Signal Emission Pipeline
+ATOMIC FRAMEWORK - Signal Emission Pipeline
 ==================================================
 
 Modules emit ``ModuleSignal`` observations; this module transforms them

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ATOMIC FRAMEWORK v10.0 - Verification Recipes
+ATOMIC FRAMEWORK - Verification Recipes
 ==============================================
 
 Provides a unified verification interface (``IVerifier``) and a set of

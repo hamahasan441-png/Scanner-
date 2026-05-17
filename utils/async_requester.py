@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ATOMIC FRAMEWORK v11.0 — Async HTTP Engine
+ATOMIC FRAMEWORK - Async HTTP Engine
 ==========================================
 
 Drop-in async complement to ``utils/requester.py`` powered by ``httpx``.

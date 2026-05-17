@@ -1,877 +1,454 @@
-# ATOMIC FRAMEWORK v8.0 — Logic Map
+# ATOMIC FRAMEWORK — Logic Map
 
-> **⚠️ SUPERSEDED**: This document describes the v8.0 architecture and is
-> retained for historical reference only.  The canonical architecture
-> specification is [`ARCHITECTURE_v8_CORRECTED.md`](ARCHITECTURE_v8_CORRECTED.md),
-> which defines the corrected sequential phase numbering (Phases 1–14),
-> resolved scoring formula weights, and security hardening requirements.
-> All new development should reference the corrected document.
+> **Source of truth.** This document mirrors the code as of v11.0
+> (`Config.VERSION`).  When code and doc disagree, the code wins; please
+> update this file in the same commit.
 
-> **Auto-generated architecture documentation.**
-> Update this file whenever the framework logic changes.
+The framework is a multi-phase offensive security scanner written in Python.
+It exposes a CLI (`main.py`) and a Flask + Socket.IO dashboard (`web/app.py`),
+both driven by a single orchestrator (`core/engine.py`, class `AtomicEngine`).
 
 ---
 
 ## Table of Contents
 
 1. [High-Level Architecture](#high-level-architecture)
-2. [Entry Points](#entry-points)
-3. [Core Pipeline Flow](#core-pipeline-flow)
-4. [Pipeline Phases Detail](#pipeline-phases-detail)
-5. [Module Map](#module-map)
-6. [Core Components](#core-components)
-7. [Utilities](#utilities)
-8. [Web Dashboard](#web-dashboard)
-9. [Data Flow Diagram](#data-flow-diagram)
+2. [Pipeline Contract](#pipeline-contract)
+3. [Engine Walkthrough](#engine-walkthrough)
+4. [Module Inventory](#module-inventory)
+5. [Core Components](#core-components)
+6. [Web Dashboard](#web-dashboard)
+7. [REST API Surface](#rest-api-surface)
+8. [Scoring Formula](#scoring-formula)
+9. [Security Hardening](#security-hardening)
 10. [Configuration](#configuration)
-11. [File Reference](#file-reference)
+11. [Known Drift](#known-drift)
 
 ---
 
 ## High-Level Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                     ATOMIC FRAMEWORK v8.0                       │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                 │
-│  ┌──────────┐    ┌────────────┐    ┌──────────────────────┐     │
-│  │ main.py  │───>│ AtomicEngine│───>│  Pipeline Phases     │     │
-│  │ (CLI)    │    │ (core/     │    │  init → recon → scan │     │
-│  └──────────┘    │  engine.py)│    │  → exploit → collect │     │
-│                  └────────────┘    │  → done              │     │
-│  ┌──────────┐         │           └──────────────────────┘     │
-│  │ web/     │─────────┘                     │                  │
-│  │ app.py   │                               ▼                  │
-│  │ (Flask)  │                  ┌──────────────────────┐        │
-│  └──────────┘                  │   30+ Attack Modules  │        │
-│                                │   (modules/*.py)      │        │
-│                                └──────────────────────┘        │
-│                                          │                      │
-│                                          ▼                      │
-│                                ┌──────────────────────┐        │
-│                                │  Post-Exploitation    │        │
-│                                │  AttackRouter         │        │
-│                                │  PayloadGenerator     │        │
-│                                │  ExploitChain         │        │
-│                                └──────────────────────┘        │
-│                                          │                      │
-│                                          ▼                      │
-│                                ┌──────────────────────┐        │
-│                                │  Reports (7 formats)  │        │
-│                                │  HTML/JSON/CSV/TXT/   │        │
-│                                │  PDF/XML/SARIF        │        │
-│                                └──────────────────────┘        │
-└─────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────┐
+│                         ATOMIC FRAMEWORK v11.0                       │
+├──────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│   ┌─────────────┐         ┌──────────────────┐                       │
+│   │  main.py    │────────▶│   AtomicEngine   │                       │
+│   │  (CLI)      │         │  (core/engine.py)│                       │
+│   └─────────────┘         └────────┬─────────┘                       │
+│                                    │                                 │
+│   ┌─────────────┐                  │   drives                        │
+│   │  web/app.py │──────────────────┤                                 │
+│   │  (Flask)    │                  ▼                                 │
+│   └─────────────┘     ┌────────────────────────────────┐             │
+│                       │     21-Phase Pipeline          │             │
+│                       │  (core/pipeline_contract.py)   │             │
+│                       └────────────────┬───────────────┘             │
+│                                        │                             │
+│                ┌───────────────────────┼─────────────────────┐       │
+│                │                       │                     │       │
+│                ▼                       ▼                     ▼       │
+│      ┌────────────────┐      ┌──────────────────┐   ┌────────────┐   │
+│      │ 38 Attack &    │      │  Verification &  │   │  Reports   │   │
+│      │ Support Mods   │      │   Enrichment     │   │ (7 fmts)   │   │
+│      │ (modules/*.py) │      │  (core/*.py)     │   │            │   │
+│      └────────────────┘      └──────────────────┘   └────────────┘   │
+│                                                                      │
+└──────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Entry Points
+## Pipeline Contract
 
-### CLI (`main.py`)
+The canonical pipeline lives in [`core/pipeline_contract.py`](core/pipeline_contract.py).
+It defines **21 phases** in strict forward order, plus a `Partition` enum that
+groups them for the dashboard (`recon`, `scan`, `exploit`, `collect`).
 
-```
-main.py → argparse → build config dict → AtomicEngine(config) → engine.scan(target) → engine.generate_reports()
-```
+| #  | Phase             | Partition | Purpose                                                                         |
+|---:|-------------------|-----------|---------------------------------------------------------------------------------|
+|  1 | `init`            | recon     | Engine setup; load config, requester, DB, evasion, rules.                       |
+|  2 | `plan_display`    | recon     | Optional `--show-plan` rendering before any HTTP traffic.                       |
+|  3 | `scope`           | recon     | `ScopePolicy` builds allow/deny lists, loads `robots.txt`, applies rate limits. |
+|  4 | `shield_detect`   | recon     | `ShieldDetector` fingerprints CDN + WAF (Cloudflare, Akamai, etc.).             |
+|  5 | `real_ip`         | recon     | `RealIPScanner` finds origin IP behind CDN (passive + subdomain + active).      |
+|  6 | `passive_recon`   | recon     | `PassiveReconFanout` merges Wayback / CommonCrawl / crt.sh / dnsx output.       |
+|  7 | `discovery`       | recon     | Crawler + `DiscoveryModule` (robots, sitemap, dir-brute, JS render, ParamSpider).|
+|  8 | `input_extraction`| recon     | Forms, query params, JSON bodies, headers, GraphQL fields.                      |
+|  9 | `context_intel`   | recon     | `ContextIntelligence` classifies each parameter (auth/sql/path/template/...).   |
+| 10 | `enrichment`      | scan      | `IntelligenceEnricher`: TechFingerprinter + CVEMatcher (CVSS ≥ 7 only).         |
+| 11 | `prioritization`  | scan      | `ScanPriorityQueue` sorts targets via the multi-factor formula (see below).     |
+| 12 | `baseline`        | scan      | `BaselineEngine` records normal-response signatures per endpoint.               |
+| 13 | `adaptive_testing`| scan      | Reflection gate, AI module ordering, evasion adaptation.                        |
+| 14 | `scan_workers`    | scan      | `ScanWorkerPool`: Workers A–E run injection / auth / biz / misconfig / crypto.  |
+| 15 | `verification`    | scan      | `PostWorkerVerifier`: re-run ×3, FP filter, CVSS auto-score, ChainDetector.     |
+| 16 | `exploit_search`  | scan      | `ExploitSearcher`: 7-source search + maturity scoring + CVSS adjustment.        |
+| 17 | `agent_scan`      | exploit   | Optional autonomous OODA loop (`AgentScanner`); blocks `report` until done.     |
+| 18 | `exploit`         | exploit   | `AttackRouter` + legacy handlers (shell, dump, os-shell, brute, chain).         |
+| 19 | `report`          | collect   | `OutputPhase` commits to DB and renders reports (HTML/JSON/CSV/PDF/XML/SARIF).  |
+| 20 | `attack_map`      | collect   | `AttackMapBuilder`: nodes/edges/paths/zones/attacker simulation.                |
+| 21 | `done`            | collect   | Terminal state.                                                                 |
 
-**Key CLI flags:**
-| Flag | Purpose |
-|------|---------|
-| `-t URL` | Target URL |
-| `--full` | Enable all modules |
-| `--sqli`, `--xss`, `--cmdi`, ... | Enable specific modules |
-| `--sqlmap` | Enable sqlmap integration for deep SQLi/CMDi |
-| `--shield-detect` | CDN/WAF shield detection (Cloudflare, Akamai, Fastly, CloudFront, Sucuri) |
-| `--real-ip` | Real IP / origin server discovery behind CDN |
-| `--agent-scan` | Autonomous agent scanner (goal-driven with pivot detection) |
-| `--shell` | Upload web shell |
-| `--dump` | Dump database |
-| `--os-shell` | Get OS shell |
-| `--auto-exploit` | AI-driven post-exploitation |
-| `--evasion LEVEL` | Evasion: none/low/medium/high/insane/stealth |
-| `--web` | Launch Flask dashboard |
-| `--rules FILE` | Custom scanner rules YAML |
-
-### Web Dashboard (`web/app.py`)
-
-```
-Flask + flask-socketio → REST API + WebSocket → spawns AtomicEngine in background thread
-```
-
-**Dashboard Tabs:** Dashboard, Scanner, Pipeline, Exploits, Shells, Active Scans, History, Findings, Live Feed
-
-**API Endpoints:**
-- `POST /api/scan` — Start scan
-- `GET /api/stats` — Scan statistics
-- `GET /api/pipeline/{id}` — Pipeline state
-- `POST /api/shell/{id}/execute` — Shell command
-- WebSocket events: `pipeline_event`, `shell_output`, `scan_started/completed/failed`
+**Forward-only.** The `PipelineStateMachine` allows any forward jump (so
+optional phases can be skipped) but rejects backward transitions in strict mode.
 
 ---
 
-## Core Pipeline Flow
+## Engine Walkthrough
 
-The engine follows a **multi-phase core flow** defined in `core/engine.py`:
+`AtomicEngine.scan(target)` in [`core/engine.py`](core/engine.py) is the
+orchestrator.  It currently executes the phases inline rather than dispatching
+to small phase classes — this is the next refactor target (see
+[`core/runners/`](core/runners/) for the partial extraction already in place).
 
-```
-§0 Init & Normalize  →  §1 Scope & Policy  →  PHASE 1: Shield Detection
-        ↓                      ↓                        ↓
-PHASE 2: Real IP    →  PHASE 5: Passive Recon & Discovery (fan-out)
-        ↓                      ↓
-§3 Extract & Classify  →  §4 Context Intelligence
-        ↓                      ↓
-PHASE 6: Intelligence Enrichment  →  PHASE 7: Attack Surface Prioritization
-        ↓                                    ↓
-§6 Baseline         →  PHASE 8: Scan Worker Pool  →  §8 Multi-Signal Analyze
-        ↓                      ↓                        ↓
-§9 Adaptive Verify  →  PHASE 9: Post-Worker Verification (Chain Detection)
-        ↓                      ↓
-PHASE 9B: Exploit Reference Searcher  →  PHASE 4: Agent Scan
-        ↓                                       ↓
-PHASE 10: Commit & Report (OutputPhase)  →  Learn  →  Adapt
-        ↓
-PHASE 11: Exploit-Aware Attack Map
-```
+For each target, the engine:
 
-### New Phases (5-11)
-
-| Phase | Module | Description |
-|-------|--------|-------------|
-| **Phase 5** | `core/passive_recon.py` | Passive Recon Fan-Out: parallel recon, port scan, passive URL collection (Wayback, Common Crawl CDX), crawler, discovery → merge + dedup + scope filter |
-| **Phase 6** | `core/intelligence_enricher.py` | Intelligence Enrichment: TechFingerprinter (headers, cookies, HTML patterns), CVEMatcher (built-in CVE DB, CVSS ≥ 7.0), param context weights, endpoint type classification |
-| **Phase 7** | `core/scan_priority_queue.py` | Attack Surface Prioritization: multi-factor scoring (param context 0.35, endpoint type 0.25, CVE match 0.25, agent hypothesis 0.2, anomaly 0.1, depth penalty), structural dedup |
-| **Phase 8** | `core/scan_worker_pool.py` | Vulnerability Scan Workers: Gate 0 triage, Gate 1 DifferentialEngine baseline, Gate 2 SurfaceMapper, Workers A-E (Injection/Auth/BizLogic/Misconfig/Crypto) |
-| **Phase 9** | `core/post_worker_verifier.py` | Post-Worker Verification: consistency recheck ×3, context-aware FP filter, WAF interference check, clustering + dedup, CVSS v3.1 auto-scoring, ChainDetector (7 chain rules) |
-| **Phase 9B** | `core/exploit_searcher.py` | Exploit Reference Searcher: QueryBuilder → 7-source parallel search (ExploitDB, Metasploit, Nuclei, GitHub PoC, PacketStorm, NVD, CISA KEV) → ExploitConsolidator (maturity scoring) → CVSS re-adjustment → priority re-rank → ExploitEnrichedFindings[] |
-| **Phase 10** | `core/output_phase.py` | Commit & Report: DB save_results/save_chains, update_scan COMPLETE, ReportBuilder with sections: executive_summary, finding_table (CVSS DESC), exploit_chains, waf_bypass_disclosure, origin_exposure_note, remediation_plan, agent_reasoning_log |
-| **Phase 11** | `core/attack_map.py` | Exploit-Aware Attack Map: NodeClassifier (ENTRY/PIVOT/ESCALATION/IMPACT/SUPPORT) → EdgeBuilder (REQUIRES/ENABLES/CHAINS_TO/AMPLIFIES with confidence) → PathFinder (DFS from ENTRY→IMPACT, path scoring) → ImpactZoneMapper (6 zones) → AttackerSimulator (Opportunistic/Skilled/APT profiles) → AttackMap output |
-
-### Pipeline Phase Tracking (3-Partition Architecture)
-
-```
-Pipeline Dict:
-{
-  phase: 'init' → 'recon' → 'scan' → 'exploit' → 'collect' → 'done',
-  events: [...],          // chronological event log (capped at 500)
-  recon:   {status, data},
-  scan:    {status, data},
-  exploit: {status, data},
-  collect: {status, data},
-}
-```
-
-Events are pushed to WebSocket via `_ws_callback` for live dashboard tracking.
+1. Creates a per-target `scan_id` (8-char UUID prefix) so multi-target runs
+   stay isolated.
+2. Initialises Requester, ScopePolicy, evasion, rules engine, AI engine,
+   learning store, persistence, and (optionally) auth/scheduler/compliance/
+   audit logger/tool integrator/recon arsenal/plugin manager/notification
+   manager.  Optional components fail silently to `None`.
+3. Walks the 21 phases.  Many phases are guarded by a CLI flag (e.g.
+   `--shield-detect`, `--real-ip`, `--agent-scan`); when the flag is off the
+   phase is recorded as a no-op event and skipped.
+4. After every phase the engine emits a `phase_event` to the WebSocket
+   callback (if attached) and appends to `self.pipeline['events']` (capped
+   at 500 entries).
+5. The legacy 4-string `self.pipeline['phase']` tracker (`init`/`recon`/
+   `scan`/`exploit`/`collect`/`done`) is still set in parallel for backward
+   compatibility with old dashboards; new code should consume the granular
+   phase via `pipeline_contract.PipelineStateMachine`.
+6. After all phases complete, `engine.generate_reports()` runs separately so
+   the engine and the reporter can be unit-tested independently.
 
 ---
 
-## Pipeline Phases Detail
+## Module Inventory
 
-### Phase 1: RECON (`init` → `recon`)
+`modules/*.py` contains **38 modules**: ~30 attack modules and ~8 support
+modules.  Counts below are derived from the directory listing and may include
+modules that are not yet fully wired into the CLI flag set.
 
-```
-engine.scan(target)
-    │
-    ├── §1. ScopePolicy.set_target_scope(target)
-    │       ScopePolicy.load_robots_txt(target)
-    │
-    ├── Requester.test_connection(target)
-    │
-    ├── ContextIntelligence.fingerprint_response(init_resp)
-    │
-    ├── Database.save_scan(...)
-    │
-    ├── PHASE 1: SHIELD DETECTION [if --shield-detect]
-    │   └── ShieldDetector.run(target, probe_result)
-    │       ├── detect_cdn(target)
-    │       │   ├── DNS CNAME chain analysis
-    │       │   ├── IP CIDR matching (Cloudflare, Akamai, Fastly, CloudFront, Sucuri)
-    │       │   └── Response header signatures (CF-Ray, X-Amz-Cf-Id, etc.)
-    │       ├── detect_waf(target)
-    │       │   ├── Adversarial probe payloads (<script>, SQLi, LFI, SELECT)
-    │       │   ├── WAF fingerprinting (Cloudflare, ModSecurity, AWS, Sucuri, Nginx)
-    │       │   └── Block threshold measurement
-    │       └── → ShieldProfile {cdn, waf, needs_origin_discovery, needs_waf_bypass}
-    │
-    ├── PHASE 2: REAL IP DISCOVERY [if --real-ip]
-    │   └── RealIPScanner.run(target, shield_profile)
-    │       ├── Track A: Passive Intel
-    │       │   ├── SPF/MX record IP extraction
-    │       │   ├── Certificate transparency (crt.sh SANs)
-    │       │   ├── Historical DNS via crt.sh
-    │       │   └── ASN/IP correlation
-    │       ├── Track B: Subdomain Intel
-    │       │   ├── Passive subdomain enum (crt.sh)
-    │       │   ├── Active brute-force (30+ common subdomains)
-    │       │   ├── Zone transfer attempt (AXFR)
-    │       │   └── Subdomain IP triage (discard CDN IPs, flag high-value)
-    │       ├── Track C: Active Probing (top candidates)
-    │       │   └── HTTP host-header verification + fingerprint matching
-    │       └── → RealIPResult {origin_ip, confidence, method, verified, candidates[]}
-    │
-    ├── §2. DISCOVERY & GRAPH
-    │   ├── ReconModule.run(target)           [if --recon]
-    │   ├── PortScanner.run(hostname, ports)  [if --ports]
-    │   ├── NetworkExploitScanner.run(...)     [if --net-exploit]
-    │   ├── TechExploitScanner.run(target)    [if --tech-exploit]
-    │   ├── Crawler.crawl(target, depth)      [always]
-    │   │   └── returns: urls, forms, parameters
-    │   ├── ScopePolicy.filter_urls(urls)
-    │   └── DiscoveryModule.run(target)       [if --discovery]
-    │       ├── robots.txt parsing
-    │       ├── sitemap.xml parsing
-    │       ├── Directory brute-force         [if --dir-brute]
-    │       ├── Smart analysis
-    │       ├── Async crawl (aiohttp)
-    │       ├── Enhanced link extraction (BeautifulSoup)
-    │       ├── JS rendering (Playwright/Selenium)
-    │       └── Passive URL collection (gau/waybackurls/CDX API)
-    │
-    ├── §3. ContextIntelligence.analyze_parameters(parameters)
-    │       → enriched_params with context weights
-    │
-    └── PIPELINE: recon → scan transition
-```
+### Attack Modules (vulnerability detection)
 
-### Phase 2: SCAN (`scan`)
+| File                        | Class                       | Vulnerability                                                |
+|-----------------------------|-----------------------------|---------------------------------------------------------------|
+| `sqli.py`                   | `SQLiModule`                | SQL Injection (error / time / union / boolean / OOB / sqlmap) |
+| `xss.py`                    | `XSSModule`                 | Reflected / DOM / mXSS / blind / CSP-bypass / polyglot        |
+| `lfi.py`                    | `LFIModule`                 | Local File Inclusion (PHP filter, log poison, Win paths)      |
+| `cmdi.py`                   | `CommandInjectionModule`    | Command Injection (basic / blind / OOB / sqlmap --os-cmd)     |
+| `ssrf.py`                   | `SSRFModule`                | DNS rebind / cloud metadata / K8s API                         |
+| `ssti.py`                   | `SSTIModule`                | Multi-engine template injection                               |
+| `xxe.py`                    | `XXEModule`                 | XML External Entity                                           |
+| `idor.py`                   | `IDORModule`                | Insecure Direct Object Reference                              |
+| `nosqli.py`                 | `NoSQLModule`               | NoSQL injection (Mongo, Redis)                                |
+| `cors.py`                   | `CORSModule`                | CORS misconfiguration                                         |
+| `jwt.py`                    | `JWTModule`                 | JKU / kid / alg-confusion / replay                            |
+| `uploader.py`               | `ShellUploader`             | Upload bypass + web-shell deployment *(see Known Drift)*      |
+| `open_redirect.py`          | `OpenRedirectModule`        | Open Redirect                                                 |
+| `crlf.py`                   | `CRLFModule`                | CRLF injection                                                |
+| `hpp.py`                    | `HPPModule`                 | HTTP Parameter Pollution                                      |
+| `graphql.py`                | `GraphQLModule`             | GraphQL injection / introspection                             |
+| `proto_pollution.py`        | `ProtoPollutionModule`      | Prototype pollution                                           |
+| `race_condition.py`         | `RaceConditionModule`       | Race condition / TOCTOU                                       |
+| `websocket.py`              | `WebSocketModule`           | WebSocket injection / origin check                            |
+| `deserialization.py`        | `DeserializationModule`     | Insecure deserialization                                      |
+| `osint.py`                  | `OSINTModule`               | OSINT recon                                                   |
+| `fuzzer.py`                 | `FuzzerModule`              | Param / header / method / vhost fuzzing + ffuf + ParamSpider  |
+| `oauth.py`                  | `OAuthModule`               | OAuth / OIDC misconfig                                        |
+| `mfa_bypass.py`             | `MFABypassModule`           | 2FA / MFA bypass                                              |
+| `api_versioning.py`         | `APIVersioningModule`       | Deprecated / shadow API versions                              |
+| `dep_confusion.py`          | `DepConfusionModule`        | Dependency confusion / supply chain                           |
+| `request_smuggling.py`      | `RequestSmugglingModule`    | HTTP Request Smuggling                                        |
+| `cloud_scanner.py`          | `CloudScanner`              | S3 / IMDS / IAM / Kubernetes                                  |
+| `scapy_crawler.py`          | `ScapyCrawler`              | Packet-level network discovery                                |
+| `network_exploits.py`       | `NetworkExploitScanner`     | Map open ports/services to known CVEs                         |
+| `tech_exploits.py`          | `TechExploitScanner`        | Map fingerprinted tech to known CVEs                          |
 
-```
-    ├── AI: AIEngine.get_attack_strategy(target, enriched_params)
-    │   └── Returns module_order recommendation
-    │
-    ├── §5. EndpointPrioritizer.prioritize_parameters(enriched_params)
-    │       EndpointPrioritizer.prioritize_urls(urls)
-    │
-    ├── §6. BaselineEngine.get_baseline(...) for each parameter
-    │
-    ├── §7. ADAPTIVE TESTING
-    │   ├── Reflection Gate: checks if XSS/SSTI should be skipped
-    │   │   (skip non-reflected parameters for reflection-dependent modules)
-    │   │
-    │   ├── For each module (AI-ordered):
-    │   │   ├── For each enriched parameter:
-    │   │   │   ├── PersistenceEngine.is_tested(ep_key) → skip if done
-    │   │   │   ├── ScopePolicy.enforce_rate_limit()
-    │   │   │   ├── AdaptiveController.get_delay()
-    │   │   │   └── module.test(url, method, param, value)
-    │   │   │       │
-    │   │   │       ├── SQLiModule.test() → error/time/union/boolean/second-order/OOB/WAF-bypass
-    │   │   │       │   └── [if --sqlmap] → sqlmap CLI subprocess for deep testing
-    │   │   │       │
-    │   │   │       ├── CommandInjectionModule.test() → basic/blind/separator/OOB/arg/env
-    │   │   │       │   └── [if --sqlmap] → sqlmap --os-cmd probe
-    │   │   │       │
-    │   │   │       ├── XSSModule.test() → reflected/DOM/mXSS/blind/CSP/polyglot
-    │   │   │       ├── LFIModule.test() → path traversal/PHP filter/Win paths/log poison
-    │   │   │       ├── SSRFModule.test() → DNS rebind/PDF/K8s/cloud metadata
-    │   │   │       ├── SSTIModule.test() → multiple engines/sandbox escape/blind
-    │   │   │       ├── XXEModule.test() → entity injection/file reads/OOB
-    │   │   │       ├── IDORModule.test() → sequential ID enumeration
-    │   │   │       ├── NoSQLModule.test() → timing/aggregation/Redis
-    │   │   │       ├── CORSModule.test() → misconfiguration checks
-    │   │   │       ├── JWTModule.test() → JKU/kid/replay/algorithm confusion
-    │   │   │       ├── UploadModule.test() → SVG/ImageTragick/content-type/ZIP
-    │   │   │       ├── OpenRedirectModule.test()
-    │   │   │       ├── CRLFModule.test()
-    │   │   │       ├── HPPModule.test()
-    │   │   │       ├── GraphQLModule.test()
-    │   │   │       ├── ProtoPollutionModule.test()
-    │   │   │       ├── RaceConditionModule.test()
-    │   │   │       ├── WebSocketModule.test()
-    │   │   │       ├── DeserializationModule.test()
-    │   │   │       ├── OSINTModule.test()
-    │   │   │       └── FuzzerModule.test_url()
-    │   │   │           ├── parameter/header/method/vhost fuzzing
-    │   │   │           ├── ParamSpider integration
-    │   │   │           └── ffuf/ffufai CLI integration
-    │   │   │
-    │   │   └── For each URL: module.test_url(url)
-    │   │
-    │   └── PersistenceEngine.save_progress()
-    │
-    ├── §8. SignalScorer.analyze() → enrich finding confidence
-    │
-    ├── §9. Verifier.verify_findings(findings) → remove false positives
-    │
-    ├── SELF-LEARNING:
-    │   ├── LearningStore.record_success(technique, payload)
-    │   ├── AIEngine.record_finding(technique, param, payload)
-    │   └── Save both to disk
-    │
-    └── ADAPTIVE LOOP: re-discover new endpoints (up to 3 rounds)
-```
+### Support Modules (infrastructure)
 
-### Phase 2.5: AGENT SCANNER (`scan` — autonomous) [if --agent-scan]
-
-```
-    └── AgentScanner.run(target, real_ip_result, waf_bypass_profile)
-        │
-        ├── STEP A: TARGET DECOMPOSITION
-        │   └── decompose(target) → TargetMap {primary, target_type, hostname, subdomains, params}
-        │       ├── URL → focused scan (path + params)
-        │       ├── domain → full recon + subdomain expansion
-        │       ├── IP/CIDR → port-first → service scan
-        │       └── wildcard → enumerate → per-sub plan
-        │
-        ├── STEP B: HYPOTHESIS GENERATION
-        │   └── GoalPlanner.generate_hypotheses(target_map, intel_bundle)
-        │       ├── WordPress → CVE-2022-21661 SQLi
-        │       ├── PHP → type juggling auth bypass
-        │       ├── JWT → alg:none / algorithm confusion
-        │       ├── Upload → webshell, traversal, XXE
-        │       ├── GraphQL → introspection, injection
-        │       ├── S3 → bucket takeover
-        │       ├── Login → brute, enum, session fixation
-        │       ├── API key → key abuse, privilege escalation
-        │       ├── CORS → credential leak chain
-        │       └── Redirect → phishing + token theft
-        │
-        ├── STEP C: GOAL PLANNING
-        │   └── GoalPlanner.plan(hypotheses)
-        │       → 11 base goals (GOAL_0..GOAL_10) + hypothesis-derived goals
-        │       → Sorted by priority (confidence × severity × cheapness)
-        │
-        ├── STEP D: EXECUTION LOOP (OODA)
-        │   └── while GoalPlanner.should_continue():
-        │       ├── OBSERVE: scope check, budget check, memory read
-        │       ├── THINK: select tool, build params, retry guard
-        │       ├── ACT: execute goal via engine module
-        │       ├── REFLECT: process result, update memory, mark findings
-        │       └── ADAPT: PivotDetector.handle(result) → push new goals
-        │
-        └── STEP E: PIVOT DETECTION
-            └── PivotDetector.handle(finding)
-                ├── SSRF → probe cloud metadata (AWS/GCP/Azure IMDS)
-                ├── LFI → read /etc/passwd, log poisoning → RCE
-                ├── SQLi → schema dump, FILE READ/OUTFILE
-                ├── Admin panel → auth scanner + IDOR
-                ├── Open redirect → OAuth token theft chain
-                ├── API key → test against provider endpoints
-                ├── Subdomain → full scan (scope-checked)
-                └── Internal IP → CIDR expansion
-```
-
-### Phase 3: EXPLOIT (`exploit`)
-
-```
-    ├── AttackRouter.route(findings)         [if --auto-exploit]
-    │   ├── SQL Injection → data extraction (DB enum, table dump)
-    │   ├── Command Injection → system enum + shell upload
-    │   ├── LFI/RFI → sensitive file extraction
-    │   ├── SSRF → cloud metadata + internal scan
-    │   ├── SSTI → template-based RCE proof
-    │   ├── File Upload → web shell deployment
-    │   └── CVE-based → match CVE to exploit
-    │
-    ├── AttackRouter.execute(routes) → post_exploit_results
-    │   └── PayloadGenerator generates tailored payloads/POCs
-    │
-    ├── Legacy manual flags (backward compatible):
-    │   ├── ShellUploader.run(findings, forms)       [if --shell]
-    │   ├── DataDumper.run(findings)                 [if --dump]
-    │   ├── OSShellHandler.run(findings, forms)      [if --os-shell]
-    │   ├── BruteForceModule.run(forms)              [if --brute]
-    │   └── ExploitChainEngine.run(findings)         [if --exploit-chain]
-    │
-    └── PIPELINE: exploit → collect transition
-```
-
-### Phase 4: COLLECT (`collect`)
-
-```
-    ├── Record end_time
-    ├── PersistenceEngine.clear_progress()
-    ├── Database.update_scan(scan_id, end_time, findings_count, total_requests)
-    ├── PIPELINE: phase → 'done'
-    └── _print_summary()
-        ├── Severity breakdown
-        ├── Scope summary
-        ├── Tech fingerprint summary
-        ├── Adaptive intelligence summary
-        ├── AI intelligence summary
-        └── Persistence summary
-```
-
-### Post-Pipeline: REPORT
-
-```
-    engine.generate_reports()
-        └── ReportGenerator.generate('html')
-            ReportGenerator.generate('json')
-            [Optional: csv, txt, pdf, xml, sarif]
-```
-
----
-
-## Module Map
-
-### Attack Modules (`modules/`)
-
-| Module Key | File | Class | Vulnerability Type |
-|-----------|------|-------|--------------------|
-| `sqli` | `modules/sqli.py` | `SQLiModule` | SQL Injection (error/time/union/boolean/2nd-order/OOB/WAF-bypass + **sqlmap**) |
-| `xss` | `modules/xss.py` | `XSSModule` | Cross-Site Scripting (reflected/DOM/mXSS/blind/CSP/polyglot) |
-| `lfi` | `modules/lfi.py` | `LFIModule` | Local File Inclusion (PHP filter/Win paths/log poison) |
-| `cmdi` | `modules/cmdi.py` | `CommandInjectionModule` | Command Injection (basic/blind/separator/OOB/arg/env + **sqlmap --os-cmd**) |
-| `ssrf` | `modules/ssrf.py` | `SSRFModule` | Server-Side Request Forgery (DNS rebind/PDF/K8s) |
-| `ssti` | `modules/ssti.py` | `SSTIModule` | Server-Side Template Injection (multi-engine/sandbox escape) |
-| `xxe` | `modules/xxe.py` | `XXEModule` | XML External Entity |
-| `idor` | `modules/idor.py` | `IDORModule` | Insecure Direct Object Reference |
-| `nosql` | `modules/nosqli.py` | `NoSQLModule` | NoSQL Injection (timing/aggregation/Redis) |
-| `cors` | `modules/cors.py` | `CORSModule` | CORS Misconfiguration |
-| `jwt` | `modules/jwt.py` | `JWTModule` | JWT Security (JKU/kid/replay) |
-| `upload` | `modules/uploader.py` | `ShellUploader` | File Upload (SVG/ImageTragick/ZIP) |
-| `open_redirect` | `modules/open_redirect.py` | `OpenRedirectModule` | Open Redirect |
-| `crlf` | `modules/crlf.py` | `CRLFModule` | CRLF Injection |
-| `hpp` | `modules/hpp.py` | `HPPModule` | HTTP Parameter Pollution |
-| `graphql` | `modules/graphql.py` | `GraphQLModule` | GraphQL Injection |
-| `proto_pollution` | `modules/proto_pollution.py` | `ProtoPollutionModule` | Prototype Pollution |
-| `race_condition` | `modules/race_condition.py` | `RaceConditionModule` | Race Condition |
-| `websocket` | `modules/websocket.py` | `WebSocketModule` | WebSocket Injection |
-| `deserialization` | `modules/deserialization.py` | `DeserializationModule` | Deserialization |
-| `osint` | `modules/osint.py` | `OSINTModule` | OSINT Reconnaissance |
-| `fuzzer` | `modules/fuzzer.py` | `FuzzerModule` | Parameter/Header/Method/VHost fuzzing + ffuf + ParamSpider |
-
-### Support Modules
-
-| Module | File | Purpose |
-|--------|------|---------|
-| WAF Bypass | `modules/waf.py` | WAF detection + XSS evasion + regex bypass + custom mutation |
-| Discovery | `modules/discovery.py` | robots/sitemap/dir-brute/async crawl/JS render/passive URLs |
-| Reconnaissance | `modules/reconnaissance.py` | DNS/WHOIS/subdomain enumeration |
-| Port Scanner | `modules/port_scanner.py` | TCP port scanning |
-| Network Exploits | `modules/network_exploits.py` | Map ports to known CVEs |
-| Tech Exploits | `modules/tech_exploits.py` | Map technologies to CVEs |
-| Brute Force | `modules/brute_force.py` | Form brute-force attacks |
-| Data Dumper | `modules/dumper.py` | Database content extraction |
-| Shell Manager | `modules/shell/` | Manage deployed web shells |
+| File                        | Purpose                                                       |
+|-----------------------------|---------------------------------------------------------------|
+| `base.py`                   | `BaseModule` abstract interface.                              |
+| `waf.py`                    | WAF detection + payload mutation.                             |
+| `discovery.py`              | robots / sitemap / dir-brute / JS render / passive URLs.      |
+| `reconnaissance.py`         | DNS / WHOIS / subdomain enumeration.                          |
+| `port_scanner.py`           | TCP port scanner.                                             |
+| `brute_force.py`            | Form brute force.                                             |
+| `dumper.py`                 | Database content extraction (post-SQLi).                      |
+| `shell/` (`modules/shell/manager.py`) | Manage deployed web shells.                                   |
 
 ---
 
 ## Core Components
 
-### Intelligence Layer (`core/`)
+`core/` contains the engine and supporting services.
 
-| Component | File | Purpose |
-|-----------|------|---------|
-| **AtomicEngine** | `core/engine.py` | Central orchestrator — manages pipeline, modules, findings |
-| **ScopePolicy** | `core/scope.py` | Domain scope enforcement, robots.txt, rate limiting |
-| **ContextIntelligence** | `core/context.py` | Parameter classification, tech fingerprinting |
-| **EndpointPrioritizer** | `core/prioritizer.py` | Risk-based endpoint priority scoring |
-| **BaselineEngine** | `core/baseline.py` | Response baseline measurement (timing, length, structure) |
-| **SignalScorer** | `core/scorer.py` | Multi-signal confidence scoring (timing+error+reflection+diff) |
-| **Verifier** | `core/verifier.py` | False positive elimination via re-testing |
-| **LearningStore** | `core/learning.py` | Persist successful patterns across scans |
-| **AdaptiveController** | `core/adaptive.py` | WAF detection, auto-throttle, depth adjustment |
-| **AIEngine** | `core/ai_engine.py` | Vulnerability prediction, attack strategy, payload hints |
-| **PersistenceEngine** | `core/persistence.py` | Retry logic, evasion escalation, resume capability |
-| **RulesEngine** | `core/rules_engine.py` | YAML-based scanner rules configuration |
-| **Normalizer** | `core/normalizer.py` | Response normalization for consistent comparison |
-| **ShieldDetector** | `core/shield_detector.py` | CDN + WAF detection (Cloudflare, Akamai, Fastly, CloudFront, Sucuri) |
-| **RealIPScanner** | `core/real_ip_scanner.py` | Origin IP discovery behind CDN (passive + subdomain + active probing) |
-| **GoalPlanner** | `core/goal_planner.py` | Hypothesis-driven goal stack management and budget tracking |
-| **PivotDetector** | `core/pivot_detector.py` | Pivot detection — expand attack surface from confirmed findings |
-| **AgentScanner** | `core/agent_scanner.py` | Autonomous OODA-loop scanner (observe-think-act-reflect-adapt) |
-| **PassiveReconFanout** | `core/passive_recon.py` | Phase 5: Parallel fan-out recon (CDX APIs, crawler, discovery) → merge + dedup |
-| **IntelligenceEnricher** | `core/intelligence_enricher.py` | Phase 6: TechFingerprinter + CVEMatcher + param context weights |
-| **ScanPriorityQueue** | `core/scan_priority_queue.py` | Phase 7: Multi-factor scoring and structural deduplication |
-| **ScanWorkerPool** | `core/scan_worker_pool.py` | Phase 8: Gate pipeline + Workers A-E + DifferentialEngine |
-| **PostWorkerVerifier** | `core/post_worker_verifier.py` | Phase 9: Consistency recheck + FP filter + CVSS scoring + ChainDetector |
-| **ExploitSearcher** | `core/exploit_searcher.py` | Phase 9B: 7-source exploit search + maturity scoring + CVSS adjustment + priority re-rank |
-| **OutputPhase** | `core/output_phase.py` | Phase 10: Commit & Report — DB persist + enriched report generation |
-| **AttackMapBuilder** | `core/attack_map.py` | Phase 11: Exploit-aware attack map — nodes, edges, paths, impact zones, attacker simulation |
+| File                          | Purpose                                                                  |
+|-------------------------------|--------------------------------------------------------------------------|
+| `engine.py`                   | `AtomicEngine` orchestrator.                                              |
+| `pipeline_contract.py`        | **Canonical** `Phase`, `Partition`, `PipelineStateMachine`.               |
+| `runners/` (4 files)          | Partial phase-runner extraction (recon / scan / verify / report).        |
+| `scope.py`                    | `ScopePolicy` — domain whitelist, robots, rate limit.                     |
+| `context.py`                  | `ContextIntelligence` — parameter classification.                         |
+| `prioritizer.py`              | `EndpointPrioritizer` — risk-based ranking.                               |
+| `baseline.py`                 | `BaselineEngine` — response baseline measurement.                         |
+| `scorer.py`                   | `SignalScorer` — multi-signal confidence scoring.                         |
+| `verifier.py` / `verify.py`   | `Verifier` — false-positive elimination.                                  |
+| `learning.py`                 | `LearningStore` — cross-scan pattern persistence.                         |
+| `adaptive.py`                 | `AdaptiveController` — WAF / noise / depth adjustment.                    |
+| `ai_engine.py`                | `AIEngine` — heuristic vulnerability prediction.                          |
+| `local_llm.py`                | `LocalLLM` — Qwen2.5-7B GGUF integration. *(experimental)*                |
+| `waf_ai_bypass.py`            | LLM-driven WAF mutation. *(experimental)*                                 |
+| `attack_planner.py`           | `AttackPlanner` — LLM-based plan generator.                               |
+| `orchestrator.py`             | `ScanOrchestrator` — feedback-loop autonomous mode (`--auto`).            |
+| `goal_planner.py`             | OODA goal generation for `AgentScanner`.                                  |
+| `pivot_detector.py`           | Detects pivots from confirmed findings.                                   |
+| `agent_scanner.py`            | `AgentScanner` — autonomous OODA loop (Phase 17).                         |
+| `passive_recon.py`            | `PassiveReconFanout` — Phase 6.                                           |
+| `intelligence_enricher.py`    | `IntelligenceEnricher` — Phase 10.                                        |
+| `scan_priority_queue.py`      | `ScanPriorityQueue` — Phase 11 (multi-factor scoring).                    |
+| `scan_worker_pool.py`         | Workers A–E (Phase 14).                                                   |
+| `post_worker_verifier.py`     | Phase 15 verification + ChainDetector.                                    |
+| `exploit_searcher.py`         | Phase 16 — 7-source exploit reference search.                             |
+| `attack_router.py`            | `AttackRouter` — vuln→exploit routing.                                    |
+| `payload_generator.py`        | Tailored payload + POC generation.                                        |
+| `post_exploit.py`             | `PostExploitEngine` — orchestrates AttackRouter actions.                  |
+| `exploit_chain.py`            | Multi-step exploit chaining.                                              |
+| `os_shell.py`                 | Interactive shell over HTTP via deployed web shells.                      |
+| `output_phase.py`             | Phase 19 — DB commit + report orchestration.                              |
+| `reporter.py`                 | `ReportGenerator` — 7 output formats.                                     |
+| `attack_map.py`               | Phase 20 — exploit-aware attack graph.                                    |
+| `kill_chain.py`               | Kill-chain correlation engine.                                            |
+| `compliance.py`               | OWASP / PCI-DSS / NIST / CIS / SANS mapping.                              |
+| `auth.py`                     | JWT auth + RBAC (admin / analyst / viewer).                               |
+| `scheduler.py`                | Interval / cron / one-shot scheduling.                                    |
+| `audit_logger.py`             | HMAC-SHA256-signed audit trail.                                           |
+| `tool_integrator.py`          | Adapters for nmap / nuclei / nikto / whatweb / subfinder.                 |
+| `recon_arsenal.py`            | 15 GitHub recon tool wrappers (amass / httpx / katana / dnsx / ffuf …).   |
+| `plugin_system.py`            | Drop-in plugin discovery + hook system.                                   |
+| `plugin_hotreload.py`         | watchdog-based plugin hot reload.                                         |
+| `notification.py`             | Webhook / Slack / Discord / Teams alerting.                               |
+| `distributed.py`              | Redis-backed coordinator + worker mode.                                   |
+| `batch_scanner.py`            | Multi-target ThreadPoolExecutor.                                          |
+| `watch_mode.py`               | Continuous polling for new findings.                                      |
+| `ci_mode.py`                  | JUnit XML + GitHub annotations exit codes.                                |
+| `burp_exporter.py`            | Burp Suite XML project export.                                            |
+| `proxy.py` / `repeater.py` / `intruder.py` | Lightweight Burp-clone tools. *(reference only)*             |
+| `structured_logger.py`        | NDJSON log records.                                                       |
+| `config_loader.py`            | YAML / TOML config file loader.                                           |
+| `rules_engine.py`             | Loads and exposes `scanner_rules.yaml`.                                   |
+| `models.py`                   | Canonical security models (`Finding`, `Surface`, `Evidence`).             |
+| `emit.py`                     | Signal emission pipeline.                                                 |
+| `correlator.py`               | Deterministic finding correlator.                                         |
+| `validators.py`               | ID / URL / scope validators.                                              |
+| `surface.py`                  | `TargetSurface` builder.                                                  |
+| `scan_planner.py`             | `--show-plan` renderer.                                                   |
+| `banner.py`                   | ASCII banner.                                                             |
 
-### Exploitation Layer
+There are **68 files** in `core/` total; this list omits a handful of small
+private helpers.
 
-| Component | File | Purpose |
-|-----------|------|---------|
-| **AttackRouter** | `core/attack_router.py` | Route confirmed vulns → exploitation handlers |
-| **PayloadGenerator** | `core/payload_generator.py` | Generate tailored exploit payloads and POCs |
-| **PostExploitEngine** | `core/post_exploit.py` | AI-driven post-exploitation orchestration |
-| **ExploitChainEngine** | `core/exploit_chain.py` | Multi-step vulnerability chaining |
-| **OSShellHandler** | `core/os_shell.py` | Interactive shell over HTTP via web shells |
-
-### Reporting Layer
-
-| Component | File | Formats / Sections |
-|-----------|------|--------------------|
-| **ReportGenerator** | `core/reporter.py` | HTML, JSON, CSV, TXT, PDF, XML, SARIF — with executive_summary, exploit_chains, waf_bypass_disclosure, origin_exposure_note, remediation_plan, agent_reasoning_log |
-| **OutputPhase** | `core/output_phase.py` | Phase 10 orchestrator: DB commit + report generation |
-
-### Burp-Style Tools
-
-| Component | File | Purpose |
-|-----------|------|---------|
-| **Proxy** | `core/proxy.py` | Intercepting HTTP proxy |
-| **Repeater** | `core/repeater.py` | Raw HTTP request replay |
-| **Intruder** | `core/intruder.py` | Automated payload injection attacks |
-
----
-
-## Utilities
-
-| Utility | File | Purpose |
-|---------|------|---------|
-| **Requester** | `utils/requester.py` | HTTP client with retry, proxy, UA rotation, evasion |
-| **Crawler** | `utils/crawler.py` | Web crawler with endpoint graph tracking |
-| **Database** | `utils/database.py` | SQLite/SQLAlchemy persistence for scans and findings |
-| **Evasion** | `utils/evasion.py` | PayloadMutator + TimingEvasion + FingerprintRandomizer |
-| **Decoder** | `utils/decoder.py` | Multi-format encode/decode utility |
-| **Comparer** | `utils/comparer.py` | Response comparison and diffing |
-| **Sequencer** | `utils/sequencer.py` | Token randomness analysis |
-| **Helpers** | `utils/helpers.py` | Dependency check and install utilities |
+`utils/` adds: `requester`, `crawler`, `database`, `evasion`, `decoder`,
+`comparer`, `sequencer`, `helpers`, `async_requester`, `github_wordlists`,
+`tool_downloader` (11 files).
 
 ---
 
 ## Web Dashboard
 
-```
-web/
-├── app.py              # Flask application + SocketIO
-├── templates/
-│   └── index.html      # Single-page dashboard (glassmorphism design)
-└── static/
-    └── style.css       # Dashboard styles
-```
+Single-page glassmorphism dashboard at `web/templates/index.html` plus
+`web/static/style.css`.  **30 nav tabs** total, including: Dashboard, Scanner,
+Pipeline, Exploits, Exploit Intel, Attack Map, Shells, Active, History,
+Findings, Kill Chains, AI Plan, Workers, Watch, Config, Rules, Live Feed,
+Auth, Scheduler, Compliance, Audit, Tools, Recon Arsenal, Plugins,
+Notifications, plus a few utility tabs.
 
-**Architecture:** Flask + flask-socketio (threading async_mode)
-
-**Real-time Updates:**
-- SocketIO events push pipeline events, findings, shell output
-- Falls back to polling if SocketIO unavailable
-
-**Security:**
-- Rate limiting (60 req/min per IP)
-- Scan-ID validation (hex UUID pattern only)
-- Shell ID validation
-- ANSI strip + 50KB output limit on shell responses
+The dashboard uses Flask + flask-socketio (threading async_mode).  Real-time
+updates push pipeline events, findings, and shell output via Socket.IO; if
+Socket.IO is unavailable the front-end falls back to polling.
 
 ---
 
-## Data Flow Diagram
+## REST API Surface
+
+`web/app.py` declares **91 routes** at module scope.  Bucketed by URL prefix:
+
+| Prefix                            | Count | Purpose                                                |
+|-----------------------------------|------:|--------------------------------------------------------|
+| `/api/scan`, `/api/scans`         |     7 | Start / list / get / delete scans, status, batch.       |
+| `/api/findings`                   |     2 | Findings query.                                         |
+| `/api/report`                     |     1 | Render report in chosen format.                         |
+| `/api/shells`, `/api/shell/...`   |     3 | Shell list / execute / info.                            |
+| `/api/exploit*`, `/api/attack-*`  |     5 | Exploit results, intel, attack map, attack route, POC.  |
+| `/api/pipeline/...`               |     2 | Live pipeline state and event stream.                   |
+| `/api/stats`                      |     1 | Aggregate statistics.                                   |
+| `/api/tools/...`                  |     9 | Decode / encode / hash / compare / sequencer / repeater.|
+| `/api/rules/...`                  |    10 | Rules engine read-only views + reload.                  |
+| `/api/auth/...`                   |     8 | login / refresh / me / users CRUD / api-key.            |
+| `/api/schedules/...`              |     6 | Scheduler CRUD + history.                               |
+| `/api/scheduler/...`              |     2 | Scheduler start / stop.                                 |
+| `/api/compliance/...`             |     2 | Compliance analyse + frameworks list.                   |
+| `/api/audit/...`                  |     2 | Audit query + statistics.                               |
+| `/api/recon/...`                  |     3 | Recon arsenal list / run / full.                        |
+| `/api/discovery/...`              |     2 | Discovery (sub-recon) results.                          |
+| `/api/nuclei/...`                 |     2 | Nuclei adapter routes.                                  |
+| `/api/plugins/...`                |     3 | Plugin list / discover / toggle.                        |
+| `/api/notifications/...`          |     3 | Channel list / test / history.                          |
+| `/api/ai/...`                     |     3 | AI engine endpoints (heuristic + LLM).                  |
+| `/api/ai-plan`                    |     1 | LLM attack-plan generation.                             |
+| `/api/chat/...`                   |     3 | Chat endpoints (LLM integration).                       |
+| `/api/ollama/...`                 |     6 | Ollama backend management.                              |
+| `/api/kill-chains`                |     1 | Kill-chain analysis.                                    |
+| `/api/config/...`                 |     2 | Config file read / generate.                            |
+| `/api/workers`                    |     1 | Distributed worker status.                              |
+| `/`                               |     1 | Dashboard SPA.                                          |
+| **Total**                         |  **91** |                                                       |
+
+All `/api/*` endpoints except the SPA bootstrap require a valid API key
+via the `_require_api_key` decorator (timing-safe HMAC compare against
+`ATOMIC_API_KEY`).
+
+---
+
+## Scoring Formula
+
+`core/scan_priority_queue.py` (lines 25–30) — five base weights summing to
+**1.00**, with a depth-penalty multiplier applied last:
 
 ```
-User Input (CLI/Web)
-        │
-        ▼
-┌─────────────────┐
-│   Config Dict    │  depth, threads, timeout, delay, evasion,
-│                  │  proxy, modules, rules_path, ...
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐     ┌─────────────────┐
-│  AtomicEngine   │────>│  RulesEngine    │  scanner_rules.yaml
-│  (Orchestrator) │     └─────────────────┘
-└────────┬────────┘
-         │
-    ┌────┴────────────────────────────────────┐
-    │                                          │
-    ▼                                          ▼
-┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐
-│ScopePolicy│  │Requester │  │ Crawler  │  │ Database │
-│(scope.py) │  │(requester│  │(crawler  │  │(database │
-│           │  │  .py)    │  │  .py)    │  │  .py)    │
-└──────────┘  └──────────┘  └──────────┘  └──────────┘
-                   │              │
-                   ▼              ▼
-            ┌──────────────────────┐
-            │  URLs + Forms +      │
-            │  Parameters          │
-            └──────────┬───────────┘
-                       │
-                       ▼
-            ┌──────────────────────┐
-            │ Context Intelligence │  Enrichment + Classification
-            │ + Prioritizer        │
-            └──────────┬───────────┘
-                       │
-                       ▼
-            ┌──────────────────────┐
-            │  Baseline Engine     │  Normal response profiling
-            └──────────┬───────────┘
-                       │
-                       ▼
-            ┌──────────────────────┐
-            │  AI Attack Strategy  │  Module ordering + predictions
-            └──────────┬───────────┘
-                       │
-                       ▼
-            ┌──────────────────────┐
-            │  22+ Attack Modules  │  Each module.test(url, method, param, value)
-            │  + Reflection Gate   │  XSS/SSTI skipped for non-reflected params
-            │  + sqlmap integration│  Deep SQLi/CMDi testing via CLI
-            └──────────┬───────────┘
-                       │
-                       ▼
-            ┌──────────────────────┐
-            │  Signal Scorer       │  Multi-signal confidence analysis
-            └──────────┬───────────┘
-                       │
-                       ▼
-            ┌──────────────────────┐
-            │  Verifier            │  False positive elimination
-            └──────────┬───────────┘
-                       │
-                       ▼
-            ┌──────────────────────┐
-            │  Findings[]          │  Vulnerability results
-            └──────────┬───────────┘
-                       │
-              ┌────────┴────────┐
-              │                 │
-              ▼                 ▼
-    ┌──────────────┐  ┌──────────────┐
-    │Attack Router │  │ Report Gen   │
-    │+ Post-Exploit│  │ (7 formats)  │
-    │+ Exploit     │  └──────────────┘
-    │  Chain       │
-    └──────────────┘
+priority = (
+    param_context_weight     × 0.30 +
+    endpoint_type_weight     × 0.25 +
+    cve_match_score          × 0.20 +
+    agent_hypothesis_match   × 0.15 +
+    response_anomaly_score   × 0.10
+) × (1.0 - depth × 0.05)         # depth_penalty in [0.5, 1.0]
+
+priority = max(0.0, min(1.0, priority))
 ```
+
+Endpoints with `priority < MIN_PRIORITY_THRESHOLD` (0.05) are dropped from
+the scan queue.
+
+---
+
+## Security Hardening
+
+### Authentication
+
+- Every `/api/*` endpoint except the SPA bootstrap is wrapped in
+  `_require_api_key` (`web/app.py`).  Comparison uses `hmac.compare_digest`
+  against `ATOMIC_API_KEY`; missing key in env disables the dashboard rather
+  than silently allowing access.
+- JWT auth (`core/auth.py`): PBKDF2-SHA256 password hashing, three roles
+  (`admin` / `analyst` / `viewer`), token refresh, API-key tokens with
+  `atk_` prefix.
+- Shell-execute (`POST /api/shell/{id}/execute`) requires API key **and**
+  rejects shell metacharacters (`;`, `|`, `` ` ``, `$()`) via an allowlist
+  filter before invoking the deployed shell.
+
+### Input Sanitisation
+
+- Scan-ID validator: hex-UUID v4 pattern only.
+- Shell-ID validator: alphanumeric + hyphen, max 64 chars.
+- Shell command output: ANSI escape sequences stripped, hard 50 KB cap with
+  `[OUTPUT TRUNCATED]` marker.
+- Report path traversal: filenames sanitised, restricted to `reports/`.
+
+### Network Surface
+
+- CORS origins are read from `ATOMIC_CORS_ORIGINS` (comma-separated). When
+  unset, all cross-origin requests are blocked.
+- Per-IP rate limiter: 60 requests / minute on standard endpoints, 10 / min
+  on auth endpoints.
+- Security headers: HSTS, CSP, X-Frame-Options, X-Content-Type-Options,
+  Referrer-Policy applied via `@app.after_request`.
+
+### Secrets
+
+| Variable                  | Purpose                       | Notes                            |
+|---------------------------|-------------------------------|----------------------------------|
+| `ATOMIC_API_KEY`          | Dashboard / API auth          | Required for any `/api/*` access.|
+| `ATOMIC_AUTH_SECRET`      | JWT signing                   | Min 64 random chars.             |
+| `ATOMIC_ADMIN_PASSWORD`   | Initial admin account         | Min 16 chars.                    |
+| `ATOMIC_AUDIT_SECRET`     | HMAC-SHA256 audit log signing | Min 32 random chars.             |
+| `ATOMIC_DB_URL`           | DB connection                 | SQLAlchemy URI.                  |
+| `ATOMIC_CORS_ORIGINS`     | Allowed CORS origins          | Comma-separated.                 |
+| `ATOMIC_WEBHOOK_URL`      | Notification webhook          | Optional.                        |
+
+### Known Risks
+
+- The default SQLite DB has no encryption — use PostgreSQL for production.
+- `core/os_shell.py` and `/api/shell/{id}/execute` are inherently dangerous;
+  both are gated by API key and the role permission `exploit`, but operators
+  should restrict the dashboard to a private network in real deployments.
+- The `--auto-exploit` flag will deploy webshells; see [Known Drift](#known-drift)
+  below for the current confidence threshold.
 
 ---
 
 ## Configuration
 
-### Config Sources
+Configuration is layered.  Highest priority wins.
 
-1. **CLI arguments** (`main.py` argparse) → `config` dict
-2. **scanner_rules.yaml** → loaded by `RulesEngine`
-3. **Environment variables** → `ATOMIC_DB_URL`, `ATOMIC_SECRET_KEY`, `ATOMIC_API_KEY`
-4. **config.py** → `Config` class (version, dirs, limits), `Payloads` class (all payloads), `Colors` class
+1. CLI arguments (`main.py` argparse).
+2. YAML / TOML config file (`--config` or auto-discover `atomic.yaml`).
+3. `scanner_rules.yaml` (default config rules).
+4. Environment variables (`ATOMIC_*`).
+5. `config.Config` defaults — also the **single source of truth** for the
+   framework version (`Config.VERSION`).
 
-### Module Enable Flow
+### Default Module Set
 
-```python
-# CLI: --sqli --xss --cmdi --sqlmap
-# OR:  --full (enables all)
-#
-# Builds modules dict:
-modules = {
-    'sqli': True,      # attack modules (loaded by engine._load_modules)
-    'xss': True,
-    'cmdi': True,
-    'sqlmap': True,    # flag read by sqli/cmdi modules internally
-    ...
-    'shell': False,    # post-exploitation flags
-    'dump': False,
-    'auto_exploit': False,
-}
-config['modules'] = modules
+When no module flags are passed, the engine runs:
+
 ```
-
-### Default Modules (when none specified)
-
-```python
 sqli, xss, lfi, cmdi, idor, cors
 ```
 
----
-
-## File Reference
-
-```
-Scanner-/
-├── main.py                    # CLI entry point
-├── config.py                  # Config, Payloads, Colors, MITRE_CWE_MAP
-├── scanner_rules.yaml         # YAML scanner configuration
-├── requirements.txt           # Python dependencies
-├── LOGIC_MAP.md               # This file — framework logic documentation
-│
-├── core/
-│   ├── engine.py              # AtomicEngine — central orchestrator
-│   ├── scope.py               # ScopePolicy — target scope enforcement
-│   ├── context.py             # ContextIntelligence — parameter analysis
-│   ├── prioritizer.py         # EndpointPrioritizer — risk-based ranking
-│   ├── baseline.py            # BaselineEngine — response profiling
-│   ├── scorer.py              # SignalScorer — multi-signal analysis
-│   ├── verifier.py            # Verifier — false positive elimination
-│   ├── learning.py            # LearningStore — cross-scan intelligence
-│   ├── adaptive.py            # AdaptiveController — WAF/noise adaptation
-│   ├── ai_engine.py           # AIEngine — vulnerability prediction
-│   ├── persistence.py         # PersistenceEngine — retry/resume logic
-│   ├── rules_engine.py        # RulesEngine — YAML config loader
-│   ├── normalizer.py          # Response normalization
-│   ├── attack_router.py       # AttackRouter — vuln → exploit routing
-│   ├── payload_generator.py   # PayloadGenerator — tailored payloads/POCs
-│   ├── post_exploit.py        # PostExploitEngine — AI post-exploitation
-│   ├── exploit_chain.py       # ExploitChainEngine — multi-step chains
-│   ├── os_shell.py            # OSShellHandler — interactive shell
-│   ├── reporter.py            # ReportGenerator — 7 output formats + Phase 10 enrichment
-│   ├── output_phase.py        # OutputPhase — Phase 10 commit & report orchestrator
-│   ├── exploit_searcher.py    # ExploitSearcher — Phase 9B exploit reference search (7 sources)
-│   ├── attack_map.py          # AttackMapBuilder — Phase 11 exploit-aware attack map
-│   ├── banner.py              # ASCII art banner
-│   ├── proxy.py               # Intercepting proxy
-│   ├── repeater.py            # HTTP request repeater
-│   ├── intruder.py            # Intruder attack mode
-│   ├── auth.py                # JWT authentication + RBAC
-│   ├── scheduler.py           # Scheduled/recurring scans (interval + cron)
-│   ├── compliance.py          # Compliance mapping (OWASP/PCI-DSS/NIST/CIS/SANS)
-│   ├── audit_logger.py        # Tamper-proof audit trail
-│   ├── tool_integrator.py     # External tool integration (Nmap/Nuclei/Nikto/WhatWeb/Subfinder)
-│   ├── recon_arsenal.py       # Recon Arsenal — 15 best-in-class recon tools (Amass/httpx/Katana/dnsx/ffuf/gau/waybackurls/Gobuster/Feroxbuster/Masscan/RustScan/Hakrawler/Arjun/ParamSpider/Dirsearch)
-│   ├── plugin_system.py       # Plugin architecture (drop-in + hooks)
-│   └── notification.py        # Multi-channel alerting (webhook/Slack/Discord/Teams)
-│
-├── modules/
-│   ├── base.py                # BaseModule — abstract interface
-│   ├── sqli.py                # SQL Injection + sqlmap integration
-│   ├── xss.py                 # Cross-Site Scripting
-│   ├── lfi.py                 # Local File Inclusion
-│   ├── cmdi.py                # Command Injection + sqlmap --os-cmd
-│   ├── ssrf.py                # Server-Side Request Forgery
-│   ├── ssti.py                # Server-Side Template Injection
-│   ├── xxe.py                 # XML External Entity
-│   ├── idor.py                # Insecure Direct Object Reference
-│   ├── nosqli.py              # NoSQL Injection
-│   ├── cors.py                # CORS Misconfiguration
-│   ├── jwt.py                 # JWT Security
-│   ├── uploader.py            # File Upload / Shell Upload
-│   ├── open_redirect.py       # Open Redirect
-│   ├── crlf.py                # CRLF Injection
-│   ├── hpp.py                 # HTTP Parameter Pollution
-│   ├── graphql.py             # GraphQL Injection
-│   ├── proto_pollution.py     # Prototype Pollution
-│   ├── race_condition.py      # Race Condition
-│   ├── websocket.py           # WebSocket Injection
-│   ├── deserialization.py     # Deserialization
-│   ├── osint.py               # OSINT Reconnaissance
-│   ├── fuzzer.py              # Fuzzer + ffuf + ParamSpider
-│   ├── waf.py                 # WAF Bypass Engine
-│   ├── discovery.py           # Target Discovery & Enumeration
-│   ├── reconnaissance.py      # DNS/Subdomain Recon
-│   ├── port_scanner.py        # TCP Port Scanner
-│   ├── network_exploits.py    # Network CVE Mapping
-│   ├── tech_exploits.py       # Technology CVE Mapping
-│   ├── brute_force.py         # Brute Force Attacks
-│   ├── dumper.py              # Database Dumper
-│   └── shell/                 # Shell Manager
-│
-├── utils/
-│   ├── requester.py           # HTTP client with evasion
-│   ├── crawler.py             # Web crawler
-│   ├── database.py            # SQLite persistence
-│   ├── evasion.py             # Evasion engine (mutator/timing/fingerprint)
-│   ├── decoder.py             # Encode/decode utility
-│   ├── comparer.py            # Response comparison
-│   ├── sequencer.py           # Token randomness analysis
-│   └── helpers.py             # Dependency utilities
-│
-├── web/
-│   ├── app.py                 # Flask dashboard + API
-│   ├── templates/index.html   # Dashboard UI
-│   └── static/style.css       # Styles
-│
-└── tests/                     # 2900+ unit tests
-    ├── conftest.py            # Test fixtures
-    └── test_*.py              # Per-module test files
-```
+`--full` enables all attack modules.  `--point-to-point` additionally enables
+exploitation, network scanning, and post-exploitation modules.
 
 ---
 
-## Production Components (v8.1)
+## Known Drift
 
-### Authentication & RBAC (`core/auth.py`)
-- JWT-based authentication with PBKDF2-SHA256 password hashing
-- Three roles: **admin** (full access), **analyst** (scan + exploit), **viewer** (read-only)
-- Permission matrix with 30+ granular permissions
-- API key authentication (prefix: `atk_`)
-- Token refresh mechanism
-- Environment: `ATOMIC_AUTH_SECRET`, `ATOMIC_ADMIN_PASSWORD`
+These are documented gaps between the doc / contract and the running code.
+They will be closed in subsequent refactor passes (Phases B–D in the project
+plan).
 
-### Scheduled Scanning (`core/scheduler.py`)
-- Interval-based scheduling (every N seconds)
-- Cron expression support (5-field: min hour dom mon dow)
-- One-time future execution
-- Max runs limiter
-- Background scheduler thread with 30s tick interval
-- CLI: `--schedule <minutes>`, `--schedule-cron "<expr>"`, `--schedule-name`
+1. **`scanner_rules.yaml` stages don't match `Phase` enum.** The YAML lists
+   seven abstract stages (`discovery`, `baseline`, `context_classification`,
+   `prioritized_testing`, `verification`, `scoring`, `reporting`).  These are
+   pre-contract groupings, kept for backward compatibility.
 
-### Compliance Mapping (`core/compliance.py`)
-- **OWASP Top 10 (2021)** — 10 categories with CWE + keyword matching
-- **PCI DSS v4.0** — 11 requirements
-- **NIST SP 800-53 Rev 5** — 8 control families
-- **CIS Controls v8** — 9 control groups
-- **SANS Top 25** — CWE-based matching
-- Framework scoring (% controls passing)
-- Gap analysis sorted by severity
-- CLI: `--compliance`, `--compliance-frameworks owasp,pci_dss`
+2. **Engine still uses inline phase code with old comment numbering.**
+   `core/engine.py` calls `self.pipeline['phase'] = 'recon'/'scan'/...`
+   (4 partition strings) rather than driving `PipelineStateMachine` directly,
+   and inline comments still say `PHASE 1/2/4/5/6/.../9B`.  The 21-phase
+   contract and the inline numbering will be reconciled when the engine is
+   refactored to dispatch through `core/runners/`.
 
-### Audit Logger (`core/audit_logger.py`)
-- Tamper-proof audit trail with HMAC-SHA256 checksums
-- Categories: auth, scan, exploit, report, user, config, system, schedule
-- Severity levels: info, warning, critical
-- Query API with filters (category, actor, severity, since)
-- Statistics and security event reporting
-- JSON export for compliance audits
-- Environment: `ATOMIC_AUDIT_SECRET`
+3. **`uploader.py` mixes detection and exploitation.** `ShellUploader` both
+   tests for upload bypass *and* deploys webshells; the scan phase should
+   only test, with shell deployment moved into the exploit phase.
 
-### External Tool Integration (`core/tool_integrator.py`)
-- **Nmap** — Network scanning with XML output parsing (quick/service/vuln/full modes)
-- **Nuclei** — Template-based scanning with JSONL output parsing
-- **Nikto** — Web server assessment with JSON/text parsing
-- **WhatWeb** — Technology fingerprinting with JSON parsing
-- **Subfinder** — Subdomain enumeration
-- Unified `ToolIntegrator` facade with `run_tool()`, `run_recon_suite()`, `run_vuln_scan()`
-- CLI: `--nmap`, `--nuclei`, `--nikto`, `--whatweb`, `--subfinder`, `--tools-check`
+4. **AttackRouter has no confidence threshold.**
+   `AtomicEngine.scan` triggers AttackRouter when there is at least one
+   verified `HIGH` / `CRITICAL` finding with `confidence ≥ 0.6`, but the
+   router itself routes every finding without a per-route confidence floor.
+   Will be tightened to ≥ 0.85 with separate-process re-verification before
+   any shell deployment.
 
-### Recon Arsenal (`core/recon_arsenal.py`)
-15 best-in-class GitHub security tools for comprehensive reconnaissance & discovery:
+5. **Legacy and AttackRouter exploit paths run in parallel.** `--shell`,
+   `--dump`, `--os-shell`, `--brute`, `--exploit-chain` all fire after
+   AttackRouter; both paths can deploy artefacts in the same scan.  Will be
+   deconflicted at argparse time.
 
-| Category | Tools | Description |
-|----------|-------|-------------|
-| **Subdomain & DNS** | Amass, dnsx | OWASP subdomain enumeration, fast DNS toolkit |
-| **HTTP Probing** | httpx | Fast HTTP probing with tech detection |
-| **Web Crawling** | Katana, Hakrawler | Next-gen crawlers with JS rendering |
-| **URL Harvesting** | gau, waybackurls, ParamSpider | Historical URL collection from web archives |
-| **Parameter Discovery** | Arjun | Hidden HTTP parameter discovery |
-| **Content Discovery** | ffuf, Gobuster, Feroxbuster, Dirsearch | Directory/vhost/path brute-forcing |
-| **Port Scanning** | Masscan, RustScan | Ultra-fast port scanning (10M+ pps) |
-
-- `ReconArsenal` facade: `run_tool()`, `run_subdomain_enum()`, `run_url_harvest()`, `run_content_discovery()`, `run_http_probe()`, `run_port_scan()`, `run_full_recon()`
-- CLI flags: `--amass`, `--httpx`, `--katana`, `--dnsx`, `--ffuf`, `--gau`, `--waybackurls`, `--gobuster`, `--feroxbuster`, `--masscan`, `--rustscan`, `--hakrawler`, `--arjun`, `--paramspider`, `--dirsearch`, `--recon-arsenal`
-- Web API: `GET /api/recon/arsenal`, `POST /api/recon/arsenal/<tool>/run`, `POST /api/recon/arsenal/full`
-- Dashboard: "🎯 Recon Arsenal" tab with tool status, single-tool runner, full recon, and results display
-
-### Plugin System (`core/plugin_system.py`)
-- Drop-in plugin discovery from `plugins/` directory
-- Programmatic registration via `register()`
-- Plugin lifecycle: setup → run → teardown
-- Hook system: pre_scan, post_scan, on_finding, pre_report
-- Category-based filtering (scanner, recon, exploit, report, utility)
-- Enable/disable toggle per plugin
-
-### Notification System (`core/notification.py`)
-- Console channel (stdout with severity colors)
-- Webhook channel (generic HTTP POST)
-- Pre-formatted payloads for Slack, Discord, and Microsoft Teams
-- Auto-notifications: scan started/completed/failed, critical findings
-- Notification history with 500-entry cap
-- CLI: `--notify-webhook <url>`, `--notify-format slack|discord|teams`
-- Environment: `ATOMIC_WEBHOOK_URL`, `ATOMIC_WEBHOOK_FORMAT`
-
-### Web API Endpoints (31 total)
-- **Auth** (8): login, refresh, me, CRUD users, API key generation
-- **Scheduler** (8): CRUD schedules, toggle, history, start/stop
-- **Compliance** (2): analyze scan, list frameworks
-- **Audit** (2): query entries, statistics
-- **Tools** (2): list available, run tool
-- **Recon Arsenal** (3): list arsenal tools, run single tool, full recon
-- **Plugins** (3): list, discover, toggle
-- **Notifications** (3): list channels, test, history
-
----
-
-## Change Log
-
-| Date | Change | Files |
-|------|--------|-------|
-| 2026-04-04 | **Recon Arsenal Upgrade**: Added `core/recon_arsenal.py` with 15 best-in-class GitHub security tools — Amass (OWASP subdomain enum), httpx (HTTP probing), Katana (web crawler), dnsx (DNS toolkit), ffuf (web fuzzer), gau (URL harvesting), waybackurls (Wayback Machine), Gobuster (dir brute-force), Feroxbuster (recursive discovery), Masscan (fast port scan), RustScan (ultra-fast ports), Hakrawler (JS crawler), Arjun (param discovery), ParamSpider (param mining), Dirsearch (path scan). 20+ new CLI flags, 3 new API endpoints, web dashboard Recon Arsenal tab, 85 new tests. | `core/recon_arsenal.py`, `core/engine.py`, `main.py`, `web/app.py`, `web/templates/index.html`, `tests/test_recon_arsenal.py`, `LOGIC_MAP.md` |
-| 2026-04-04 | **v8.1 Production Upgrade**: Added 7 production components — Authentication & RBAC (JWT + PBKDF2), Scheduled Scanning (interval + cron), Compliance Mapping (OWASP/PCI-DSS/NIST/CIS/SANS), Audit Logger (tamper-proof), External Tool Integration (Nmap/Nuclei/Nikto/WhatWeb/Subfinder), Plugin System (drop-in + hooks), Notification System (webhook/Slack/Discord/Teams). 28 new web API endpoints. 15+ new CLI flags. 200 new tests. | `core/auth.py`, `core/scheduler.py`, `core/compliance.py`, `core/audit_logger.py`, `core/tool_integrator.py`, `core/plugin_system.py`, `core/notification.py`, `core/engine.py`, `main.py`, `web/app.py`, `LOGIC_MAP.md` |
-| 2026-04-04 | Added Phase 9B: Exploit Reference Searcher (7-source search: ExploitDB, Metasploit, Nuclei, GitHub PoC, PacketStorm, NVD, CISA KEV; ExploitConsolidator maturity scoring; CVSSAdjuster; PriorityReranker). Added Phase 11: Attack Map (NodeClassifier, EdgeBuilder, PathFinder, ImpactZoneMapper, AttackerSimulator with 3 profiles). CLI flags: --exploit-search, --attack-map. | `core/exploit_searcher.py`, `core/attack_map.py`, `core/engine.py`, `main.py`, `LOGIC_MAP.md` |
-| 2026-04-04 | Added Phase 10: Commit & Report (OutputPhase orchestrator, DB save_results/save_chains/ExploitChainModel, ReportGenerator enrichment: executive_summary, exploit_chains, waf_bypass_disclosure, origin_exposure_note, remediation_plan, agent_reasoning_log). ReportGenerator.generate() now returns filepath. | `core/output_phase.py`, `core/reporter.py`, `utils/database.py`, `core/engine.py`, `LOGIC_MAP.md` |
-| 2026-04-04 | Added Phases 5-9: Passive Recon Fan-Out, Intelligence Enrichment (TechFingerprinter, CVEMatcher), Attack Surface Prioritization, Scan Worker Pool (DifferentialEngine, SurfaceMapper, Workers A-E), Post-Worker Verification (ChainDetector, CVSS v3.1 auto-scoring) | `core/passive_recon.py`, `core/intelligence_enricher.py`, `core/scan_priority_queue.py`, `core/scan_worker_pool.py`, `core/post_worker_verifier.py`, `core/engine.py`, `main.py` |
-| 2026-04-04 | Added Phase 1 Shield Detection (CDN+WAF), Phase 2 Real IP Discovery, Phase 4 Agent Scanner (Goal Planner + Pivot Detector + OODA loop) | `core/shield_detector.py`, `core/real_ip_scanner.py`, `core/goal_planner.py`, `core/pivot_detector.py`, `core/agent_scanner.py`, `core/engine.py`, `main.py` |
-| 2026-04-03 | Added sqlmap CLI integration to SQLi and CMDi modules | `modules/sqli.py`, `modules/cmdi.py`, `main.py` |
-| 2026-04-03 | Created LOGIC_MAP.md | `LOGIC_MAP.md` |
+6. **CLI flag accretion.** `main.py` has ~120 flags including overlapping
+   bundles (`--full`, `--point-to-point`, `--auto`, `--turbo`, `--regulated-mission`).
+   These will be collapsed into `--profile {quick,standard,deep,paranoid}`
+   plus per-module overrides.

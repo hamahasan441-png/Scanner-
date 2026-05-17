@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ATOMIC FRAMEWORK v11.0 — 2FA/MFA Bypass Module
+ATOMIC FRAMEWORK - 2FA/MFA Bypass Module
 ===============================================
 
 Tests for Multi-Factor Authentication bypass vulnerabilities:

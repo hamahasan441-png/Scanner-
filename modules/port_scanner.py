@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ATOMIC FRAMEWORK v10.0 - ULTIMATE EDITION
+ATOMIC FRAMEWORK
 Port Scanner Module
 
 TCP port scanning with service banner grabbing.  Supports individual

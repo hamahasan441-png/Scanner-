@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ATOMIC FRAMEWORK v10.0 - ULTIMATE EDITION
+ATOMIC FRAMEWORK
 Base Module — Abstract interface for all attack modules
 
 Every scanner module should subclass :class:`BaseModule` to inherit

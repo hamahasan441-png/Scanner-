@@ -1,4 +1,4 @@
-# ATOMIC FRAMEWORK v10.0 — ULTIMATE EDITION
+# ATOMIC FRAMEWORK v11.0
 
 ⚠️ **FOR AUTHORIZED TESTING ONLY** ⚠️
 
@@ -530,4 +530,4 @@ This project is for educational purposes only.
 
 ## Credits
 
-ATOMIC Framework v10.0 — ULTIMATE EDITION | Codename: TITAN
+ATOMIC Framework v11.0 | Codename: TITAN

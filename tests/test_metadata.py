@@ -40,7 +40,7 @@ class TestReadmeMetadata(unittest.TestCase):
 
     def test_readme_references_current_release(self):
         release = _major_minor(PACKAGE_METADATA.__version__)
-        self.assertIn(f"ATOMIC FRAMEWORK v{release} — ULTIMATE EDITION", self.readme)
+        self.assertIn(f"ATOMIC FRAMEWORK v{release}", self.readme)
 
     def test_readme_references_current_codename(self):
         self.assertIn(f"Codename: {Config.CODENAME}", self.readme)
@@ -51,6 +51,6 @@ class TestReadmeMetadata(unittest.TestCase):
     def test_readme_credits_footer_matches_release(self):
         release = _major_minor(PACKAGE_METADATA.__version__)
         self.assertIn(
-            f"ATOMIC Framework v{release} — ULTIMATE EDITION | Codename: {Config.CODENAME}",
+            f"ATOMIC Framework v{release}",
             self.readme,
         )

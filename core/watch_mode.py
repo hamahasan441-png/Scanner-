@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ATOMIC FRAMEWORK v11.0 — Continuous Watch Mode
+ATOMIC FRAMEWORK - Continuous Watch Mode
 ===============================================
 
 Polls a target at a configurable interval, diffs findings against the

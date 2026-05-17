@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ATOMIC FRAMEWORK v10.0 - Verify Runner
+ATOMIC FRAMEWORK - Verify Runner
 Encapsulates the verification & exploit enrichment portion of the pipeline:
   - §9 Adaptive verification (finding dedup, repro, demotion)
   - Self-learning feedback

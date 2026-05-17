@@ -1,11 +1,11 @@
 #!/bin/bash
-# ATOMIC Framework v10.0 - Setup Script
+# ATOMIC FRAMEWORK - Setup Script
 # Usage: bash setup.sh
 
 set -e
 
 echo "=========================================="
-echo "  ATOMIC Framework v10.0 - Setup"
+echo "  ATOMIC FRAMEWORK - Setup"
 echo "  Ultimate Edition"
 echo "=========================================="
 echo ""

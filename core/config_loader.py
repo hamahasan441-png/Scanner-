@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ATOMIC FRAMEWORK v11.0 — Config File Loader
+ATOMIC FRAMEWORK - Config File Loader
 ============================================
 
 Supports ``atomic.yaml`` and ``atomic.toml`` configuration files alongside
@@ -117,7 +117,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
 }
 
 STARTER_YAML_TEMPLATE = """\
-# ATOMIC Framework v11.0 — Configuration File
+# ATOMIC FRAMEWORK - Configuration File
 # Docs: https://github.com/hamahasan441-png/Scanner-
 #
 # CLI flags override values defined here.
