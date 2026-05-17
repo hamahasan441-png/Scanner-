@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ATOMIC FRAMEWORK v11.0 — Kill Chain Correlation Engine
+ATOMIC FRAMEWORK - Kill Chain Correlation Engine
 =======================================================
 
 Cross-references all findings to automatically generate attack chains

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ATOMIC FRAMEWORK v10.0 - Finding Quality Gate
+ATOMIC FRAMEWORK - Finding Quality Gate
 =============================================
 
 Validates that every ``CanonicalFinding`` at severity HIGH or CRITICAL

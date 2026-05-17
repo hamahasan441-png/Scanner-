@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ATOMIC FRAMEWORK v10.0 - ULTIMATE EDITION
+ATOMIC FRAMEWORK
 Configuration Module - Termux Optimized
+
+This module is the SINGLE SOURCE OF TRUTH for the framework version.
+Every other component reads ``Config.VERSION`` rather than hardcoding a
+version string.  When releasing a new version, change it here only.
 """
 
 import os
@@ -12,8 +16,8 @@ import random
 class Config:
     """Main Configuration"""
 
-    # Version Info
-    VERSION = "10.0-ULTIMATE"
+    # Version Info — CANONICAL.  Do not duplicate elsewhere.
+    VERSION = "11.0"
     CODENAME = "TITAN"
     AUTHOR = "Atomic Security"
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""ATOMIC FRAMEWORK v10.0 - ULTIMATE EDITION
+"""ATOMIC FRAMEWORK
 Sequencer Utility - Token Randomness & Entropy Analyzer"""
 
 import math

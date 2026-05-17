@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ATOMIC FRAMEWORK v11.0 — Integration Tests
+ATOMIC FRAMEWORK - Integration Tests
 ==========================================
 
 End-to-end integration tests that spin up a vulnerable Flask application

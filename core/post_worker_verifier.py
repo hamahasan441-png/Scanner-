@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ATOMIC FRAMEWORK v10.0 - ULTIMATE EDITION
+ATOMIC FRAMEWORK
 Phase 9 — Post-Worker Verification
 
 Multi-step verification pipeline:

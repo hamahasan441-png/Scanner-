@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ATOMIC FRAMEWORK v11.0 — OAuth/OIDC Security Module
+ATOMIC FRAMEWORK - OAuth/OIDC Security Module
 ====================================================
 
 Tests for OAuth 2.0 / OpenID Connect vulnerabilities:

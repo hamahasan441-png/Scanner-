@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ATOMIC FRAMEWORK v10.0 - ULTIMATE EDITION
+ATOMIC FRAMEWORK
 Phase 4 — Dynamic Goal Planning & Stack Management
 
 Generates vulnerability hypotheses from recon data, builds a prioritised
@@ -25,7 +25,7 @@ HYPOTHESIS_TEMPLATES = [
     ("api_key", "info_disclosure", "API key abuse / privilege escalation", 0.65, ["osint"]),
     ("cors", "cors_misconfig", "CORS wildcard credential leak chain", 0.80, ["cors"]),
     ("redirect", "open_redirect", "Phishing + token theft via open redirect", 0.70, ["open_redirect"]),
-    # v10.0 additions
+    # additions
     ("django", "ssti", "Django template injection via debug mode", 0.70, ["ssti"]),
     ("node", "proto_pollution", "Node.js prototype pollution via __proto__", 0.75, ["proto_pollution"]),
     ("spring", "rce", "Spring4Shell / SpEL injection RCE", 0.80, ["cmdi", "tech_exploit"]),
@@ -60,7 +60,7 @@ BASE_GOALS = [
     ("GOAL_8", "Business logic endpoints", "logic", 0.60, ["idor", "race_condition"]),
     ("GOAL_9", "Expand scope on pivot found", "pivot", 0.55, ["discovery"]),
     ("GOAL_10", "Exploit chain confirmation", "exploit_chain", 0.50, ["exploit_chain"]),
-    # v10.0 additions
+    # additions
     ("GOAL_11", "Cloud metadata probe", "cloud", 0.72, ["ssrf", "discovery"]),
     ("GOAL_12", "WebSocket endpoint analysis", "websocket", 0.58, ["websocket"]),
     ("GOAL_13", "Deserialization gadget chain", "deser", 0.62, ["deserialization"]),

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ATOMIC FRAMEWORK v11.0 — Plugin Hot-Reload
+ATOMIC FRAMEWORK - Plugin Hot-Reload
 ==========================================
 
 Watches the ``plugins/`` directory with a background thread.

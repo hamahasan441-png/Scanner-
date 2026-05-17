@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ATOMIC FRAMEWORK v11.0 — Dependency Confusion / Supply Chain Module
+ATOMIC FRAMEWORK - Dependency Confusion / Supply Chain Module
 ===================================================================
 
 Detects supply chain attack vectors:

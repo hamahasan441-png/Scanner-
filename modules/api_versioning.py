@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ATOMIC FRAMEWORK v11.0 — API Versioning Abuse Module
+ATOMIC FRAMEWORK - API Versioning Abuse Module
 =====================================================
 
 Tests deprecated and unversioned API endpoints that may be less

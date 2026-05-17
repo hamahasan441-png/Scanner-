@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ATOMIC FRAMEWORK v11.0 — LLM-Driven Attack Planning
+ATOMIC FRAMEWORK - LLM-Driven Attack Planning
 ====================================================
 
 Uses the local Qwen2.5-7B model (or any GGUF LLM) to generate a

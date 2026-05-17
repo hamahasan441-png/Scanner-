@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ATOMIC FRAMEWORK v11.0 — Structured Logging + OpenTelemetry
+ATOMIC FRAMEWORK - Structured Logging + OpenTelemetry
 ============================================================
 
 Replaces ad-hoc print() calls with structured JSON logs and adds

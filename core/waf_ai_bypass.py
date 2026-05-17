@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ATOMIC FRAMEWORK v11.0 — WAF Bypass AI Layer
+ATOMIC FRAMEWORK - WAF Bypass AI Layer
 ============================================
 
 Uses the local LLM to generate novel payload mutations on-the-fly when

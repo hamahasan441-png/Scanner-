@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ATOMIC FRAMEWORK v10.0 - ULTIMATE EDITION
+ATOMIC FRAMEWORK
 Phase 8 — Vulnerability Scan Worker Pool
 
 Dispatches scan items through a multi-gate pipeline:

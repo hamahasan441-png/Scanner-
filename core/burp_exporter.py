@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ATOMIC FRAMEWORK v11.0 — Burp Suite XML Export
+ATOMIC FRAMEWORK - Burp Suite XML Export
 ===============================================
 
 Exports all findings as a Burp Suite XML project file so pentesters

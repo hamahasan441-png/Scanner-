@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ATOMIC FRAMEWORK v11.0 — Autonomous Scan Orchestrator
+ATOMIC FRAMEWORK - Autonomous Scan Orchestrator
 ======================================================
 
 Implements a mission state machine that self-decides which modules to run

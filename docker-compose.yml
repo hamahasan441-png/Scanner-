@@ -1,4 +1,4 @@
-# ATOMIC Framework v10.0 - Docker Compose
+# ATOMIC FRAMEWORK - Docker Compose
 # Usage:
 #   docker compose up        # Start web dashboard
 #   docker compose run atomic -t https://target.com --full

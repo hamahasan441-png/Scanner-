@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ATOMIC FRAMEWORK v11.0 — Browser-Based Dynamic Scanner
+ATOMIC FRAMEWORK - Browser-Based Dynamic Scanner
 ======================================================
 
 Optional Playwright/Selenium headless browser support for:

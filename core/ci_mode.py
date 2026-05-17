@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ATOMIC FRAMEWORK v11.0 — CI/CD Plugin Mode
+ATOMIC FRAMEWORK - CI/CD Plugin Mode
 ==========================================
 
 Adds CI/CD-friendly output formats and exit codes:

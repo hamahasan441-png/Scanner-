@@ -1,17 +1,20 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ATOMIC FRAMEWORK v9.0 - Logic Map Consistency Checker
+ATOMIC FRAMEWORK - Logic Map Consistency Checker
 
-Compares the documented pipeline phases in LOGIC_MAP.md and
-ARCHITECTURE_v8_CORRECTED.md against the actual code:
-  - Phase enum in core/pipeline_contract.py
-  - Files referenced in documentation actually exist
-  - Pipeline stages in scanner_rules.yaml match contract
+Cross-checks the documentation in ``LOGIC_MAP.md`` against the actual code:
 
-Usage:
-    python tools/check_logic_map.py          # run locally
-    python -m pytest tools/check_logic_map.py  # can also be collected by pytest
+  - Every Python module / file referenced in the doc must exist on disk.
+  - ``core/pipeline_contract.Phase`` must start at ``INIT`` and end at
+    ``DONE`` with no duplicates.
+  - ``scanner_rules.yaml`` must define a non-empty ``pipeline.stages`` list.
+  - All key engine and runner files must exist.
+
+Usage::
+
+    python tools/check_logic_map.py            # run locally
+    python -m pytest tools/check_logic_map.py  # also collected by pytest
 
 Exit code 0 = consistent, 1 = drift detected.
 """
@@ -118,9 +121,7 @@ def run_checks() -> list:
     _check_pipeline_contract_vs_rules(errors)
 
     logic_map = os.path.join(_ROOT, 'LOGIC_MAP.md')
-    arch_doc = os.path.join(_ROOT, 'ARCHITECTURE_v8_CORRECTED.md')
     _check_file_refs(logic_map, 'LOGIC_MAP', errors)
-    _check_file_refs(arch_doc, 'ARCHITECTURE', errors)
 
     return errors
 

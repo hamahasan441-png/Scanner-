@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ATOMIC FRAMEWORK v10.0 - TargetSurface Pipeline Stage
+ATOMIC FRAMEWORK - TargetSurface Pipeline Stage
 ======================================================
 
 First-class surface discovery: aggregates endpoints from multiple

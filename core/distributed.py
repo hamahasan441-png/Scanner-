@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ATOMIC FRAMEWORK v11.0 — Distributed Scan Worker Support
+ATOMIC FRAMEWORK - Distributed Scan Worker Support
 =========================================================
 
 Provides a Redis-backed task queue so multiple machines can cooperate

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ATOMIC FRAMEWORK v10.0 - Deterministic Finding Correlator
+ATOMIC FRAMEWORK - Deterministic Finding Correlator
 ==========================================================
 
 Groups related ``CanonicalFinding`` objects into ``FindingGroup`` clusters

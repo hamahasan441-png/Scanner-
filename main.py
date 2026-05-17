@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ATOMIC FRAMEWORK v10.0 - ULTIMATE EDITION
+ATOMIC FRAMEWORK
 Main Entry Point - Termux Optimized
 ⚠️ FOR AUTHORIZED TESTING ONLY ⚠️
 """
@@ -34,7 +34,7 @@ def _parse_csv(value):
 def main():
     """Main entry point"""
     parser = argparse.ArgumentParser(
-        description=f"{Colors.BOLD}ATOMIC FRAMEWORK v{Config.VERSION} - ULTIMATE EDITION{Colors.RESET}",
+        description=f"{Colors.BOLD}ATOMIC FRAMEWORK v{Config.VERSION}{Colors.RESET}",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=f"""
 {Colors.CYAN}Examples:{Colors.RESET}
@@ -420,7 +420,7 @@ def main():
         help="Webhook notification format (default: generic)",
     )
 
-    # ── v11.0: Autonomous Orchestrator ───────────────────────────────
+    # ── Autonomous Orchestrator ───────────────────────────────
     parser.add_argument(
         "--auto",
         action="store_true",
@@ -435,7 +435,7 @@ def main():
         help="Time budget (seconds) for --auto mode (default: 3600)",
     )
 
-    # ── v11.0: Watch Mode ────────────────────────────────────────────
+    # ── Watch Mode ────────────────────────────────────────────
     parser.add_argument(
         "--watch",
         action="store_true",
@@ -456,7 +456,7 @@ def main():
         help="Maximum number of watch iterations (default: unlimited)",
     )
 
-    # ── v11.0: Batch Parallel ────────────────────────────────────────
+    # ── Batch Parallel ────────────────────────────────────────
     parser.add_argument(
         "--batch-parallel",
         type=int,
@@ -465,7 +465,7 @@ def main():
         help="Run N targets in parallel using ThreadPoolExecutor (default: 1 = sequential)",
     )
 
-    # ── v11.0: AI Attack Planning ────────────────────────────────────
+    # ── AI Attack Planning ────────────────────────────────────
     parser.add_argument(
         "--ai-plan",
         action="store_true",
@@ -477,21 +477,21 @@ def main():
         help="Automatically apply --ai-plan recommendations without prompting",
     )
 
-    # ── v11.0: Show Learned ──────────────────────────────────────────
+    # ── Show Learned ──────────────────────────────────────────
     parser.add_argument(
         "--show-learned",
         action="store_true",
         help="Display what the framework has learned per domain/vuln type",
     )
 
-    # ── v11.0: Async HTTP Engine ─────────────────────────────────────
+    # ── Async HTTP Engine ─────────────────────────────────────
     parser.add_argument(
         "--async-mode",
         action="store_true",
         help="Use httpx async HTTP engine for higher throughput (requires: pip install httpx)",
     )
 
-    # ── v11.0: Distributed Workers ───────────────────────────────────
+    # ── Distributed Workers ───────────────────────────────────
     parser.add_argument(
         "--distribute",
         metavar="REDIS_URL",
@@ -510,7 +510,7 @@ def main():
         help="Custom worker ID for --worker mode",
     )
 
-    # ── v11.0: CI/CD Mode ────────────────────────────────────────────
+    # ── CI/CD Mode ────────────────────────────────────────────
     parser.add_argument(
         "--ci-mode",
         action="store_true",
@@ -525,14 +525,14 @@ def main():
              "(used with --ci-mode). Example: --fail-on HIGH",
     )
 
-    # ── v11.0: Burp Suite Export ─────────────────────────────────────
+    # ── Burp Suite Export ─────────────────────────────────────
     parser.add_argument(
         "--burp-export",
         action="store_true",
         help="Export findings as a Burp Suite XML project file",
     )
 
-    # ── v11.0: New Attack Modules ────────────────────────────────────
+    # ── New Attack Modules ────────────────────────────────────
     parser.add_argument("--oauth", action="store_true", help="Enable OAuth/OIDC security testing module")
     parser.add_argument("--mfa-bypass", action="store_true", help="Enable 2FA/MFA bypass testing module")
     parser.add_argument(
@@ -546,14 +546,14 @@ def main():
         help="Enable dependency confusion / supply chain attack surface detection",
     )
 
-    # ── v11.0: WAF AI Bypass ─────────────────────────────────────────
+    # ── WAF AI Bypass ─────────────────────────────────────────
     parser.add_argument(
         "--waf-ai-bypass",
         action="store_true",
         help="Use LLM to generate novel WAF bypass mutations when payloads are blocked",
     )
 
-    # ── v11.0: Browser Scanner ───────────────────────────────────────
+    # ── Browser Scanner ───────────────────────────────────────
     parser.add_argument(
         "--browser",
         action="store_true",
@@ -566,14 +566,14 @@ def main():
         help="Headless browser engine to use (default: auto)",
     )
 
-    # ── v11.0: Plugin Hot-Reload ─────────────────────────────────────
+    # ── Plugin Hot-Reload ─────────────────────────────────────
     parser.add_argument(
         "--hot-reload",
         action="store_true",
         help="Enable plugin hot-reload (watchdog or polling the plugins/ directory)",
     )
 
-    # ── v11.0: Config File ───────────────────────────────────────────
+    # ── Config File ───────────────────────────────────────────
     parser.add_argument(
         "--config",
         metavar="PATH",
@@ -588,7 +588,7 @@ def main():
         help="Generate a starter config file (default: atomic.yaml)",
     )
 
-    # ── v11.0: Structured Logging ────────────────────────────────────
+    # ── Structured Logging ────────────────────────────────────
     parser.add_argument(
         "--log-json",
         action="store_true",
@@ -601,14 +601,14 @@ def main():
         help="Write JSON log output to file",
     )
 
-    # ── v11.0: Kill Chain Report ─────────────────────────────────────
+    # ── Kill Chain Report ─────────────────────────────────────
     parser.add_argument(
         "--kill-chains",
         action="store_true",
         help="Generate attack kill chain analysis from findings at end of scan",
     )
 
-    # ── v11.0: OpenAPI Spec ──────────────────────────────────────────
+    # ── OpenAPI Spec ──────────────────────────────────────────
     parser.add_argument(
         "--api-spec",
         action="store_true",
@@ -621,7 +621,7 @@ def main():
     if not args.quiet:
         print_banner()
 
-    # ── v11.0: Structured logging setup ─────────────────────────────
+    # ── Structured logging setup ─────────────────────────────
     if getattr(args, "log_json", False) or getattr(args, "log_file", None):
         import logging
         from core.structured_logger import setup_structured_logging
@@ -631,7 +631,7 @@ def main():
             level=logging.DEBUG if getattr(args, "verbose", False) else logging.INFO,
         )
 
-    # ── v11.0: Config file loading (lowest priority, CLI overrides) ──
+    # ── Config file loading (lowest priority, CLI overrides) ──
     if getattr(args, "gen_config", None):
         from core.config_loader import generate_starter_config
         generate_starter_config(args.gen_config)
@@ -647,7 +647,7 @@ def main():
         except Exception:
             pass
 
-    # ── v11.0: Distributed worker mode ──────────────────────────────
+    # ── Distributed worker mode ──────────────────────────────
     if getattr(args, "worker", None):
         from core.distributed import DistributedWorker
         worker = DistributedWorker(
@@ -657,7 +657,7 @@ def main():
         worker.run()
         return
 
-    # ── v11.0: OpenAPI spec generation ──────────────────────────────
+    # ── OpenAPI spec generation ──────────────────────────────
     if getattr(args, "api_spec", False):
         try:
             from web.openapi import generate_openapi_spec, print_openapi_spec
@@ -702,7 +702,7 @@ def main():
                 print(f"OpenAPI spec generation failed: {exc}")
         return
 
-    # ── v11.0: Show learned payloads ─────────────────────────────────
+    # ── Show learned payloads ─────────────────────────────────
     if getattr(args, "show_learned", False):
         try:
             from core.learning import LearningStore
@@ -1310,7 +1310,7 @@ def main():
         "dns_recon": getattr(args, "dns_recon", False) or p2p,
         "scapy_vuln_scan": getattr(args, "scapy_vuln_scan", False) or p2p,
         "scapy_attack_chain": getattr(args, "scapy_attack_chain", False) or p2p,
-        # ── v11.0 new modules ────────────────────────────────────────
+        # ── new modules ────────────────────────────────────────
         "oauth": getattr(args, "oauth", False) or full,
         "mfa_bypass": getattr(args, "mfa_bypass", False) or full,
         "api_versioning": getattr(args, "api_versioning", False) or full,
@@ -1368,7 +1368,7 @@ def main():
     config["llm_ctx"] = getattr(args, "llm_ctx", None)
     config["llm_gpu_layers"] = getattr(args, "llm_gpu_layers", 0)
 
-    # ── v11.0 extra config keys ──────────────────────────────────────
+    # ── extra config keys ──────────────────────────────────────
     config["async_mode"] = getattr(args, "async_mode", False)
     config["waf_ai_bypass"] = getattr(args, "waf_ai_bypass", False)
     config["browser"] = getattr(args, "browser", False)
@@ -1426,7 +1426,7 @@ def main():
         print(f"{Colors.error(f'Cannot create output directory {output_dir}: {e}')}")
         sys.exit(1)
 
-    # ── v11.0: Distributed controller mode ──────────────────────────
+    # ── Distributed controller mode ──────────────────────────
     if getattr(args, "distribute", None):
         try:
             from core.distributed import DistributedController
@@ -1439,7 +1439,7 @@ def main():
             sys.exit(1)
         return
 
-    # ── v11.0: Batch parallel scanning ──────────────────────────────
+    # ── Batch parallel scanning ──────────────────────────────
     if getattr(args, "batch_parallel", 1) > 1 and len(targets) > 1:
         try:
             from core.batch_scanner import BatchScanner
@@ -1492,7 +1492,7 @@ def main():
             print(f"\n{Colors.info(f'Target: {target}')}")
             engine = AtomicEngine(config)
 
-            # ── v11.0: Plugin hot-reload ──────────────────────────────
+            # ── Plugin hot-reload ──────────────────────────────
             if config.get("hot_reload") and hasattr(engine, "plugin_manager"):
                 try:
                     from core.plugin_hotreload import PluginHotReloader
@@ -1537,7 +1537,7 @@ def main():
             if notification_mgr:
                 engine.notifications = notification_mgr
 
-            # ── v11.0: AI Attack Planning ─────────────────────────────
+            # ── AI Attack Planning ─────────────────────────────
             if config.get("ai_plan"):
                 try:
                     from core.attack_planner import AttackPlanner
@@ -1554,7 +1554,7 @@ def main():
                     if args.verbose:
                         print(f"{Colors.warning(f'AI plan error: {exc}')}")
 
-            # ── v11.0: Autonomous Orchestrator (--auto) ───────────────
+            # ── Autonomous Orchestrator (--auto) ───────────────
             if _auto:
                 try:
                     from core.orchestrator import ScanOrchestrator
@@ -1563,7 +1563,7 @@ def main():
                 except Exception as exc:
                     print(f"{Colors.warning(f'Orchestrator error: {exc} — falling back to standard scan')}")
                     engine.scan(target)
-            # ── v11.0: Watch Mode (--watch) ───────────────────────────
+            # ── Watch Mode (--watch) ───────────────────────────
             elif getattr(args, "watch", False):
                 try:
                     from core.watch_mode import WatchSession
@@ -1579,7 +1579,7 @@ def main():
             else:
                 engine.scan(target)
 
-            # ── v11.0: Browser Scanner (--browser) ────────────────────
+            # ── Browser Scanner (--browser) ────────────────────
             if config.get("browser") and not _auto and not getattr(args, "watch", False):
                 try:
                     from core.browser_scanner import BrowserScanner
@@ -1599,7 +1599,7 @@ def main():
                 print(f"\n{Colors.info('Generating reports...')}")
             engine.generate_reports()
 
-            # ── v11.0: Kill Chain Analysis ────────────────────────────
+            # ── Kill Chain Analysis ────────────────────────────
             if getattr(args, "kill_chains", False) or full:
                 try:
                     from core.kill_chain import generate_kill_chains, format_kill_chains_html
@@ -1616,7 +1616,7 @@ def main():
                     if args.verbose:
                         print(f"{Colors.warning(f'Kill chain error: {exc}')}")
 
-            # ── v11.0: Burp Suite Export ──────────────────────────────
+            # ── Burp Suite Export ──────────────────────────────
             if getattr(args, "burp_export", False) and engine.findings:
                 try:
                     from core.burp_exporter import export_burp_xml
@@ -1625,7 +1625,7 @@ def main():
                     if args.verbose:
                         print(f"{Colors.warning(f'Burp export error: {exc}')}")
 
-            # ── v11.0: CI/CD Mode ─────────────────────────────────────
+            # ── CI/CD Mode ─────────────────────────────────────
             _ci_exit_code = 0
             if getattr(args, "ci_mode", False):
                 try:
@@ -1771,7 +1771,7 @@ def main():
 
         print(f"\n{Colors.success('Scan completed!')}")
 
-        # ── v11.0: CI/CD exit code ─────────────────────────────────
+        # ── CI/CD exit code ─────────────────────────────────
         if getattr(args, "ci_mode", False) and getattr(args, "fail_on", None) and all_findings:
             from core.ci_mode import should_fail
             if should_fail(all_findings, args.fail_on):
