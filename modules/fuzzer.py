@@ -254,8 +254,55 @@ class FuzzerModule(BaseModule):
         self.http_methods = ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "TRACE", "HEAD"]
 
     def test(self, url, method, param, value):
-        """Test parameter with fuzzing"""
-        pass  # Fuzzing is URL-based
+        """Test parameter with fuzzing — probe for hidden sibling parameters.
+
+        While most fuzzing is URL-based (via test_url), parameter-level
+        fuzzing probes for hidden parameters adjacent to the known one.
+        For example, if 'id' is a known param, we test whether 'debug',
+        'admin', or 'verbose' params also exist on the same endpoint.
+        """
+        # Probe for hidden sibling parameters on this endpoint
+        try:
+            baseline = self.requester.request(url, method, data={param: value})
+            if not baseline:
+                return
+            baseline_len = len(baseline.text)
+            baseline_status = baseline.status_code
+
+            # Test high-value hidden params alongside the known parameter
+            hidden_probes = [
+                "debug", "admin", "test", "verbose", "internal",
+                "secret", "token", "api_key", "role", "privilege",
+            ]
+            for probe_param in hidden_probes:
+                if probe_param == param:
+                    continue
+                try:
+                    data = {param: value, probe_param: "1"}
+                    resp = self.requester.request(url, method, data=data)
+                    if not resp:
+                        continue
+                    # If adding a hidden param changes behavior significantly
+                    len_diff = abs(len(resp.text) - baseline_len)
+                    if resp.status_code != baseline_status or len_diff > 100:
+                        self._emit_signal(
+                            vuln_type="hidden_parameter",
+                            technique=f"Hidden Parameter Discovery ({probe_param})",
+                            url=url,
+                            method=method,
+                            param=probe_param,
+                            payload="1",
+                            evidence_text=(
+                                f"Adding '{probe_param}=1' changed response: "
+                                f"status {baseline_status}→{resp.status_code}, "
+                                f"length diff={len_diff}"
+                            ),
+                            raw_confidence=0.6,
+                        )
+                except Exception:
+                    continue
+        except Exception:
+            pass
 
     def test_url(self, url):
         """Run fuzzing tests on URL"""

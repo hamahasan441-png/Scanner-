@@ -155,6 +155,9 @@ class ScopePolicy:
 
     def _domain_allowed(self, domain):
         """Check if a domain is within the allowed scope."""
+        if not domain:
+            return False
+
         if domain in self.allowed_domains:
             return True
 
@@ -164,6 +167,20 @@ class ScopePolicy:
                 return True
 
         return False
+
+    def is_private_ip(self, hostname):
+        """Check if a hostname resolves to a private/internal IP.
+
+        Blocks access to RFC 1918 addresses, link-local, and cloud
+        metadata endpoints to prevent SSRF-like scope violations.
+        """
+        import ipaddress
+        try:
+            addr = ipaddress.ip_address(hostname)
+            return addr.is_private or addr.is_loopback or addr.is_link_local
+        except ValueError:
+            # Not a valid IP address (it's a hostname) — allowed
+            return False
 
     # ------------------------------------------------------------------
     # Rate limiting

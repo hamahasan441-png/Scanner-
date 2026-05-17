@@ -27,6 +27,7 @@ import time
 import uuid
 import json
 import logging
+import threading
 from datetime import datetime, timezone
 from dataclasses import dataclass, field
 from typing import Optional
@@ -128,6 +129,8 @@ class AtomicEngine:
         self.end_time = None
         self.target = None
         self.post_exploit_results = []
+        # Thread-safe lock for findings list modification
+        self._findings_lock = threading.Lock()
         # Canonical findings store (populated by core.emit.emit_signal)
         self._canonical_findings: dict = {}
         # TargetSurface (populated by build_surface during scan)
@@ -980,7 +983,13 @@ class AtomicEngine:
 
         # ── SELF-LEARNING ────────────────────────────────────────────
         for f in self.findings:
-            self.learning.record_success(f.technique, f.payload)
+            # Only persist patterns from verified HIGH/CRITICAL findings
+            # to prevent false positives from polluting the learning store
+            is_verified = (
+                f.confidence >= 0.8
+                and f.severity in ("HIGH", "CRITICAL")
+            )
+            self.learning.record_success(f.technique, f.payload, verified=is_verified)
             self.ai.record_finding(f.technique, f.param, f.payload)
         self.learning.update_thresholds(self.findings)
         self.learning.save()
@@ -1390,23 +1399,24 @@ class AtomicEngine:
                 finding.confidence = signals.combined_score
 
     def add_finding(self, finding: Finding):
-        """Add a vulnerability finding"""
+        """Add a vulnerability finding (thread-safe)."""
         # Validate finding has minimum required fields
         if not finding.technique or not finding.url:
             if self.config.get("verbose"):
                 print(f"{Colors.warning('Skipping invalid finding: missing technique or url')}")
             return
 
-        # Skip duplicate findings (same technique + url + param)
-        for existing in self.findings:
-            if (
-                existing.technique == finding.technique
-                and existing.url == finding.url
-                and existing.param == finding.param
-            ):
-                return
+        with self._findings_lock:
+            # Skip duplicate findings (same technique + url + param)
+            for existing in self.findings:
+                if (
+                    existing.technique == finding.technique
+                    and existing.url == finding.url
+                    and existing.param == finding.param
+                ):
+                    return
 
-        self.findings.append(finding)
+            self.findings.append(finding)
 
         # Emit pipeline event for live dashboard
         self.emit_pipeline_event(
@@ -1611,7 +1621,20 @@ class AtomicEngine:
         print(f"  {Colors.RED}{Colors.BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━{Colors.RESET}")
 
     def _print_summary(self):
-        """Print scan summary with intelligence insights"""
+        """Print scan summary with intelligence insights using ScanSummary."""
+        try:
+            from core.scan_summary import ScanSummary
+            summary = ScanSummary(self)
+            summary.print_summary()
+        except Exception:
+            # Fallback to basic summary if ScanSummary fails
+            self._print_basic_summary()
+
+        # ── Attack / Exploitation Results ─────────────────────────────────
+        self._print_attack_results()
+
+    def _print_basic_summary(self):
+        """Fallback basic summary when ScanSummary is unavailable."""
         duration = (self.end_time - self.start_time).total_seconds() if self.end_time and self.start_time else 0
 
         print(f"\n{Colors.BOLD}{'='*60}{Colors.RESET}")
@@ -1682,9 +1705,6 @@ class AtomicEngine:
                 print(f"    Rate Limited:   {m['rate_limited']} requests")
             if m["failed"] > 0:
                 print(f"    Failed:         {m['failed']} requests")
-
-        # ── Attack / Exploitation Results ─────────────────────────────────
-        self._print_attack_results()
 
         print(f"{Colors.BOLD}{'='*60}{Colors.RESET}")
 

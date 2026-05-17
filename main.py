@@ -1229,6 +1229,40 @@ def main():
         print(f"\n{Colors.error('No target specified. Use -t, -f, or --urls')}")
         sys.exit(1)
 
+    # Input validation for target URL
+    if args.target:
+        target_url = args.target.strip()
+        # Auto-prepend https:// if no scheme is provided
+        if not target_url.startswith(("http://", "https://")):
+            target_url = "https://" + target_url
+            args.target = target_url
+        # Validate URL structure
+        from urllib.parse import urlparse
+        parsed_target = urlparse(target_url)
+        if not parsed_target.hostname:
+            print(f"{Colors.error('Invalid target URL: no hostname found')}")
+            sys.exit(1)
+        # Block scanning of obviously internal/reserved unless authorized
+        hostname = parsed_target.hostname
+        private_indicators = ("127.0.0.1", "localhost", "0.0.0.0", "::1")
+        if hostname in private_indicators and not getattr(args, "authorized", False):
+            print(f"{Colors.error('Target appears to be a loopback address. Use --authorized to confirm.')}")
+            sys.exit(1)
+
+    # Validate numeric ranges
+    if args.depth < 1 or args.depth > 10:
+        print(f"{Colors.error('Depth must be between 1 and 10')}")
+        sys.exit(1)
+    if args.threads < 1 or args.threads > 500:
+        print(f"{Colors.error('Threads must be between 1 and 500')}")
+        sys.exit(1)
+    if args.timeout < 1 or args.timeout > 120:
+        print(f"{Colors.error('Timeout must be between 1 and 120 seconds')}")
+        sys.exit(1)
+    if args.delay < 0 or args.delay > 60:
+        print(f"{Colors.error('Delay must be between 0 and 60 seconds')}")
+        sys.exit(1)
+
     # Build configuration
     config = {
         "depth": args.depth,
