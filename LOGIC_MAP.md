@@ -436,12 +436,16 @@ plan).
    tests for upload bypass *and* deploys webshells; the scan phase should
    only test, with shell deployment moved into the exploit phase.
 
-4. **AttackRouter has no confidence threshold.**
-   `AtomicEngine.scan` triggers AttackRouter when there is at least one
-   verified `HIGH` / `CRITICAL` finding with `confidence ≥ 0.6`, but the
-   router itself routes every finding without a per-route confidence floor.
-   Will be tightened to ≥ 0.85 with separate-process re-verification before
-   any shell deployment.
+4. **AttackRouter end-of-scan-only mode is now optional.**
+   Historically `AttackRouter` only fired in a single end-of-scan pass.  The
+   `core/full_attacker.py` ``FullAttacker`` (added 2026-05-17) hooks into
+   ``add_finding`` so confirmed HIGH/CRITICAL vulns above the configured
+   confidence threshold (default 0.7) are exploited the moment they're
+   added, rather than 30 min later when the scan finishes. ``--full-attack``
+   activates streaming exploitation; ``--smart-attack`` keeps the legacy
+   end-of-scan sweeper. Per-(family, url, param) deduplication and a
+   per-scan exploit quota (25 default, raised by ``--full-attack``)
+   prevent runaway re-exploitation.
 
 5. **Legacy and AttackRouter exploit paths run in parallel.** `--shell`,
    `--dump`, `--os-shell`, `--brute`, `--exploit-chain` all fire after
@@ -452,3 +456,11 @@ plan).
    bundles (`--full`, `--point-to-point`, `--auto`, `--turbo`, `--regulated-mission`).
    These will be collapsed into `--profile {quick,standard,deep,paranoid}`
    plus per-module overrides.
+
+7. **Universal bypass orchestration.** `core/bypass.py` ``BypassOrchestrator``
+   (added 2026-05-17) replaces the per-module hand-rolled WAF bypass
+   tables with a single ladder of rungs (``baseline``, ``url_encode``,
+   ``mixed_case``, ``sql_inline_comment``, ``ip_spoof_xff``, …) plus a
+   per-host learning ledger that re-orders future attempts by historical
+   success rate. ``--full-bypass`` activates the full ladder; the
+   requester picks up adaptive spoofing headers via ``attach_bypass``.
