@@ -9,7 +9,11 @@ the standard constructor, helper utilities and the enforced
 ``test()`` / ``test_url()`` contract.
 """
 
+import logging
+import time
 from abc import ABC, abstractmethod
+
+logger = logging.getLogger(__name__)
 
 
 class BaseModule(ABC):
@@ -31,6 +35,9 @@ class BaseModule(ABC):
         self.requester = engine.requester
         self.config = engine.config
         self.verbose = engine.config.get("verbose", False)
+        self._request_count = 0
+        self._finding_count = 0
+        self._error_count = 0
 
     @abstractmethod
     def test(self, url: str, method: str, param: str, value: str) -> None:
@@ -38,6 +45,38 @@ class BaseModule(ABC):
 
     def test_url(self, url: str) -> None:
         """Optional URL-level test (CORS, JWT, headers, etc.)."""
+
+    def _safe_request(self, url: str, method: str = "GET", data=None, **kwargs):
+        """Make an HTTP request with error handling and counting.
+
+        Returns the response object or None on failure. Logs errors
+        when verbose mode is enabled instead of silently swallowing them.
+        """
+        self._request_count += 1
+        try:
+            response = self.requester.request(url, method, data=data, **kwargs)
+            return response
+        except Exception as e:
+            self._error_count += 1
+            if self._error_count <= 5 and self.verbose:
+                logger.debug(
+                    "%s module request error (%s %s): %s",
+                    self.name, method, url, e,
+                )
+            return None
+
+    def _get_baseline_text(self, url: str, method: str, param: str, value: str) -> str:
+        """Get baseline response text for comparison.
+
+        Helper used by modules to fetch a clean baseline before
+        testing payloads, so they can distinguish new behavior from
+        pre-existing content.
+        """
+        try:
+            baseline_response = self._safe_request(url, method, data={param: value})
+            return baseline_response.text if baseline_response else ""
+        except Exception:
+            return ""
 
     def _add_finding(self, **kwargs):
         """Convenience wrapper to create and register a Finding.
@@ -49,6 +88,7 @@ class BaseModule(ABC):
 
         finding = Finding(**kwargs)
         self.engine.add_finding(finding)
+        self._finding_count += 1
 
     def _emit_signal(self, **kwargs):
         """Emit a ``ModuleSignal`` through the canonical emission pipeline.
@@ -92,6 +132,7 @@ class BaseModule(ABC):
             kwargs["vuln_type"] = self.vuln_type
 
         signal = ModuleSignal(**kwargs)
+        self._finding_count += 1
         return emit_signal(signal, self.engine)
 
     # ------------------------------------------------------------------
@@ -126,3 +167,16 @@ class BaseModule(ABC):
             return ai.analyze_module_response(vuln_type, url, param, payload, response_text)
         except Exception:
             return None
+
+    # ------------------------------------------------------------------
+    # Module Statistics
+    # ------------------------------------------------------------------
+
+    def get_stats(self) -> dict:
+        """Return module execution statistics."""
+        return {
+            "module": self.name,
+            "requests": self._request_count,
+            "findings": self._finding_count,
+            "errors": self._error_count,
+        }

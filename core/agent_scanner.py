@@ -124,9 +124,15 @@ class AgentScanner:
     # ── Step D: Autonomous Execution Loop ─────────────────────────────
 
     def execute_loop(self):
-        """OBSERVE → THINK → ACT → REFLECT → ADAPT."""
+        """OBSERVE → THINK → ACT → REFLECT → ADAPT.
+
+        Implements the autonomous agent loop with proper error handling,
+        budget awareness, and adaptive backoff on repeated failures.
+        """
         iteration = 0
         max_iterations = 200
+        consecutive_failures = 0
+        max_consecutive_failures = 10
 
         while self.planner.should_continue() and iteration < max_iterations:
             iteration += 1
@@ -144,6 +150,14 @@ class AgentScanner:
                 self._agent_notes.append("Budget limit reached — stopping execution.")
                 break
 
+            # Adaptive backoff on repeated failures
+            if consecutive_failures >= max_consecutive_failures:
+                self._agent_notes.append(
+                    f"Too many consecutive failures ({consecutive_failures})"
+                    " — pausing to avoid wasted requests."
+                )
+                break
+
             # ── THINK ──
             if goal.retry_count >= goal.max_retries:
                 self._skip_goal(goal, f"exceeded max retries ({goal.max_retries})")
@@ -158,10 +172,17 @@ class AgentScanner:
                 self.planner.record_requests(5)  # estimate
             except Exception as e:
                 self._fail_goal(goal, str(e))
+                consecutive_failures += 1
                 continue
 
             # ── REFLECT ──
             self._process_result(goal, result)
+
+            # Reset failure counter on success
+            if result and result.get("success"):
+                consecutive_failures = 0
+            else:
+                consecutive_failures += 1
 
             # ── ADAPT ──
             if result and result.get("finding"):

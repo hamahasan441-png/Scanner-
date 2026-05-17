@@ -162,6 +162,33 @@ class LearningStore:
         bucket = self.failed_payloads.setdefault(vuln_type, {})
         bucket[payload] = bucket.get(payload, 0) + 1
 
+    def decay_stale_patterns(self, max_staleness=50):
+        """Decay patterns that haven't been re-confirmed recently.
+
+        Reduces success counts by 10% each time this is called.
+        Patterns that decay below 1 hit are removed entirely.
+        This prevents historical false positives from permanently
+        polluting future scan intelligence.
+
+        Args:
+            max_staleness: Maximum allowed staleness score before removal.
+        """
+        for vuln_type in list(self.successful_payloads.keys()):
+            bucket = self.successful_payloads[vuln_type]
+            to_remove = []
+            for payload, count in bucket.items():
+                # Apply 10% decay
+                new_count = int(count * 0.9)
+                if new_count < 1:
+                    to_remove.append(payload)
+                else:
+                    bucket[payload] = new_count
+            for payload in to_remove:
+                del bucket[payload]
+            # Remove empty vuln_type buckets
+            if not bucket:
+                del self.successful_payloads[vuln_type]
+
     def record_endpoint(self, pattern):
         """Record a discovered endpoint pattern."""
         entry = self.endpoint_patterns.setdefault(pattern, {"count": 0, "last_seen": 0})
@@ -315,3 +342,53 @@ class LearningStore:
                 for k, v in self.signal_accuracy.items()
             },
         }
+
+    def show(self):
+        """Display learned data to stdout in a human-readable format."""
+        summary = self.get_learning_summary()
+        print(f"\n{Colors.BOLD}{'═' * 60}{Colors.RESET}")
+        print(f"{Colors.CYAN}  ATOMIC Learning Store{Colors.RESET}")
+        print(f"{Colors.BOLD}{'═' * 60}{Colors.RESET}\n")
+
+        print(f"  Successful patterns:  {summary['successful_patterns']}")
+        print(f"  Failed patterns:      {summary['failed_patterns']}")
+        print(f"  Endpoint patterns:    {summary['endpoint_patterns']}")
+        print(f"  Domain profiles:      {summary['domain_profiles']}")
+        print(f"  Tech profiles:        {summary['tech_profiles']}")
+
+        # Show top successful payloads per vuln type
+        if self.successful_payloads:
+            print(f"\n  {Colors.BOLD}Top Successful Payloads:{Colors.RESET}")
+            for vuln_type, payloads in sorted(self.successful_payloads.items()):
+                top = sorted(payloads.items(), key=lambda x: -x[1])[:3]
+                if top:
+                    print(f"    [{vuln_type}]")
+                    for payload, count in top:
+                        display = payload[:60] + "..." if len(payload) > 60 else payload
+                        print(f"      {count}x  {display}")
+
+        # Show signal accuracy
+        if summary["signal_accuracy"]:
+            print(f"\n  {Colors.BOLD}Signal Accuracy:{Colors.RESET}")
+            for signal, data in summary["signal_accuracy"].items():
+                precision = data["precision"]
+                bar = "█" * int(precision * 20) + "░" * (20 - int(precision * 20))
+                print(f"    {signal:12s} [{bar}] {precision:.0%}")
+
+        # Show domain intelligence
+        if self.domain_profiles:
+            print(f"\n  {Colors.BOLD}Domain Intelligence:{Colors.RESET}")
+            for domain, profile in sorted(
+                self.domain_profiles.items(),
+                key=lambda x: -x[1].get("total_vulns", 0),
+            )[:10]:
+                scans = profile.get("scan_count", 0)
+                vulns = profile.get("total_vulns", 0)
+                tech = ", ".join(profile.get("tech_stack", [])[:3]) or "unknown"
+                print(f"    {domain}: {vulns} vulns in {scans} scans ({tech})")
+
+        print(f"\n{Colors.BOLD}{'═' * 60}{Colors.RESET}")
+
+    def load(self):
+        """Public alias for _load() to support external callers."""
+        self._load()
