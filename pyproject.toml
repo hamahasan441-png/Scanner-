@@ -9,7 +9,7 @@ description = "ATOMIC Web Vulnerability Scanner"
 license = "MIT"
 requires-python = ">=3.10"
 dependencies = [
-    "requests==2.33.1",
+    "requests==2.34.2",
     "beautifulsoup4==4.14.3",
     "urllib3==2.7.0",
     "sqlalchemy==2.0.49",
