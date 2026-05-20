@@ -410,7 +410,10 @@ class RealIPScanner:
                     break
                 except Exception:
                     pass
-        except (ImportError, Exception):
+        # `except Exception` already covers ImportError; the original
+        # tuple form was redundant. Kept broad because dns.zone may be
+        # unavailable on minimal installs.
+        except Exception:
             pass
         return results
 

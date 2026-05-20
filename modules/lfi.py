@@ -458,7 +458,8 @@ class LFIModule(BaseModule):
                             )
                             self.engine.add_finding(finding)
                             return
-                    except (Exception, ValueError):
+                    # ValueError ⊂ Exception; tuple was redundant.
+                    except Exception:
                         pass
                 elif wtype == "data":
                     if "lfi_test" in response.text:

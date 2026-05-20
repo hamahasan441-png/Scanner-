@@ -148,6 +148,10 @@ def download_model(model_url=None, model_file=None, force=False):
                     f.write(chunk)
                     downloaded += len(chunk)
                     _download_progress(downloaded, total)
+    # NOTE: KeyboardInterrupt inherits from BaseException, NOT Exception,
+    # so the tuple form here is required (not redundant). Catching Ctrl-C
+    # during a multi-GB download is the whole point of this handler — it
+    # leaves the .part file in place so the user can resume.
     except (KeyboardInterrupt, Exception) as exc:
         print(f"\n{Colors.warning(f'Download interrupted: {exc}')}")
         print(f"{Colors.info(f'Partial file saved — re-run to resume.')}")

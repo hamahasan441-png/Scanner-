@@ -398,7 +398,11 @@ class FuzzerModule(BaseModule):
 
             try:
                 subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
-            except (subprocess.TimeoutExpired, Exception):
+            # subprocess.TimeoutExpired is a subclass of Exception; the
+            # tuple form was redundant. We treat both the timeout and any
+            # other subprocess failure as a graceful no-op so that the
+            # outer fuzzing pass keeps going.
+            except Exception:
                 return endpoints
 
             if os.path.isfile(output_file):
@@ -1278,7 +1282,8 @@ class FuzzerModule(BaseModule):
                     text=True,
                     timeout=120,
                 )
-            except (subprocess.TimeoutExpired, Exception):
+            # subprocess.TimeoutExpired ⊂ Exception; tuple was redundant.
+            except Exception:
                 return discovered_params
 
             output_file = os.path.join(output_dir, f"{domain}.txt")

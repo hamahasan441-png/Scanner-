@@ -391,7 +391,11 @@ class ReconModule:
                                     self.engine.add_finding(finding)
                             except Exception:
                                 pass
-            except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer, dns.resolver.NoNameservers, Exception):
+            # All listed dns.resolver.* exceptions inherit from
+            # dns.exception.DNSException → Exception; the tuple form was
+            # redundant. Kept broad because subdomain enumeration must
+            # never abort on a single DNS hiccup.
+            except Exception:
                 continue
 
     # ─── Cloud Assets ───────────────────────────────────────────────
