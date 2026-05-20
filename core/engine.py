@@ -216,6 +216,23 @@ class AtomicEngine:
         self.ai = AIEngine(self)
         self.persistence = PersistenceEngine(self)
 
+        # --- Philosophy layer (opt-in) ---
+        # When config["philosophy"] is true, attach the reasoning layer
+        # that adds: falsifiable hypotheses with Bayesian belief updates,
+        # counterfactual A/B oracles, an HMAC-signed evidence ledger,
+        # and a causal DAG over findings. See PHILOSOPHY.md.
+        # Disabled by default; the engine pipeline is byte-identical
+        # when off.
+        self.philosophy = None
+        if config.get("philosophy"):
+            try:
+                from core.philosophy_layer import PhilosophyLayer
+                self.philosophy = PhilosophyLayer()
+                logger.info("Philosophy layer enabled (hypothesis-driven reasoning + signed evidence ledger)")
+            except Exception as exc:
+                logger.warning("Philosophy layer failed to initialize: %s", exc)
+                self.philosophy = None
+
         # Local LLM reference (set by main.py when --local-llm is active)
         self.local_llm = None
 
