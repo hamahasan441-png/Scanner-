@@ -188,6 +188,20 @@ def main():
         "--llm-gpu-layers", type=int, default=0, help="Number of layers to offload to GPU (default: 0, CPU-only)"
     )
 
+    # Philosophy layer (opt-in: hypothesis-driven reasoning, counterfactual oracles,
+    # signed evidence ledger, causal DAG). See PHILOSOPHY.md for the full contract.
+    parser.add_argument(
+        "--philosophy",
+        action="store_true",
+        help="Enable the Philosophy Security Engineer layer: falsifiable "
+             "hypotheses with Bayesian belief updates, counterfactual "
+             "A/B oracles (timing, diff, reflection, error, OOB, "
+             "behavior) gated by the three-way evidence test, an HMAC-"
+             "signed append-only evidence ledger, and a causal DAG that "
+             "computes kill_chain_depth + blast_radius across findings. "
+             "See PHILOSOPHY.md.",
+    )
+
     # Evasion options
     parser.add_argument(
         "-e",
@@ -1337,6 +1351,7 @@ def main():
         "strict_scope": getattr(args, "strict_scope", False),
         "turbo": getattr(args, "turbo", False),
         "auto_external_tools": True,
+        "philosophy": getattr(args, "philosophy", False),
     }
 
     # --point-to-point enables absolutely everything for complete coverage
