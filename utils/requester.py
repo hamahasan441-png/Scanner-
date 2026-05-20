@@ -232,26 +232,10 @@ class Requester:
             )
             self._ssl_warned = True
 
-    @staticmethod
-    def _resolve_verify_tls(config: dict) -> bool:
-        """Resolve TLS-verify preference with secure-by-default semantics.
-
-        Precedence (first match wins):
-            1. ``insecure_tls=True``  -> verify off
-            2. ``verify_ssl=False``   -> verify off (legacy alias)
-            3. ATOMIC_INSECURE_TLS=1  -> verify off (env propagation)
-            4. otherwise              -> verify on
-        """
-        if config.get("insecure_tls", False):
-            return False
-        if "verify_ssl" in config and not config.get("verify_ssl"):
-            return False
-        env_flag = os.environ.get("ATOMIC_INSECURE_TLS", "").strip().lower()
-        if env_flag in ("1", "true", "yes", "on"):
-            return False
-        return True
-
-        # Response cache — only caches baseline/recon GET requests
+        # Response cache — only caches baseline/recon GET requests.
+        # Drop-in LRU+TTL backed by ``ResponseCache``. Eliminating
+        # duplicate idempotent probes is the largest single speed win
+        # available to the synchronous scan path.
         cache_size = config.get("cache_size", 2000)
         cache_ttl = config.get("cache_ttl", 300.0)
         self._cache = ResponseCache(max_size=cache_size, ttl=cache_ttl)
@@ -279,6 +263,25 @@ class Requester:
         if self.session:
             self._setup_session()
 
+    @staticmethod
+    def _resolve_verify_tls(config: dict) -> bool:
+        """Resolve TLS-verify preference with secure-by-default semantics.
+
+        Precedence (first match wins):
+            1. ``insecure_tls=True``  -> verify off
+            2. ``verify_ssl=False``   -> verify off (legacy alias)
+            3. ATOMIC_INSECURE_TLS=1  -> verify off (env propagation)
+            4. otherwise              -> verify on
+        """
+        if config.get("insecure_tls", False):
+            return False
+        if "verify_ssl" in config and not config.get("verify_ssl"):
+            return False
+        env_flag = os.environ.get("ATOMIC_INSECURE_TLS", "").strip().lower()
+        if env_flag in ("1", "true", "yes", "on"):
+            return False
+        return True
+
     def attach_bypass(self, orchestrator) -> None:
         """Attach a :class:`core.bypass.BypassOrchestrator` instance.
 
@@ -297,12 +300,20 @@ class Requester:
             status_forcelist=[429, 500, 502, 503, 504],
             allowed_methods=["HEAD", "GET", "OPTIONS", "POST", "PUT", "DELETE"],
         )
-        # Connection pooling
-        pool_connections = min(self.config.get("threads", 50), 100)
+        # Connection pooling.
+        # ``pool_connections`` = number of connection pools (one per host).
+        # ``pool_maxsize``    = number of connections kept open per pool.
+        # We size pool_maxsize to 2× pool_connections so concurrent threads
+        # bursting against the same host don't block waiting for a free
+        # connection (urllib3 logs "Connection pool is full, discarding"
+        # otherwise, which silently serializes requests).
+        threads = self.config.get("threads", 50)
+        pool_connections = min(threads, 100)
+        pool_maxsize = min(max(pool_connections * 2, pool_connections), 200)
         adapter = HTTPAdapter(
             max_retries=retry_strategy,
             pool_connections=pool_connections,
-            pool_maxsize=pool_connections,
+            pool_maxsize=pool_maxsize,
         )
         self.session.mount("http://", adapter)
         self.session.mount("https://", adapter)
