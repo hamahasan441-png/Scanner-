@@ -464,3 +464,19 @@ plan).
    per-host learning ledger that re-orders future attempts by historical
    success rate. ``--full-bypass`` activates the full ladder; the
    requester picks up adaptive spoofing headers via ``attach_bypass``.
+
+### Recently fixed
+
+- **`Requester.__init__` dead-code bug** (2026-05-20). The cache,
+  metrics, evasion-engine, bypass-hook, and ``_setup_session`` lines
+  were physically nested inside ``_resolve_verify_tls`` (a
+  ``@staticmethod``) past a ``return True``, making them unreachable
+  *and* malformed (they referenced ``self`` from a staticmethod). Net
+  effect: every synchronous scan ran without connection pooling, retry
+  with backoff, response caching, request metrics, or the evasion
+  engine — features the module documented as active. Lifting the block
+  back into ``__init__`` restores all of them. ``pool_maxsize`` was
+  also bumped to ``2 * pool_connections`` (capped at 200) so concurrent
+  threads bursting at one host no longer block on a full connection
+  pool. Regression test:
+  ``tests/test_requester_init_attributes.py``.
