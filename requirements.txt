@@ -3,7 +3,7 @@
 # Versions pinned to tested releases — update with care
 
 # Core dependencies
-requests==2.33.1
+requests==2.34.2
 beautifulsoup4==4.14.3
 urllib3==2.7.0
 
