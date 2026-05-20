@@ -739,6 +739,12 @@ class PostWorkerVerifier:
 
     def _is_false_positive(self, finding) -> bool:
         """Check if finding is a likely false positive."""
+        # --unsafe-mode disables the confidence-floor heuristics so
+        # weak-but-real findings reach the report. Operator-tuning
+        # only; scope/auth checks elsewhere unchanged.
+        if self.engine.config.get("unsafe_mode"):
+            return False
+
         technique = finding.technique.lower()
 
         # XSS: require payload actually in response, not just echo
@@ -817,13 +823,16 @@ class PostWorkerVerifier:
 
         stats["deduplicated"] = len(findings) - len(deduped)
 
-        # G4: Cap findings per vulnerability type to prevent report flood
+        # G4: Cap findings per vulnerability type to prevent report flood.
+        # --unsafe-mode lifts this cap for the current run only.
+        unsafe = bool(self.engine.config.get("unsafe_mode", False))
+        per_type_cap = float("inf") if unsafe else MAX_FINDINGS_PER_VULN_TYPE
         vuln_type_counts: Dict[str, int] = {}
         capped = []
         for finding in deduped:
             technique = finding.technique.lower()
             count = vuln_type_counts.get(technique, 0)
-            if count < MAX_FINDINGS_PER_VULN_TYPE:
+            if count < per_type_cap:
                 capped.append(finding)
                 vuln_type_counts[technique] = count + 1
             else:

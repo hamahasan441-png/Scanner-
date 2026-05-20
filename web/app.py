@@ -24,13 +24,17 @@ from core.engine import AtomicEngine, Finding
 from core.rules_engine import RulesEngine
 from utils.database import Database, ScanModel, FindingModel, SQLALCHEMY_AVAILABLE
 
-try:
-    from flask import Flask, render_template, request, jsonify, send_from_directory
-    from flask_cors import CORS
+# Flask + extensions are mandatory for this module — re-raising the
+# ImportError lets ``main.py``'s ``except ImportError`` handler print
+# the install instruction.  Previously a try/except set
+# ``FLASK_AVAILABLE = False`` and then unconditionally called
+# ``Flask(__name__, ...)`` two lines later, which produced a confusing
+# ``NameError: Flask is not defined`` instead of the intended
+# "pip install flask" hint.
+from flask import Flask, render_template, request, jsonify, send_from_directory, Response
+from flask_cors import CORS
 
-    FLASK_AVAILABLE = True
-except ImportError:
-    FLASK_AVAILABLE = False
+FLASK_AVAILABLE = True
 
 try:
     from flask_socketio import SocketIO, emit
@@ -38,6 +42,11 @@ try:
     SOCKETIO_AVAILABLE = True
 except ImportError:
     SOCKETIO_AVAILABLE = False
+    SocketIO = None  # type: ignore[assignment]
+
+    def emit(*_args, **_kwargs):  # type: ignore[no-redef]
+        """No-op stub when flask_socketio is unavailable."""
+        return None
 
 logger = logging.getLogger(__name__)
 
@@ -3755,8 +3764,18 @@ def create_app(host="0.0.0.0", port=5000, debug=False):
 
         def _scheduler_callback(entry):
             scan_id = str(uuid.uuid4())[:8]
-            config_overrides = entry.config if entry.config else {}
-            cfg = {**Config.__dict__, **config_overrides}
+            # ``entry.config`` is the dict the user supplied when they
+            # scheduled the scan.  We keep it as-is — previously this
+            # spread ``Config.__dict__`` (a mappingproxy of the Config
+            # class containing classmethods, the module reference,
+            # MITRE_CWE_MAP, etc.) into the engine config, which made
+            # ``AtomicEngine`` choke on unexpected keys.
+            cfg = dict(entry.config) if entry.config else {}
+            # Provide minimal defaults the engine expects when the
+            # scheduled job didn't specify them.
+            cfg.setdefault("modules", {})
+            cfg.setdefault("output_dir", Config.REPORTS_DIR)
+            cfg.setdefault("quiet", True)
             threading.Thread(
                 target=_run_scan,
                 args=(scan_id, entry.target, cfg),

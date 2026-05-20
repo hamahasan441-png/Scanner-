@@ -83,13 +83,36 @@ class AttackerPolicy:
         full_attack = bool(config.get("full_attack")) or bool(modules.get("full_attack"))
         smart = bool(modules.get("smart_attack")) or bool(modules.get("auto_exploit"))
         enabled = (full_attack or smart) and bool(config.get("authorized", True))
+        unsafe = bool(config.get("unsafe_mode"))
+
+        # --unsafe-mode (per-run, gated on --authorized at the CLI):
+        #   * lifts the per-scan exploit ceiling to the hard 10000 fuse
+        #     so the streaming attacker keeps chaining instead of
+        #     stopping at 25 default exploits.
+        #   * lowers the confidence_threshold to 0.0 unless the
+        #     operator already pinned --attack-confidence explicitly,
+        #     so weakly-confident-but-correlated findings still chain.
+        # require_authorized is unchanged — the auth gate still
+        # applies on every finding.
+        explicit_conf = "attack_confidence" in config
+        confidence = float(config.get("attack_confidence", 0.7))
+        if unsafe and not explicit_conf:
+            confidence = 0.0
+        explicit_max = "attack_max" in config
+        if explicit_max:
+            max_exploits = int(config.get("attack_max"))
+        elif full_attack or unsafe:
+            # full-attack already lifted to the 10000 fuse; unsafe-mode
+            # gets the same treatment so the two flags compose cleanly.
+            max_exploits = 10000
+        else:
+            max_exploits = 25
+
         return cls(
             enabled=enabled,
-            confidence_threshold=float(config.get("attack_confidence", 0.7)),
+            confidence_threshold=confidence,
             severity_floor=str(config.get("attack_severity_floor", "HIGH")).upper(),
-            # full-attack effectively removes the cap (10000 is a hard
-            # safety ceiling so a runaway re-emit can't loop forever)
-            max_exploits_per_scan=int(config.get("attack_max", 10000 if full_attack else 25)),
+            max_exploits_per_scan=max_exploits,
             families_allowlist=config.get("attack_families"),
             require_authorized=True,
         )
