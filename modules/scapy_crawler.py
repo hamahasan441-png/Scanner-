@@ -343,7 +343,9 @@ class ScapyCrawler:
                     ttl = reply[IP].ttl
                     win = reply[TCP].window
                     return self._match_os(ttl, win)
-            except (PermissionError, Exception):
+            # `except Exception` already covers PermissionError; the
+            # original tuple form was redundant.
+            except Exception:
                 continue
         return ""
 
@@ -393,7 +395,9 @@ class ScapyCrawler:
                     if reply.haslayer(ICMP) and reply[ICMP].type == 0:
                         break
 
-            except (PermissionError, Exception):
+            # `except Exception` already covers PermissionError; the
+            # original tuple form was redundant.
+            except Exception:
                 hops.append({"hop": ttl_val, "ip": "*", "rtt_ms": None})
                 break
 
@@ -408,7 +412,8 @@ class ScapyCrawler:
             reply = sr1(pkt, timeout=self.timeout, verbose=0)
             if reply:
                 return True
-        except (PermissionError, Exception):
+        # `except Exception` already covers PermissionError; original tuple was redundant.
+        except Exception:
             pass
 
         # Fallback: TCP SYN to port 80
@@ -417,7 +422,8 @@ class ScapyCrawler:
             reply = sr1(pkt, timeout=self.timeout, verbose=0)
             if reply and reply.haslayer(TCP):
                 return True
-        except (PermissionError, Exception):
+        # `except Exception` already covers PermissionError; original tuple was redundant.
+        except Exception:
             pass
 
         # Fallback: plain socket connect
@@ -1121,7 +1127,12 @@ class ScapyVulnScanner:
                         self._print_finding(vuln)
                         self._register_finding(host, vuln)
                         return
-        except (PermissionError, Exception) as e:
+        # Note: PermissionError is a subclass of Exception. Listing both
+        # had no effect — `except Exception` already covers raw-socket
+        # permission errors when not running as root. Kept broad on
+        # purpose: scapy probes throw a wide variety of errors and we
+        # never want a packet-level failure to abort the whole crawl.
+        except Exception as e:
             if self.verbose:
                 print(f"  {Colors.warning(f'TCP timestamp check: {e}')}")
 
@@ -1144,7 +1155,12 @@ class ScapyVulnScanner:
                     self.findings.append(vuln)
                     self._print_finding(vuln)
                     self._register_finding(host, vuln)
-        except (PermissionError, Exception) as e:
+        # Note: PermissionError is a subclass of Exception. Listing both
+        # had no effect — `except Exception` already covers raw-socket
+        # permission errors when not running as root. Kept broad on
+        # purpose: scapy probes throw a wide variety of errors and we
+        # never want a packet-level failure to abort the whole crawl.
+        except Exception as e:
             if self.verbose:
                 print(f"  {Colors.warning(f'IP ID check: {e}')}")
 
@@ -1180,7 +1196,12 @@ class ScapyVulnScanner:
                 self.findings.append(vuln)
                 self._print_finding(vuln)
                 self._register_finding(host, vuln)
-        except (PermissionError, Exception) as e:
+        # Note: PermissionError is a subclass of Exception. Listing both
+        # had no effect — `except Exception` already covers raw-socket
+        # permission errors when not running as root. Kept broad on
+        # purpose: scapy probes throw a wide variety of errors and we
+        # never want a packet-level failure to abort the whole crawl.
+        except Exception as e:
             if self.verbose:
                 print(f"  {Colors.warning(f'ICMP redirect check: {e}')}")
 
@@ -1198,7 +1219,12 @@ class ScapyVulnScanner:
                 self.findings.append(vuln)
                 self._print_finding(vuln)
                 self._register_finding(host, vuln)
-        except (PermissionError, Exception) as e:
+        # Note: PermissionError is a subclass of Exception. Listing both
+        # had no effect — `except Exception` already covers raw-socket
+        # permission errors when not running as root. Kept broad on
+        # purpose: scapy probes throw a wide variety of errors and we
+        # never want a packet-level failure to abort the whole crawl.
+        except Exception as e:
             if self.verbose:
                 print(f"  {Colors.warning(f'Fragmentation check: {e}')}")
 
@@ -1223,7 +1249,12 @@ class ScapyVulnScanner:
                     self.findings.append(vuln)
                     self._print_finding(vuln)
                     self._register_finding(host, vuln)
-        except (PermissionError, Exception) as e:
+        # Note: PermissionError is a subclass of Exception. Listing both
+        # had no effect — `except Exception` already covers raw-socket
+        # permission errors when not running as root. Kept broad on
+        # purpose: scapy probes throw a wide variety of errors and we
+        # never want a packet-level failure to abort the whole crawl.
+        except Exception as e:
             if self.verbose:
                 print(f"  {Colors.warning(f'DNS resolver check: {e}')}")
 
@@ -1247,7 +1278,12 @@ class ScapyVulnScanner:
                     self.findings.append(vuln)
                     self._print_finding(vuln)
                     self._register_finding(host, vuln)
-        except (PermissionError, Exception) as e:
+        # Note: PermissionError is a subclass of Exception. Listing both
+        # had no effect — `except Exception` already covers raw-socket
+        # permission errors when not running as root. Kept broad on
+        # purpose: scapy probes throw a wide variety of errors and we
+        # never want a packet-level failure to abort the whole crawl.
+        except Exception as e:
             if self.verbose:
                 print(f"  {Colors.warning(f'SNMP check: {e}')}")
 
@@ -1267,7 +1303,12 @@ class ScapyVulnScanner:
                     self.findings.append(vuln)
                     self._print_finding(vuln)
                     self._register_finding(host, vuln)
-        except (PermissionError, Exception) as e:
+        # Note: PermissionError is a subclass of Exception. Listing both
+        # had no effect — `except Exception` already covers raw-socket
+        # permission errors when not running as root. Kept broad on
+        # purpose: scapy probes throw a wide variety of errors and we
+        # never want a packet-level failure to abort the whole crawl.
+        except Exception as e:
             if self.verbose:
                 print(f"  {Colors.warning(f'NTP mode6 check: {e}')}")
 

