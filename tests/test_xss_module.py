@@ -520,12 +520,42 @@ class TestXSSTestUrl(unittest.TestCase):
 
 
 class TestXSSBlindCallback(unittest.TestCase):
-    def test_blind_xss_injected(self):
+    def test_blind_xss_no_callback_no_finding(self):
+        """Without OOB infrastructure, blind XSS must not emit a finding.
+
+        Previously the module reported a finding on every successful
+        request regardless of callback verification, generating one
+        false positive per parameter.  The fix requires a verified
+        OOB callback hit before emitting a finding, so a plain
+        engine without ``oob_manager`` produces zero findings.
+        """
         from modules.xss import XSSModule
 
         engine = _MockEngine(
             [_MockResponse()] * 5, config={"verbose": False, "waf_bypass": False, "callback_domain": "test.example.com"}
         )
+        # Engine has no oob_manager attribute → should be a no-op.
+        mod = XSSModule(engine)
+        mod._test_blind_xss("http://target.com/", "GET", "q", "test")
+        self.assertFalse(any("Blind XSS" in f.technique for f in engine.findings))
+
+    def test_blind_xss_with_verified_callback_emits_finding(self):
+        """When a verified OOB callback hit is observed, emit a finding."""
+        from modules.xss import XSSModule
+
+        class _FakeOOB:
+            enabled = True
+
+            def get_callback_url(self, **_kw):
+                return ("tok123", "http://cb.example.com/cb/tok123")
+
+            def check(self, _token, timeout=5):
+                return [{"time": 0, "source_ip": "1.2.3.4"}]
+
+        engine = _MockEngine(
+            [_MockResponse()] * 5, config={"verbose": False, "waf_bypass": False}
+        )
+        engine.oob_manager = _FakeOOB()
         mod = XSSModule(engine)
         mod._test_blind_xss("http://target.com/", "GET", "q", "test")
         self.assertTrue(any("Blind XSS" in f.technique for f in engine.findings))
@@ -535,12 +565,43 @@ class TestXSSPolyglot(unittest.TestCase):
     def test_polyglot_reflected(self):
         from modules.xss import XSSModule
 
-        payload = "'-alert()-'"
-        resp = _MockResponse(text=f"Search results for: {payload}")
-        engine = _MockEngine([resp] * 10)
+        # Build a response body that reflects every polyglot payload so
+        # the assertion is robust regardless of payload-ordering inside
+        # the module.  Baseline does NOT contain the payloads, so any
+        # payload reflected in the second response triggers a finding.
+        payloads_in_module = [
+            "jaVasCript:/*-/*`/*'/*\"/**/(/* */oNcliCk=alert() )//",
+            "'-alert()-'",
+            "</script><svg onload=alert()>",
+            "'\"><svg/onload=alert(1)//",
+            "<img src=x onerror=alert(1)//>",
+            "<video><source onerror=alert(1)>",
+            "<body onpageshow=alert(1)>",
+        ]
+        body_with_payloads = "Search: " + " | ".join(payloads_in_module)
+
+        baseline = _MockResponse(text="Search results for: clean")
+        reflect_resp = _MockResponse(text=body_with_payloads)
+        # Sequence: 1 baseline + N payload responses (each reflects).
+        engine = _MockEngine([baseline] + [reflect_resp] * 20)
         mod = XSSModule(engine)
         mod._test_polyglot("http://target.com/", "GET", "q", "test")
         self.assertTrue(any("Polyglot" in f.technique for f in engine.findings))
+
+    def test_polyglot_in_baseline_no_finding(self):
+        """If the polyglot string already exists in the baseline (e.g.
+        404 page that echoes the URL), no finding should be emitted.
+        """
+        from modules.xss import XSSModule
+
+        payload = "'-alert()-'"
+        # Baseline ALREADY echoes the payload — same response for both
+        # baseline and payload requests (page echoes any input).
+        echo_resp = _MockResponse(text=f"You searched for: {payload}")
+        engine = _MockEngine([echo_resp] * 30)
+        mod = XSSModule(engine)
+        mod._test_polyglot("http://target.com/", "GET", "q", "test")
+        self.assertFalse(any("Polyglot" in f.technique for f in engine.findings))
 
 
 class TestXSSmXSS(unittest.TestCase):
