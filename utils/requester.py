@@ -260,6 +260,16 @@ class Requester:
         # ``orchestrator.payload_variants(...)``.
         self._bypass = None
 
+        # Optional rate-limiter (set by AtomicEngine via
+        # :meth:`attach_rate_limiter`).  ``None`` means "no throttle";
+        # any object exposing ``enforce_rate_limit()`` will be honoured.
+        # The hook lives on the requester (not just the scan loop) so
+        # that module-level requests, parallel worker dispatch, and
+        # background probes all share a single throttle — previously
+        # only the engine's main loop called the limiter, so concurrent
+        # modules bypassed it entirely.
+        self._rate_limiter = None
+
         if self.session:
             self._setup_session()
 
@@ -290,6 +300,17 @@ class Requester:
         so each can be unit-tested without the other.
         """
         self._bypass = orchestrator
+
+    def attach_rate_limiter(self, rate_limiter) -> None:
+        """Attach a rate limiter (typically :class:`core.scope.ScopePolicy`).
+
+        Any object exposing an ``enforce_rate_limit()`` method is
+        accepted (duck typing).  Once attached, every call to
+        :meth:`request` invokes the limiter before issuing the HTTP
+        request, so module-level probes, worker-pool dispatch, and
+        recon helpers all share the same throttle.
+        """
+        self._rate_limiter = rate_limiter
 
     def _setup_session(self):
         """Configure session with connection pooling"""
@@ -648,6 +669,17 @@ class Requester:
         cache_key, cached = self._check_cache(url, method, data, files)
         if cached is not None:
             return cached
+
+        # Honour the engine-wide rate limit on EVERY request.  Cached
+        # responses are exempt above (they don't hit the network).
+        # Previously this was only called from the scan main loop, so
+        # parallel workers and module-level probes blew past the limit.
+        if self._rate_limiter is not None:
+            try:
+                self._rate_limiter.enforce_rate_limit()
+            except Exception:
+                # A misbehaving limiter must not break the request path.
+                pass
 
         self._apply_request_delay()
         url, data, req_headers = self._prepare_request_data(url, data, headers)

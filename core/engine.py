@@ -13,6 +13,7 @@ For an end-to-end description of how the engine drives each phase,
 see ``LOGIC_MAP.md``.
 """
 
+import threading
 import time
 import uuid
 import json
@@ -114,6 +115,16 @@ class AtomicEngine:
         self.config = config
         self.scan_id = str(uuid.uuid4())[:8]
         self.findings = []
+        # Thread-safe writes to ``self.findings`` and the dedup lookup.
+        # The worker pool ( :mod:`core.scan_worker_pool` ) dispatches
+        # multiple module categories concurrently, and module tests
+        # themselves spin up additional thread pools (race conditions,
+        # port scanner, etc.).  All of these eventually call
+        # :meth:`add_finding`, so without a lock the dedup loop reads
+        # a list that another thread is mutating, which produced
+        # duplicate findings, lost findings, and (rarely) ``IndexError``
+        # / ``RuntimeError: list changed size during iteration``.
+        self._findings_lock = threading.Lock()
         self.start_time = None
         self.end_time = None
         self.target = None
@@ -215,6 +226,18 @@ class AtomicEngine:
         self.adaptive = AdaptiveController(self)
         self.ai = AIEngine(self)
         self.persistence = PersistenceEngine(self)
+
+        # Wire the scope's rate limiter into the requester so EVERY
+        # outbound HTTP request honours the configured rate limit.
+        # Previously the rate limit was only enforced inside the engine
+        # scan-loop, which meant module-level calls and parallel worker
+        # dispatch bypassed it entirely and could hammer the target
+        # well above the configured throttle.
+        try:
+            self.requester.attach_rate_limiter(self.scope)
+        except AttributeError:
+            # Older Requester implementations without the hook — nothing to do.
+            pass
 
         # --- Philosophy layer (opt-in) ---
         # When config["philosophy"] is true, attach the reasoning layer
@@ -423,10 +446,12 @@ class AtomicEngine:
                 confidence=float(finding_dict.get("confidence", 0.5)),
                 cvss=float(finding_dict.get("cvss", 0.0)),
             )
-            self.findings.append(f)
+            with self._findings_lock:
+                self.findings.append(f)
         except Exception:
             # Fallback: store the raw dict
-            self.findings.append(finding_dict)
+            with self._findings_lock:
+                self.findings.append(finding_dict)
 
 
     def get_pipeline_state(self) -> dict:
@@ -1510,17 +1535,24 @@ class AtomicEngine:
             finding.param,
             _payload_fingerprint(finding.payload or ""),
         )
-        for existing in self.findings:
-            existing_key = (
-                existing.technique,
-                existing.url,
-                existing.param,
-                _payload_fingerprint(existing.payload or ""),
-            )
-            if existing_key == new_key:
-                return
 
-        self.findings.append(finding)
+        # Critical section: dedup-check and append must be atomic when
+        # ``add_finding`` is called from multiple worker threads (see
+        # :mod:`core.scan_worker_pool`).  Without this lock the dedup
+        # loop can race with appends from sibling threads, producing
+        # duplicate or lost findings.
+        with self._findings_lock:
+            for existing in self.findings:
+                existing_key = (
+                    existing.technique,
+                    existing.url,
+                    existing.param,
+                    _payload_fingerprint(existing.payload or ""),
+                )
+                if existing_key == new_key:
+                    return
+
+            self.findings.append(finding)
 
         # Emit pipeline event for live dashboard
         self.emit_pipeline_event(

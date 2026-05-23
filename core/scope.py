@@ -12,6 +12,7 @@ Enforces target scope and scanning policies:
 """
 
 import time
+import threading
 from urllib.parse import urlparse
 from urllib.robotparser import RobotFileParser
 
@@ -59,6 +60,12 @@ class ScopePolicy:
         self.rate_limit = engine.config.get("rate_limit", DEFAULT_RATE_LIMIT)
         self._last_request_time = 0.0
         self._request_count = 0
+        # The rate-limit state is mutated from every thread that issues
+        # an HTTP request (worker pool, module thread pools, race
+        # tester, etc.).  Without this lock concurrent callers all
+        # observe the same ``_last_request_time`` and skip the throttle
+        # in lock-step, producing bursts well above ``rate_limit``.
+        self._rate_lock = threading.Lock()
 
         # Statistics
         self.blocked_count = 0
@@ -172,19 +179,35 @@ class ScopePolicy:
     # ------------------------------------------------------------------
 
     def enforce_rate_limit(self):
-        """Sleep if necessary to respect the configured rate limit."""
+        """Sleep if necessary to respect the configured rate limit.
+
+        Thread-safe: the read-modify-write cycle on ``_last_request_time``
+        is serialised with ``_rate_lock`` so concurrent worker threads
+        don't all observe the same timestamp and bypass the throttle.
+        """
         if self.rate_limit <= 0:
             return
 
-        now = time.time()
         min_interval = 1.0 / self.rate_limit
-        elapsed = now - self._last_request_time
+        with self._rate_lock:
+            now = time.time()
+            elapsed = now - self._last_request_time
 
-        if elapsed < min_interval:
-            time.sleep(min_interval - elapsed)
+            if elapsed < min_interval:
+                sleep_for = min_interval - elapsed
+            else:
+                sleep_for = 0.0
 
-        self._last_request_time = time.time()
-        self._request_count += 1
+            # Reserve our slot BEFORE releasing the lock so that a
+            # second thread arriving immediately after us computes its
+            # interval relative to our reserved slot, not the previous
+            # one.  This prevents two threads from each computing
+            # "no wait needed" against the same baseline.
+            self._last_request_time = now + sleep_for
+            self._request_count += 1
+
+        if sleep_for > 0:
+            time.sleep(sleep_for)
 
     # ------------------------------------------------------------------
     # Filtering helpers

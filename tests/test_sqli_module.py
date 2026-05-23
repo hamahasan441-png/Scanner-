@@ -837,8 +837,14 @@ class TestSQLiSecondOrder(unittest.TestCase):
 
 
 class TestSQLiOOB(unittest.TestCase):
-    def test_oob_default_domain_no_finding(self):
-        """Default placeholder domain should NOT produce findings."""
+    def test_oob_no_listener_no_finding(self):
+        """Without a wired-in OOBManager, the test must be a no-op.
+
+        OOB SQLi cannot be confirmed from the response body alone
+        (a SQL error means the payload was REJECTED, not executed).
+        Without an external listener to verify a callback, no finding
+        is produced.
+        """
         from modules.sqli import SQLiModule
 
         engine = _MockEngine([_MockResponse()] * 10)
@@ -846,30 +852,76 @@ class TestSQLiOOB(unittest.TestCase):
         mod._test_oob_sqli("http://target.com/", "GET", "id", "1")
         self.assertEqual(len([f for f in engine.findings if "OOB" in f.technique]), 0)
 
-    def test_oob_with_real_domain_and_error_triggers_finding(self):
-        """Real OOB domain + new SQL error in response triggers finding."""
+    def test_oob_disabled_listener_no_finding(self):
+        """OOBManager present but disabled → no finding emitted."""
         from modules.sqli import SQLiModule
 
-        baseline = _MockResponse(text="Normal page")
-        error_resp = _MockResponse(text="ORA-00933: SQL command not properly ended")
-        # baseline + 1 payload response with error
-        engine = _MockEngine([baseline, error_resp] + [_MockResponse()] * 10,
-                             config={"verbose": False, "waf_bypass": False,
-                                     "oob_domain": "real-oob.attacker.com"})
-        mod = SQLiModule(engine)
-        mod._test_oob_sqli("http://target.com/", "GET", "id", "1")
-        self.assertTrue(any("OOB" in f.technique for f in engine.findings))
+        class _DisabledOOB:
+            enabled = False
 
-    def test_oob_with_real_domain_no_error_no_finding(self):
-        """Real OOB domain but no SQL error → no finding."""
-        from modules.sqli import SQLiModule
+            def get_callback_url(self, **_kw):
+                return (None, None)
 
-        engine = _MockEngine([_MockResponse(text="OK")] * 10,
-                             config={"verbose": False, "waf_bypass": False,
-                                     "oob_domain": "real-oob.attacker.com"})
+            def check(self, _token, timeout=10):
+                return []
+
+        engine = _MockEngine([_MockResponse()] * 10)
+        engine.oob_manager = _DisabledOOB()
         mod = SQLiModule(engine)
         mod._test_oob_sqli("http://target.com/", "GET", "id", "1")
         self.assertEqual(len([f for f in engine.findings if "OOB" in f.technique]), 0)
+
+    def test_oob_listener_no_callback_no_finding(self):
+        """Enabled listener but no actual hit → no finding.
+
+        This used to be the false-positive class: the previous logic
+        emitted a finding whenever a SQL error appeared in the
+        response body, which actually meant the OOB payload was
+        REJECTED.  The fix requires a real callback hit.
+        """
+        from modules.sqli import SQLiModule
+
+        class _SilentOOB:
+            enabled = True
+
+            def get_callback_url(self, **_kw):
+                return ("tok", "http://oob.example.com/cb/tok")
+
+            def check(self, _token, timeout=10):
+                return []
+
+        # Even when the response contains a SQL error, no callback hit
+        # means no finding.  This is the inverted logic the user
+        # called out being fixed.
+        baseline = _MockResponse(text="Normal page")
+        error_resp = _MockResponse(text="ORA-00933: SQL command not properly ended")
+        engine = _MockEngine([baseline, error_resp] + [_MockResponse()] * 10)
+        engine.oob_manager = _SilentOOB()
+        mod = SQLiModule(engine)
+        mod._test_oob_sqli("http://target.com/", "GET", "id", "1")
+        self.assertEqual(len([f for f in engine.findings if "OOB" in f.technique]), 0)
+
+    def test_oob_listener_with_verified_hit_emits_finding(self):
+        """Verified callback hit on the listener → CRITICAL finding."""
+        from modules.sqli import SQLiModule
+
+        class _LiveOOB:
+            enabled = True
+
+            def get_callback_url(self, **_kw):
+                return ("tok-abc", "http://oob.example.com/cb/tok-abc")
+
+            def check(self, _token, timeout=10):
+                return [{"time": 0, "source_ip": "1.2.3.4"}]
+
+        engine = _MockEngine([_MockResponse()] * 10)
+        engine.oob_manager = _LiveOOB()
+        mod = SQLiModule(engine)
+        mod._test_oob_sqli("http://target.com/", "GET", "id", "1")
+        oob_findings = [f for f in engine.findings if "OOB" in f.technique]
+        self.assertEqual(len(oob_findings), 1)
+        self.assertEqual(oob_findings[0].severity, "CRITICAL")
+        self.assertGreaterEqual(oob_findings[0].confidence, 0.9)
 
 
 class TestSQLiWAFBypass(unittest.TestCase):

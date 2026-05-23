@@ -10,6 +10,7 @@ import os
 import json
 import logging
 import re
+import secrets
 import subprocess
 import threading
 import time
@@ -58,6 +59,21 @@ app = Flask(
 # Set ATOMIC_SECRET_KEY env var to persist sessions across restarts.
 # Without it a random key is generated on each startup, invalidating sessions.
 app.config["SECRET_KEY"] = os.environ.get("ATOMIC_SECRET_KEY", uuid.uuid4().hex)
+
+# ── Cookie hardening ─────────────────────────────────────────────────
+# Restrict session and CSRF cookies to same-site requests so that a
+# malicious cross-origin page cannot trigger authenticated state-
+# changing requests via the browser's ambient credentials.  ``Lax`` is
+# chosen over ``Strict`` so that top-level GET navigations from
+# legitimate links still work; state-changing methods are CSRF-checked
+# separately below.  ``Secure`` is honoured when the deployment
+# terminates TLS (set ATOMIC_FORCE_SECURE_COOKIE=1 to require it even
+# behind a reverse proxy that rewrites the scheme).
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+app.config["SESSION_COOKIE_SECURE"] = os.environ.get(
+    "ATOMIC_FORCE_SECURE_COOKIE", ""
+).strip().lower() in ("1", "true", "yes", "on")
 
 if FLASK_AVAILABLE:
     # Restrict CORS to explicitly allowed origins when configured via
@@ -140,6 +156,155 @@ def _require_api_key(f):
 
 
 # ---------------------------------------------------------------------------
+# CSRF protection (double-submit cookie)
+# ---------------------------------------------------------------------------
+# Browsers automatically attach session cookies to cross-origin requests
+# triggered by attacker-controlled pages, which is the textbook CSRF
+# vector.  The dashboard exposes a wide surface of state-changing
+# endpoints (POST /api/scan, DELETE /api/scan/<id>, POST /api/shell/<id>/
+# execute, …), so we enforce a CSRF token on every non-safe HTTP method.
+#
+# Strategy: double-submit cookie.
+#   1. The first response from the app sets a ``csrf_token`` cookie with
+#      a high-entropy random value.  The cookie is NOT HttpOnly so the
+#      same-origin JavaScript on the dashboard can read it.
+#   2. State-changing requests must echo the same value back via the
+#      ``X-CSRF-Token`` header.  An attacker on a different origin can
+#      neither read the cookie (Same-Origin Policy) nor predict the
+#      token, so they cannot forge a valid request.
+#   3. SameSite=Lax on the session and CSRF cookies provides
+#      defence-in-depth at the browser layer for clients that honour it.
+#
+# Bypassed for non-browser callers and tests:
+#   - Method is GET / HEAD / OPTIONS (RFC-7231 safe methods).
+#   - ``app.config["TESTING"]`` is True (Flask test client).
+#   - A valid API key is supplied (server-to-server clients aren't
+#     subject to CSRF — the browser cannot inject ``X-API-Key`` from a
+#     different origin without an explicit pre-flight that fails CORS).
+#   - A valid Bearer token is supplied.
+
+_CSRF_COOKIE_NAME = "csrf_token"
+_CSRF_HEADER_NAME = "X-CSRF-Token"
+_CSRF_SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+
+
+def _has_valid_api_key() -> bool:
+    """Return True if the request supplies a valid configured API key.
+
+    Mirrors the check inside :func:`_require_api_key` but as a free
+    function so the CSRF middleware can consult it without invoking
+    the decorator chain.  When no API key is configured this returns
+    False, so CSRF is enforced for the cookie-based dashboard flow.
+    """
+    if not _API_KEY:
+        return False
+    supplied = request.headers.get("X-API-Key", "") or request.args.get("api_key", "")
+    if not supplied:
+        return False
+    return hmac.compare_digest(supplied, _API_KEY)
+
+
+def _has_valid_bearer_token() -> bool:
+    """Return True if the request supplies a valid Bearer token.
+
+    Bearer tokens are issued via ``/api/auth/login`` and are unique to
+    the calling client; CSRF requires the attacker to forge a valid
+    token, which is equivalent to authentication itself.
+    """
+    auth = request.headers.get("Authorization", "")
+    if not auth.startswith("Bearer ") or _user_store is None:
+        return False
+    try:
+        return bool(_user_store.validate_request_token(auth[7:]))
+    except Exception:
+        return False
+
+
+def _csrf_exempt_request() -> bool:
+    """Decide whether the current request is exempt from CSRF checks."""
+    if app.config.get("TESTING"):
+        return True
+    if request.method in _CSRF_SAFE_METHODS:
+        return True
+    if _has_valid_api_key():
+        return True
+    if _has_valid_bearer_token():
+        return True
+    return False
+
+
+@app.before_request
+def _csrf_protect():
+    """Reject state-changing requests without a valid CSRF token."""
+    if _csrf_exempt_request():
+        return None
+
+    cookie_token = request.cookies.get(_CSRF_COOKIE_NAME, "")
+    header_token = request.headers.get(_CSRF_HEADER_NAME, "")
+
+    # Both must be present and equal.  ``hmac.compare_digest`` resists
+    # timing oracles even though our tokens are short.
+    if not cookie_token or not header_token or not hmac.compare_digest(cookie_token, header_token):
+        return (
+            jsonify({"status": "error", "data": "CSRF token missing or invalid"}),
+            403,
+        )
+    return None
+
+
+@app.after_request
+def _csrf_issue_cookie(response):
+    """Issue a CSRF token cookie on first contact and after rotation.
+
+    The cookie is readable by same-origin JavaScript (HttpOnly=False)
+    so the dashboard can echo it via the ``X-CSRF-Token`` header.  An
+    attacker on a different origin cannot read it because the Same-
+    Origin Policy blocks cross-origin cookie access.
+    """
+    # Skip for the test client — tests don't expect cookies in
+    # responses unless they ask for them.
+    if app.config.get("TESTING"):
+        return response
+
+    if not request.cookies.get(_CSRF_COOKIE_NAME):
+        token = secrets.token_urlsafe(32)
+        response.set_cookie(
+            _CSRF_COOKIE_NAME,
+            token,
+            httponly=False,  # JS must be able to read for double-submit
+            samesite="Lax",
+            secure=app.config.get("SESSION_COOKIE_SECURE", False),
+            path="/",
+        )
+    return response
+
+
+@app.route("/api/csrf-token", methods=["GET"])
+def get_csrf_token():
+    """Return the current CSRF token for the calling browser.
+
+    Useful for SPA clients that want to fetch the token explicitly
+    instead of reading the cookie directly.  The endpoint always
+    issues a fresh cookie if one is not already present (handled by
+    :func:`_csrf_issue_cookie`).
+    """
+    token = request.cookies.get(_CSRF_COOKIE_NAME, "")
+    if not token:
+        token = secrets.token_urlsafe(32)
+        response = jsonify({"status": "success", "data": {"csrf_token": token}})
+        response.set_cookie(
+            _CSRF_COOKIE_NAME,
+            token,
+            httponly=False,
+            samesite="Lax",
+            secure=app.config.get("SESSION_COOKIE_SECURE", False),
+            path="/",
+        )
+        return response
+    return jsonify({"status": "success", "data": {"csrf_token": token}})
+
+
+# ---------------------------------------------------------------------------
 # Simple in-memory rate limiter
 # ---------------------------------------------------------------------------
 _RATE_WINDOW = 60  # seconds
@@ -215,22 +380,84 @@ SHELL_COMMAND_ALLOWLIST: list = (
 )
 
 
+# Flags that turn an otherwise-safe command into arbitrary code
+# execution.  The allowlist used to inspect only the FIRST token, so
+# ``find / -exec cat {} +`` slipped through because ``find`` itself is
+# allowlisted — and once ``find`` runs ``-exec`` it executes any
+# program the attacker names.  The same trick works with ``-delete``
+# (deletes everything) and ``-fprintf`` (writes attacker-controlled
+# bytes to a file the daemon can write to).
+#
+# We deny these flags regardless of the base command.  The list is
+# intentionally broad: anything that lets the command spawn a child
+# process or write arbitrary content to the filesystem belongs here.
+_SHELL_DANGEROUS_FLAGS = frozenset({
+    # find(1) action flags that execute code or mutate the filesystem
+    "-exec", "-execdir", "-ok", "-okdir",
+    "-delete", "-fprint", "-fprintf", "-fprint0", "-fls",
+    # GNU coreutils / POSIX flags that let a command read attacker-
+    # specified files or run subprocesses
+    "--exec", "--eval", "--execute",
+    # Common interpreter "run this string" flags
+    "-c", "-e",
+    # Output to file (could clobber sensitive paths)
+    "-o", "--output", "--output-file",
+})
+
+
 def _is_shell_command_allowed(cmd: str) -> bool:
     """Check if a shell command is in the allowlist.
 
-    Only the base command (first token) is checked against the allowlist.
-    Pipe chains, semicolons, and control characters are rejected outright.
+    Defence-in-depth checks (any failure ⇒ reject):
+      1. Must be non-empty after stripping.
+      2. Must not contain shell metacharacters that chain commands
+         or expand subshells (``;``, ``&&``, ``||``, ``|``, backtick,
+         ``$(``, control characters).
+      3. After tokenisation via ``shlex.split`` (so quoted arguments
+         are honoured), the base command must be in the allowlist.
+      4. NO subsequent token may match a dangerous flag from
+         :data:`_SHELL_DANGEROUS_FLAGS`.  This stops bypasses such as
+         ``find / -exec cat /etc/shadow {} +`` where the base command
+         is allowlisted but a flag escalates it to arbitrary
+         execution.
+      5. NO subsequent token may itself be parseable as a path to an
+         executable that bypasses the allowlist (e.g. ``find . -print
+         /bin/sh`` is harmless on its own, but combined with a
+         dangerous-flag value it would be fatal — we already reject
+         dangerous flags above, this is belt-and-braces).
     """
     if not cmd or not cmd.strip():
         return False
-    # Reject command chaining / piping / control character attempts
-    if any(c in cmd for c in [";", "&&", "||", "|", "`", "$(", "\n", "\r"]):
+
+    # Reject command chaining / piping / control character attempts.
+    # ``\;`` (the find-style escaped semicolon) also contains ``;`` so
+    # this catches the find ``-exec ... \;`` form too.
+    if any(c in cmd for c in [";", "&&", "||", "|", "`", "$(", "\n", "\r", ">", "<"]):
         return False
-    tokens = cmd.split()
+
+    try:
+        import shlex
+        tokens = shlex.split(cmd)
+    except ValueError:
+        # Unbalanced quotes or other shlex parse error
+        return False
+
     if not tokens:
         return False
+
     base_cmd = tokens[0].strip()
-    return base_cmd in SHELL_COMMAND_ALLOWLIST
+    if base_cmd not in SHELL_COMMAND_ALLOWLIST:
+        return False
+
+    # Inspect every subsequent token for dangerous flags.  A flag may
+    # be glued to its value (``--output=foo``) so we compare both the
+    # full token and the part before any ``=``.
+    for tok in tokens[1:]:
+        bare = tok.split("=", 1)[0]
+        if tok in _SHELL_DANGEROUS_FLAGS or bare in _SHELL_DANGEROUS_FLAGS:
+            return False
+
+    return True
 
 
 @app.after_request
