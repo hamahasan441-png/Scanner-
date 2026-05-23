@@ -420,21 +420,39 @@ These are documented gaps between the doc / contract and the running code.
 They will be closed in subsequent refactor passes (Phases B–D in the project
 plan).
 
-1. **`scanner_rules.yaml` stages don't match `Phase` enum.** The YAML lists
-   seven abstract stages (`discovery`, `baseline`, `context_classification`,
-   `prioritized_testing`, `verification`, `scoring`, `reporting`).  These are
-   pre-contract groupings, kept for backward compatibility.
+1. ~~**`scanner_rules.yaml` stages don't match `Phase` enum.**~~ **Closed**
+   2026-05-23. The seven legacy YAML stages are now formally mapped to
+   the canonical 21 phases via `STAGE_TO_PHASES` in
+   [`core/pipeline_contract.py`](core/pipeline_contract.py); helper
+   functions `phases_for_stage()` and `stage_for_phase()` are exported
+   for downstream code, and `RulesEngine.get_stage_phases()` exposes the
+   resolution. The YAML file itself is unchanged for backward
+   compatibility — its stage list is now an alias view onto the
+   canonical contract rather than a parallel vocabulary.
 
-2. **Engine still uses inline phase code with old comment numbering.**
-   `core/engine.py` calls `self.pipeline['phase'] = 'recon'/'scan'/...`
-   (4 partition strings) rather than driving `PipelineStateMachine` directly,
-   and inline comments still say `PHASE 1/2/4/5/6/.../9B`.  The 21-phase
-   contract and the inline numbering will be reconciled when the engine is
-   refactored to dispatch through `core/runners/`.
+2. ~~**Engine still uses inline phase code with old comment numbering.**~~
+   **Partially closed** 2026-05-23. The engine now drives a
+   `PipelineStateMachine` (`self._state_machine`) via a new
+   `_set_phase(Phase)` helper; the granular `pipeline['phase']` field
+   contains a canonical `Phase.value` string at all times instead of
+   the four legacy partition strings, and the partition is auto-derived
+   via `PHASE_PARTITION`. Each phase boundary in `scan()` calls
+   `_set_phase()` (21-of-21 phases tagged with canonical comments).
+   Full extraction into `core/runners/` is still pending — the runner
+   sub-package exists but the engine continues to drive phases inline
+   so that less-critical phases (Scapy, agent scanner, browser scan)
+   stay in the legacy code path until they're ported one at a time.
 
-3. **`uploader.py` mixes detection and exploitation.** `ShellUploader` both
-   tests for upload bypass *and* deploys webshells; the scan phase should
-   only test, with shell deployment moved into the exploit phase.
+3. ~~**`uploader.py` mixes detection and exploitation.**~~ **Closed**
+   2026-05-23. `ShellUploader.scan_only` (already in place) cleanly
+   separates the two: scan-phase callers leave the default
+   `scan_only=True` so only `test_url()` runs (detection), and four
+   exploit-phase callsites — `engine.scan()` legacy `--shell` branch,
+   `OSShellHandler._deploy_shell`, `PostExploitEngine._cmdi_shell`,
+   `PostExploitEngine._upload_deploy` — now explicitly pass
+   `scan_only=False` so `run()` actually deploys webshells. Previously
+   the legacy `--shell` and OS-shell branches silently no-op'd because
+   they inherited the scan-phase default.
 
 4. **AttackRouter end-of-scan-only mode is now optional.**
    Historically `AttackRouter` only fired in a single end-of-scan pass.  The
@@ -447,10 +465,14 @@ plan).
    per-scan exploit quota (25 default, raised by ``--full-attack``)
    prevent runaway re-exploitation.
 
-5. **Legacy and AttackRouter exploit paths run in parallel.** `--shell`,
-   `--dump`, `--os-shell`, `--brute`, `--exploit-chain` all fire after
-   AttackRouter; both paths can deploy artefacts in the same scan.  Will be
-   deconflicted at argparse time.
+5. ~~**Legacy and AttackRouter exploit paths run in parallel.**~~
+   **Closed** 2026-05-23. `main.py` now performs argparse-time
+   deconfliction: when any AttackRouter-driving flag (`--auto-exploit`,
+   `--smart-attack`, `--full-attack`) is active, the legacy single-
+   step exploit flags (`--shell`, `--dump`, `--os-shell`, `--brute`,
+   `--exploit-chain`) are disabled with a printed warning so the
+   AttackRouter / FullAttacker is the single source of exploitation
+   for the run. The legacy flags still work fine when used alone.
 
 6. **CLI flag accretion.** `main.py` has ~120 flags including overlapping
    bundles (`--full`, `--point-to-point`, `--auto`, `--turbo`, `--regulated-mission`).

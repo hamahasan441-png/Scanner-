@@ -83,7 +83,10 @@ class OSShellHandler:
         try:
             from modules.uploader import ShellUploader
 
-            uploader = ShellUploader(self.engine)
+            # scan_only=False because this is the exploit phase: we want
+            # ShellUploader.run() to actually deploy the shell rather than
+            # short-circuit at its scan-phase guard.
+            uploader = ShellUploader(self.engine, scan_only=False)
             uploader.run(findings, forms)
 
             # Check if any shell was registered

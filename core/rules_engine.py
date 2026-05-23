@@ -206,6 +206,20 @@ class RulesEngine:
     def pipeline_stages(self):
         return list(self._raw.get("pipeline", {}).get("stages", []))
 
+    def get_stage_phases(self, stage):
+        """Return the canonical pipeline phases for a legacy YAML stage.
+
+        Resolves a YAML stage name (``discovery``, ``baseline``,
+        ``context_classification``, ``prioritized_testing``,
+        ``verification``, ``scoring``, ``reporting``) to the list of
+        ``Phase`` values from ``core.pipeline_contract`` it now covers.
+
+        Returns an empty list when *stage* is not a known legacy stage.
+        """
+        from core.pipeline_contract import phases_for_stage
+
+        return phases_for_stage(stage)
+
     @property
     def runtime(self):
         return dict(self._raw.get("runtime_defaults", {}))

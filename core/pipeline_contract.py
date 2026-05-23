@@ -115,6 +115,73 @@ def _build_allowed_transitions() -> Dict[Phase, FrozenSet[Phase]]:
 ALLOWED_TRANSITIONS: Dict[Phase, FrozenSet[Phase]] = _build_allowed_transitions()
 
 
+# ─────────────────────────────────────────────────────────────────────
+# Legacy YAML stage → canonical Phase mapping
+# ─────────────────────────────────────────────────────────────────────
+#
+# ``scanner_rules.yaml`` predates the 21-phase contract and groups the
+# pipeline into 7 abstract stages: discovery, baseline,
+# context_classification, prioritized_testing, verification, scoring,
+# reporting.  The mapping below is the **single source of truth** for
+# which canonical phases each legacy stage now covers.  Tools that read
+# the YAML (rules engine, dashboard) should resolve a stage name to its
+# concrete phase set via ``phases_for_stage()`` rather than guessing.
+#
+# Note: AGENT_SCAN and EXPLOIT are intentionally absent from the legacy
+# stage map — autonomous exploitation was not part of the pre-contract
+# stage vocabulary.  They run between ``verification`` and ``reporting``
+# under the canonical contract.
+
+STAGE_TO_PHASES: Dict[str, List[Phase]] = {
+    "discovery": [
+        Phase.INIT,
+        Phase.PLAN_DISPLAY,
+        Phase.SCOPE,
+        Phase.SHIELD_DETECT,
+        Phase.REAL_IP,
+        Phase.PASSIVE_RECON,
+        Phase.DISCOVERY,
+        Phase.INPUT_EXTRACTION,
+    ],
+    "context_classification": [Phase.CONTEXT_INTEL],
+    "baseline": [Phase.BASELINE],
+    "prioritized_testing": [
+        Phase.ENRICHMENT,
+        Phase.PRIORITIZATION,
+        Phase.ADAPTIVE_TESTING,
+        Phase.SCAN_WORKERS,
+    ],
+    "verification": [Phase.VERIFICATION, Phase.EXPLOIT_SEARCH],
+    # ``scoring`` is a sub-step of verification (FP filter + CVSS auto-
+    # score live in PostWorkerVerifier); the overlap is intentional.
+    "scoring": [Phase.VERIFICATION],
+    "reporting": [Phase.REPORT, Phase.ATTACK_MAP, Phase.DONE],
+}
+
+
+def phases_for_stage(stage: str) -> List[Phase]:
+    """Return the canonical phases covered by a legacy YAML stage.
+
+    Returns an empty list if *stage* is not a known legacy stage name.
+    """
+    return list(STAGE_TO_PHASES.get(stage, []))
+
+
+def stage_for_phase(phase: Phase) -> str:
+    """Return the legacy YAML stage that contains *phase*, or ``""``.
+
+    When a phase appears in multiple stages (e.g. ``VERIFICATION`` is
+    in both ``verification`` and ``scoring``) the first matching stage
+    in ``STAGE_TO_PHASES`` insertion order wins.  ``AGENT_SCAN`` and
+    ``EXPLOIT`` are not represented in the legacy vocabulary and return
+    ``""``.
+    """
+    for stage_name, phases in STAGE_TO_PHASES.items():
+        if phase in phases:
+            return stage_name
+    return ""
+
+
 class InvalidTransitionError(Exception):
     """Raised when a pipeline phase transition is not allowed."""
 
