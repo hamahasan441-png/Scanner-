@@ -65,11 +65,20 @@ DEFAULT_PROFILES = {
         "classifier": ("ollama", "llama3.2:1b"),
     },
     "local": {
-        # Use the existing LocalLLM (Qwen2.5-7B) for every task.
+        # Use the existing LocalLLM (Qwen2.5-7B GGUF) for every task.
         "planner": ("local", "qwen2.5-7b"),
         "analyzer": ("local", "qwen2.5-7b"),
         "payloads": ("local", "qwen2.5-7b"),
         "classifier": ("local", "qwen2.5-7b"),
+    },
+    # Cloud Qwen2.5 routing through DashScope (Alibaba's official API).
+    # Strong planner/analyzer (72B), specialised coder for payloads,
+    # and the cheapest tier for high-volume parameter classification.
+    "qwen": {
+        "planner": ("dashscope", "qwen2.5-72b-instruct"),
+        "analyzer": ("dashscope", "qwen2.5-32b-instruct"),
+        "payloads": ("dashscope", "qwen2.5-coder-32b-instruct"),
+        "classifier": ("dashscope", "qwen-turbo"),
     },
 }
 

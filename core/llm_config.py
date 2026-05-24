@@ -45,9 +45,10 @@ SUPPORTED_PROVIDERS = [
     "xai",
     "azure",
     "bedrock",
+    "dashscope",
 ]
 
-SUPPORTED_PROFILES = ["eco", "max", "mixed", "test", "local"]
+SUPPORTED_PROFILES = ["eco", "max", "mixed", "test", "local", "qwen"]
 
 
 # Env var names checked when resolving an API key. Match the table in
@@ -64,6 +65,7 @@ ENV_KEYS = {
     "xai": ("XAI_API_KEY",),
     "azure": ("AZURE_API_KEY",),
     "bedrock": ("AWS_ACCESS_KEY_ID",),
+    "dashscope": ("DASHSCOPE_API_KEY", "QWEN_API_KEY"),
 }
 
 

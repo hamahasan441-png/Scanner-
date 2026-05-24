@@ -24,8 +24,24 @@ Usage:
 import json
 import os
 import copy
+import sys
 
-import yaml
+try:
+    import yaml
+except ImportError as _yaml_exc:  # pragma: no cover - environment-specific
+    # PyYAML is required at scan startup to load scanner_rules.yaml.
+    # Without it, ``from core.engine import AtomicEngine`` would raise
+    # a confusing ModuleNotFoundError deep in the import chain. Print
+    # an actionable message and exit cleanly so the user knows exactly
+    # what to install.
+    sys.stderr.write(
+        "\n[ATOMIC FRAMEWORK] Missing dependency: PyYAML\n"
+        "  Install it with one of:\n"
+        "    pip install pyyaml\n"
+        "    pip install -r requirements.txt\n"
+        f"  (original error: {_yaml_exc})\n\n"
+    )
+    raise SystemExit(1)
 
 from config import Colors
 

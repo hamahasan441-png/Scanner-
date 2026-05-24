@@ -52,6 +52,12 @@ PROVIDER_PREFIX = {
     "deepseek": "deepseek/",
     "together_ai": "together_ai/",
     "xai": "xai/",
+    # Alibaba's DashScope serves the official Qwen2.5 family
+    # (qwen2.5-7b-instruct, qwen2.5-32b-instruct, qwen2.5-72b-instruct,
+    # qwen2.5-coder-32b-instruct, qwen-max, qwen-plus, qwen-turbo).
+    # The endpoint speaks the OpenAI chat-completions wire format so
+    # the openai SDK and plain-HTTP fallbacks both work.
+    "dashscope": "dashscope/",
 }
 
 # Sensible default model per provider when the user does not pass one.
@@ -68,6 +74,11 @@ DEFAULT_MODELS = {
     "xai": "grok-2",
     "azure": "",  # user must supply via --llm-cloud-model
     "bedrock": "anthropic.claude-3-5-sonnet-20241022-v2:0",
+    # Default Qwen2.5 model on DashScope: balanced 7B-instruct chat
+    # tier. Override with --llm-cloud-model qwen2.5-72b-instruct for
+    # max quality, qwen2.5-coder-32b-instruct for code/payload tasks,
+    # or qwen-turbo for cheapest classification.
+    "dashscope": "qwen2.5-7b-instruct",
 }
 
 # Env-vars checked, in order, when no explicit api_key is provided.
@@ -84,6 +95,7 @@ PROVIDER_ENV_KEYS = {
     "xai": ["XAI_API_KEY"],
     "azure": ["AZURE_API_KEY"],
     "bedrock": ["AWS_ACCESS_KEY_ID"],
+    "dashscope": ["DASHSCOPE_API_KEY", "QWEN_API_KEY"],
 }
 
 # OpenAI-compatible base URLs for providers that speak the OpenAI wire
@@ -94,6 +106,8 @@ OPENAI_COMPAT_BASE_URLS = {
     "deepseek": "https://api.deepseek.com",
     "together_ai": "https://api.together.xyz/v1",
     "ollama": "http://localhost:11434/v1",
+    # DashScope's OpenAI-compatible endpoint for Qwen.
+    "dashscope": "https://dashscope.aliyuncs.com/compatible-mode/v1",
 }
 
 
@@ -176,6 +190,7 @@ class CloudLLM(LLMSecurityAnalysisMixin):
             "deepseek",
             "together_ai",
             "ollama",
+            "dashscope",
         ):
             try:
                 import openai  # noqa: F401
@@ -185,7 +200,15 @@ class CloudLLM(LLMSecurityAnalysisMixin):
                 pass
 
         # 3) Plain HTTP fallback for OpenAI-compatible endpoints.
-        if self.provider in ("openai", "openrouter", "groq", "deepseek", "ollama"):
+        if self.provider in (
+            "openai",
+            "openrouter",
+            "groq",
+            "deepseek",
+            "ollama",
+            "dashscope",
+            "together_ai",
+        ):
             return "http"
 
         return None
