@@ -26,9 +26,15 @@ DATA_EXPIRY_TTL = 90 * 24 * 3600
 class LearningStore:
     """In-memory + file-backed store of learned scan intelligence."""
 
-    def __init__(self, engine):
+    def __init__(self, engine=None):
+        # ``engine`` is optional so the store can be used standalone
+        # (e.g. by ``main.py --show-learned``). When passed, we honour
+        # the engine's verbose flag.
         self.engine = engine
-        self.verbose = engine.config.get("verbose", False)
+        if engine is not None and hasattr(engine, "config"):
+            self.verbose = engine.config.get("verbose", False)
+        else:
+            self.verbose = False
 
         # Successful detections: vuln_type → {payload → success_count}
         self.successful_payloads = {}
@@ -96,6 +102,35 @@ class LearningStore:
                 print(f"{Colors.info(msg)}")
         except Exception:
             pass
+
+    # Public aliases used by ``main.py --show-learned``.
+    def load(self):
+        """Public alias for :meth:`_load` so external callers can reload."""
+        self._load()
+
+    def show(self):
+        """Print a human-readable summary of the learning store."""
+        print(f"{Colors.BOLD}Learning Store Summary{Colors.RESET}")
+        total_success = sum(
+            sum(bucket.values()) for bucket in self.successful_payloads.values()
+        )
+        total_failure = sum(
+            sum(bucket.values()) for bucket in self.failed_payloads.values()
+        )
+        print(f"  Successful payload records: {total_success}")
+        print(f"  Failed payload records:     {total_failure}")
+        print(f"  Endpoint patterns:          {len(self.endpoint_patterns)}")
+        print(f"  Domain profiles:            {len(self.domain_profiles)}")
+        print(f"  Tech-payload history rows:  {len(self.tech_payload_history)}")
+        if self.successful_payloads:
+            print(f"\n{Colors.CYAN}Top vuln types by successful payloads:{Colors.RESET}")
+            ranked = sorted(
+                self.successful_payloads.items(),
+                key=lambda kv: sum(kv[1].values()),
+                reverse=True,
+            )
+            for vuln, bucket in ranked[:10]:
+                print(f"  {vuln:<20s} {sum(bucket.values()):>5d}")
 
     def save(self):
         """Persist learning data to disk (atomic write with file locking)."""

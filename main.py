@@ -63,13 +63,16 @@ def main():
   {Colors.GREEN}%(prog)s -t https://target.com --local-llm{Colors.RESET}          # Scan with AI analysis
   {Colors.GREEN}%(prog)s -t https://target.com --local-llm --llm-model /path/to/model.gguf{Colors.RESET}
 
-{Colors.CYAN}Cloud LLM Providers (Anthropic / OpenAI / Gemini / Ollama / ...):{Colors.RESET}
+{Colors.CYAN}Cloud LLM Providers (Anthropic / OpenAI / Gemini / Ollama / Qwen2.5 / ...):{Colors.RESET}
   {Colors.GREEN}%(prog)s --llm-config{Colors.RESET}                                # Interactive setup (provider + API keys)
   {Colors.GREEN}%(prog)s --llm-status{Colors.RESET}                                # Show persisted LLM config
   {Colors.GREEN}%(prog)s -t https://target.com --llm-provider anthropic --api-key sk-ant-...{Colors.RESET}
   {Colors.GREEN}%(prog)s -t https://target.com --llm-provider openai --llm-cloud-model gpt-4o{Colors.RESET}
   {Colors.GREEN}%(prog)s -t https://target.com --llm-provider ollama --llm-base-url http://localhost:11434/v1{Colors.RESET}
-  {Colors.GREEN}%(prog)s -t https://target.com --llm-profile mixed{Colors.RESET}    # Multi-model routing (eco/max/mixed/test/local)
+  {Colors.GREEN}%(prog)s -t https://target.com --llm-provider dashscope --api-key sk-...{Colors.RESET}        # Cloud Qwen2.5
+  {Colors.GREEN}%(prog)s -t https://target.com --llm-provider dashscope --llm-cloud-model qwen2.5-72b-instruct{Colors.RESET}
+  {Colors.GREEN}%(prog)s -t https://target.com --llm-profile qwen{Colors.RESET}     # Multi-Qwen2.5 routing (72B/32B/Coder/turbo)
+  {Colors.GREEN}%(prog)s -t https://target.com --llm-profile mixed{Colors.RESET}    # Multi-model routing (eco/max/mixed/test/local/qwen)
 
 {Colors.CYAN}Autonomous Agent / Kill-Chain Orchestration / Logic Flaws:{Colors.RESET}
   {Colors.GREEN}%(prog)s -t https://target.com --llm-profile mixed --kill-chain{Colors.RESET}      # Full kill-chain agent
@@ -226,11 +229,15 @@ def main():
         choices=[
             "anthropic", "openai", "gemini", "groq", "openrouter",
             "ollama", "mistral", "deepseek", "together_ai", "xai",
-            "azure", "bedrock",
+            "azure", "bedrock", "dashscope",
         ],
         help="Use a cloud LLM provider for AI-powered analysis instead of "
-             "the local Qwen2.5-7B model. Requires an API key (via "
-             "--api-key, the provider env var, or `python main.py --llm-config`).",
+             "the local Qwen2.5-7B model. ``dashscope`` selects Alibaba's "
+             "official Qwen2.5 family (qwen2.5-7b/32b/72b-instruct, "
+             "qwen2.5-coder-32b-instruct, qwen-max/plus/turbo). Requires "
+             "an API key (via --api-key, the provider env var "
+             "[DASHSCOPE_API_KEY for dashscope], or "
+             "`python main.py --llm-config`).",
     )
     parser.add_argument(
         "--llm-cloud-model",
@@ -257,11 +264,13 @@ def main():
         "--llm-profile",
         type=str,
         default=None,
-        choices=["eco", "max", "mixed", "test", "local"],
+        choices=["eco", "max", "mixed", "test", "local", "qwen"],
         help="Multi-model routing profile: eco (cheap everywhere), max "
              "(strongest everywhere), mixed (strong planner + cheap "
              "workers, default), test (smallest models), local (existing "
-             "Qwen2.5-7B for every task).",
+             "Qwen2.5-7B GGUF for every task), qwen (cloud Qwen2.5 via "
+             "DashScope: 72B planner, 32B analyzer, Coder-32B payloads, "
+             "qwen-turbo classifier).",
     )
     parser.add_argument(
         "--llm-config",
@@ -1991,6 +2000,18 @@ def main():
                     print(
                         f"{Colors.warning(f'LLM init error: {exc} — continuing without LLM')}"
                     )
+                    # When the user explicitly asked for a backend
+                    # (--llm-provider / --llm-profile / --local-llm),
+                    # also dump the traceback so missing-SDK or bad
+                    # config errors aren't invisible.
+                    if (
+                        args.verbose
+                        or config.get("llm_provider")
+                        or config.get("llm_profile")
+                        or config.get("local_llm")
+                    ):
+                        import traceback as _llm_tb
+                        _llm_tb.print_exc()
                     local_llm = None
 
             # Display scan plan if requested
@@ -2284,11 +2305,14 @@ def main():
         print(f"\n{Colors.warning('Interrupted by user')}")
         sys.exit(0)
     except Exception as e:
+        # Always show the full traceback on a startup/scan failure so
+        # the user can actually diagnose what went wrong, regardless of
+        # whether they remembered to pass --verbose. Without this the
+        # message is often a one-liner like ``Error: 'NoneType' object
+        # has no attribute 'foo'`` with no file or line number.
         print(f"\n{Colors.error(f'Error: {e}')}")
-        if args.verbose:
-            import traceback
-
-            traceback.print_exc()
+        import traceback
+        traceback.print_exc()
         sys.exit(1)
 
 

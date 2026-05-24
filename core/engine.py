@@ -627,6 +627,26 @@ class AtomicEngine:
         # Test connection
         if not self.requester.test_connection(target):
             print(f"{Colors.error(f'Cannot connect to {target}')}")
+            # Mark scan as complete so generate_reports() doesn't see
+            # a half-initialized engine. Without this, end_time stays
+            # ``None`` and the LLM scan-summary / HTML reporter format
+            # ``None`` or ``0`` for duration on every unreachable target.
+            self.end_time = datetime.now(timezone.utc)
+            self.pipeline["recon"]["status"] = "failed"
+            self.emit_pipeline_event(
+                "phase_end",
+                {"phase": "recon", "reason": "target_unreachable", "target": target},
+            )
+            try:
+                self._set_phase(Phase.DONE, payload={"reason": "target_unreachable"})
+            except Exception as exc:  # pragma: no cover - defensive
+                logger.debug("Could not advance to DONE phase on early exit: %s", exc)
+            if self.audit:
+                self.audit.log_scan(
+                    "scan.unreachable",
+                    target=target,
+                    details={"scan_id": self.scan_id},
+                )
             return
 
         # Tech fingerprinting on initial response
