@@ -382,7 +382,10 @@ class CloudLLM(LLMSecurityAnalysisMixin):
         if self.api_key:
             kwargs["api_key"] = self.api_key
         if self.base_url:
-            kwargs["base_url"] = self.base_url
+            # LiteLLM's canonical kwarg for a custom endpoint is ``api_base``;
+            # ``base_url`` is silently ignored in older releases (see
+            # https://docs.litellm.ai/docs/providers/openai_compatible).
+            kwargs["api_base"] = self.base_url
         resp = self._client.completion(**kwargs)
         try:
             return (resp["choices"][0]["message"]["content"] or "").strip()

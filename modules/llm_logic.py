@@ -94,12 +94,15 @@ class LLMLogicModule(BaseModule):
             # like idor.py / race_condition.py).
             return
 
-        if not self._under_budget(url):
+        # Heuristic gate FIRST: only spend an LLM call on parameters that
+        # look logic-flaw-shaped (id-like, qty-like, role-like, bool-like).
+        # Doing this before the budget check prevents irrelevant params
+        # (csrf tokens, search strings, etc.) from draining the per-host
+        # budget and starving real candidates later in the scan.
+        if not self._looks_logic_relevant(param, value):
             return
 
-        # Heuristic gate: only spend an LLM call on parameters that look
-        # logic-flaw-shaped (id-like, qty-like, role-like, bool-like).
-        if not self._looks_logic_relevant(param, value):
+        if not self._under_budget(url):
             return
 
         hypotheses = self._hypothesize(llm, url, method, param, value)
@@ -247,6 +250,16 @@ class LLMLogicModule(BaseModule):
             )
 
     def _verify_response(self, llm, url, param, payload, hypothesis, test_resp, baseline_resp):
+        """Ask the LLM whether ``test_resp`` evidences the hypothesized flaw.
+
+        Builds a baseline-aware prompt with the hypothesis ``indicator`` and
+        ``category`` so the model can compare the probe response against
+        the baseline rather than judging the probe in isolation. Returns a
+        dict ``{is_vulnerable, confidence, reasoning}``.
+
+        Falls back to the generic ``analyze_response`` analyzer if the
+        backend doesn't expose ``chat`` (legacy local-only LLMs).
+        """
         baseline_snippet = ""
         if baseline_resp is not None:
             baseline_snippet = (baseline_resp.text or "")[:400]
@@ -277,15 +290,60 @@ class LLMLogicModule(BaseModule):
             "CONFIDENCE: 0.0-1.0\n"
             "REASON: one sentence."
         )
+        null_verdict = {"is_vulnerable": False, "confidence": 0.0, "reasoning": ""}
         try:
-            # Verification is an analyzer task — let the router pick.
-            return llm.analyze_response(url, param, payload, test_snippet) \
-                if hasattr(llm, "analyze_response") else \
-                {"is_vulnerable": False, "confidence": 0.0, "reasoning": ""}
+            if hasattr(llm, "chat"):
+                # Verification is an analyzer task — pass the bucket hint
+                # for routers; ignore TypeError on backends that don't.
+                try:
+                    raw = llm.chat(
+                        system, user, max_tokens=200,
+                        temperature=0.1, task="analyzer",
+                    )
+                except TypeError:
+                    raw = llm.chat(system, user, max_tokens=200, temperature=0.1)
+                return self._parse_verdict(raw) if raw else null_verdict
+            # Legacy fallback: a thin analyze_response API with no prompt.
+            if hasattr(llm, "analyze_response"):
+                return llm.analyze_response(url, param, payload, test_snippet)
+            return null_verdict
         except Exception as exc:
             if self.verbose:
                 print(f"{Colors.warning(f'llm_logic verify failed: {exc}')}")
-            return {"is_vulnerable": False, "confidence": 0.0, "reasoning": ""}
+            return null_verdict
+
+    @staticmethod
+    def _parse_verdict(raw: str) -> dict:
+        """Parse a ``VULNERABLE/CONFIDENCE/REASON`` reply into a verdict dict.
+
+        Tolerant to extra prose, casing variations, and missing fields.
+        """
+        out = {"is_vulnerable": False, "confidence": 0.0, "reasoning": ""}
+        if not raw:
+            return out
+        for line in raw.splitlines():
+            stripped = line.strip()
+            if not stripped or ":" not in stripped:
+                continue
+            key, _, val = stripped.partition(":")
+            key_norm = key.strip().lower()
+            val = val.strip()
+            if key_norm.startswith("vulnerable"):
+                out["is_vulnerable"] = val.lower().startswith(("yes", "true", "y"))
+            elif key_norm.startswith("confidence"):
+                # Extract the first float-ish token (handles "0.8", "0.8/1.0", "80%").
+                m = re.search(r"\d+(?:\.\d+)?", val)
+                if m:
+                    try:
+                        c = float(m.group(0))
+                        if c > 1.0:  # percent
+                            c = c / 100.0
+                        out["confidence"] = max(0.0, min(1.0, c))
+                    except ValueError:
+                        pass
+            elif key_norm.startswith(("reason", "rationale", "explanation")):
+                out["reasoning"] = val[:240]
+        return out
 
     # ------------------------------------------------------------------
     # Helpers

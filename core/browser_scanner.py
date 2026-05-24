@@ -23,8 +23,7 @@ from __future__ import annotations
 import logging
 import re
 import time
-from typing import TYPE_CHECKING, List, Optional, Dict, Any
-from urllib.parse import urljoin, urlparse
+from typing import TYPE_CHECKING, List
 
 from config import Colors
 
@@ -162,8 +161,7 @@ class BrowserScanner:
         content = page.content()
         sinks = self._detect_dom_sinks(content)
 
-        # Inject DOM XSS payloads into URL fragments / query params
-        parsed = urlparse(url)
+        # Inject DOM XSS payloads into URL fragments
         for payload in DOM_XSS_PAYLOADS[:5]:
             test_url = f"{url}#" + payload
             page.goto(test_url, timeout=self.timeout, wait_until="domcontentloaded")
@@ -213,7 +211,6 @@ class BrowserScanner:
         try:
             from selenium import webdriver
             from selenium.webdriver.chrome.options import Options
-            from selenium.common.exceptions import UnexpectedAlertPresentException
 
             opts = Options()
             opts.add_argument("--headless")
@@ -254,6 +251,24 @@ class BrowserScanner:
                             break
                         except Exception:
                             pass
+
+                    # Report DOM sinks as informational findings — mirrors
+                    # the Playwright path so users get sink coverage from
+                    # whichever browser backend ran.
+                    for sink in sinks[:3]:
+                        finding = {
+                            "technique": f"DOM Sink Detected: {sink}",
+                            "url": url,
+                            "method": "GET",
+                            "param": "",
+                            "payload": "",
+                            "evidence": f"DOM sink '{sink}' found in page source",
+                            "severity": "INFO",
+                            "confidence": 0.6,
+                            "cvss": 0.0,
+                        }
+                        findings.append(finding)
+                        self.engine.add_finding_dict(finding)
                 except Exception as exc:
                     logger.debug("Selenium scan error for %s: %s", url, exc)
 

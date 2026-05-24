@@ -3948,7 +3948,7 @@ def export_scan_findings(scan_id):
                     "cwe_id": getattr(f, "cwe_id", ""),
                 })
 
-    from flask import Response  # already imported, safe
+    # ``Response`` is imported at the top of this module.
 
     if fmt == "json":
         return Response(

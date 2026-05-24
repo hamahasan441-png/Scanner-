@@ -377,12 +377,18 @@ def _classify_reflection_context(payload: str, body: str) -> str:
     pre = body[max(0, idx - 60): idx].lower()
     post = body[idx + len(payload): idx + len(payload) + 60].lower()
 
-    context_around = pre + post
-
-    if "application/json" in body[:200].lower() or (pre.lstrip().startswith('"') or ":{" in pre):
+    # Use both ``pre`` and ``post`` so we don't miscategorise contexts whose
+    # delimiter sits AFTER the payload (e.g. ``"key":"PAYLOAD"`` — the
+    # closing quote is only visible in ``post``).
+    if (
+        "application/json" in body[:200].lower()
+        or pre.lstrip().startswith('"')
+        or ":{" in pre
+        or post.rstrip().startswith('"')
+    ):
         return "json"
     # Check JS context before attr (script tags contain var x = '...' which looks like attr)
-    if "<script" in pre or "var " in pre or "function(" in pre:
+    if "<script" in pre or "var " in pre or "function(" in pre or "</script" in post:
         return "js"
     if any(c in pre for c in ["=\"", "= \"", "= '"]):
         return "attr"

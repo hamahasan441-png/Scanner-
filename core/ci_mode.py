@@ -23,7 +23,6 @@ from __future__ import annotations
 
 import logging
 import os
-import sys
 from typing import List, Optional
 from xml.sax.saxutils import escape as xml_escape
 
@@ -228,7 +227,10 @@ def write_ci_summary(
         0 — no findings at or above threshold
         1 — one or more findings at or above threshold
     """
-    junit_path = generate_junit_xml(findings, target, scan_id, output_dir)
+    # Always emit JUnit XML — this is the artefact most CI systems pick up.
+    # The path itself isn't returned (callers can find it via the standard
+    # ``reports/`` location); ``generate_junit_xml`` already logs it.
+    generate_junit_xml(findings, target, scan_id, output_dir)
 
     # GitHub Actions annotations (only when running in GHA)
     if os.environ.get("GITHUB_ACTIONS") == "true":
@@ -239,8 +241,7 @@ def write_ci_summary(
         if summary_file:
             _write_github_step_summary(findings, target, scan_id, summary_file)
 
-    exit_code = 1 if should_fail(findings, threshold) else 0
-    return exit_code
+    return 1 if should_fail(findings, threshold) else 0
 
 
 def _write_github_step_summary(

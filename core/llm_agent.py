@@ -37,7 +37,6 @@ from config import Colors
 from core.skill_library import (
     KILL_CHAIN_PHASES,
     Skill,
-    all_skills,
     skills_by_phase,
     llm_skill_catalog,
 )

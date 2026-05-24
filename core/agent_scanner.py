@@ -199,6 +199,12 @@ class AgentScanner:
         module = self.engine._modules.get(tool_key)
         target = params.get("target", "")
 
+        # Snapshot the findings count BEFORE running the tool so the
+        # post-run comparison can detect any new findings the tool emitted
+        # via engine.add_finding(...). Capturing this after execution makes
+        # the comparison vacuously false and the pivot path unreachable.
+        pre_count = len(self.engine.findings)
+
         if module and hasattr(module, "test_url") and target:
             try:
                 module.test_url(target)
@@ -217,9 +223,8 @@ class AgentScanner:
                     except Exception:
                         pass
 
-        # Check if any new findings were added during execution
-        pre_count = len(self.engine.findings)
-        # Findings are added in real-time via engine.add_finding()
+        # Check if any new findings were added during execution.
+        # Findings are added in real-time via engine.add_finding().
         if len(self.engine.findings) > pre_count:
             latest = self.engine.findings[-1]
             result["finding"] = {
