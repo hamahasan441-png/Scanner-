@@ -58,9 +58,11 @@ def main():
   {Colors.GREEN}%(prog)s --sequencer < tokens.txt{Colors.RESET}              # Analyze token randomness
   {Colors.GREEN}%(prog)s --compare resp1.txt resp2.txt{Colors.RESET}         # Compare responses
 
-{Colors.CYAN}AI-Powered Analysis (Qwen2.5-7B Local LLM):{Colors.RESET}
-  {Colors.GREEN}%(prog)s --download-model{Colors.RESET}                           # Download Qwen2.5-7B model (~4.7 GB)
-  {Colors.GREEN}%(prog)s -t https://target.com --local-llm{Colors.RESET}          # Scan with AI analysis
+{Colors.CYAN}AI-Powered Analysis (Qwen2.5 — auto-enabled by default):{Colors.RESET}
+  {Colors.GREEN}%(prog)s -t https://target.com{Colors.RESET}                        # Auto-uses Qwen2.5 if available (DashScope/local/Ollama)
+  {Colors.GREEN}%(prog)s -t https://target.com --no-llm{Colors.RESET}                # Skip Qwen2.5 enrichment
+  {Colors.GREEN}%(prog)s --download-model{Colors.RESET}                              # Download Qwen2.5-7B GGUF (~4.7 GB) for offline use
+  {Colors.GREEN}%(prog)s -t https://target.com --local-llm{Colors.RESET}             # Force local Qwen2.5-7B (skip auto-detect)
   {Colors.GREEN}%(prog)s -t https://target.com --local-llm --llm-model /path/to/model.gguf{Colors.RESET}
 
 {Colors.CYAN}Cloud LLM Providers (Anthropic / OpenAI / Gemini / Ollama / Qwen2.5 / ...):{Colors.RESET}
@@ -282,6 +284,15 @@ def main():
         "--llm-status",
         action="store_true",
         help="Print the persisted LLM router/backend status and exit.",
+    )
+    parser.add_argument(
+        "--no-llm",
+        action="store_true",
+        help="Disable the automatic Qwen2.5 LLM enrichment for this run. "
+             "By default the framework auto-detects an available Qwen2.5 "
+             "backend (DashScope cloud / local GGUF / Ollama) and turns it "
+             "on so every scan benefits from AI analysis. Use this flag to "
+             "opt out (e.g. CI runs that don't need findings enriched).",
     )
 
     # ── Autonomous LLM Agent / Kill-Chain orchestration ──────────────────
@@ -1758,6 +1769,100 @@ def main():
     config["llm_profile"] = getattr(args, "llm_profile", None)
     if config["llm_provider"] or config["llm_profile"]:
         config["local_llm"] = True
+
+    # ── Automatic Qwen2.5 backend selection ──────────────────────────
+    # The framework defaults to running Qwen2.5 on every scan so AI
+    # enrichment is available out of the box. Priority order, picking
+    # the first option that is actually usable on this machine:
+    #   1. DashScope (Alibaba's official Qwen API) — checked via
+    #      DASHSCOPE_API_KEY / QWEN_API_KEY env vars or persisted
+    #      ``~/.atomic/llm_config.json``. Cheapest + fastest.
+    #   2. Local Qwen2.5-7B GGUF — only fires when the model file is
+    #      already on disk (no surprise multi-GB downloads).
+    #   3. Ollama running on http://localhost:11434/v1 — the default
+    #      ``ollama`` provider entry routes through the OpenAI-
+    #      compatible endpoint and pulls qwen2.5 if installed.
+    # When none of the above is available we just print a one-line
+    # hint and continue without LLM. The user can opt out completely
+    # with ``--no-llm``.
+    _llm_explicitly_set = (
+        bool(config["llm_provider"])
+        or bool(config["llm_profile"])
+        or bool(getattr(args, "local_llm", False))
+    )
+    if not getattr(args, "no_llm", False) and not _llm_explicitly_set:
+        # 1) DashScope cloud Qwen2.5
+        _ds_key = (
+            os.environ.get("DASHSCOPE_API_KEY")
+            or os.environ.get("QWEN_API_KEY")
+        )
+        if not _ds_key:
+            try:
+                from core.llm_config import load_config as _load_llm_cfg
+                _ds_key = _load_llm_cfg().get("api_keys", {}).get("dashscope") or ""
+            except Exception:
+                _ds_key = ""
+
+        _selected_via = None
+        if _ds_key:
+            config["llm_provider"] = "dashscope"
+            if not config.get("llm_cloud_model"):
+                config["llm_cloud_model"] = "qwen2.5-7b-instruct"
+            if not config.get("llm_api_key"):
+                config["llm_api_key"] = _ds_key
+            config["local_llm"] = True
+            _selected_via = "dashscope cloud (Qwen2.5)"
+        else:
+            # 2) Local Qwen2.5-7B GGUF — only if model is already on disk
+            try:
+                from core.local_llm import is_model_downloaded
+                _have_local_qwen = is_model_downloaded()
+            except Exception:
+                _have_local_qwen = False
+
+            if _have_local_qwen:
+                config["local_llm"] = True
+                _selected_via = "local Qwen2.5-7B GGUF"
+            else:
+                # 3) Ollama on localhost — quick TCP probe so we don't
+                # hang for 30s when nothing is running.
+                _ollama_up = False
+                try:
+                    import socket as _socket
+
+                    with _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM) as _s:
+                        _s.settimeout(0.25)
+                        _s.connect(("127.0.0.1", 11434))
+                        _ollama_up = True
+                except Exception:
+                    _ollama_up = False
+
+                if _ollama_up:
+                    config["llm_provider"] = "ollama"
+                    if not config.get("llm_cloud_model"):
+                        config["llm_cloud_model"] = "qwen2.5"
+                    if not config.get("llm_base_url"):
+                        config["llm_base_url"] = "http://localhost:11434/v1"
+                    config["local_llm"] = True
+                    _selected_via = "Ollama (local Qwen2.5)"
+
+        if _selected_via and not args.quiet:
+            print(
+                f"{Colors.info(f'Auto-enabled Qwen2.5 LLM via {_selected_via}. ')}"
+                f"{Colors.info('Pass --no-llm to disable.')}"
+            )
+        elif _selected_via is None and not args.quiet:
+            print(
+                f"{Colors.warning('Qwen2.5 not auto-detected: no DashScope key, no local GGUF, no Ollama. ')}"
+                f"{Colors.info('Continuing without LLM. ')}"
+                f"{Colors.info('Run `python main.py --download-model` to fetch the local model, ')}"
+                f"{Colors.info('or set DASHSCOPE_API_KEY / run `python main.py --llm-config` to configure cloud Qwen2.5.')}"
+            )
+    elif getattr(args, "no_llm", False):
+        # Explicit opt-out: make sure auto-detect doesn't sneak it back on.
+        config["local_llm"] = False
+        config["llm_provider"] = None
+        config["llm_profile"] = None
 
     # ── extra config keys ──────────────────────────────────────
     config["async_mode"] = getattr(args, "async_mode", False)
