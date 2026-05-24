@@ -24,10 +24,9 @@ live LLM (it falls back to a rule-based planner).
 
 from __future__ import annotations
 
-import json
 import logging
 import re
-from typing import TYPE_CHECKING, Dict, List, Optional, Set, Tuple
+from typing import TYPE_CHECKING, Dict, List, Set, Tuple
 
 from config import Colors
 
@@ -274,8 +273,19 @@ class AttackPlanner:
 
         if llm is not None:
             try:
-                prompt = f"{SYSTEM_PROMPT}\n\n{context}\n\nAttack Plan:"
-                plan_text = llm.generate(prompt, max_tokens=800)
+                # All ATOMIC LLM backends (LocalLLM, CloudLLM, LLMRouter)
+                # expose ``chat(system, user, ...)``; ``generate`` does not
+                # exist on any of them. Routers also accept a ``task`` kwarg
+                # to pick the right model bucket — pass it where supported.
+                user_msg = f"{context}\n\nAttack Plan:"
+                try:
+                    plan_text = llm.chat(
+                        SYSTEM_PROMPT, user_msg, max_tokens=800, task="planner"
+                    )
+                except TypeError:
+                    plan_text = llm.chat(SYSTEM_PROMPT, user_msg, max_tokens=800)
+                if not plan_text:
+                    raise RuntimeError("empty plan_text from LLM")
                 modules = self._parse_modules_from_plan(plan_text)
                 source = "llm"
             except Exception as exc:

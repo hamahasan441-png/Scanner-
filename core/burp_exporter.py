@@ -59,8 +59,17 @@ def export_burp_xml(
 
     parsed = urlparse(target)
     host = parsed.hostname or target
-    port = parsed.port or (443 if parsed.scheme == "https" else 80)
     protocol = parsed.scheme or "https"
+    port = parsed.port or (443 if protocol == "https" else 80)
+    # Burp infers the connection details from the host URL, so include the
+    # port whenever it differs from the scheme default (otherwise Burp's
+    # importer "loses" the non-default port and re-issues requests against
+    # 80/443).
+    default_port = 443 if protocol == "https" else 80
+    host_url = (
+        f"{protocol}://{host}:{port}" if port and port != default_port
+        else f"{protocol}://{host}"
+    )
 
     items = []
     for f in findings:
@@ -158,7 +167,7 @@ def export_burp_xml(
     <serialNumber>{abs(hash(url + technique)) % 10000000}</serialNumber>
     <type>134217728</type>
     <name>{xml_escape(technique)}</name>
-    <host ip="{host}">{xml_escape(f"{protocol}://{host}")}</host>
+    <host ip="{host}">{xml_escape(host_url)}</host>
     <path>{xml_escape(url_parsed.path or "/")}</path>
     <location>{xml_escape(f"Parameter: {param}" if param else url)}</location>
     <severity>{xml_escape(burp_sev)}</severity>

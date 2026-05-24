@@ -398,6 +398,10 @@ class AtomicEngine:
             "mfa_bypass": ("modules.mfa_bypass", "MFABypassModule"),
             "api_versioning": ("modules.api_versioning", "APIVersioningModule"),
             "dep_confusion": ("modules.dep_confusion", "DependencyConfusionModule"),
+            # LLM-driven business-logic flaw scanner (--llm-logic).
+            # Requires --local-llm / --llm-provider / --llm-profile to be
+            # active; otherwise the module is a no-op.
+            "llm_logic": ("modules.llm_logic", "LLMLogicModule"),
         }
 
         modules_config = self.config.get("modules", {})

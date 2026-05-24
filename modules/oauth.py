@@ -20,12 +20,8 @@ from __future__ import annotations
 
 import re
 import urllib.parse
-from typing import TYPE_CHECKING, List
 
 from modules.base import BaseModule
-
-if TYPE_CHECKING:
-    pass
 
 
 class OAuthModule(BaseModule):
@@ -100,7 +96,6 @@ class OAuthModule(BaseModule):
             if not resp:
                 continue
 
-            body = getattr(resp, "text", "")
             # Check if the malicious redirect was accepted (location or code in response)
             if self._response_accepted_redirect(resp, malicious_uri):
                 self._emit_signal(

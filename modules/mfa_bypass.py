@@ -18,16 +18,11 @@ Enabled with: ``--mfa-bypass``
 
 from __future__ import annotations
 
-import itertools
 import re
 import time
 import urllib.parse
-from typing import TYPE_CHECKING, List, Optional
 
 from modules.base import BaseModule
-
-if TYPE_CHECKING:
-    pass
 
 
 class MFABypassModule(BaseModule):

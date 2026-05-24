@@ -22,8 +22,9 @@ Outputs a ``KillChain`` list consumed by the HTML report generator.
 from __future__ import annotations
 
 import hashlib
+import html
 from dataclasses import dataclass, field
-from typing import List, Dict, Optional
+from typing import List
 
 
 # ---------------------------------------------------------------------------
@@ -286,16 +287,24 @@ def format_kill_chains_html(chains: List[KillChain]) -> str:
             "LOW": "#88ff00",
         }.get(sev, "#aaaaaa")
 
+        # Escape every user/finding-controlled string before interpolating
+        # into HTML. ``chain.steps`` are populated from finding ``technique``
+        # fields which can include reflected target content; ``chain.name``
+        # and ``chain.description`` are template strings today but cheap to
+        # harden against future dynamic sources.
         steps_html = " → ".join(
-            f'<span style="color:#00d4ff">{s}</span>' for s in chain.steps
+            f'<span style="color:#00d4ff">{html.escape(str(s))}</span>'
+            for s in chain.steps
         )
+        chain_name = html.escape(str(chain.name))
+        chain_desc = html.escape(str(chain.description))
         rows += f"""
         <div class="kill-chain">
-          <h4 style="color:{sev_color}">⛓ {chain.name}
+          <h4 style="color:{sev_color}">⛓ {chain_name}
             <span class="cvss-badge">CVSS {chain.combined_cvss}</span>
           </h4>
           <div class="steps">{steps_html}</div>
-          <p class="desc">{chain.description}</p>
+          <p class="desc">{chain_desc}</p>
         </div>
         """
 
