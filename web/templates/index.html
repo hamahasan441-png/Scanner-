@@ -1988,6 +1988,94 @@
     const API = '';
     var _scanMode = 'single';
 
+    /* ---- CSRF: auto-inject X-CSRF-Token header on every state-changing
+       same-origin request. The server (web/app.py) sets a `csrf_token`
+       cookie on the first response and rejects POST/PUT/DELETE/PATCH
+       that don't echo the same value back via the X-CSRF-Token header
+       (double-submit cookie pattern). The dashboard makes dozens of
+       fetch() calls, so we wrap window.fetch once instead of patching
+       every call site. */
+    const _CSRF_SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
+    function _readCsrfCookie() {
+        const m = document.cookie.match(/(?:^|;\s*)csrf_token=([^;]+)/);
+        return m ? decodeURIComponent(m[1]) : '';
+    }
+    async function _ensureCsrfCookie() {
+        if (_readCsrfCookie()) return;
+        try {
+            // GET request → exempt from CSRF; the server's after_request
+            // hook will set the cookie on the way back.
+            await window._origFetch('/api/csrf-token', { credentials: 'same-origin' });
+        } catch (_) { /* offline / proxy issue — handled at request time */ }
+    }
+
+    /* ---- Auth token persistence ----
+       sessionStorage (per-tab) survives reloads but doesn't leak across
+       tabs/windows. Used to auto-attach Bearer on every same-origin
+       fetch so individual call sites no longer need to manage it. */
+    var _authToken = '';
+    var _authRefreshToken = '';
+    var _authUser = null;
+    try {
+        _authToken = sessionStorage.getItem('atomic-auth-token') || '';
+        _authRefreshToken = sessionStorage.getItem('atomic-refresh-token') || '';
+        var _u = sessionStorage.getItem('atomic-auth-user');
+        if (_u) _authUser = JSON.parse(_u);
+    } catch (_) { /* private mode etc. */ }
+
+    function _persistAuth(tok, refresh, user) {
+        _authToken = tok || '';
+        _authRefreshToken = refresh || '';
+        _authUser = user || null;
+        try {
+            if (tok) sessionStorage.setItem('atomic-auth-token', tok);
+            else sessionStorage.removeItem('atomic-auth-token');
+            if (refresh) sessionStorage.setItem('atomic-refresh-token', refresh);
+            else sessionStorage.removeItem('atomic-refresh-token');
+            if (user) sessionStorage.setItem('atomic-auth-user', JSON.stringify(user));
+            else sessionStorage.removeItem('atomic-auth-user');
+        } catch (_) {}
+    }
+
+    window._origFetch = window.fetch.bind(window);
+    window.fetch = async function(input, init) {
+        init = init || {};
+        const method = (init.method || 'GET').toUpperCase();
+        // Only same-origin URLs (relative paths or matching host).
+        let sameOrigin = true;
+        try {
+            const u = new URL(typeof input === 'string' ? input : input.url, window.location.href);
+            sameOrigin = (u.origin === window.location.origin);
+        } catch (_) { sameOrigin = true; }
+
+        if (sameOrigin) {
+            const hdrs = new Headers(init.headers || {});
+
+            // Auto-attach Bearer once the user has logged in.
+            if (_authToken && !hdrs.has('Authorization')) {
+                hdrs.set('Authorization', 'Bearer ' + _authToken);
+            }
+
+            // CSRF double-submit cookie for state-changing requests.
+            if (!_CSRF_SAFE_METHODS.has(method)) {
+                await _ensureCsrfCookie();
+                const tok = _readCsrfCookie();
+                if (tok && !hdrs.has('X-CSRF-Token')) {
+                    hdrs.set('X-CSRF-Token', tok);
+                }
+            }
+
+            init.headers = hdrs;
+            // Always send cookies on same-origin so the server can match
+            // header against cookie even when fetch defaults change.
+            if (init.credentials === undefined) init.credentials = 'same-origin';
+        }
+        return window._origFetch(input, init);
+    };
+    // Best-effort: prime the cookie now so the first user click after
+    // page load doesn't have to wait on a round trip.
+    _ensureCsrfCookie();
+
     /* ---- helpers ---- */
     function esc(s) {
         if (s == null) return '';
@@ -2630,7 +2718,7 @@
         var sel = document.getElementById('poc-finding-select');
         var idx = sel.value;
         var scanId = sel.dataset.scanId;
-        if (!idx || !scanId) { alert('Select a finding first.'); return; }
+        if (!idx || !scanId) { toast('Select a finding first', 'error'); return; }
 
         var output = document.getElementById('poc-output');
         output.innerHTML = '<p class="empty-msg"><span class="spinner"></span> Generating POC...</p>';
@@ -3396,14 +3484,37 @@
         }
     };
 
-    /* ---- Auth Panel ---- */
-    var _authToken = '';
-    var _authRefreshToken = '';
+    /* ---- Auth Panel ----
+       _authToken / _authRefreshToken / _authUser are declared near the
+       top of this script (with sessionStorage persistence) so the auth
+       state survives reloads and the fetch wrapper can auto-attach the
+       Bearer header to every same-origin call. */
+
+    function _renderAuthSession() {
+        var el = document.getElementById('auth-session-info');
+        var sb = document.getElementById('sb-user');
+        if (!_authUser || !_authToken) {
+            if (el) el.innerHTML = '<p class="empty-msg">Not logged in</p>';
+            if (sb) sb.innerHTML = '👤 Guest';
+            return;
+        }
+        if (el) {
+            el.innerHTML =
+                '<div style="font-size:0.88rem;line-height:1.8;">' +
+                '<div>👤 <b>' + esc(_authUser.username || '') + '</b></div>' +
+                '<div>🛡️ Role: <span class="badge" style="background:var(--accent);color:#fff;">' + esc(_authUser.role || '') + '</span></div>' +
+                '</div>';
+        }
+        if (sb) sb.innerHTML = '👤 ' + esc(_authUser.username || '');
+    }
+    // Restore session UI on first render so a logged-in user reloading
+    // the page sees their name immediately.
+    _renderAuthSession();
 
     window._authLogin = async function() {
         var user = document.getElementById('auth-username').value.trim();
         var pass = document.getElementById('auth-password').value.trim();
-        if (!user || !pass) { alert('Enter username and password'); return; }
+        if (!user || !pass) { toast('Enter username and password', 'error'); return; }
         try {
             var r = await fetch(API + '/api/auth/login', {
                 method: 'POST', headers: {'Content-Type':'application/json'},
@@ -3411,41 +3522,46 @@
             });
             var j = await r.json();
             if (j.status === 'success') {
-                _authToken = j.data.access_token;
-                _authRefreshToken = j.data.refresh_token;
-                document.getElementById('auth-status').innerHTML = '<span style="color:#2ecc71;">✅ Logged in as <b>' + esc(j.data.username || user) + '</b> (' + esc(j.data.role) + ')</span>';
-                document.getElementById('auth-session-info').innerHTML =
-                    '<div style="font-size:0.88rem;line-height:1.8;">' +
-                    '<div>👤 <b>' + esc(j.data.username || user) + '</b></div>' +
-                    '<div>🛡️ Role: <span class="badge" style="background:var(--accent);color:#fff;">' + esc(j.data.role) + '</span></div>' +
-                    '</div>';
-                document.getElementById('sb-user').innerHTML = '👤 ' + esc(j.data.username || user);
+                _persistAuth(
+                    j.data.access_token,
+                    j.data.refresh_token,
+                    { username: j.data.username || user, role: j.data.role }
+                );
+                document.getElementById('auth-status').innerHTML =
+                    '<span style="color:#2ecc71;">✅ Logged in as <b>' + esc(j.data.username || user) + '</b> (' + esc(j.data.role) + ')</span>';
+                _renderAuthSession();
                 window._authLoadUsers();
             } else {
-                document.getElementById('auth-status').innerHTML = '<span style="color:var(--severity-critical);">❌ ' + esc(j.data || 'Login failed') + '</span>';
+                document.getElementById('auth-status').innerHTML =
+                    '<span style="color:var(--severity-critical);">❌ ' + esc(j.data || 'Login failed') + '</span>';
             }
-        } catch(e) { document.getElementById('auth-status').innerHTML = '<span style="color:var(--severity-critical);">Connection error</span>'; }
+        } catch(e) {
+            document.getElementById('auth-status').innerHTML =
+                '<span style="color:var(--severity-critical);">Connection error</span>';
+        }
     };
 
     window._authLogout = function() {
-        _authToken = '';
-        _authRefreshToken = '';
-        document.getElementById('auth-session-info').innerHTML = '<p class="empty-msg">Not logged in</p>';
+        _persistAuth('', '', null);
         document.getElementById('auth-status').innerHTML = '';
-        document.getElementById('sb-user').innerHTML = '👤 Guest';
+        _renderAuthSession();
     };
 
     window._authGenerateKey = async function() {
-        if (!_authToken) { alert('Login first'); return; }
+        if (!_authToken) { toast('Login first', 'error'); return; }
         try {
             var r = await fetch(API + '/api/auth/api-key', {
-                method: 'POST', headers: {'Authorization':'Bearer '+_authToken,'Content-Type':'application/json'}, body: '{}'
+                method: 'POST', headers: {'Content-Type':'application/json'}, body: '{}'
             });
             var j = await r.json();
             if (j.status === 'success') {
-                document.getElementById('auth-apikey-output').innerHTML = '<div style="background:var(--bg-input);padding:0.5rem;border-radius:6px;font-family:monospace;word-break:break-all;border:1px solid var(--accent);">🔑 ' + esc(j.data.api_key) + '<br><span style="color:var(--severity-medium);font-size:0.78rem;">⚠️ Copy now — shown only once</span></div>';
+                document.getElementById('auth-apikey-output').innerHTML =
+                    '<div style="background:var(--bg-input);padding:0.5rem;border-radius:6px;font-family:monospace;word-break:break-all;border:1px solid var(--accent);">🔑 ' +
+                    esc(j.data.api_key) +
+                    '<br><span style="color:var(--severity-medium);font-size:0.78rem;">⚠️ Copy now — shown only once</span></div>';
             } else {
-                document.getElementById('auth-apikey-output').innerHTML = '<span style="color:var(--severity-critical);">Error generating key</span>';
+                document.getElementById('auth-apikey-output').innerHTML =
+                    '<span style="color:var(--severity-critical);">Error generating key</span>';
             }
         } catch(e) {}
     };
@@ -3453,11 +3569,14 @@
     window._authLoadUsers = async function() {
         if (!_authToken) return;
         try {
-            var r = await fetch(API + '/api/auth/users', {headers:{'Authorization':'Bearer '+_authToken}});
+            var r = await fetch(API + '/api/auth/users');
             var j = await r.json();
             if (j.status !== 'success') return;
             var tbody = document.getElementById('auth-users-body');
-            if (!j.data || !j.data.length) { tbody.innerHTML = '<tr><td colspan="5" class="empty-msg">No users</td></tr>'; return; }
+            if (!j.data || !j.data.length) {
+                tbody.innerHTML = '<tr><td colspan="5" class="empty-msg">No users</td></tr>';
+                return;
+            }
             tbody.innerHTML = j.data.map(function(u) {
                 var roleColor = u.role === 'admin' ? '#2ecc71' : u.role === 'analyst' ? 'var(--severity-medium)' : 'var(--severity-low)';
                 return '<tr><td>' + esc(u.username) + '</td>' +
@@ -3470,29 +3589,40 @@
     };
 
     window._authCreateUser = async function() {
-        if (!_authToken) { alert('Login first'); return; }
+        if (!_authToken) { toast('Login first', 'error'); return; }
         var user = document.getElementById('auth-new-user').value.trim();
         var pass = document.getElementById('auth-new-pass').value.trim();
         var role = document.getElementById('auth-new-role').value;
-        if (!user || !pass) { alert('Enter username and password'); return; }
+        if (!user || !pass) { toast('Enter username and password', 'error'); return; }
         try {
             var r = await fetch(API + '/api/auth/users', {
-                method: 'POST', headers: {'Authorization':'Bearer '+_authToken,'Content-Type':'application/json'},
+                method: 'POST', headers: {'Content-Type':'application/json'},
                 body: JSON.stringify({username:user, password:pass, role:role})
             });
             var j = await r.json();
-            alert(j.status === 'success' ? 'User created' : (j.data || 'Error'));
-            if (j.status === 'success') { window._authLoadUsers(); document.getElementById('auth-create-form').style.display='none'; }
-        } catch(e) { alert('Error creating user'); }
+            if (j.status === 'success') {
+                toast('User created', 'success');
+                window._authLoadUsers();
+                document.getElementById('auth-create-form').style.display = 'none';
+            } else {
+                toast(j.data || 'Error creating user', 'error');
+            }
+        } catch(e) { toast('Error creating user', 'error'); }
     };
 
     window._authDeleteUser = async function(username) {
         if (!confirm('Delete user ' + username + '?')) return;
         try {
-            await fetch(API + '/api/auth/users/' + username, {method:'DELETE', headers:{'Authorization':'Bearer '+_authToken}});
+            await fetch(API + '/api/auth/users/' + username, {method:'DELETE'});
             window._authLoadUsers();
         } catch(e) {}
     };
+
+    // Auto-load user list if the session was restored from sessionStorage.
+    if (_authToken) {
+        // Tiny delay so the DOM is ready when called from the IIFE.
+        setTimeout(function() { window._authLoadUsers(); }, 100);
+    }
 
     /* ---- Scheduler Panel ---- */
     window._schedRefresh = async function() {
@@ -3531,16 +3661,20 @@
         var name = document.getElementById('sched-name').value.trim();
         var target = document.getElementById('sched-target').value.trim();
         var type = document.getElementById('sched-type').value;
-        if (!name || !target) { alert('Enter name and target'); return; }
+        if (!name || !target) { toast('Enter name and target', 'error'); return; }
         var body = {name:name, target:target, schedule_type:type};
         if (type === 'cron') body.cron_expression = document.getElementById('sched-cron').value.trim();
         else body.interval_seconds = parseInt(document.getElementById('sched-interval').value, 10);
         try {
             var r = await fetch(API + '/api/schedules', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
             var j = await r.json();
-            alert(j.status === 'success' ? 'Schedule created' : (j.data || 'Error'));
+            if (j.status === 'success') {
+                toast('Schedule created', 'success');
+            } else {
+                toast(j.data || 'Schedule creation failed', 'error');
+            }
             window._schedRefresh();
-        } catch(e) { alert('Error'); }
+        } catch(e) { toast('Schedule creation failed', 'error'); }
     };
 
     window._schedToggle = async function(id, enabled) {
@@ -3552,13 +3686,17 @@
         try { await fetch(API + '/api/schedules/' + id, {method:'DELETE'}); window._schedRefresh(); } catch(e) {}
     };
 
-    window._schedStart = async function() { try { await fetch(API + '/api/scheduler/start', {method:'POST'}); alert('Scheduler started'); } catch(e) {} };
-    window._schedStop = async function() { try { await fetch(API + '/api/scheduler/stop', {method:'POST'}); alert('Scheduler stopped'); } catch(e) {} };
+    window._schedStart = async function() {
+        try { await fetch(API + '/api/scheduler/start', {method:'POST'}); toast('Scheduler started', 'success'); } catch(e) { toast('Scheduler start failed', 'error'); }
+    };
+    window._schedStop = async function() {
+        try { await fetch(API + '/api/scheduler/stop', {method:'POST'}); toast('Scheduler stopped', 'info'); } catch(e) { toast('Scheduler stop failed', 'error'); }
+    };
 
     /* ---- Compliance Panel ---- */
     window._complianceRun = async function() {
         var scanId = document.getElementById('compliance-scan-select').value;
-        if (!scanId) { alert('Select a scan first'); return; }
+        if (!scanId) { toast('Select a scan first', 'error'); return; }
         var scoresEl = document.getElementById('compliance-scores');
         scoresEl.innerHTML = '<p class="empty-msg"><span class="spinner"></span> Running compliance analysis...</p>';
         try {
@@ -3678,7 +3816,7 @@
     window._toolsRun = async function() {
         var tool = document.getElementById('tools-select').value;
         var target = document.getElementById('tools-target').value.trim();
-        if (!target) { alert('Enter a target'); return; }
+        if (!target) { toast('Enter a target', 'error'); return; }
         var btn = document.getElementById('tools-run-btn');
         var output = document.getElementById('tools-output');
         btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Running...';
@@ -3737,9 +3875,14 @@
         try {
             var r = await fetch(API + '/api/plugins/discover', {method:'POST'});
             var j = await r.json();
-            alert(j.status === 'success' ? 'Discovered: ' + (j.data || []).join(', ') || 'No new plugins' : 'Error');
+            if (j.status === 'success') {
+                var found = (j.data || []).join(', ');
+                toast(found ? 'Discovered: ' + found : 'No new plugins', 'success');
+            } else {
+                toast('Plugin discovery failed', 'error');
+            }
             window._pluginsLoad();
-        } catch(e) {}
+        } catch(e) { toast('Plugin discovery error', 'error'); }
     };
 
     window._pluginToggle = async function(name, enabled) {
@@ -3767,7 +3910,7 @@
 
     window._notifTest = async function() {
         var msg = document.getElementById('notif-test-msg').value.trim();
-        if (!msg) { alert('Enter a message'); return; }
+        if (!msg) { toast('Enter a message', 'error'); return; }
         try {
             var r = await fetch(API + '/api/notifications/test', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({message:msg})});
             var j = await r.json();

@@ -482,14 +482,33 @@ def _set_security_headers(response):
     return response
 
 
+_DB_INSTANCE = None
+_DB_LOCK = threading.Lock()
+
+
 def _get_db():
-    """Get a database instance."""
+    """Get a process-wide cached Database instance.
+
+    ``Database()`` builds a SQLAlchemy engine and runs
+    ``Base.metadata.create_all`` on construction. Re-creating that on
+    every request created a fresh connection pool per call — fine in
+    development, but on a busy dashboard it leaks pools and exhausts
+    the database's connection limit. We cache one instance and share
+    it across all request threads.
+    """
+    global _DB_INSTANCE
     if not SQLALCHEMY_AVAILABLE:
         return None
-    try:
-        return Database()
-    except Exception:
-        return None
+    if _DB_INSTANCE is not None:
+        return _DB_INSTANCE
+    with _DB_LOCK:
+        if _DB_INSTANCE is None:
+            try:
+                _DB_INSTANCE = Database()
+            except Exception:
+                logger.debug("Database initialisation failed", exc_info=True)
+                return None
+    return _DB_INSTANCE
 
 
 def _emit_ws(event, data):
