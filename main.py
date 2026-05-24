@@ -63,6 +63,14 @@ def main():
   {Colors.GREEN}%(prog)s -t https://target.com --local-llm{Colors.RESET}          # Scan with AI analysis
   {Colors.GREEN}%(prog)s -t https://target.com --local-llm --llm-model /path/to/model.gguf{Colors.RESET}
 
+{Colors.CYAN}Cloud LLM Providers (Anthropic / OpenAI / Gemini / Ollama / ...):{Colors.RESET}
+  {Colors.GREEN}%(prog)s --llm-config{Colors.RESET}                                # Interactive setup (provider + API keys)
+  {Colors.GREEN}%(prog)s --llm-status{Colors.RESET}                                # Show persisted LLM config
+  {Colors.GREEN}%(prog)s -t https://target.com --llm-provider anthropic --api-key sk-ant-...{Colors.RESET}
+  {Colors.GREEN}%(prog)s -t https://target.com --llm-provider openai --llm-cloud-model gpt-4o{Colors.RESET}
+  {Colors.GREEN}%(prog)s -t https://target.com --llm-provider ollama --llm-base-url http://localhost:11434/v1{Colors.RESET}
+  {Colors.GREEN}%(prog)s -t https://target.com --llm-profile mixed{Colors.RESET}    # Multi-model routing (eco/max/mixed/test/local)
+
 {Colors.CYAN}Termux Installation:{Colors.RESET}
   pkg update && pkg upgrade -y
   pkg install python clang libffi openssl git -y
@@ -201,6 +209,64 @@ def main():
     parser.add_argument("--llm-ctx", type=int, default=None, help="Context window size for LLM (default: 2048)")
     parser.add_argument(
         "--llm-gpu-layers", type=int, default=0, help="Number of layers to offload to GPU (default: 0, CPU-only)"
+    )
+
+    # ── Cloud LLM options (Anthropic / OpenAI / Gemini / Ollama / etc.) ────
+    # Inspired by PurpleAILAB/Decepticon's multi-provider routing design.
+    parser.add_argument(
+        "--llm-provider",
+        type=str,
+        default=None,
+        choices=[
+            "anthropic", "openai", "gemini", "groq", "openrouter",
+            "ollama", "mistral", "deepseek", "together_ai", "xai",
+            "azure", "bedrock",
+        ],
+        help="Use a cloud LLM provider for AI-powered analysis instead of "
+             "the local Qwen2.5-7B model. Requires an API key (via "
+             "--api-key, the provider env var, or `python main.py --llm-config`).",
+    )
+    parser.add_argument(
+        "--llm-cloud-model",
+        type=str,
+        default=None,
+        help="Specific cloud model name (e.g. claude-3-5-sonnet-20241022, "
+             "gpt-4o, llama3.1). Defaults to a sensible model per provider.",
+    )
+    parser.add_argument(
+        "--api-key",
+        type=str,
+        default=None,
+        help="API key for the chosen --llm-provider (overrides env var "
+             "and config file).",
+    )
+    parser.add_argument(
+        "--llm-base-url",
+        type=str,
+        default=None,
+        help="Custom endpoint URL (Ollama / LM Studio / vLLM / Azure / "
+             "OpenRouter / OpenAI-compatible self-hosted gateway).",
+    )
+    parser.add_argument(
+        "--llm-profile",
+        type=str,
+        default=None,
+        choices=["eco", "max", "mixed", "test", "local"],
+        help="Multi-model routing profile: eco (cheap everywhere), max "
+             "(strongest everywhere), mixed (strong planner + cheap "
+             "workers, default), test (smallest models), local (existing "
+             "Qwen2.5-7B for every task).",
+    )
+    parser.add_argument(
+        "--llm-config",
+        action="store_true",
+        help="Run the interactive LLM configuration wizard (provider, "
+             "default model, API keys, routing profile) and exit.",
+    )
+    parser.add_argument(
+        "--llm-status",
+        action="store_true",
+        help="Print the persisted LLM router/backend status and exit.",
     )
 
     # Philosophy layer (opt-in: hypothesis-driven reasoning, counterfactual oracles,
@@ -838,6 +904,33 @@ def main():
             install_tool(tool_name)
         else:
             install_all_tools()
+        return
+
+    # LLM configuration wizard / status (standalone, exits early)
+    if getattr(args, "llm_config", False):
+        from core.llm_config import run_wizard
+
+        run_wizard()
+        return
+
+    if getattr(args, "llm_status", False):
+        from core.llm_config import print_status
+
+        print_status()
+        # Also report the router defaults if a profile is set in config
+        try:
+            from core.llm_config import load_config
+            from core.llm_router import DEFAULT_PROFILES, TASKS
+
+            cfg = load_config()
+            profile = cfg.get("profile")
+            if profile and profile in DEFAULT_PROFILES:
+                print(f"\n{Colors.info(f'Routing profile: {profile}')}")
+                for task in TASKS:
+                    provider, model = DEFAULT_PROFILES[profile][task]
+                    print(f"  {task:<10s} -> {provider}/{model}")
+        except Exception:
+            pass
         return
 
     # Download Qwen2.5-7B model (standalone)
@@ -1574,6 +1667,20 @@ def main():
     config["llm_ctx"] = getattr(args, "llm_ctx", None)
     config["llm_gpu_layers"] = getattr(args, "llm_gpu_layers", 0)
 
+    # Cloud LLM configuration (Decepticon-inspired multi-provider routing).
+    # Any of these flags enables LLM enrichment, so we flip ``local_llm``
+    # on too — that flag is the framework-wide "LLM is on" switch read by
+    # ``core.engine`` / ``core.ai_engine`` to decide whether to call the
+    # backend at all. The actual backend (local vs cloud vs router) is
+    # chosen at init time below.
+    config["llm_provider"] = getattr(args, "llm_provider", None)
+    config["llm_cloud_model"] = getattr(args, "llm_cloud_model", None)
+    config["llm_api_key"] = getattr(args, "api_key", None)
+    config["llm_base_url"] = getattr(args, "llm_base_url", None)
+    config["llm_profile"] = getattr(args, "llm_profile", None)
+    if config["llm_provider"] or config["llm_profile"]:
+        config["local_llm"] = True
+
     # ── extra config keys ──────────────────────────────────────
     config["async_mode"] = getattr(args, "async_mode", False)
     config["waf_ai_bypass"] = getattr(args, "waf_ai_bypass", False)
@@ -1707,29 +1814,114 @@ def main():
                 except Exception:
                     pass
 
-            # ── Initialize Local LLM if enabled ──────────────────────
+            # ── Initialize LLM backend if enabled ─────────────────────
+            # Backend selection priority:
+            #   1. --llm-profile         -> multi-model router
+            #   2. --llm-provider        -> single cloud provider
+            #   3. --local-llm (default) -> existing local Qwen2.5-7B
             local_llm = None
             if config.get("local_llm"):
+                profile = config.get("llm_profile")
+                provider = config.get("llm_provider")
                 try:
-                    from core.local_llm import LocalLLM
+                    if profile:
+                        # Multi-model router (eco / max / mixed / test / local)
+                        from core.llm_router import LLMRouter
+                        from core.llm_config import (
+                            get_api_keys,
+                            get_base_urls,
+                            load_config,
+                        )
 
-                    local_llm = LocalLLM(
-                        model_path=config.get("llm_model"),
-                        n_threads=config.get("llm_threads"),
-                        n_ctx=config.get("llm_ctx"),
-                        n_gpu_layers=config.get("llm_gpu_layers", 0),
-                        verbose=config.get("verbose", False),
-                    )
-                    if local_llm.ensure_ready():
-                        local_llm.load()
-                        engine.local_llm = local_llm
-                        if not args.quiet:
-                            print(f"{Colors.success('Local LLM (Qwen2.5-7B) ready for AI analysis')}")
+                        file_cfg = load_config()
+                        api_keys = get_api_keys(file_cfg)
+                        # CLI --api-key applies to whatever the default
+                        # provider is (or the profile's analyzer bucket).
+                        if config.get("llm_api_key") and provider:
+                            api_keys[provider] = config["llm_api_key"]
+                        base_urls = get_base_urls(file_cfg)
+                        if config.get("llm_base_url") and provider:
+                            base_urls[provider] = config["llm_base_url"]
+
+                        local_llm = LLMRouter(
+                            profile=profile,
+                            api_keys=api_keys,
+                            base_urls=base_urls,
+                            verbose=config.get("verbose", False),
+                        )
+                        if local_llm.load():
+                            engine.local_llm = local_llm
+                            if not args.quiet:
+                                print(
+                                    f"{Colors.success(f'LLM Router ready (profile={profile})')}"
+                                )
+                                print(local_llm.describe())
+                        else:
+                            print(
+                                f"{Colors.warning('LLM Router could not load any backend — continuing without LLM')}"
+                            )
+                            local_llm = None
+
+                    elif provider:
+                        # Single cloud provider (Anthropic / OpenAI / etc.)
+                        from core.cloud_llm import CloudLLM
+                        from core.llm_config import get_api_keys, get_base_urls, load_config
+
+                        file_cfg = load_config()
+                        api_key = (
+                            config.get("llm_api_key")
+                            or get_api_keys(file_cfg).get(provider)
+                        )
+                        base_url = (
+                            config.get("llm_base_url")
+                            or get_base_urls(file_cfg).get(provider)
+                        )
+                        local_llm = CloudLLM(
+                            provider=provider,
+                            model=config.get("llm_cloud_model"),
+                            api_key=api_key,
+                            base_url=base_url,
+                            verbose=config.get("verbose", False),
+                        )
+                        if local_llm.ensure_ready() and local_llm.load():
+                            engine.local_llm = local_llm
+                            if not args.quiet:
+                                print(
+                                    f"{Colors.success(f'Cloud LLM ready: {local_llm.model_id}')}"
+                                )
+                        else:
+                            print(
+                                f"{Colors.warning('Cloud LLM setup incomplete — continuing without LLM')}"
+                            )
+                            local_llm = None
+
                     else:
-                        print(f"{Colors.warning('Local LLM setup incomplete — continuing without LLM')}")
-                        local_llm = None
+                        # Default: existing local Qwen2.5-7B path.
+                        from core.local_llm import LocalLLM
+
+                        local_llm = LocalLLM(
+                            model_path=config.get("llm_model"),
+                            n_threads=config.get("llm_threads"),
+                            n_ctx=config.get("llm_ctx"),
+                            n_gpu_layers=config.get("llm_gpu_layers", 0),
+                            verbose=config.get("verbose", False),
+                        )
+                        if local_llm.ensure_ready():
+                            local_llm.load()
+                            engine.local_llm = local_llm
+                            if not args.quiet:
+                                print(
+                                    f"{Colors.success('Local LLM (Qwen2.5-7B) ready for AI analysis')}"
+                                )
+                        else:
+                            print(
+                                f"{Colors.warning('Local LLM setup incomplete — continuing without LLM')}"
+                            )
+                            local_llm = None
                 except Exception as exc:
-                    print(f"{Colors.warning(f'Local LLM init error: {exc} — continuing without LLM')}")
+                    print(
+                        f"{Colors.warning(f'LLM init error: {exc} — continuing without LLM')}"
+                    )
                     local_llm = None
 
             # Display scan plan if requested

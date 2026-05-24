@@ -59,6 +59,20 @@ PyYAML==6.0.3
 #   pip install opentelemetry-api>=1.20.0 opentelemetry-sdk>=1.20.0
 #   pip install opentelemetry-exporter-otlp>=1.20.0  # for Jaeger/Grafana
 
+# ── Cloud LLM providers (optional) ──────────────────────────────────
+# Multi-provider via LiteLLM (Anthropic / OpenAI / Gemini / Groq /
+# OpenRouter / Ollama / Mistral / DeepSeek / Together / xAI / Azure /
+# Bedrock — single SDK for all of them):
+#   pip install litellm>=1.40.0
+# Or just the native SDK for your provider:
+#   pip install anthropic>=0.30.0     # --llm-provider anthropic
+#   pip install openai>=1.30.0        # --llm-provider openai (and Groq/
+#                                       DeepSeek/OpenRouter/Together/Ollama
+#                                       via their OpenAI-compatible APIs)
+# A plain HTTP fallback using ``requests`` is always available for
+# OpenAI-compatible endpoints, so installing nothing extra still works
+# for self-hosted Ollama / LM Studio / vLLM.
+
 # Testing
 pytest>=8.0.0
 pytest-timeout>=2.3.1
