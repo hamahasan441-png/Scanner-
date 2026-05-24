@@ -48,6 +48,7 @@
         </div>
         <div style="display:flex;align-items:center;gap:0.8rem;">
             <button class="theme-toggle-btn" onclick="window._toggleTheme()" title="Toggle dark/light theme">🌓 Theme</button>
+            <button id="quantum-mode-toggle" class="theme-toggle-btn" onclick="window._toggleQuantumMode()" title="Toggle Quantum mode (holographic UI)" style="background:linear-gradient(90deg,#7c3aed,#06b6d4);color:#fff;border:none;">⚛ Quantum</button>
             <span id="sb-user" style="color:var(--text-muted);">👤 Guest</span>
             <span id="sb-time" style="color:var(--text-muted);font-family:monospace;"></span>
         </div>
@@ -3845,6 +3846,26 @@
     // Apply saved theme on load
     (function() {
         try { if (localStorage.getItem('atomic-theme') === 'light') document.body.classList.add('light-theme'); } catch(e) {}
+    })();
+
+    /* ========== QUANTUM MODE TOGGLE ==========
+       Holographic UI overlay: animated gradient borders, particle pulse on the
+       WebSocket indicator, neon shadow on cards.  Pure CSS — toggled by a
+       single body-level class so disabling it instantly restores the normal
+       theme.  Persisted via localStorage. */
+    window._toggleQuantumMode = function() {
+        var body = document.body;
+        var on = body.classList.toggle('quantum-mode');
+        try { localStorage.setItem('atomic-quantum', on ? '1' : '0'); } catch(e) {}
+        try {
+            var btn = document.getElementById('quantum-mode-toggle');
+            if (btn) btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+        } catch(e) {}
+        try { toast(on ? '⚛ Quantum mode engaged' : 'Quantum mode disengaged', 'info'); } catch(e) {}
+    };
+    // Apply saved quantum mode on load
+    (function() {
+        try { if (localStorage.getItem('atomic-quantum') === '1') document.body.classList.add('quantum-mode'); } catch(e) {}
     })();
 
     /* ========== AUTO MODE TOGGLE ========== */

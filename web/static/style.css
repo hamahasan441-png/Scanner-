@@ -870,3 +870,111 @@ footer .disclaimer { color: var(--severity-medium); font-weight: 600; }
         transition-duration: 0.01ms !important;
     }
 }
+
+
+
+/* =====================================================================
+   QUANTUM MODE — opt-in holographic UI overlay
+   Activated by toggling .quantum-mode on <body>.  All effects are pure
+   CSS so leaving the class off restores the regular theme exactly.
+   ===================================================================== */
+body.quantum-mode {
+    --quantum-1: #7c3aed;   /* violet  */
+    --quantum-2: #06b6d4;   /* cyan    */
+    --quantum-3: #ec4899;   /* magenta */
+    --quantum-4: #22d3ee;   /* sky     */
+    background:
+        radial-gradient(circle at 12% 18%, rgba(124, 58, 237, 0.18), transparent 42%),
+        radial-gradient(circle at 88% 82%, rgba(6, 182, 212, 0.16), transparent 48%),
+        radial-gradient(circle at 50% 50%, rgba(236, 72, 153, 0.10), transparent 55%),
+        var(--bg-primary);
+    background-attachment: fixed;
+}
+
+body.quantum-mode header h1 {
+    background: linear-gradient(90deg,
+        var(--quantum-1) 0%,
+        var(--quantum-4) 30%,
+        var(--quantum-3) 65%,
+        var(--quantum-2) 100%);
+    background-size: 300% 100%;
+    -webkit-background-clip: text;
+            background-clip: text;
+    -webkit-text-fill-color: transparent;
+    animation: quantum-shimmer 6s linear infinite;
+}
+
+@keyframes quantum-shimmer {
+    0%   { background-position:   0% 50%; }
+    100% { background-position: 300% 50%; }
+}
+
+body.quantum-mode .nav-tab.active,
+body.quantum-mode .panel-card,
+body.quantum-mode #system-status-bar,
+body.quantum-mode .stat-card {
+    border: 1px solid transparent;
+    background-clip: padding-box;
+    box-shadow:
+        0 0 0 1px rgba(124, 58, 237, 0.35),
+        0 0 18px rgba(6, 182, 212, 0.18),
+        0 0 32px rgba(236, 72, 153, 0.10);
+    position: relative;
+    isolation: isolate;
+}
+
+body.quantum-mode .stat-card::before,
+body.quantum-mode .panel-card::before {
+    content: "";
+    position: absolute;
+    inset: -1px;
+    border-radius: inherit;
+    padding: 1px;
+    background: linear-gradient(120deg,
+        var(--quantum-1),
+        var(--quantum-4),
+        var(--quantum-3),
+        var(--quantum-2));
+    background-size: 300% 100%;
+    -webkit-mask:
+        linear-gradient(#000 0 0) content-box,
+        linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+            mask-composite: exclude;
+    pointer-events: none;
+    animation: quantum-shimmer 9s linear infinite;
+    z-index: -1;
+}
+
+body.quantum-mode #ws-dot {
+    position: relative;
+    box-shadow: 0 0 0 0 rgba(34, 211, 238, 0.65);
+    animation: quantum-pulse 1.8s ease-out infinite;
+}
+
+@keyframes quantum-pulse {
+    0%   { box-shadow: 0 0 0 0   rgba(34, 211, 238, 0.65); }
+    70%  { box-shadow: 0 0 0 12px rgba(34, 211, 238, 0); }
+    100% { box-shadow: 0 0 0 0   rgba(34, 211, 238, 0); }
+}
+
+body.quantum-mode #quantum-mode-toggle {
+    box-shadow: 0 0 16px rgba(124, 58, 237, 0.55), 0 0 28px rgba(6, 182, 212, 0.35);
+    background: linear-gradient(90deg, var(--quantum-1), var(--quantum-4), var(--quantum-3), var(--quantum-2));
+    background-size: 300% 100%;
+    animation: quantum-shimmer 8s linear infinite;
+}
+
+body.quantum-mode .severity-critical { text-shadow: 0 0 8px rgba(239, 68, 68, 0.55); }
+body.quantum-mode .severity-high     { text-shadow: 0 0 6px rgba(245, 158, 11, 0.45); }
+
+/* Respect reduced motion: disable all quantum animations */
+@media (prefers-reduced-motion: reduce) {
+    body.quantum-mode header h1,
+    body.quantum-mode .stat-card::before,
+    body.quantum-mode .panel-card::before,
+    body.quantum-mode #ws-dot,
+    body.quantum-mode #quantum-mode-toggle {
+        animation: none !important;
+    }
+}
