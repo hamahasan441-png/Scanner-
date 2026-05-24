@@ -71,6 +71,12 @@ def main():
   {Colors.GREEN}%(prog)s -t https://target.com --llm-provider ollama --llm-base-url http://localhost:11434/v1{Colors.RESET}
   {Colors.GREEN}%(prog)s -t https://target.com --llm-profile mixed{Colors.RESET}    # Multi-model routing (eco/max/mixed/test/local)
 
+{Colors.CYAN}Autonomous Agent / Kill-Chain Orchestration / Logic Flaws:{Colors.RESET}
+  {Colors.GREEN}%(prog)s -t https://target.com --llm-profile mixed --kill-chain{Colors.RESET}      # Full kill-chain agent
+  {Colors.GREEN}%(prog)s -t https://target.com --llm-provider anthropic --llm-agent --max-agent-steps 8{Colors.RESET}
+  {Colors.GREEN}%(prog)s -t https://target.com --llm-agent --agent-phases recon,exploitation{Colors.RESET}
+  {Colors.GREEN}%(prog)s -t https://target.com --local-llm --llm-logic{Colors.RESET}                # LLM-driven logic flaw scanner only
+
 {Colors.CYAN}Termux Installation:{Colors.RESET}
   pkg update && pkg upgrade -y
   pkg install python clang libffi openssl git -y
@@ -267,6 +273,59 @@ def main():
         "--llm-status",
         action="store_true",
         help="Print the persisted LLM router/backend status and exit.",
+    )
+
+    # ── Autonomous LLM Agent / Kill-Chain orchestration ──────────────────
+    # Decepticon-inspired: walk the kill chain phase-by-phase, ask the
+    # LLM router which skill to run next, dispatch to existing modules.
+    parser.add_argument(
+        "--llm-agent",
+        action="store_true",
+        help="Run the autonomous LLM agent: walks the kill chain and "
+             "uses the LLM router (planner bucket) to pick the next "
+             "skill at each step. Requires --local-llm / --llm-provider "
+             "/ --llm-profile.",
+    )
+    parser.add_argument(
+        "--kill-chain",
+        action="store_true",
+        help="Alias for --llm-agent: full kill-chain orchestration "
+             "(recon -> initial-access -> exploitation -> privesc -> "
+             "lateral -> exfil -> c2). Post-exploitation phases are "
+             "skipped unless --authorized is also set.",
+    )
+    parser.add_argument(
+        "--llm-logic",
+        action="store_true",
+        help="Enable the LLM-driven business-logic flaw scanner module "
+             "(workflow bypass, sequence violation, role confusion, IDOR "
+             "variants, negative/boundary values).",
+    )
+    parser.add_argument(
+        "--max-agent-steps",
+        type=int,
+        default=12,
+        help="Maximum total skill executions for --llm-agent (default: 12).",
+    )
+    parser.add_argument(
+        "--max-steps-per-phase",
+        type=int,
+        default=3,
+        help="Maximum skill executions per kill-chain phase (default: 3).",
+    )
+    parser.add_argument(
+        "--agent-time-budget",
+        type=int,
+        default=1800,
+        help="Wall-clock cap (seconds) for the autonomous agent (default: 1800).",
+    )
+    parser.add_argument(
+        "--agent-phases",
+        type=str,
+        default=None,
+        help="Comma-separated subset of kill-chain phases to run "
+             "(recon,initial_access,exploitation,privilege_escalation,"
+             "lateral_movement,exfiltration,command_control).",
     )
 
     # Philosophy layer (opt-in: hypothesis-driven reasoning, counterfactual oracles,
@@ -1492,6 +1551,16 @@ def main():
         "cloud_scan": getattr(args, "cloud_scan", False) or args.full or p2p,
         "osint": getattr(args, "osint", False) or args.full or p2p,
         "fuzzer": getattr(args, "fuzz", False) or args.full or p2p,
+        # LLM-driven business-logic flaw scanner (Decepticon-inspired).
+        # Auto-enabled by --llm-logic, --llm-agent / --kill-chain, or --full.
+        # No-op when no LLM backend is loaded.
+        "llm_logic": (
+            getattr(args, "llm_logic", False)
+            or getattr(args, "llm_agent", False)
+            or getattr(args, "kill_chain", False)
+            or args.full
+            or p2p
+        ),
         "sqlmap": getattr(args, "sqlmap", False) or p2p,
         "shell": args.shell or p2p,
         "dump": args.dump or p2p,
@@ -1976,6 +2045,42 @@ def main():
                     print(f"{Colors.error(f'Watch mode error: {exc}')}")
             else:
                 engine.scan(target)
+
+            # ── Autonomous LLM Agent (--llm-agent / --kill-chain) ───
+            # Runs *after* the regular scan so it can leverage the
+            # already-discovered URLs and parameters and the findings
+            # produced by the deterministic modules. The agent walks
+            # the kill chain, asking the LLM router (planner bucket)
+            # which skill to run next at each step.
+            if (getattr(args, "llm_agent", False) or getattr(args, "kill_chain", False)) and not _auto:
+                if not (engine.local_llm and getattr(engine.local_llm, "is_loaded", False)):
+                    print(
+                        f"{Colors.warning('--llm-agent requires an active LLM backend ')}"
+                        f"{Colors.warning('(--local-llm / --llm-provider / --llm-profile) — skipping')}"
+                    )
+                else:
+                    try:
+                        from core.llm_agent import LLMAgent
+
+                        phases = None
+                        if getattr(args, "agent_phases", None):
+                            phases = [p.strip() for p in args.agent_phases.split(",") if p.strip()]
+                        agent = LLMAgent(
+                            engine,
+                            target,
+                            max_steps=getattr(args, "max_agent_steps", 12),
+                            max_steps_per_phase=getattr(args, "max_steps_per_phase", 3),
+                            time_budget=float(getattr(args, "agent_time_budget", 1800)),
+                            phases=phases,
+                            authorized=bool(getattr(args, "authorized", False)),
+                            verbose=bool(getattr(args, "verbose", False)),
+                        )
+                        agent.run()
+                    except Exception as exc:
+                        print(f"{Colors.warning(f'LLM agent error: {exc}')}")
+                        if args.verbose:
+                            import traceback as _tb
+                            _tb.print_exc()
 
             # ── Browser Scanner (--browser) ────────────────────
             if config.get("browser") and not _auto and not getattr(args, "watch", False):
