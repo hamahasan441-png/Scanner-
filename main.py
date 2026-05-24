@@ -1465,6 +1465,43 @@ def main():
     if modules.get("attack_map") and not modules.get("exploit_search"):
         modules["exploit_search"] = True
 
+    # ── Deconflict legacy and AttackRouter-driven exploit paths ──────
+    # Historically `--auto-exploit` / `--full-attack` / `--smart-attack`
+    # would route findings through AttackRouter while the legacy
+    # exploit flags (`--shell`, `--dump`, `--os-shell`, `--brute`,
+    # `--exploit-chain`) also fired in the same scan. Both paths can
+    # deploy webshells, dump databases, or write artifacts to the
+    # target — running them together produces duplicate exploitation
+    # attempts and (in the worst case) two webshells from one finding.
+    #
+    # Closes LOGIC_MAP.md "Known Drift #5". The chosen disambiguation
+    # is: when AttackRouter is active, disable the legacy single-step
+    # flags with a printed warning so the user has visibility. We do
+    # not hard-error because regulated-mission profiles set both sets
+    # implicitly via `--full` / `--point-to-point` / `--regulated-mission`,
+    # and a hard error would break those flows.
+    _ROUTER_FLAGS = ("auto_exploit", "smart_attack")
+    _full_attack_active = bool(getattr(args, "full_attack", False))
+    _router_active = any(modules.get(flag, False) for flag in _ROUTER_FLAGS) or _full_attack_active
+    if _router_active:
+        _LEGACY_EXPLOIT_FLAGS = ("shell", "dump", "os_shell", "brute", "exploit_chain")
+        _disabled_legacy = [flag for flag in _LEGACY_EXPLOIT_FLAGS if modules.get(flag, False)]
+        if _disabled_legacy:
+            for flag in _disabled_legacy:
+                modules[flag] = False
+            _router_label = (
+                "--full-attack"
+                if _full_attack_active
+                else ("--auto-exploit" if modules.get("auto_exploit") else "--smart-attack")
+            )
+            print(
+                f"{Colors.warning('Exploit-path deconfliction:')} "
+                f"{_router_label} is active, disabling legacy "
+                f"flags ({', '.join('--' + f.replace('_', '-') for f in _disabled_legacy)}) "
+                f"to prevent duplicate exploitation. The AttackRouter / FullAttacker "
+                f"will handle these capabilities via per-finding routing."
+            )
+
     # If no specific modules selected, enable basic ones
     if not any(modules.values()):
         modules["sqli"] = True

@@ -25,6 +25,7 @@ from urllib.parse import urlparse, parse_qs
 
 
 from config import Config, Colors, MITRE_CWE_MAP
+from core.pipeline_contract import Phase
 from core.rules_engine import RulesEngine
 
 logger = logging.getLogger(__name__)
@@ -151,13 +152,19 @@ class AtomicEngine:
         # Uses the canonical phase definitions from pipeline_contract for
         # accurate dashboard position reporting across all 21 phases.
         try:
-            from core.pipeline_contract import Phase, PHASE_PARTITION
+            from core.pipeline_contract import Phase, PHASE_PARTITION, PipelineStateMachine
             self._phase_enum = Phase
             self._phase_partition = PHASE_PARTITION
+            # Drive granular phase tracking through the canonical state
+            # machine. ``strict=False`` so that an optional phase being
+            # skipped (e.g. PLAN_DISPLAY when --show-plan is off) doesn't
+            # raise; the machine still rejects backward transitions.
+            self._state_machine = PipelineStateMachine(strict=False)
         except ImportError:
             logger.warning("pipeline_contract module unavailable — using basic phase tracking")
             self._phase_enum = None
             self._phase_partition = {}
+            self._state_machine = None
 
         self.pipeline = {
             "phase": "init",  # current granular phase
@@ -407,6 +414,54 @@ class AtomicEngine:
     # Pipeline event system (3-partition tracking)
     # ------------------------------------------------------------------
 
+    def _set_phase(self, phase, *, payload: Optional[dict] = None):
+        """Advance the canonical pipeline state machine to *phase*.
+
+        Updates the granular ``self.pipeline['phase']`` (one of the 21
+        canonical names from :class:`Phase`), keeps the legacy 4-string
+        partition tracker in sync, and emits a ``phase_advance`` event
+        to the dashboard.  When the state machine is unavailable
+        (very old import path), this falls back to writing the phase
+        string directly so old behaviour is preserved.
+        """
+        if self._state_machine is None or self._phase_enum is None:
+            # Fallback: best-effort assignment when the contract module
+            # failed to import.  This keeps the engine usable on
+            # severely broken installs at the cost of granular tracking.
+            self.pipeline["phase"] = getattr(phase, "value", str(phase))
+            self.emit_pipeline_event(
+                "phase_advance",
+                {"phase": self.pipeline["phase"], **(payload or {})},
+            )
+            return
+
+        # Advance the state machine.  ``advance_to`` validates that the
+        # transition is forward-only; in non-strict mode invalid jumps
+        # silently no-op, which is what we want when callers re-enter
+        # an optional phase (e.g. report runner re-runs exploit_search
+        # on demand for the attack map).
+        try:
+            self._state_machine.advance_to(phase)
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.debug("PipelineStateMachine.advance_to(%s) failed: %s", phase, exc)
+
+        current = self._state_machine.current
+        partition = self._phase_partition.get(current)
+        self.pipeline["phase"] = current.value
+        if partition is not None:
+            self.pipeline["partition"] = partition.value
+
+        self.emit_pipeline_event(
+            "phase_advance",
+            {
+                "phase": current.value,
+                "partition": partition.value if partition else None,
+                **(payload or {}),
+            },
+        )
+
+    # ------------------------------------------------------------------
+
     def emit_pipeline_event(self, event_type: str, data: dict = None):
         """Record a pipeline event for live dashboard tracking.
 
@@ -552,11 +607,16 @@ class AtomicEngine:
         print(f"{Colors.BOLD}{'='*60}{Colors.RESET}\n")
 
         # ── PIPELINE: Phase 1 - Recon & Scan ─────────────────────────
-        self.pipeline["phase"] = "recon"
+        # Drive the canonical state machine to SCOPE (the first phase
+        # scan() actually runs after init); this updates pipeline['phase']
+        # to a granular value and pipeline['partition'] to "recon" via
+        # the partition map. The legacy 4-bucket status tracker
+        # (pipeline['recon']['status']) is kept in sync separately.
+        self._set_phase(Phase.SCOPE, payload={"target": target})
         self.pipeline["recon"]["status"] = "running"
         self.emit_pipeline_event("phase_start", {"phase": "recon", "target": target})
 
-        # ── §1. SCOPE & POLICY ENGINE ────────────────────────────────
+        # ── §1. SCOPE & POLICY ENGINE (Phase 3 of 21) ─────────────────
         self.scope.set_target_scope(target)
         self.scope.load_robots_txt(target)
 
@@ -586,9 +646,10 @@ class AtomicEngine:
         modules_config = self.config.get("modules", {})
         self._run_external_tools_auto(target)
 
-        # ── PHASE 1: SHIELD DETECTION (CDN + WAF) ────────────────────
+        # ── PHASE 4 of 21: SHIELD DETECT (CDN + WAF) ─────────────────
         shield_profile = None
         if modules_config.get("shield_detect", False):
+            self._set_phase(Phase.SHIELD_DETECT)
             try:
                 from core.shield_detector import ShieldDetector
 
@@ -612,13 +673,14 @@ class AtomicEngine:
                 if self.config.get("verbose"):
                     print(f"{Colors.error(f'Shield detection error: {e}')}")
 
-        # ── PHASE 2: REAL IP DISCOVERY ────────────────────────────────
+        # ── PHASE 5 of 21: REAL_IP discovery ─────────────────────────
         real_ip_result = None
         if modules_config.get("real_ip", False):
             needs_discovery = True
             if shield_profile:
                 needs_discovery = shield_profile.get("needs_origin_discovery", False)
             if needs_discovery:
+                self._set_phase(Phase.REAL_IP)
                 try:
                     from core.real_ip_scanner import RealIPScanner
 
@@ -648,11 +710,12 @@ class AtomicEngine:
 
             effective_target = build_origin_target(target, origin_ip)
 
-        # ── PHASE 5: PASSIVE RECON & DISCOVERY (fan-out) ───────────────
+        # ── PHASE 6 of 21: PASSIVE_RECON & DISCOVERY (fan-out) ──────
         # This replaces the individual recon/port/crawl/discovery calls
         # with a unified fan-out that merges all URL sources.
         fanout_result = None
         if modules_config.get("passive_recon", False):
+            self._set_phase(Phase.PASSIVE_RECON)
             try:
                 from core.passive_recon import PassiveReconFanout
 
@@ -669,7 +732,8 @@ class AtomicEngine:
 
         # Fallback: if Phase 5 fan-out didn't run, use legacy discovery path
         if fanout_result is None:
-            # ── §2. DISCOVERY & GRAPH ENGINE (legacy path) ───────────
+            # ── §2. DISCOVERY & GRAPH ENGINE (Phase 7 of 21) ─────────
+            self._set_phase(Phase.DISCOVERY)
             # Reconnaissance (optional)
             if modules_config.get("recon", False):
                 try:
@@ -901,13 +965,16 @@ class AtomicEngine:
                     if self.config.get("verbose"):
                         print(f"{Colors.error(f'Discovery error: {e}')}")
 
-        # ── §3. INPUT EXTRACTION & CLASSIFICATION ────────────────────
-        # ── §4. CONTEXT INTELLIGENCE ─────────────────────────────────
+        # ── §3. INPUT EXTRACTION (Phase 8 of 21) ─────────────────────
+        self._set_phase(Phase.INPUT_EXTRACTION)
+        # ── §4. CONTEXT INTELLIGENCE (Phase 9 of 21) ─────────────────
+        self._set_phase(Phase.CONTEXT_INTEL)
         enriched_params = self.context.analyze_parameters(parameters)
 
-        # ── PHASE 6: INTELLIGENCE ENRICHMENT ──────────────────────────
+        # ── PHASE 10 of 21: INTELLIGENCE ENRICHMENT ──────────────────
         intel_bundle = None
         if modules_config.get("enrich", False):
+            self._set_phase(Phase.ENRICHMENT)
             try:
                 from core.intelligence_enricher import IntelligenceEnricher
 
@@ -923,9 +990,10 @@ class AtomicEngine:
                 if self.config.get("verbose"):
                     print(f"{Colors.error(f'Phase 6 enrichment error: {e}')}")
 
-        # ── PHASE 7: ATTACK SURFACE PRIORITIZATION ───────────────────
+        # ── PHASE 11 of 21: ATTACK SURFACE PRIORITIZATION ────────────
         scan_queue = None
         if modules_config.get("enrich", False) and intel_bundle:
+            self._set_phase(Phase.PRIORITIZATION)
             try:
                 from core.scan_priority_queue import ScanPriorityQueue
 
@@ -964,7 +1032,9 @@ class AtomicEngine:
             "forms": len(forms),
             "parameters": len(parameters),
         }
-        self.pipeline["phase"] = "scan"
+        # Granular phase advance is driven by the BASELINE block below;
+        # here we only flip the legacy 4-bucket scan tracker on so the
+        # dashboard's partition card lights up.
         self.pipeline["scan"]["status"] = "running"
         self.emit_pipeline_event(
             "phase_start",
@@ -986,7 +1056,8 @@ class AtomicEngine:
         enriched_params = self.prioritizer.prioritize_parameters(enriched_params)
         prioritized_urls = self.prioritizer.prioritize_urls(urls)
 
-        # ── §6. BASELINE ENGINE ──────────────────────────────────────
+        # ── §6. BASELINE ENGINE (Phase 12 of 21) ─────────────────────
+        self._set_phase(Phase.BASELINE)
         print(f"{Colors.info('Building baselines...')}")
         seen_baselines = set()
         for ep in enriched_params:
@@ -1000,7 +1071,8 @@ class AtomicEngine:
                     ep["value"],
                 )
 
-        # ── §7. ADAPTIVE TESTING (AI-driven module selection) ────────
+        # ── §7. ADAPTIVE TESTING (Phase 13 of 21, AI-driven module sel.) ──
+        self._set_phase(Phase.ADAPTIVE_TESTING)
         # Determine module execution order via AI strategy
         ordered_modules = []
         if ai_strategy["module_order"]:
@@ -1144,9 +1216,10 @@ class AtomicEngine:
                     print(f"{Colors.error(f'Adaptive re-scan error: {e}')}")
                 break
 
-        # ── PHASE 8: VULNERABILITY SCAN WORKERS ─────────────────────
+        # ── PHASE 14 of 21: SCAN_WORKERS (vulnerability workers A-E) ─
         # If Phase 7 produced a scan queue, run it through the worker pool
         if scan_queue:
+            self._set_phase(Phase.SCAN_WORKERS)
             try:
                 from core.scan_worker_pool import ScanWorkerPool
 
@@ -1162,9 +1235,10 @@ class AtomicEngine:
                 if self.config.get("verbose"):
                     print(f"{Colors.error(f'Phase 8 worker pool error: {e}')}")
 
-        # ── PHASE 9: POST-WORKER VERIFICATION ────────────────────────
+        # ── PHASE 15 of 21: VERIFICATION (post-worker) ──────────────
         verification_result = None
         if modules_config.get("chain_detect", False) and self.findings:
+            self._set_phase(Phase.VERIFICATION)
             try:
                 from core.post_worker_verifier import PostWorkerVerifier
 
@@ -1191,8 +1265,9 @@ class AtomicEngine:
                 if self.config.get("verbose"):
                     print(f"{Colors.error(f'Phase 9 verification error: {e}')}")
 
-        # ── PHASE 9B: EXPLOIT REFERENCE SEARCHER ─────────────────────
+        # ── PHASE 16 of 21: EXPLOIT_SEARCH (7-source reference search) ─
         if modules_config.get("exploit_search", False) and self.findings:
+            self._set_phase(Phase.EXPLOIT_SEARCH)
             try:
                 from core.exploit_searcher import ExploitSearcher
 
@@ -1202,9 +1277,10 @@ class AtomicEngine:
                 if self.config.get("verbose"):
                     print(f"{Colors.error(f'Phase 9B exploit search error: {e}')}")
 
-        # ── PHASE 4: AGENT SCANNER (autonomous goal-driven scan) ─────
+        # ── PHASE 17 of 21: AGENT_SCAN (autonomous goal-driven OODA) ─
         agent_result = None
         if modules_config.get("agent_scan", False):
+            self._set_phase(Phase.AGENT_SCAN)
             try:
                 from core.agent_scanner import AgentScanner
 
@@ -1239,9 +1315,12 @@ class AtomicEngine:
         }
         self.emit_pipeline_event("phase_end", {"phase": "scan", "findings": len(self.findings)})
 
-        # ── PIPELINE: Partition 2 - Attack Router ─────────────────
-        # Route confirmed vulns to the right exploitation tool
-        self.pipeline["phase"] = "exploit"
+        # ── PHASE 18 of 21: EXPLOIT (Attack Router / legacy paths) ───
+        # Route confirmed vulns to the right exploitation tool.
+        # Granular phase EXPLOIT is set here; the legacy 4-bucket
+        # tracker for the exploit partition flips on at the same time
+        # for backward-compatible dashboards.
+        self._set_phase(Phase.EXPLOIT, payload={"findings_to_route": len(self.findings)})
         self.pipeline["exploit"]["status"] = "running"
         self.emit_pipeline_event(
             "phase_start",
@@ -1288,12 +1367,18 @@ class AtomicEngine:
                     if self.config.get("verbose"):
                         print(f"{Colors.error(f'Post-exploitation fallback error: {e2}')}")
 
-        # Legacy manual flags kept for backward compatibility
+        # Legacy manual flags kept for backward compatibility.
+        # NOTE: ShellUploader(scan_only=True) is the default (used during
+        # the scan phase for vulnerability *detection* via test_url()).
+        # Here in the exploit phase we explicitly pass scan_only=False
+        # so that run() actually deploys webshells.  Without this flag
+        # run() short-circuits at its scan_only guard and silently does
+        # nothing — the bug noted in LOGIC_MAP.md "Known Drift #3".
         if modules_config.get("shell", False) and self.findings:
             try:
                 from modules.uploader import ShellUploader
 
-                uploader = ShellUploader(self)
+                uploader = ShellUploader(self, scan_only=False)
                 uploader.run(self.findings, forms)
             except Exception as e:
                 if self.config.get("verbose"):
@@ -1348,7 +1433,8 @@ class AtomicEngine:
         self.emit_pipeline_event("phase_end", {"phase": "exploit"})
 
         # ── PIPELINE: Partition 3 - Data Collection ──────────────
-        self.pipeline["phase"] = "collect"
+        # Granular phase REPORT is set here; PHASE 19 of 21.
+        self._set_phase(Phase.REPORT)
         self.pipeline["collect"]["status"] = "running"
         self.emit_pipeline_event("phase_start", {"phase": "collect"})
 
@@ -1357,7 +1443,7 @@ class AtomicEngine:
         # ── Clear persistence progress on complete scan ───────────────
         self.persistence.clear_progress()
 
-        # ── PHASE 10: COMMIT & REPORT ─────────────────────────────────
+        # ── PHASE 19 of 21: REPORT (commit + render reports) ─────────
         # Collect chain/shield/agent data produced during previous phases
         # and pass them to the unified OutputPhase for DB commit + reports.
         exploit_chains = []
@@ -1397,9 +1483,10 @@ class AtomicEngine:
                     if self.config.get("verbose"):
                         print(f"{Colors.warning(f'Could not update scan record: {e}')}")
 
-        # ── PHASE 11: ATTACK MAP (exploit-aware) ─────────────────────
+        # ── PHASE 20 of 21: ATTACK_MAP (exploit-aware graph) ─────────
         attack_map_result = None
         if modules_config.get("attack_map", False) and self.findings:
+            self._set_phase(Phase.ATTACK_MAP)
             # Defense-in-depth: main.py enforces this dependency for CLI,
             # but engine can also be invoked programmatically (web API).
             if not modules_config.get("exploit_search", False):
@@ -1440,7 +1527,8 @@ class AtomicEngine:
             "exploit_results": len(self.post_exploit_results) if self.post_exploit_results else 0,
             "metrics": self.requester.metrics.summary() if hasattr(self.requester, "metrics") else {},
         }
-        self.pipeline["phase"] = "done"
+        # Phase 21 of 21: terminal DONE state.
+        self._set_phase(Phase.DONE)
         self.emit_pipeline_event("phase_end", {"phase": "collect"})
         self.emit_pipeline_event(
             "pipeline_complete",
