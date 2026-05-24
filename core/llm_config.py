@@ -161,8 +161,9 @@ def print_status():
     for p in SUPPORTED_PROVIDERS:
         v = keys.get(p, "")
         if v:
-            masked = "*" * 4 + v[-4:]
-            print(f"    {p:<14s}: {masked}")
+            # Never log any portion of the key — even the tail can leak in
+            # logs, screen recordings, or CI artefacts. Just confirm presence.
+            print(f"    {p:<14s}: (set)")
         else:
             env_hint = ENV_KEYS.get(p, ())
             hint = f" (or set {env_hint[0]})" if env_hint else ""
@@ -224,8 +225,10 @@ def run_wizard():
         if p == "ollama":
             continue  # local — no key
         existing = api_keys.get(p, "")
-        masked = ("*" * 4 + existing[-4:]) if existing else "(unset)"
-        val = input(f"  {p:<14s} [{masked}]: ").strip()
+        # Never echo any portion of the key in the prompt — show only
+        # whether one is currently set.
+        status = "(set)" if existing else "(unset)"
+        val = input(f"  {p:<14s} [{status}]: ").strip()
         if val == "-":
             api_keys.pop(p, None)
         elif val:
