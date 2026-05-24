@@ -15,6 +15,42 @@
 <!-- Toast notification container -->
 <div id="toast-container"></div>
 
+<!-- Singularity matrix-rain backdrop (only visible when body.singularity-mode AND body.quantum-mode are both on) -->
+<div id="singularity-backdrop" aria-hidden="true">
+    <div class="sng-rain-col"></div><div class="sng-rain-col"></div><div class="sng-rain-col"></div>
+    <div class="sng-rain-col"></div><div class="sng-rain-col"></div><div class="sng-rain-col"></div>
+    <div class="sng-rain-col"></div><div class="sng-rain-col"></div><div class="sng-rain-col"></div>
+    <div class="sng-rain-col"></div><div class="sng-rain-col"></div><div class="sng-rain-col"></div>
+</div>
+
+<!-- Singularity AI Commander HUD (floating bottom-right, hidden by default) -->
+<div id="singularity-hud" role="region" aria-label="Singularity AI Commander HUD" aria-hidden="true">
+    <div class="sng-hud-header">
+        <span class="sng-hud-title">🌌 SINGULARITY</span>
+        <span class="sng-hud-status" id="sng-hud-status">● armed</span>
+        <button class="sng-hud-close" onclick="window._toggleSingularityMode()" title="Disengage (Ctrl+J)" aria-label="Close Singularity HUD">×</button>
+    </div>
+    <div class="sng-hud-grid">
+        <div class="sng-hud-tile">
+            <div class="sng-hud-tile-label">ACTIVE</div>
+            <div class="sng-hud-tile-value" id="sng-hud-active">0</div>
+        </div>
+        <div class="sng-hud-tile">
+            <div class="sng-hud-tile-label">FINDINGS</div>
+            <div class="sng-hud-tile-value" id="sng-hud-findings">0</div>
+        </div>
+        <div class="sng-hud-tile sng-hud-tile-danger">
+            <div class="sng-hud-tile-label">CRITICAL</div>
+            <div class="sng-hud-tile-value" id="sng-hud-critical">0</div>
+        </div>
+    </div>
+    <div class="sng-hud-pulse" id="sng-hud-pulse"></div>
+    <div class="sng-hud-footer">
+        <span class="kbd">Ctrl</span>+<span class="kbd">J</span> toggle ·
+        <span class="kbd">Ctrl</span>+<span class="kbd">K</span> palette
+    </div>
+</div>
+
 <!-- Command Palette (Ctrl+K) -->
 <div id="cmd-palette-overlay" role="dialog" aria-modal="true" aria-label="Command Palette">
     <div id="cmd-palette">
@@ -49,6 +85,7 @@
         <div style="display:flex;align-items:center;gap:0.8rem;">
             <button class="theme-toggle-btn" onclick="window._toggleTheme()" title="Toggle dark/light theme">🌓 Theme</button>
             <button id="quantum-mode-toggle" class="theme-toggle-btn" onclick="window._toggleQuantumMode()" title="Toggle Quantum mode (holographic UI)" style="background:linear-gradient(90deg,#7c3aed,#06b6d4);color:#fff;border:none;">⚛ Quantum</button>
+            <button id="singularity-mode-toggle" class="theme-toggle-btn" onclick="window._toggleSingularityMode()" title="Toggle Singularity mode (live AI HUD + data-rain) — Ctrl+J" style="background:linear-gradient(90deg,#0ea5e9,#a855f7,#ef4444);color:#fff;border:none;">🌌 Singularity</button>
             <span id="sb-user" style="color:var(--text-muted);">👤 Guest</span>
             <span id="sb-time" style="color:var(--text-muted);font-family:monospace;"></span>
         </div>
@@ -3867,6 +3904,77 @@
     (function() {
         try { if (localStorage.getItem('atomic-quantum') === '1') document.body.classList.add('quantum-mode'); } catch(e) {}
     })();
+
+    /* ========== SINGULARITY MODE — Live AI Commander HUD + matrix-rain ==========
+       The next level above Quantum.  Adds a floating bottom-right HUD with live
+       counts pulled from window._knownActive and the existing /api/stats response
+       (we hook into the existing loadStats poller via a public update fn).
+       When both Singularity AND Quantum are on, body.singularity-mode + body
+       .quantum-mode together activate a CSS-only matrix-rain backdrop.
+       Toggle: 🌌 Singularity button or Ctrl+J.  Pure UI, no backend deps. */
+    window._toggleSingularityMode = function() {
+        var body = document.body;
+        var on = body.classList.toggle('singularity-mode');
+        try { localStorage.setItem('atomic-singularity', on ? '1' : '0'); } catch(e) {}
+        var btn = document.getElementById('singularity-mode-toggle');
+        if (btn) btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+        var hud = document.getElementById('singularity-hud');
+        if (hud) hud.setAttribute('aria-hidden', on ? 'false' : 'true');
+        if (on) {
+            try { _updateSingularityHud(); } catch(e) {}
+            try { toast('🌌 Singularity engaged — AI Commander HUD live', 'info'); } catch(e) {}
+        } else {
+            try { toast('Singularity disengaged', 'info'); } catch(e) {}
+        }
+    };
+
+    function _updateSingularityHud() {
+        var body = document.body;
+        if (!body.classList.contains('singularity-mode')) return;
+        var active = window._knownActive ? Object.keys(window._knownActive).length : 0;
+        var findingsEl = document.getElementById('sb-findings');
+        var criticalEl = document.getElementById('sb-critical');
+        var f = findingsEl ? (parseInt(findingsEl.textContent, 10) || 0) : 0;
+        var c = criticalEl ? (parseInt(criticalEl.textContent, 10) || 0) : 0;
+        var aEl = document.getElementById('sng-hud-active');
+        var fEl = document.getElementById('sng-hud-findings');
+        var cEl = document.getElementById('sng-hud-critical');
+        var sEl = document.getElementById('sng-hud-status');
+        if (aEl) aEl.textContent = active;
+        if (fEl) fEl.textContent = f;
+        if (cEl) cEl.textContent = c;
+        // Status escalates with severity: armed → engaged → critical
+        if (sEl) {
+            if (c > 0)        { sEl.textContent = '● critical'; sEl.className = 'sng-hud-status sng-hud-critical'; }
+            else if (active)  { sEl.textContent = '● engaged';  sEl.className = 'sng-hud-status sng-hud-engaged';  }
+            else              { sEl.textContent = '● armed';    sEl.className = 'sng-hud-status sng-hud-armed';    }
+        }
+    }
+    // Expose for other code that wants to nudge the HUD
+    window._updateSingularityHud = _updateSingularityHud;
+
+    // Apply saved singularity mode on load + start the HUD updater
+    (function() {
+        try {
+            if (localStorage.getItem('atomic-singularity') === '1') {
+                document.body.classList.add('singularity-mode');
+                var hud = document.getElementById('singularity-hud');
+                if (hud) hud.setAttribute('aria-hidden', 'false');
+                var btn = document.getElementById('singularity-mode-toggle');
+                if (btn) btn.setAttribute('aria-pressed', 'true');
+            }
+        } catch(e) {}
+        // Refresh the HUD every 2 seconds — cheap, no extra API calls
+        setInterval(_updateSingularityHud, 2000);
+    })();
+
+    // Ctrl+J keyboard shortcut for Singularity toggle
+    document.addEventListener('keydown', function(e) {
+        if ((e.ctrlKey || e.metaKey) && (e.key === 'j' || e.key === 'J')) {
+            e.preventDefault();
+            window._toggleSingularityMode();
+        }
+    });
 
     /* ========== AUTO MODE TOGGLE ========== */
     window._toggleAutoMode = function() {
