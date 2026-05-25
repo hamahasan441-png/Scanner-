@@ -20,7 +20,7 @@ sqlalchemy==2.0.49
 fpdf2==2.8.7
 
 # JWT handling
-PyJWT==2.12.1
+PyJWT==2.13.0
 
 # Networking
 pysocks==1.7.1
