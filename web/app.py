@@ -577,6 +577,160 @@ def _get_current_user():
     return None
 
 
+def _attach_local_llm_to_engine(engine, scan_id, model_name):
+    """Best-effort: ensure Ollama is running, model is pulled, and wire it
+    into ``engine.local_llm`` so the scan pipeline uses it for finding
+    enrichment and adaptive payloads.
+
+    Failures are non-fatal — the scan continues without LLM analysis and
+    the user gets a SocketIO event explaining why.  This matches the
+    behaviour of the CLI ``--local-llm`` flag, which also degrades
+    gracefully when the model is unavailable.
+    """
+    try:
+        running, derr = _ollama_serve_start(wait_seconds=15)
+        if not running:
+            _emit_ws(
+                "scan_log",
+                {
+                    "scan_id": scan_id,
+                    "level": "warning",
+                    "message": f"Local LLM disabled: {derr}",
+                },
+            )
+            return
+
+        # Pull the model synchronously inside this thread — the scan
+        # itself is already a background thread, so blocking here only
+        # delays this single scan, not the Flask request that started
+        # it.  The frontend already shows pull progress separately via
+        # /api/ollama/pull/<job_id> when the user opted into "Use Local
+        # LLM (auto-start)".
+        ok, data, _ = _ollama_request_ex("/api/tags", timeout=4)
+        installed_models = []
+        if ok and isinstance(data, dict):
+            installed_models = [m.get("name", "") for m in data.get("models", [])]
+        if model_name not in installed_models:
+            _emit_ws(
+                "scan_log",
+                {
+                    "scan_id": scan_id,
+                    "level": "info",
+                    "message": (
+                        f"Pulling Ollama model {model_name} (first run only) — "
+                        "scan will proceed without LLM until this finishes."
+                    ),
+                },
+            )
+            job_id, perr = _ollama_start_pull(model_name)
+            if not job_id:
+                _emit_ws(
+                    "scan_log",
+                    {
+                        "scan_id": scan_id,
+                        "level": "warning",
+                        "message": f"Local LLM disabled: pull failed ({perr})",
+                    },
+                )
+                return
+            # Wait up to 30 minutes for the pull (large models can be ~20 GB).
+            deadline = time.monotonic() + 30 * 60
+            while time.monotonic() < deadline:
+                with _ollama_pull_lock:
+                    job = _ollama_pull_jobs.get(job_id)
+                if job and job.get("done"):
+                    if not job.get("ok"):
+                        _emit_ws(
+                            "scan_log",
+                            {
+                                "scan_id": scan_id,
+                                "level": "warning",
+                                "message": (
+                                    f"Local LLM disabled: pull failed "
+                                    f"({job.get('error', 'unknown error')})"
+                                ),
+                            },
+                        )
+                        return
+                    break
+                time.sleep(2)
+            else:
+                _emit_ws(
+                    "scan_log",
+                    {
+                        "scan_id": scan_id,
+                        "level": "warning",
+                        "message": "Local LLM disabled: model pull timed out",
+                    },
+                )
+                return
+
+        # Build a CloudLLM client that talks to the local Ollama daemon
+        # via its OpenAI-compatible endpoint.  This gives the scan the
+        # same analyze_finding/suggest_payloads surface as the CLI
+        # --local-llm flag, but without compiling llama-cpp-python.
+        try:
+            from core.cloud_llm import CloudLLM
+        except Exception as exc:
+            _emit_ws(
+                "scan_log",
+                {
+                    "scan_id": scan_id,
+                    "level": "warning",
+                    "message": f"Local LLM disabled: CloudLLM import failed ({exc})",
+                },
+            )
+            return
+
+        try:
+            client = CloudLLM(
+                provider="ollama",
+                model=model_name,
+                base_url=f"{_ollama_host()}/v1",
+                timeout=120,
+            )
+            if not client.load():
+                _emit_ws(
+                    "scan_log",
+                    {
+                        "scan_id": scan_id,
+                        "level": "warning",
+                        "message": "Local LLM disabled: CloudLLM.load() returned False",
+                    },
+                )
+                return
+            engine.local_llm = client
+            engine.config["local_llm"] = True
+            _emit_ws(
+                "scan_log",
+                {
+                    "scan_id": scan_id,
+                    "level": "info",
+                    "message": f"Local LLM ready: ollama/{model_name}",
+                },
+            )
+        except Exception as exc:
+            _emit_ws(
+                "scan_log",
+                {
+                    "scan_id": scan_id,
+                    "level": "warning",
+                    "message": f"Local LLM disabled: {exc}",
+                },
+            )
+    except Exception as exc:
+        # Catch-all so the scan never crashes because of LLM wiring.
+        logger.exception("LLM auto-start failed for scan %s", scan_id)
+        _emit_ws(
+            "scan_log",
+            {
+                "scan_id": scan_id,
+                "level": "warning",
+                "message": f"Local LLM disabled (unexpected error): {exc}",
+            },
+        )
+
+
 def _run_scan(scan_id, target, config):
     """Background scan runner."""
     with _scans_lock:
@@ -594,6 +748,17 @@ def _run_scan(scan_id, target, config):
         engine.scan_id = scan_id
         # Attach a live-event callback so the engine pushes events to SocketIO
         engine._ws_callback = lambda evt, d: _emit_ws(evt, {**d, "scan_id": scan_id})
+
+        # Auto-start the local Ollama LLM if the user opted in.  Failures
+        # are non-fatal and surface as a scan_log event so the UI shows
+        # exactly why the LLM is disabled.
+        if config.get("use_local_llm"):
+            _attach_local_llm_to_engine(
+                engine,
+                scan_id,
+                config.get("llm_model") or DEFAULT_OLLAMA_MODEL,
+            )
+
         with _scans_lock:
             _active_scans[scan_id]["engine"] = engine
         engine.scan(target)
@@ -816,6 +981,18 @@ def start_scan():
         }
     )
 
+    # Local LLM auto-start: when ``use_local_llm`` is true the scan
+    # thread will start ``ollama serve`` (if needed), pull the requested
+    # model (if missing) and wire a CloudLLM client into the engine so
+    # high-severity findings are LLM-enriched.  Unset / false ⇒ legacy
+    # behaviour (no LLM).  Any failure is non-fatal — the scan continues
+    # and a warning is emitted via SocketIO ``scan_log``.
+    use_local_llm = bool(body.get("use_local_llm", False))
+    llm_model_raw = (body.get("llm_model") or "").strip()
+    if llm_model_raw and (not _OLLAMA_MODEL_RE.match(llm_model_raw) or ".." in llm_model_raw):
+        return jsonify({"status": "error", "data": "Invalid llm_model name"}), 400
+    llm_model = llm_model_raw or DEFAULT_OLLAMA_MODEL
+
     # Launch one scan thread per valid target; share the same scan_id prefix
     scan_ids = []
     for idx, target in enumerate(valid_targets):
@@ -841,6 +1018,11 @@ def start_scan():
             "rotate_ua": True,
             "output_dir": Config.REPORTS_DIR,
             "auto_external_tools": True,
+            # Local LLM (Ollama) — auto-start daemon and pull model in
+            # the scan thread when the user opted in.
+            "use_local_llm": use_local_llm,
+            "local_llm": use_local_llm,
+            "llm_model": llm_model,
         }
 
         thread = threading.Thread(target=_run_scan, args=(tid, target, config), daemon=True)
@@ -2802,6 +2984,28 @@ def get_ai_correlations():
 # ---------------------------------------------------------------------------
 # Ollama API — Local LLM integration for security analysis
 # ---------------------------------------------------------------------------
+#
+# This block exposes a small abstraction over the Ollama daemon so the
+# Flask UI (and the scan flow) can:
+#
+#   1. Probe whether the binary is installed and the HTTP daemon is up.
+#   2. Auto-start ``ollama serve`` in the background if it is installed
+#      but not running (so the user does not need a separate terminal).
+#   3. Pull models as a background job that streams progress back to the
+#      UI — the previous synchronous urllib pull silently timed out on
+#      multi-GB downloads and reported a misleading "is Ollama running?"
+#      error.
+#   4. Surface the real error body from Ollama (HTTP error, model not
+#      found, etc.) instead of collapsing every failure to ``None``.
+#
+# Default model is ``qwen2.5-coder:7b`` to match the AI Brain UI defaults.
+
+DEFAULT_OLLAMA_MODEL = "qwen2.5-coder:7b"
+
+# Background process handle for an Ollama daemon we started ourselves.
+# Kept so we can keep it alive for the lifetime of the Flask process.
+_ollama_serve_proc = None
+_ollama_serve_lock = threading.Lock()
 
 
 def _ollama_available():
@@ -2818,14 +3022,32 @@ def _ollama_available():
         return False
 
 
-def _ollama_request(path, method="GET", json_data=None, timeout=120):
-    """Make an HTTP request to the local Ollama API server."""
+def _ollama_host():
+    return os.environ.get("OLLAMA_HOST", "http://localhost:11434")
+
+
+def _ollama_request_ex(path, method="GET", json_data=None, timeout=120):
+    """Make an HTTP request to the local Ollama API server.
+
+    Returns a 3-tuple ``(ok, data, error)`` where:
+
+      * ``ok`` is ``True`` when the request succeeded and the body was
+        parsed as JSON.
+      * ``data`` is the parsed JSON body on success, ``None`` otherwise.
+      * ``error`` is a human-readable string on failure (HTTP status +
+        body when the daemon answered, or the OS-level error when the
+        connection itself failed).  ``""`` on success.
+
+    Unlike the legacy :func:`_ollama_request` helper this never collapses
+    failures to ``None`` — callers can show the real reason to the user
+    (which previously was silently swallowed and reported as
+    "is Ollama running?").
+    """
     import urllib.request
     import urllib.error
 
-    base = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
-    url = f"{base}{path}"
-    req_data = json.dumps(json_data).encode() if json_data else None
+    url = f"{_ollama_host()}{path}"
+    req_data = json.dumps(json_data).encode() if json_data is not None else None
     req = urllib.request.Request(
         url,
         data=req_data,
@@ -2834,9 +3056,106 @@ def _ollama_request(path, method="GET", json_data=None, timeout=120):
     )
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
-            return json.loads(resp.read().decode())
-    except (urllib.error.URLError, urllib.error.HTTPError, OSError, json.JSONDecodeError):
+            body = resp.read().decode("utf-8", errors="replace")
+            try:
+                return True, json.loads(body), ""
+            except json.JSONDecodeError:
+                # Streaming endpoints (like /api/pull) return NDJSON;
+                # callers that want streaming should use _ollama_stream.
+                return True, body, ""
+    except urllib.error.HTTPError as exc:
+        try:
+            body = exc.read().decode("utf-8", errors="replace")
+        except Exception:
+            body = ""
+        return False, None, f"HTTP {exc.code}: {body or exc.reason}"
+    except urllib.error.URLError as exc:
+        return False, None, f"Cannot reach Ollama at {_ollama_host()} ({exc.reason})"
+    except (OSError, TimeoutError) as exc:
+        return False, None, f"Network error talking to Ollama: {exc}"
+
+
+def _ollama_request(path, method="GET", json_data=None, timeout=120):
+    """Backwards-compatible wrapper that returns data-or-None.
+
+    Existing callers (chat, status) treat ``None`` as "Ollama down"; we
+    keep that contract unchanged.  New code should prefer
+    :func:`_ollama_request_ex` so the failure reason can be surfaced.
+    """
+    ok, data, _err = _ollama_request_ex(path, method=method, json_data=json_data, timeout=timeout)
+    if not ok or not isinstance(data, (dict, list)):
         return None
+    return data
+
+
+def _ollama_is_running(timeout=2):
+    """Quick health-check probe against ``/api/tags``."""
+    ok, _data, _err = _ollama_request_ex("/api/tags", timeout=timeout)
+    return ok
+
+
+def _ollama_serve_start(wait_seconds=15):
+    """Start ``ollama serve`` in the background if it isn't already up.
+
+    Returns a 2-tuple ``(running, error)``.  Safe to call concurrently —
+    the function is guarded by a lock so we never spawn more than one
+    background daemon for a given Flask process.
+
+    Implementation notes:
+      * We never run this for non-installed Ollama (returns immediately
+        with the actionable error).
+      * The child process is detached from the Flask request so the
+        daemon survives the request lifecycle.
+      * stdout/stderr are redirected to ``DEVNULL`` to avoid polluting
+        the Flask logs with Ollama's startup banner.
+    """
+    global _ollama_serve_proc
+
+    if _ollama_is_running():
+        return True, ""
+
+    if not _ollama_available():
+        return False, (
+            "Ollama is not installed on this server. "
+            "Install it from https://ollama.com (or `brew install ollama` on macOS, "
+            "`curl -fsSL https://ollama.com/install.sh | sh` on Linux)."
+        )
+
+    with _ollama_serve_lock:
+        # Double-checked locking: another caller may have already started
+        # the daemon while we waited for the lock.
+        if _ollama_is_running():
+            return True, ""
+
+        # If we already spawned a process and it is still alive, just
+        # poll for readiness — don't spawn another one.
+        if _ollama_serve_proc is not None and _ollama_serve_proc.poll() is None:
+            pass
+        else:
+            try:
+                # ``start_new_session=True`` detaches from the parent so
+                # the daemon keeps running if the request thread dies.
+                _ollama_serve_proc = subprocess.Popen(
+                    ["ollama", "serve"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    stdin=subprocess.DEVNULL,
+                    start_new_session=True,
+                )
+            except (FileNotFoundError, OSError, PermissionError) as exc:
+                return False, f"Failed to launch `ollama serve`: {exc}"
+
+    # Poll for the API to become responsive.
+    deadline = time.monotonic() + max(1, int(wait_seconds))
+    while time.monotonic() < deadline:
+        if _ollama_is_running():
+            return True, ""
+        time.sleep(0.5)
+
+    return False, (
+        f"Started `ollama serve` but the API at {_ollama_host()} did not respond "
+        f"within {wait_seconds}s. Check the host with `ollama serve` in a terminal."
+    )
 
 
 @app.route("/api/ollama/status", methods=["GET"])
@@ -2847,9 +3166,10 @@ def ollama_status():
     installed = _ollama_available()
     running = False
     models = []
+    error = ""
     if installed:
-        tags = _ollama_request("/api/tags")
-        if tags is not None:
+        ok, data, err = _ollama_request_ex("/api/tags", timeout=4)
+        if ok and isinstance(data, dict):
             running = True
             models = [
                 {
@@ -2857,8 +3177,10 @@ def ollama_status():
                     "size": m.get("size", 0),
                     "modified": m.get("modified_at", ""),
                 }
-                for m in tags.get("models", [])
+                for m in data.get("models", [])
             ]
+        else:
+            error = err
     return jsonify(
         {
             "status": "success",
@@ -2866,10 +3188,218 @@ def ollama_status():
                 "installed": installed,
                 "running": running,
                 "models": models,
-                "ollama_host": os.environ.get("OLLAMA_HOST", "http://localhost:11434"),
+                "ollama_host": _ollama_host(),
+                "error": error,
             },
         }
     )
+
+
+@app.route("/api/ollama/start", methods=["POST"])
+@_require_api_key
+@_rate_limit
+def ollama_start():
+    """Start ``ollama serve`` in the background if not already running.
+
+    Returns the same shape as :func:`ollama_status` after the start
+    attempt so the UI can refresh in a single round-trip.
+    """
+    running, err = _ollama_serve_start(wait_seconds=15)
+    models = []
+    if running:
+        ok, data, _ = _ollama_request_ex("/api/tags", timeout=4)
+        if ok and isinstance(data, dict):
+            models = [
+                {
+                    "name": m.get("name", ""),
+                    "size": m.get("size", 0),
+                    "modified": m.get("modified_at", ""),
+                }
+                for m in data.get("models", [])
+            ]
+    return jsonify(
+        {
+            "status": "success" if running else "error",
+            "data": {
+                "installed": _ollama_available(),
+                "running": running,
+                "models": models,
+                "ollama_host": _ollama_host(),
+                "message": "Ollama daemon is running" if running else err,
+            },
+        }
+    ), (200 if running else 502)
+
+
+# ---------------------------------------------------------------------------
+# Ollama model pull — background job with progress streaming
+# ---------------------------------------------------------------------------
+#
+# The previous implementation used ``urllib.urlopen("/api/pull", stream=False)``
+# with a 600 s timeout. For a multi-gigabyte model this almost always
+# tripped the socket timeout long before the download finished, and the
+# user saw a misleading "Failed to pull model — is Ollama running?".
+#
+# We now run the pull as a background thread, ask Ollama for an NDJSON
+# progress stream, and parse each line into a job-state dict the
+# frontend can poll.  No timeout on the pull itself; the thread exits
+# cleanly on success / failure / process shutdown.
+
+_ollama_pull_jobs: dict = {}
+_ollama_pull_lock = threading.Lock()
+_OLLAMA_PULL_JOB_TTL = 60 * 60  # purge completed jobs after 1 hour
+
+# Validates a model name like ``qwen2.5-coder:7b`` or ``library/llama3:latest``.
+_OLLAMA_MODEL_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._:/-]*$")
+
+
+def _purge_old_pull_jobs():
+    """Drop completed/failed pull jobs older than the TTL."""
+    cutoff = time.time() - _OLLAMA_PULL_JOB_TTL
+    with _ollama_pull_lock:
+        stale = [
+            jid for jid, job in _ollama_pull_jobs.items()
+            if job.get("done") and job.get("ended_at", 0) < cutoff
+        ]
+        for jid in stale:
+            _ollama_pull_jobs.pop(jid, None)
+
+
+def _ollama_pull_run(job_id, model_name):
+    """Worker thread — stream NDJSON progress from ``/api/pull`` into the job."""
+    import urllib.request
+    import urllib.error
+
+    url = f"{_ollama_host()}/api/pull"
+    req = urllib.request.Request(
+        url,
+        data=json.dumps({"name": model_name, "stream": True}).encode(),
+        method="POST",
+        headers={"Content-Type": "application/json"},
+    )
+
+    def _set(**kw):
+        with _ollama_pull_lock:
+            job = _ollama_pull_jobs.get(job_id)
+            if job is None:
+                return
+            job.update(kw)
+
+    try:
+        # No socket timeout — Ollama may take a long time on large
+        # models, and we read the stream incrementally so a slow line
+        # doesn't kill the whole pull.
+        with urllib.request.urlopen(req, timeout=None) as resp:
+            for raw in resp:
+                if not raw:
+                    continue
+                try:
+                    evt = json.loads(raw.decode("utf-8", errors="replace"))
+                except json.JSONDecodeError:
+                    continue
+
+                # Ollama embeds errors inside the stream too.
+                if evt.get("error"):
+                    _set(
+                        done=True,
+                        ok=False,
+                        error=str(evt["error"]),
+                        ended_at=time.time(),
+                    )
+                    return
+
+                status_text = evt.get("status", "")
+                completed = int(evt.get("completed", 0) or 0)
+                total = int(evt.get("total", 0) or 0)
+                percent = (100.0 * completed / total) if total > 0 else None
+                _set(
+                    status_text=status_text,
+                    completed=completed,
+                    total=total,
+                    percent=percent,
+                )
+                # Final marker emitted by the daemon.
+                if status_text.lower() in ("success", "done"):
+                    _set(done=True, ok=True, ended_at=time.time(), percent=100.0)
+                    return
+
+        # Stream ended without an explicit success marker — treat as ok
+        # only if Ollama actually has the model now.
+        ok2, data2, _ = _ollama_request_ex("/api/tags", timeout=4)
+        installed = False
+        if ok2 and isinstance(data2, dict):
+            installed = any(
+                (m.get("name") or "").startswith(model_name.split(":", 1)[0])
+                for m in data2.get("models", [])
+            )
+        _set(
+            done=True,
+            ok=installed,
+            ended_at=time.time(),
+            error="" if installed else "Pull stream closed before completion",
+        )
+    except urllib.error.HTTPError as exc:
+        try:
+            body = exc.read().decode("utf-8", errors="replace")
+        except Exception:
+            body = ""
+        _set(
+            done=True,
+            ok=False,
+            ended_at=time.time(),
+            error=f"HTTP {exc.code}: {body or exc.reason}",
+        )
+    except urllib.error.URLError as exc:
+        _set(
+            done=True,
+            ok=False,
+            ended_at=time.time(),
+            error=f"Cannot reach Ollama at {_ollama_host()} ({exc.reason})",
+        )
+    except Exception as exc:
+        _set(
+            done=True,
+            ok=False,
+            ended_at=time.time(),
+            error=f"Unexpected pull error: {exc}",
+        )
+
+
+def _ollama_start_pull(model_name):
+    """Kick off a background pull and return its ``job_id``.
+
+    Auto-starts ``ollama serve`` if the daemon is installed but not
+    running so the user does not need to pre-start anything.
+    """
+    running, err = _ollama_serve_start(wait_seconds=15)
+    if not running:
+        return None, err
+
+    _purge_old_pull_jobs()
+    job_id = uuid.uuid4().hex[:16]
+    job = {
+        "id": job_id,
+        "model": model_name,
+        "status_text": "queued",
+        "completed": 0,
+        "total": 0,
+        "percent": 0.0,
+        "started_at": time.time(),
+        "ended_at": 0,
+        "done": False,
+        "ok": False,
+        "error": "",
+    }
+    with _ollama_pull_lock:
+        _ollama_pull_jobs[job_id] = job
+
+    threading.Thread(
+        target=_ollama_pull_run,
+        args=(job_id, model_name),
+        daemon=True,
+        name=f"ollama-pull-{job_id}",
+    ).start()
+    return job_id, ""
 
 
 @app.route("/api/ollama/install", methods=["POST"])
@@ -2914,23 +3444,139 @@ def ollama_install_info():
 @_require_api_key
 @_rate_limit
 def ollama_pull_model():
-    """Pull/download an Ollama model."""
+    """Kick off a background pull of an Ollama model.
+
+    Returns immediately with a ``job_id`` the frontend can poll via
+    :func:`ollama_pull_status` for streaming progress.  Auto-starts
+    ``ollama serve`` if it is installed but not yet running.
+
+    NB: the input validation is preserved verbatim so the existing
+    ``test_ollama_pull_invalid_model`` test still returns 400.
+    """
     body = request.get_json(silent=True)
     model_name = body.get("model", "") if body else ""
-    if not model_name or not re.match(r"^[a-zA-Z0-9][a-zA-Z0-9._:/-]*$", model_name) or ".." in model_name:
+    if not model_name or not _OLLAMA_MODEL_RE.match(model_name) or ".." in model_name:
         return jsonify({"status": "error", "data": "Invalid model name"}), 400
-    result = _ollama_request("/api/pull", method="POST", json_data={"name": model_name, "stream": False}, timeout=600)
-    if result is not None:
+
+    if not _ollama_available():
+        return jsonify(
+            {
+                "status": "error",
+                "data": (
+                    "Ollama is not installed. Click the install guide for "
+                    "platform-specific instructions."
+                ),
+            }
+        ), 502
+
+    job_id, err = _ollama_start_pull(model_name)
+    if not job_id:
+        return jsonify({"status": "error", "data": err or "Failed to start pull"}), 502
+
+    return jsonify(
+        {
+            "status": "success",
+            "data": {
+                "job_id": job_id,
+                "model": model_name,
+                "message": f"Pulling {model_name} in background — poll /api/ollama/pull/<job_id> for progress.",
+            },
+        }
+    )
+
+
+@app.route("/api/ollama/pull/<job_id>", methods=["GET"])
+@_require_api_key
+@_rate_limit
+def ollama_pull_status(job_id):
+    """Return the live progress of a background pull job."""
+    if not re.match(r"^[a-fA-F0-9]{4,32}$", job_id or ""):
+        return jsonify({"status": "error", "data": "Invalid job id"}), 400
+    with _ollama_pull_lock:
+        job = _ollama_pull_jobs.get(job_id)
+        if job is None:
+            return jsonify({"status": "error", "data": "Pull job not found"}), 404
+        # Return a shallow copy so the lock isn't held during JSON
+        # serialisation.
+        return jsonify({"status": "success", "data": dict(job)})
+
+
+@app.route("/api/ollama/auto-setup", methods=["POST"])
+@_require_api_key
+@_rate_limit
+def ollama_auto_setup():
+    """Single-shot endpoint to ensure Ollama is ready for a scan.
+
+    Steps:
+      1. Verify the binary is installed.
+      2. Start ``ollama serve`` in the background if it isn't already.
+      3. If the requested model is missing, kick off a pull and return
+         its ``job_id`` so the frontend can show progress.
+      4. If the model is already present, return ``ready: True``.
+
+    Used by the "Use Local LLM" toggle in the scan form so the user can
+    launch a scan without manually starting the daemon.
+    """
+    body = request.get_json(silent=True) or {}
+    model_name = (body.get("model") or DEFAULT_OLLAMA_MODEL).strip()
+    if not _OLLAMA_MODEL_RE.match(model_name) or ".." in model_name:
+        return jsonify({"status": "error", "data": "Invalid model name"}), 400
+
+    if not _ollama_available():
+        return jsonify(
+            {
+                "status": "error",
+                "data": (
+                    "Ollama is not installed on this server. Open the AI Brain panel "
+                    "and click the install guide for platform-specific instructions."
+                ),
+                "code": "not_installed",
+            }
+        ), 502
+
+    running, err = _ollama_serve_start(wait_seconds=15)
+    if not running:
+        return jsonify({"status": "error", "data": err, "code": "daemon_unavailable"}), 502
+
+    # Is the model already pulled?
+    ok, data, _ = _ollama_request_ex("/api/tags", timeout=4)
+    installed_models = []
+    if ok and isinstance(data, dict):
+        installed_models = [m.get("name", "") for m in data.get("models", [])]
+    if model_name in installed_models:
         return jsonify(
             {
                 "status": "success",
                 "data": {
+                    "ready": True,
                     "model": model_name,
-                    "message": "Model pulled successfully",
+                    "running": True,
+                    "ollama_host": _ollama_host(),
+                    "message": "Ollama is running and the requested model is available.",
                 },
             }
         )
-    return jsonify({"status": "error", "data": "Failed to pull model — is Ollama running?"}), 502
+
+    job_id, perr = _ollama_start_pull(model_name)
+    if not job_id:
+        return jsonify({"status": "error", "data": perr or "Failed to start pull"}), 502
+
+    return jsonify(
+        {
+            "status": "success",
+            "data": {
+                "ready": False,
+                "model": model_name,
+                "running": True,
+                "ollama_host": _ollama_host(),
+                "job_id": job_id,
+                "message": (
+                    f"Ollama is running. Pulling {model_name} in the background — "
+                    "poll /api/ollama/pull/<job_id> for progress."
+                ),
+            },
+        }
+    )
 
 
 @app.route("/api/ollama/chat", methods=["POST"])

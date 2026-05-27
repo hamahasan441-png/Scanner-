@@ -345,6 +345,22 @@
                     <input type="number" id="opt-batch-parallel" value="3" min="1" max="20" style="width:60px;padding:0.2rem 0.4rem;font-size:0.82rem;margin-left:0.3rem;">
                 </div>
 
+                <!--
+                  🦙 Local LLM auto-start. When checked, the scan thread
+                  ensures the Ollama daemon is up, pulls the requested
+                  model on first run, and wires it into the engine for
+                  finding enrichment.  Failures are non-fatal — the scan
+                  continues without LLM analysis and a warning shows in
+                  the live feed.
+                -->
+                <div class="toggle-row" style="margin-top:0.4rem;flex-wrap:wrap;gap:0.5rem;">
+                    <input type="checkbox" id="opt-local-llm">
+                    <label for="opt-local-llm" style="cursor:pointer;font-size:0.85rem;">🦙 Use Local LLM (auto-start Ollama)</label>
+                    <input type="text" id="opt-llm-model" value="qwen2.5-coder:7b" placeholder="ollama model"
+                           style="margin-left:0.6rem;flex:0 0 220px;padding:0.2rem 0.4rem;font-size:0.82rem;">
+                    <span id="opt-llm-status" style="font-size:0.78rem;color:var(--text-muted);"></span>
+                </div>
+
                 <button type="button" class="advanced-toggle" onclick="this.nextElementSibling.classList.toggle('show')">▸ Advanced Options</button>
                 <div class="advanced-config">
                     <div class="grid grid-3">
@@ -1704,7 +1720,7 @@
         if (name === 'nuclei') window._loadNucleiTemplates();
         if (name === 'compliance') _updateScanSelects();
         if (name === 'chat') window._chatLoad();
-        if (name === 'ai-brain') window._aiLoadSummary();
+        if (name === 'ai-brain') { window._aiLoadSummary(); try { window._ollamaCheckStatus(); } catch (e) {} }
         if (name === 'workers') window._loadWorkers();
         if (name === 'config-file') window._configLoad();
         if (name === 'kill-chains') _updateScanSelects();
@@ -2036,6 +2052,53 @@
                 auto_mode: autoMode, async_mode: asyncMode, batch_parallel: batchParallel,
                 browser_engine: browserEngine,
             };
+
+            // 🦙 Use Local LLM toggle — when checked, ask the backend to
+            // ensure Ollama is running and the chosen model is pulled
+            // BEFORE we kick off the scan.  We wait for the auto-setup
+            // response so users see a clear progress indicator instead
+            // of the scan failing later because the daemon was down.
+            var useLocalLlm = document.getElementById('opt-local-llm') ? document.getElementById('opt-local-llm').checked : false;
+            var llmModel = document.getElementById('opt-llm-model') ? document.getElementById('opt-llm-model').value.trim() : '';
+            if (useLocalLlm) {
+                payload.use_local_llm = true;
+                if (llmModel) payload.llm_model = llmModel;
+                var statusEl = document.getElementById('opt-llm-status');
+                if (statusEl) statusEl.textContent = '⏳ Starting Ollama…';
+                try {
+                    var setupResp = await fetch(API + '/api/ollama/auto-setup', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ model: llmModel || 'qwen2.5-coder:7b' })
+                    });
+                    var setupJson = await setupResp.json();
+                    if (setupJson.status !== 'success') {
+                        if (statusEl) statusEl.textContent = '❌ ' + (setupJson.data || 'auto-setup failed');
+                        // Confirm the user wants to proceed without the LLM.
+                        if (!confirm('Local LLM setup failed:\n\n' + (setupJson.data || 'unknown error') + '\n\nStart the scan anyway (without LLM)?')) {
+                            btn.disabled = false;
+                            btn.innerHTML = '▶ Start Scan';
+                            return false;
+                        }
+                        payload.use_local_llm = false;
+                    } else if (setupJson.data && setupJson.data.job_id) {
+                        // Pull is in flight — poll briefly to show progress in the toggle row.
+                        if (statusEl) statusEl.textContent = '⬇️ Pulling ' + (setupJson.data.model || llmModel) + '…';
+                        window._llmPollPullJob(setupJson.data.job_id, statusEl);
+                    } else if (setupJson.data && setupJson.data.ready) {
+                        if (statusEl) statusEl.textContent = '✅ ' + (setupJson.data.model || llmModel) + ' ready';
+                    }
+                } catch (lerr) {
+                    if (statusEl) statusEl.textContent = '❌ ' + lerr.message;
+                    if (!confirm('Could not reach the auto-setup endpoint:\n\n' + lerr.message + '\n\nStart the scan anyway (without LLM)?')) {
+                        btn.disabled = false;
+                        btn.innerHTML = '▶ Start Scan';
+                        return false;
+                    }
+                    payload.use_local_llm = false;
+                }
+            }
+
             if (targets.length === 1) {
                 payload.target = targets[0];
             } else {
@@ -3656,6 +3719,81 @@
     };
 
     /* ---- Ollama Integration ---- */
+    /**
+     * Poll a background pull job until it completes, updating the
+     * given status element with progress text.  Returns a promise that
+     * resolves with the final job dict.
+     */
+    window._llmPollPullJob = function(jobId, statusEl, opts) {
+        opts = opts || {};
+        var intervalMs = opts.intervalMs || 1500;
+        return new Promise(function(resolve) {
+            var stopped = false;
+            function tick() {
+                if (stopped) return;
+                fetch(API + '/api/ollama/pull/' + encodeURIComponent(jobId))
+                    .then(function(r) { return r.json(); })
+                    .then(function(j) {
+                        if (j.status !== 'success') {
+                            if (statusEl) statusEl.textContent = '❌ ' + (j.data || 'pull job lost');
+                            stopped = true;
+                            resolve({ ok: false, error: j.data });
+                            return;
+                        }
+                        var d = j.data;
+                        if (statusEl) {
+                            var pct = (d.percent != null) ? d.percent.toFixed(1) + '%' : '';
+                            var label = d.status_text || 'pulling';
+                            if (d.total) {
+                                var doneMb = (d.completed / 1e6).toFixed(0);
+                                var totalMb = (d.total / 1e6).toFixed(0);
+                                statusEl.textContent = '⬇️ ' + label + ' ' + pct + ' (' + doneMb + '/' + totalMb + ' MB)';
+                            } else {
+                                statusEl.textContent = '⬇️ ' + label + (pct ? ' ' + pct : '');
+                            }
+                        }
+                        if (d.done) {
+                            stopped = true;
+                            if (statusEl) {
+                                statusEl.textContent = d.ok
+                                    ? '✅ ' + (d.model || 'model') + ' pulled'
+                                    : '❌ ' + (d.error || 'pull failed');
+                            }
+                            resolve(d);
+                            return;
+                        }
+                        setTimeout(tick, intervalMs);
+                    })
+                    .catch(function(err) {
+                        if (statusEl) statusEl.textContent = '❌ ' + err.message;
+                        stopped = true;
+                        resolve({ ok: false, error: err.message });
+                    });
+            }
+            tick();
+        });
+    };
+
+    window._ollamaStartServe = async function() {
+        var info = document.getElementById('ollama-status-info');
+        if (info) info.innerHTML = '⏳ Starting <code>ollama serve</code>…';
+        try {
+            var r = await fetch(API + '/api/ollama/start', { method: 'POST' });
+            var j = await r.json();
+            if (j.status === 'success') {
+                if (info) info.innerHTML = '✅ ' + (j.data && j.data.message || 'Ollama is running');
+                if (typeof toast === 'function') toast('Ollama daemon started', 'success');
+            } else {
+                if (info) info.innerHTML = '❌ ' + ((j.data && j.data.message) || j.data || 'Failed to start Ollama');
+                if (typeof toast === 'function') toast('Could not start Ollama: ' + ((j.data && j.data.message) || j.data || 'unknown'), 'error');
+            }
+        } catch (e) {
+            if (info) info.innerHTML = '❌ ' + e.message;
+        }
+        // Refresh the badge / model list regardless of the outcome.
+        try { window._ollamaCheckStatus(); } catch (e) {}
+    };
+
     window._ollamaCheckStatus = async function() {
         var badge = document.getElementById('ollama-status-badge');
         var info = document.getElementById('ollama-status-info');
@@ -3687,7 +3825,10 @@
                     badge.textContent = '⚠️ Installed (not running)';
                     badge.style.background = 'rgba(241,196,15,0.2)';
                     badge.style.color = '#f1c40f';
-                    info.innerHTML = 'Ollama is installed but not running. Start it with: <code>ollama serve</code>';
+                    info.innerHTML = 'Ollama is installed but not running. '
+                        + '<button class="btn btn-sm btn-primary" style="margin-left:0.4rem;" onclick="window._ollamaStartServe()">▶ Start Now</button>'
+                        + '<span style="color:var(--text-muted);margin-left:0.6rem;">or run <code>ollama serve</code> manually</span>'
+                        + (d.error ? '<div style="color:var(--text-muted);font-size:0.78rem;margin-top:0.3rem;">(' + esc(d.error) + ')</div>' : '');
                     models.innerHTML = '<p class="empty-msg">Start Ollama first</p>';
                 } else {
                     badge.textContent = '❌ Not installed';
@@ -3738,18 +3879,33 @@
         var model = document.getElementById('ollama-pull-model').value.trim();
         var status = document.getElementById('ollama-pull-status');
         if (!model) { status.innerHTML = '<span style="color:var(--danger);">Enter a model name</span>'; return; }
-        status.innerHTML = '<span style="color:var(--accent);">⏳ Pulling ' + esc(model) + '... (this may take a few minutes)</span>';
+        status.innerHTML = '<span style="color:var(--accent);">⏳ Starting Ollama and queuing pull…</span>';
         try {
+            // The backend now returns a job_id immediately and pulls in
+            // the background; we poll /api/ollama/pull/<job_id> for
+            // streaming progress so the user always sees what's
+            // happening (no more silent timeouts on multi-GB models).
             var r = await fetch(API + '/api/ollama/pull', {
                 method: 'POST', headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({model: model})
             });
             var j = await r.json();
-            if (j.status === 'success') {
+            if (j.status !== 'success' || !j.data || !j.data.job_id) {
+                status.innerHTML = '<span style="color:var(--danger);">'
+                    + esc((j.data && (j.data.message || j.data)) || 'Failed to start pull')
+                    + '</span>';
+                return;
+            }
+            // Build a small live-progress block we can update in place.
+            status.innerHTML = '<span id="ollama-pull-live" style="color:var(--accent);">⏳ Queued…</span>';
+            var liveEl = document.getElementById('ollama-pull-live');
+            var result = await window._llmPollPullJob(j.data.job_id, liveEl, { intervalMs: 1500 });
+            if (result.ok) {
                 status.innerHTML = '<span style="color:#2ecc71;">✅ ' + esc(model) + ' pulled successfully!</span>';
                 window._ollamaCheckStatus();
             } else {
-                status.innerHTML = '<span style="color:var(--danger);">' + esc(j.data) + '</span>';
+                status.innerHTML = '<span style="color:var(--danger);">❌ '
+                    + esc(result.error || 'Pull failed') + '</span>';
             }
         } catch(e) {
             status.innerHTML = '<span style="color:var(--danger);">Error: ' + esc(e.message) + '</span>';
