@@ -9,11 +9,14 @@ Uses concurrent.futures.ThreadPoolExecutor for bounded concurrency.
 
 from __future__ import annotations
 
+import logging
 import threading
 import time
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from typing import Callable, Optional
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -85,8 +88,8 @@ class ScanWorkerPool:
                 acquire = getattr(self._rate_limiter, "acquire", None)
                 if acquire is not None:
                     acquire()
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("Rate limiter error: %s", exc)
 
         try:
             if self._executor_fn is not None:

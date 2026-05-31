@@ -14,22 +14,7 @@ mock_models = MagicMock()
 sys.modules.setdefault("core.emit", mock_emit)
 sys.modules.setdefault("core.models", mock_models)
 
-
-# ---------------------------------------------------------------------------
-# Shared mocks
-# ---------------------------------------------------------------------------
-
-
-class _MockEngine:
-    """Mock engine with findings collection."""
-
-    def __init__(self, config=None):
-        self.config = config or {"verbose": False, "timeout": 10}
-        self.requester = MagicMock()
-        self.findings = []
-
-    def add_finding(self, finding):
-        self.findings.append(finding)
+from tests.fixtures import MockEngine, MockResponse
 
 
 # ===========================================================================
@@ -42,33 +27,33 @@ class TestH2SmugglingInit(unittest.TestCase):
     def test_name(self):
         from modules.h2_smuggling import H2SmugglingModule
 
-        mod = H2SmugglingModule(_MockEngine())
+        mod = H2SmugglingModule(MockEngine(config={"verbose": False, "timeout": 10}))
         self.assertEqual(mod.name, "HTTP/2 Smuggling")
 
     def test_vuln_type(self):
         from modules.h2_smuggling import H2SmugglingModule
 
-        mod = H2SmugglingModule(_MockEngine())
+        mod = H2SmugglingModule(MockEngine(config={"verbose": False, "timeout": 10}))
         self.assertEqual(mod.vuln_type, "h2_smuggling")
 
     def test_engine_assigned(self):
         from modules.h2_smuggling import H2SmugglingModule
 
-        engine = _MockEngine()
+        engine = MockEngine(config={"verbose": False, "timeout": 10})
         mod = H2SmugglingModule(engine)
         self.assertIs(mod.engine, engine)
 
     def test_timeout_from_config(self):
         from modules.h2_smuggling import H2SmugglingModule
 
-        engine = _MockEngine(config={"verbose": False, "timeout": 20})
+        engine = MockEngine(config={"verbose": False, "timeout": 20})
         mod = H2SmugglingModule(engine)
         self.assertEqual(mod.timeout, 20)
 
     def test_timeout_default(self):
         from modules.h2_smuggling import H2SmugglingModule
 
-        engine = _MockEngine(config={"verbose": False})
+        engine = MockEngine(config={"verbose": False})
         mod = H2SmugglingModule(engine)
         self.assertEqual(mod.timeout, 10)
 
@@ -83,7 +68,7 @@ class TestH2SmugglingURLParsing(unittest.TestCase):
     def test_parse_https_url(self):
         from modules.h2_smuggling import H2SmugglingModule
 
-        mod = H2SmugglingModule(_MockEngine())
+        mod = H2SmugglingModule(MockEngine(config={"verbose": False, "timeout": 10}))
         host, port, path, use_ssl = mod._parse_url("https://example.com/path?q=1")
         self.assertEqual(host, "example.com")
         self.assertEqual(port, 443)
@@ -93,7 +78,7 @@ class TestH2SmugglingURLParsing(unittest.TestCase):
     def test_parse_http_url(self):
         from modules.h2_smuggling import H2SmugglingModule
 
-        mod = H2SmugglingModule(_MockEngine())
+        mod = H2SmugglingModule(MockEngine(config={"verbose": False, "timeout": 10}))
         host, port, path, use_ssl = mod._parse_url("http://target.com:8080/api")
         self.assertEqual(host, "target.com")
         self.assertEqual(port, 8080)
@@ -103,7 +88,7 @@ class TestH2SmugglingURLParsing(unittest.TestCase):
     def test_parse_invalid_url(self):
         from modules.h2_smuggling import H2SmugglingModule
 
-        mod = H2SmugglingModule(_MockEngine())
+        mod = H2SmugglingModule(MockEngine(config={"verbose": False, "timeout": 10}))
         host, port, path, use_ssl = mod._parse_url("")
         # Empty URL returns empty host string
         self.assertEqual(host, "")
@@ -127,7 +112,7 @@ class TestH2CLDesync(unittest.TestCase):
             b"HTTP/1.1 405 Method Not Allowed\r\n\r\n",
         ]
 
-        engine = _MockEngine()
+        engine = MockEngine(config={"verbose": False, "timeout": 10})
         mod = H2SmugglingModule(engine)
         mod._emit_signal = MagicMock()
         mod._test_h2_cl_desync("example.com", 443, "/", True, "https://example.com/")
@@ -147,7 +132,7 @@ class TestH2CLDesync(unittest.TestCase):
             b"HTTP/1.1 200 OK\r\n\r\nNormal page",
         ]
 
-        engine = _MockEngine()
+        engine = MockEngine(config={"verbose": False, "timeout": 10})
         mod = H2SmugglingModule(engine)
         mod._emit_signal = MagicMock()
         mod._test_h2_cl_desync("example.com", 443, "/", True, "https://example.com/")
@@ -160,7 +145,7 @@ class TestH2CLDesync(unittest.TestCase):
 
         mock_send.side_effect = [b"HTTP/1.1 200 OK\r\n\r\n", None]
 
-        engine = _MockEngine()
+        engine = MockEngine(config={"verbose": False, "timeout": 10})
         mod = H2SmugglingModule(engine)
         mod._emit_signal = MagicMock()
         mod._test_h2_cl_desync("example.com", 443, "/", True, "https://example.com/")
@@ -181,7 +166,7 @@ class TestH2TEDesync(unittest.TestCase):
 
         mock_send.return_value = b"HTTP/1.1 200 OK\r\n\r\nSMUGGLED_H2TE"
 
-        engine = _MockEngine()
+        engine = MockEngine(config={"verbose": False, "timeout": 10})
         mod = H2SmugglingModule(engine)
         mod._emit_signal = MagicMock()
         mod._test_h2_te_desync("example.com", 443, "/", True, "https://example.com/")
@@ -196,7 +181,7 @@ class TestH2TEDesync(unittest.TestCase):
 
         mock_send.return_value = b"HTTP/1.1 200 OK\r\n\r\nNormal content"
 
-        engine = _MockEngine()
+        engine = MockEngine(config={"verbose": False, "timeout": 10})
         mod = H2SmugglingModule(engine)
         mod._emit_signal = MagicMock()
         mod._test_h2_te_desync("example.com", 443, "/", True, "https://example.com/")
@@ -217,7 +202,7 @@ class TestCRLFPseudoHeaders(unittest.TestCase):
 
         mock_send.return_value = b"HTTP/1.1 200 OK\r\nX-Injected: true\r\n\r\nBody"
 
-        engine = _MockEngine()
+        engine = MockEngine(config={"verbose": False, "timeout": 10})
         mod = H2SmugglingModule(engine)
         mod._emit_signal = MagicMock()
         mod._test_crlf_pseudo_headers("example.com", 443, "/", True, "https://example.com/")
@@ -233,7 +218,7 @@ class TestCRLFPseudoHeaders(unittest.TestCase):
 
         mock_send.return_value = b"HTTP/1.1 200 OK\r\n\r\nNormal"
 
-        engine = _MockEngine()
+        engine = MockEngine(config={"verbose": False, "timeout": 10})
         mod = H2SmugglingModule(engine)
         mod._emit_signal = MagicMock()
         mod._test_crlf_pseudo_headers("example.com", 443, "/", True, "https://example.com/")
@@ -255,7 +240,7 @@ class TestWebSocketUpgradeSmuggling(unittest.TestCase):
         # Response indicating 101 + poisoning indicators
         mock_send.return_value = b"HTTP/1.1 101 Switching Protocols\r\n\r\nHTTP/1.1 405 Method Not Allowed"
 
-        engine = _MockEngine()
+        engine = MockEngine(config={"verbose": False, "timeout": 10})
         mod = H2SmugglingModule(engine)
         mod._emit_signal = MagicMock()
         mod._test_websocket_upgrade_smuggling("example.com", 443, "/", True, "https://example.com/")
@@ -270,7 +255,7 @@ class TestWebSocketUpgradeSmuggling(unittest.TestCase):
 
         mock_send.return_value = b"HTTP/1.1 200 OK\r\n\r\nNormal"
 
-        engine = _MockEngine()
+        engine = MockEngine(config={"verbose": False, "timeout": 10})
         mod = H2SmugglingModule(engine)
         mod._emit_signal = MagicMock()
         mod._test_websocket_upgrade_smuggling("example.com", 443, "/", True, "https://example.com/")
@@ -318,7 +303,7 @@ class TestTestMethod(unittest.TestCase):
     def test_test_method_is_noop(self):
         from modules.h2_smuggling import H2SmugglingModule
 
-        engine = _MockEngine()
+        engine = MockEngine(config={"verbose": False, "timeout": 10})
         mod = H2SmugglingModule(engine)
         # Should not raise
         mod.test("https://example.com/", "GET", "param", "value")

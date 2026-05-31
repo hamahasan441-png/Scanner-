@@ -14,46 +14,7 @@ mock_models = MagicMock()
 sys.modules.setdefault("core.emit", mock_emit)
 sys.modules.setdefault("core.models", mock_models)
 
-
-# ---------------------------------------------------------------------------
-# Shared mocks
-# ---------------------------------------------------------------------------
-
-
-class _MockResponse:
-    """Minimal mock HTTP response."""
-
-    def __init__(self, text="", status_code=200, headers=None):
-        self.text = text
-        self.status_code = status_code
-        self.headers = headers or {}
-
-
-class _MockRequester:
-    """Mock requester returning pre-configured responses."""
-
-    def __init__(self, responses=None):
-        self._responses = responses or []
-        self._call_idx = 0
-
-    def request(self, url, method, data=None, headers=None, allow_redirects=True):
-        if self._call_idx < len(self._responses):
-            resp = self._responses[self._call_idx]
-            self._call_idx += 1
-            return resp
-        return None
-
-
-class _MockEngine:
-    """Mock engine with findings collection."""
-
-    def __init__(self, responses=None, config=None):
-        self.config = config or {"verbose": False}
-        self.requester = _MockRequester(responses or [])
-        self.findings = []
-
-    def add_finding(self, finding):
-        self.findings.append(finding)
+from tests.fixtures import MockEngine, MockResponse, MockRequester
 
 
 # ===========================================================================
@@ -66,33 +27,33 @@ class TestCachePoisoningInit(unittest.TestCase):
     def test_name(self):
         from modules.cache_poisoning import CachePoisoningModule
 
-        mod = CachePoisoningModule(_MockEngine())
+        mod = CachePoisoningModule(MockEngine())
         self.assertEqual(mod.name, "Cache Poisoning")
 
     def test_vuln_type(self):
         from modules.cache_poisoning import CachePoisoningModule
 
-        mod = CachePoisoningModule(_MockEngine())
+        mod = CachePoisoningModule(MockEngine())
         self.assertEqual(mod.vuln_type, "cache_poisoning")
 
     def test_engine_assigned(self):
         from modules.cache_poisoning import CachePoisoningModule
 
-        engine = _MockEngine()
+        engine = MockEngine()
         mod = CachePoisoningModule(engine)
         self.assertIs(mod.engine, engine)
 
     def test_requester_assigned(self):
         from modules.cache_poisoning import CachePoisoningModule
 
-        engine = _MockEngine()
+        engine = MockEngine()
         mod = CachePoisoningModule(engine)
         self.assertIs(mod.requester, engine.requester)
 
     def test_cache_indicators_defined(self):
         from modules.cache_poisoning import CachePoisoningModule
 
-        mod = CachePoisoningModule(_MockEngine())
+        mod = CachePoisoningModule(MockEngine())
         self.assertIn("X-Cache", mod.CACHE_INDICATORS)
         self.assertIn("Age", mod.CACHE_INDICATORS)
         self.assertIn("CF-Cache-Status", mod.CACHE_INDICATORS)
@@ -109,9 +70,9 @@ class TestCacheDetection(unittest.TestCase):
         from modules.cache_poisoning import CachePoisoningModule
 
         responses = [
-            _MockResponse(text="page", headers={"X-Cache": "HIT"}),
+            MockResponse(text="page", headers={"X-Cache": "HIT"}),
         ]
-        engine = _MockEngine(responses=responses)
+        engine = MockEngine(responses=responses)
         mod = CachePoisoningModule(engine)
         self.assertTrue(mod._detect_caching("http://example.com/"))
 
@@ -119,10 +80,10 @@ class TestCacheDetection(unittest.TestCase):
         from modules.cache_poisoning import CachePoisoningModule
 
         responses = [
-            _MockResponse(text="page", headers={}),
-            _MockResponse(text="page", headers={"Age": "5"}),
+            MockResponse(text="page", headers={}),
+            MockResponse(text="page", headers={"Age": "5"}),
         ]
-        engine = _MockEngine(responses=responses)
+        engine = MockEngine(responses=responses)
         mod = CachePoisoningModule(engine)
         self.assertTrue(mod._detect_caching("http://example.com/"))
 
@@ -130,31 +91,31 @@ class TestCacheDetection(unittest.TestCase):
         from modules.cache_poisoning import CachePoisoningModule
 
         responses = [
-            _MockResponse(text="page", headers={}),
-            _MockResponse(text="page", headers={}),
+            MockResponse(text="page", headers={}),
+            MockResponse(text="page", headers={}),
         ]
-        engine = _MockEngine(responses=responses)
+        engine = MockEngine(responses=responses)
         mod = CachePoisoningModule(engine)
         self.assertFalse(mod._detect_caching("http://example.com/"))
 
     def test_is_cache_hit_true(self):
         from modules.cache_poisoning import CachePoisoningModule
 
-        mod = CachePoisoningModule(_MockEngine())
-        resp = _MockResponse(headers={"X-Cache": "HIT"})
+        mod = CachePoisoningModule(MockEngine())
+        resp = MockResponse(headers={"X-Cache": "HIT"})
         self.assertTrue(mod._is_cache_hit(resp))
 
     def test_is_cache_hit_false(self):
         from modules.cache_poisoning import CachePoisoningModule
 
-        mod = CachePoisoningModule(_MockEngine())
-        resp = _MockResponse(headers={"X-Cache": "MISS"})
+        mod = CachePoisoningModule(MockEngine())
+        resp = MockResponse(headers={"X-Cache": "MISS"})
         self.assertFalse(mod._is_cache_hit(resp))
 
     def test_is_cache_hit_none_response(self):
         from modules.cache_poisoning import CachePoisoningModule
 
-        mod = CachePoisoningModule(_MockEngine())
+        mod = CachePoisoningModule(MockEngine())
         self.assertFalse(mod._is_cache_hit(None))
 
 
@@ -176,11 +137,11 @@ class TestUnkeyedHeaders(unittest.TestCase):
 
         responses = [
             # poison request with header - canary reflected
-            _MockResponse(text=f"href='http://{canary}'", headers={}),
+            MockResponse(text=f"href='http://{canary}'", headers={}),
             # follow-up without header (cached) - canary still present
-            _MockResponse(text=f"href='http://{canary}'", headers={"X-Cache": "HIT"}),
+            MockResponse(text=f"href='http://{canary}'", headers={"X-Cache": "HIT"}),
         ]
-        engine = _MockEngine(responses=responses)
+        engine = MockEngine(responses=responses)
         mod = CachePoisoningModule(engine)
         mod._emit_signal = MagicMock()
 
@@ -195,9 +156,9 @@ class TestUnkeyedHeaders(unittest.TestCase):
         from modules.cache_poisoning import CachePoisoningModule
 
         responses = [
-            _MockResponse(text="normal page", headers={}),
+            MockResponse(text="normal page", headers={}),
         ] * 20  # Enough for all header tests
-        engine = _MockEngine(responses=responses)
+        engine = MockEngine(responses=responses)
         mod = CachePoisoningModule(engine)
         mod._emit_signal = MagicMock()
         mod._test_unkeyed_headers("http://example.com/")
@@ -222,10 +183,10 @@ class TestFatGET(unittest.TestCase):
         )
 
         responses = [
-            _MockResponse(text=f"body contains {canary}", headers={}),
-            _MockResponse(text=f"cached: {canary}", headers={}),
+            MockResponse(text=f"body contains {canary}", headers={}),
+            MockResponse(text=f"cached: {canary}", headers={}),
         ]
-        engine = _MockEngine(responses=responses)
+        engine = MockEngine(responses=responses)
         mod = CachePoisoningModule(engine)
         mod._emit_signal = MagicMock()
         mod._test_fat_get(test_url)
@@ -238,9 +199,9 @@ class TestFatGET(unittest.TestCase):
         from modules.cache_poisoning import CachePoisoningModule
 
         responses = [
-            _MockResponse(text="normal page", headers={}),
+            MockResponse(text="normal page", headers={}),
         ]
-        engine = _MockEngine(responses=responses)
+        engine = MockEngine(responses=responses)
         mod = CachePoisoningModule(engine)
         mod._emit_signal = MagicMock()
         mod._test_fat_get("http://example.com/")
@@ -260,10 +221,10 @@ class TestHostHeaderPoisoning(unittest.TestCase):
 
         canary_host = "atomic-host-poison.evil.com"
         responses = [
-            _MockResponse(text=f"<link href='http://{canary_host}/style.css'>", headers={}),
-            _MockResponse(text=f"<link href='http://{canary_host}/style.css'>", headers={}),
+            MockResponse(text=f"<link href='http://{canary_host}/style.css'>", headers={}),
+            MockResponse(text=f"<link href='http://{canary_host}/style.css'>", headers={}),
         ]
-        engine = _MockEngine(responses=responses)
+        engine = MockEngine(responses=responses)
         mod = CachePoisoningModule(engine)
         mod._emit_signal = MagicMock()
         mod._test_host_header_poisoning("http://example.com/")
@@ -276,9 +237,9 @@ class TestHostHeaderPoisoning(unittest.TestCase):
         from modules.cache_poisoning import CachePoisoningModule
 
         responses = [
-            _MockResponse(text="normal page", headers={}),
+            MockResponse(text="normal page", headers={}),
         ]
-        engine = _MockEngine(responses=responses)
+        engine = MockEngine(responses=responses)
         mod = CachePoisoningModule(engine)
         mod._emit_signal = MagicMock()
         mod._test_host_header_poisoning("http://example.com/")
@@ -308,7 +269,7 @@ class TestHelpers(unittest.TestCase):
     def test_test_method_noop(self):
         from modules.cache_poisoning import CachePoisoningModule
 
-        mod = CachePoisoningModule(_MockEngine())
+        mod = CachePoisoningModule(MockEngine())
         mod.test("http://example.com/", "GET", "param", "value")
 
 

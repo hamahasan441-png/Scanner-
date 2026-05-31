@@ -15,46 +15,7 @@ mock_models = MagicMock()
 sys.modules.setdefault("core.emit", mock_emit)
 sys.modules.setdefault("core.models", mock_models)
 
-
-# ---------------------------------------------------------------------------
-# Shared mocks
-# ---------------------------------------------------------------------------
-
-
-class _MockResponse:
-    """Minimal mock HTTP response."""
-
-    def __init__(self, text="", status_code=200, headers=None):
-        self.text = text
-        self.status_code = status_code
-        self.headers = headers or {}
-
-
-class _MockRequester:
-    """Mock requester returning pre-configured responses."""
-
-    def __init__(self, responses=None):
-        self._responses = responses or []
-        self._call_idx = 0
-
-    def request(self, url, method, data=None, headers=None, allow_redirects=True):
-        if self._call_idx < len(self._responses):
-            resp = self._responses[self._call_idx]
-            self._call_idx += 1
-            return resp
-        return None
-
-
-class _MockEngine:
-    """Mock engine with findings collection."""
-
-    def __init__(self, responses=None, config=None):
-        self.config = config or {"verbose": False}
-        self.requester = _MockRequester(responses or [])
-        self.findings = []
-
-    def add_finding(self, finding):
-        self.findings.append(finding)
+from tests.fixtures import MockEngine, MockResponse
 
 
 # ===========================================================================
@@ -67,40 +28,40 @@ class TestAPIAbuseInit(unittest.TestCase):
     def test_name(self):
         from modules.api_abuse import APIAbuseModule
 
-        mod = APIAbuseModule(_MockEngine())
+        mod = APIAbuseModule(MockEngine())
         self.assertEqual(mod.name, "API Abuse")
 
     def test_vuln_type(self):
         from modules.api_abuse import APIAbuseModule
 
-        mod = APIAbuseModule(_MockEngine())
+        mod = APIAbuseModule(MockEngine())
         self.assertEqual(mod.vuln_type, "api_abuse")
 
     def test_engine_assigned(self):
         from modules.api_abuse import APIAbuseModule
 
-        engine = _MockEngine()
+        engine = MockEngine()
         mod = APIAbuseModule(engine)
         self.assertIs(mod.engine, engine)
 
     def test_requester_assigned(self):
         from modules.api_abuse import APIAbuseModule
 
-        engine = _MockEngine()
+        engine = MockEngine()
         mod = APIAbuseModule(engine)
         self.assertIs(mod.requester, engine.requester)
 
     def test_admin_paths_defined(self):
         from modules.api_abuse import APIAbuseModule
 
-        mod = APIAbuseModule(_MockEngine())
+        mod = APIAbuseModule(MockEngine())
         self.assertIn("/admin", mod.ADMIN_PATHS)
         self.assertIn("/api/admin", mod.ADMIN_PATHS)
 
     def test_graphql_queries_defined(self):
         from modules.api_abuse import APIAbuseModule
 
-        mod = APIAbuseModule(_MockEngine())
+        mod = APIAbuseModule(MockEngine())
         self.assertTrue(len(mod.GRAPHQL_QUERIES) > 0)
         for q in mod.GRAPHQL_QUERIES:
             self.assertIn("query", q)
@@ -120,12 +81,12 @@ class TestRateLimitBypass(unittest.TestCase):
         responses = []
         # 10 requests to trigger rate limit (last one gets 429)
         for i in range(9):
-            responses.append(_MockResponse(status_code=200))
-        responses.append(_MockResponse(status_code=429))
+            responses.append(MockResponse(status_code=200))
+        responses.append(MockResponse(status_code=429))
         # Bypass attempt succeeds
-        responses.append(_MockResponse(status_code=200, text="OK"))
+        responses.append(MockResponse(status_code=200, text="OK"))
 
-        engine = _MockEngine(responses=responses)
+        engine = MockEngine(responses=responses)
         mod = APIAbuseModule(engine)
         mod._emit_signal = MagicMock()
         mod._test_rate_limit_bypass("http://api.example.com/endpoint")
@@ -139,8 +100,8 @@ class TestRateLimitBypass(unittest.TestCase):
         from modules.api_abuse import APIAbuseModule
 
         # All requests succeed - no rate limit in place
-        responses = [_MockResponse(status_code=200)] * 15
-        engine = _MockEngine(responses=responses)
+        responses = [MockResponse(status_code=200)] * 15
+        engine = MockEngine(responses=responses)
         mod = APIAbuseModule(engine)
         mod._emit_signal = MagicMock()
         mod._test_rate_limit_bypass("http://api.example.com/endpoint")
@@ -153,13 +114,13 @@ class TestRateLimitBypass(unittest.TestCase):
         # Rate limited and bypass also gets 429
         responses = []
         for i in range(9):
-            responses.append(_MockResponse(status_code=200))
-        responses.append(_MockResponse(status_code=429))
+            responses.append(MockResponse(status_code=200))
+        responses.append(MockResponse(status_code=429))
         # All bypass attempts also get 429
         for i in range(12):
-            responses.append(_MockResponse(status_code=429))
+            responses.append(MockResponse(status_code=429))
 
-        engine = _MockEngine(responses=responses)
+        engine = MockEngine(responses=responses)
         mod = APIAbuseModule(engine)
         mod._emit_signal = MagicMock()
         mod._test_rate_limit_bypass("http://api.example.com/endpoint")
@@ -179,9 +140,9 @@ class TestBOLA(unittest.TestCase):
 
         # Response to different ID is accessible
         responses = [
-            _MockResponse(status_code=200, text="x" * 100),
+            MockResponse(status_code=200, text="x" * 100),
         ]
-        engine = _MockEngine(responses=responses)
+        engine = MockEngine(responses=responses)
         mod = APIAbuseModule(engine)
         mod._emit_signal = MagicMock()
         mod._test_bola("http://api.example.com/users/42/profile")
@@ -194,7 +155,7 @@ class TestBOLA(unittest.TestCase):
     def test_bola_no_numeric_id_in_path(self):
         from modules.api_abuse import APIAbuseModule
 
-        engine = _MockEngine(responses=[])
+        engine = MockEngine(responses=[])
         mod = APIAbuseModule(engine)
         mod._emit_signal = MagicMock()
         mod._test_bola("http://api.example.com/users/john/profile")
@@ -205,9 +166,9 @@ class TestBOLA(unittest.TestCase):
         from modules.api_abuse import APIAbuseModule
 
         responses = [
-            _MockResponse(status_code=404, text="Not found"),
+            MockResponse(status_code=404, text="Not found"),
         ] * 10
-        engine = _MockEngine(responses=responses)
+        engine = MockEngine(responses=responses)
         mod = APIAbuseModule(engine)
         mod._emit_signal = MagicMock()
         mod._test_bola("http://api.example.com/users/42/profile")
@@ -227,9 +188,9 @@ class TestMassAssignment(unittest.TestCase):
 
         resp_data = json.dumps({"id": 1, "name": "test", "role": "admin", "is_admin": True})
         responses = [
-            _MockResponse(status_code=200, text=resp_data),
+            MockResponse(status_code=200, text=resp_data),
         ]
-        engine = _MockEngine(responses=responses)
+        engine = MockEngine(responses=responses)
         mod = APIAbuseModule(engine)
         mod._emit_signal = MagicMock()
         mod._test_mass_assignment("http://api.example.com/users/1")
@@ -243,9 +204,9 @@ class TestMassAssignment(unittest.TestCase):
         from modules.api_abuse import APIAbuseModule
 
         responses = [
-            _MockResponse(status_code=403, text="Forbidden"),
+            MockResponse(status_code=403, text="Forbidden"),
         ]
-        engine = _MockEngine(responses=responses)
+        engine = MockEngine(responses=responses)
         mod = APIAbuseModule(engine)
         mod._emit_signal = MagicMock()
         mod._test_mass_assignment("http://api.example.com/users/1")
@@ -257,9 +218,9 @@ class TestMassAssignment(unittest.TestCase):
 
         resp_data = json.dumps({"id": 1, "name": "test", "email": "a@b.com"})
         responses = [
-            _MockResponse(status_code=200, text=resp_data),
+            MockResponse(status_code=200, text=resp_data),
         ]
-        engine = _MockEngine(responses=responses)
+        engine = MockEngine(responses=responses)
         mod = APIAbuseModule(engine)
         mod._emit_signal = MagicMock()
         mod._test_mass_assignment("http://api.example.com/users/1")
@@ -278,9 +239,9 @@ class TestBFLA(unittest.TestCase):
         from modules.api_abuse import APIAbuseModule
 
         responses = [
-            _MockResponse(status_code=200, text="x" * 100 + "Admin Panel"),
+            MockResponse(status_code=200, text="x" * 100 + "Admin Panel"),
         ]
-        engine = _MockEngine(responses=responses)
+        engine = MockEngine(responses=responses)
         mod = APIAbuseModule(engine)
         mod._emit_signal = MagicMock()
         mod._test_broken_function_auth("http://example.com/app")
@@ -292,8 +253,8 @@ class TestBFLA(unittest.TestCase):
     def test_admin_endpoint_returns_403(self):
         from modules.api_abuse import APIAbuseModule
 
-        responses = [_MockResponse(status_code=403, text="Forbidden")] * 20
-        engine = _MockEngine(responses=responses)
+        responses = [MockResponse(status_code=403, text="Forbidden")] * 20
+        engine = MockEngine(responses=responses)
         mod = APIAbuseModule(engine)
         mod._emit_signal = MagicMock()
         mod._test_broken_function_auth("http://example.com/app")
@@ -304,9 +265,9 @@ class TestBFLA(unittest.TestCase):
         from modules.api_abuse import APIAbuseModule
 
         responses = [
-            _MockResponse(status_code=200, text="x" * 100 + "Please login to continue"),
+            MockResponse(status_code=200, text="x" * 100 + "Please login to continue"),
         ] * 20
-        engine = _MockEngine(responses=responses)
+        engine = MockEngine(responses=responses)
         mod = APIAbuseModule(engine)
         mod._emit_signal = MagicMock()
         mod._test_broken_function_auth("http://example.com/app")
@@ -326,9 +287,9 @@ class TestGraphQLComplexity(unittest.TestCase):
 
         resp_data = json.dumps({"data": {"user": {"friends": []}}})
         responses = [
-            _MockResponse(status_code=200, text=resp_data),
+            MockResponse(status_code=200, text=resp_data),
         ]
-        engine = _MockEngine(responses=responses)
+        engine = MockEngine(responses=responses)
         mod = APIAbuseModule(engine)
         mod._emit_signal = MagicMock()
         mod._test_graphql_complexity("http://example.com/graphql")
@@ -341,8 +302,8 @@ class TestGraphQLComplexity(unittest.TestCase):
     def test_graphql_complexity_not_found(self):
         from modules.api_abuse import APIAbuseModule
 
-        responses = [_MockResponse(status_code=404, text="Not found")] * 20
-        engine = _MockEngine(responses=responses)
+        responses = [MockResponse(status_code=404, text="Not found")] * 20
+        engine = MockEngine(responses=responses)
         mod = APIAbuseModule(engine)
         mod._emit_signal = MagicMock()
         mod._test_graphql_complexity("http://example.com/api")
@@ -360,7 +321,7 @@ class TestTestMethod(unittest.TestCase):
     def test_test_method_is_noop(self):
         from modules.api_abuse import APIAbuseModule
 
-        mod = APIAbuseModule(_MockEngine())
+        mod = APIAbuseModule(MockEngine())
         # Should not raise
         mod.test("http://example.com/", "GET", "param", "value")
 

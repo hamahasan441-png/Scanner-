@@ -274,7 +274,15 @@ class H2SmugglingModule(BaseModule):
             return None, None, None, None
 
     def _raw_send(self, host, port, data, use_ssl, timeout=None):
-        """Send raw bytes and return the response bytes."""
+        """Send raw bytes and return the response bytes.
+
+        Note: SSL verification is intentionally disabled (check_hostname=False,
+        verify_mode=CERT_NONE). This is required for security scanners that
+        test arbitrary targets where the scanner does not possess the target's
+        CA certificate. Disabling verification is standard practice for
+        security scanning tools that need to inspect TLS-protected endpoints
+        without a trust relationship.
+        """
         timeout = timeout or self.timeout
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.settimeout(timeout)

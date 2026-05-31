@@ -18,6 +18,8 @@ from utils.async_requester import (
     RateLimiter,
 )
 
+from utils.exceptions import ConnectionTimeoutError, NetworkError
+
 
 # ── ConnectionPool Tests ──────────────────────────────────────────────
 
@@ -54,7 +56,7 @@ class TestConnectionPool:
         pool = ConnectionPool(max_connections=1, timeout=0.1)
         conn = pool.acquire()
         assert pool.in_use == 1
-        with pytest.raises(TimeoutError):
+        with pytest.raises(ConnectionTimeoutError):
             pool.acquire()
         pool.release(conn)
 
@@ -91,7 +93,7 @@ class TestConnectionPool:
         pool = ConnectionPool(max_connections=5)
         pool.acquire()
         pool.close_all()
-        with pytest.raises(RuntimeError):
+        with pytest.raises(NetworkError):
             pool.acquire()
 
     def test_connection_reuse(self) -> None:

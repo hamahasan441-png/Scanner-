@@ -127,6 +127,9 @@ class APIAbuseModule(BaseModule):
         Attempts to access resources by incrementing/decrementing IDs
         in URL paths that appear to contain numeric identifiers.
         """
+        # Common error patterns that indicate the response is not real data
+        _error_patterns = ("not found", "unauthorized", "forbidden", "invalid", "error")
+
         parsed = urlparse(url)
         path_parts = parsed.path.strip("/").split("/")
 
@@ -157,6 +160,11 @@ class APIAbuseModule(BaseModule):
                     try:
                         resp = self.requester.request(test_url, "GET")
                         if resp and resp.status_code == 200 and len(resp.text) > 50:
+                            # Check that the response does not look like an error
+                            body_lower = resp.text.lower()
+                            if any(pat in body_lower for pat in _error_patterns):
+                                continue
+
                             self._emit_signal(
                                 vuln_type="api_abuse",
                                 technique="BOLA (Broken Object Level Authorization)",
@@ -165,7 +173,7 @@ class APIAbuseModule(BaseModule):
                                 param=f"path[{i}]",
                                 payload=f"ID changed from {original_id} to {test_id}",
                                 evidence_text=f"Accessible resource at {test_url} (status: {resp.status_code}, length: {len(resp.text)})",
-                                raw_confidence=0.70,
+                                raw_confidence=0.55,
                                 severity="HIGH",
                                 cvss=7.5,
                             )
@@ -191,6 +199,14 @@ class APIAbuseModule(BaseModule):
             "active": True,
         }
 
+        # Map field names to their injected values for precise checking
+        _check_fields = {
+            "role": "admin",
+            "is_admin": "true",
+            "admin": "true",
+            "privilege": "superuser",
+        }
+
         try:
             # Try POST with extra fields
             headers = {"Content-Type": "application/json"}
@@ -200,12 +216,12 @@ class APIAbuseModule(BaseModule):
             if not resp:
                 return
 
-            # Check if the response includes our injected fields
-            if resp.status_code in (200, 201, 202):
+            # Check if the response includes our injected values (2xx only)
+            if 200 <= resp.status_code < 300:
                 try:
-                    resp_data = json.loads(resp.text)
-                    for field_name in ["role", "is_admin", "admin", "privilege"]:
-                        if field_name in str(resp_data):
+                    resp_text = resp.text.lower()
+                    for field_name, injected_value in _check_fields.items():
+                        if str(injected_value).lower() in resp_text:
                             self._emit_signal(
                                 vuln_type="api_abuse",
                                 technique="Mass Assignment Vulnerability",
@@ -213,7 +229,7 @@ class APIAbuseModule(BaseModule):
                                 method="POST",
                                 param=field_name,
                                 payload=body[:200],
-                                evidence_text=f"Privileged field '{field_name}' accepted in response",
+                                evidence_text=f"Privileged field '{field_name}' with value '{injected_value}' accepted in response",
                                 raw_confidence=0.70,
                                 severity="HIGH",
                                 cvss=7.5,
@@ -224,11 +240,11 @@ class APIAbuseModule(BaseModule):
 
             # Also try PUT
             resp_put = self.requester.request(url, "PUT", data=body, headers=headers)
-            if resp_put and resp_put.status_code in (200, 201, 202):
+            if resp_put and 200 <= resp_put.status_code < 300:
                 try:
-                    resp_data = json.loads(resp_put.text)
-                    for field_name in ["role", "is_admin", "admin", "privilege"]:
-                        if field_name in str(resp_data):
+                    resp_text = resp_put.text.lower()
+                    for field_name, injected_value in _check_fields.items():
+                        if str(injected_value).lower() in resp_text:
                             self._emit_signal(
                                 vuln_type="api_abuse",
                                 technique="Mass Assignment Vulnerability",
@@ -236,7 +252,7 @@ class APIAbuseModule(BaseModule):
                                 method="PUT",
                                 param=field_name,
                                 payload=body[:200],
-                                evidence_text=f"Privileged field '{field_name}' accepted via PUT",
+                                evidence_text=f"Privileged field '{field_name}' with value '{injected_value}' accepted via PUT",
                                 raw_confidence=0.70,
                                 severity="HIGH",
                                 cvss=7.5,

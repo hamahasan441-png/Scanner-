@@ -14,6 +14,9 @@ import time
 from concurrent.futures import Future, ThreadPoolExecutor
 from typing import Any, Callable, Iterable, Iterator, Optional
 
+from utils.exceptions import ConnectionTimeoutError as PoolTimeoutError
+from utils.exceptions import NetworkError
+
 
 class ConnectionPool:
     """Thread-safe connection pool with max_connections limit.
@@ -34,15 +37,16 @@ class ConnectionPool:
     def acquire(self) -> object:
         """Acquire a connection slot from the pool.
 
-        Blocks until a slot is available. Raises TimeoutError if the
-        configured timeout is exceeded while waiting.
+        Blocks until a slot is available. Raises ConnectionTimeoutError if the
+        configured timeout is exceeded while waiting, or NetworkError if
+        the pool is closed.
         """
         if self._closed:
-            raise RuntimeError("ConnectionPool is closed")
+            raise NetworkError("ConnectionPool is closed")
 
         acquired = self._semaphore.acquire(timeout=self._timeout)
         if not acquired:
-            raise TimeoutError(
+            raise PoolTimeoutError(
                 f"Could not acquire connection within {self._timeout}s "
                 f"(max_connections={self._max_connections})"
             )
