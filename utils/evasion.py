@@ -246,6 +246,73 @@ class PayloadMutator:
         # Re-encode: replace '%' with '%25' in the already-encoded string
         return first.replace("%", "%25")
 
+    def generate_context_payloads(self, vuln_type, context_info):
+        """Generate payloads tailored to the target context.
+
+        Args:
+            vuln_type: Vulnerability type string ('sqli', 'xss', 'ssrf',
+                       'cmdi', 'lfi', 'ssti').
+            context_info: Dict with keys:
+                - response_content_type: MIME type of the response
+                - reflection_context: Where input is reflected
+                  (e.g. 'html_attr', 'js_string', 'url_context', 'css_context')
+                - waf_detected: Boolean indicating WAF presence
+                - technology_stack: String or list describing backend tech
+
+        Returns:
+            A list of payload strings selected and mutated for the context.
+        """
+        from config import Payloads
+
+        content_type = context_info.get("response_content_type", "")
+        reflection = context_info.get("reflection_context", "")
+        waf_detected = context_info.get("waf_detected", False)
+        tech_stack = context_info.get("technology_stack", "")
+
+        payloads = []
+
+        # Select base payloads based on vuln_type
+        if vuln_type == "sqli":
+            payloads = list(Payloads.SQLI_POLYMORPHIC)
+            if "mysql" in str(tech_stack).lower():
+                payloads.extend(Payloads.SQLI_CONDITIONAL_ERRORS[:6])
+            elif "mssql" in str(tech_stack).lower() or "sql server" in str(tech_stack).lower():
+                payloads.extend(Payloads.SQLI_CONDITIONAL_ERRORS[6:])
+            else:
+                payloads.extend(Payloads.SQLI_CONDITIONAL_ERRORS)
+        elif vuln_type == "xss":
+            if reflection in Payloads.XSS_CONTEXT_AWARE:
+                payloads = list(Payloads.XSS_CONTEXT_AWARE[reflection])
+            else:
+                payloads = list(Payloads.XSS_MUTATION_CHAIN)
+            if waf_detected:
+                payloads.extend(Payloads.XSS_MUTATION_CHAIN)
+        elif vuln_type == "ssrf":
+            payloads = list(Payloads.SSRF_ADVANCED_BYPASS)
+        elif vuln_type == "cmdi":
+            payloads = list(Payloads.CMDI_POLYGLOT)
+        elif vuln_type == "lfi":
+            payloads = list(Payloads.LFI_FILTER_CHAIN)
+        elif vuln_type == "ssti":
+            payloads = list(Payloads.SSTI_SANDBOX_ESCAPE_ADVANCED)
+        else:
+            # Fallback: combine a few from each category
+            payloads = (
+                Payloads.SQLI_POLYMORPHIC[:3]
+                + Payloads.XSS_MUTATION_CHAIN[:3]
+                + Payloads.CMDI_POLYGLOT[:3]
+            )
+
+        # Apply mutations if WAF is detected
+        if waf_detected:
+            mutated = []
+            for p in payloads:
+                mutated.append(self._mutate_double_encode(p))
+                mutated.append(self._mutate_unicode_normalize(p))
+            payloads.extend(mutated)
+
+        return payloads
+
     @staticmethod
     def _split_encoded(s):
         parts = []

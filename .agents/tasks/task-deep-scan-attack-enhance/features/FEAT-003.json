@@ -1,0 +1,34 @@
+{
+  "id": "FEAT-003",
+  "type": "feat",
+  "description": "Create a new DeepScanEngine module (modules/deep_scan.py) that orchestrates advanced multi-technique scanning by combining multiple attack vectors, performing recursive testing, chaining findings across modules, and implementing context-aware payload selection. Also includes API-specific vulnerability scanning: when APIs are discovered during crawling, automatically test them for common API vulnerabilities (BOLA/IDOR, broken auth, injection, mass assignment, rate limiting bypass, excessive data exposure).",
+  "status": "completed",
+  "steps": [
+    "Create modules/deep_scan.py with class DeepScanModule(BaseModule) that implements test() and test_url(). The module coordinates: (1) response fingerprinting to detect technology stack, WAF, and reflection context, (2) context-aware payload selection using PayloadMutator.generate_context_payloads(), (3) recursive parameter discovery by analyzing error responses for new injection points, (4) multi-vector combination testing (e.g., SSRF+SQLi chains, LFI+log poisoning chains, XSS+CSRF chains), (5) API endpoint deep scanning when API endpoints are detected",
+    "Implement _fingerprint_target(self, url, method, param, value) method that sends benign probes and analyzes responses to determine: content_type, technology_hints (from headers/response patterns), waf_presence (from 403/406 patterns or known WAF headers), reflection_context (HTML body/attribute/JS string/URL/none), is_api_endpoint (from content-type application/json, URL patterns /api/, /v1/). Returns a context dict.",
+    "Implement _recursive_param_discovery(self, url, method, param, value) method that: (1) sends intentionally malformed input to trigger verbose errors, (2) parses error responses for exposed parameter names, internal paths, database table/column names, (3) adds discovered params to a local discovery queue for further testing, (4) limits recursion depth to 3 levels",
+    "Implement _test_chained_attacks(self, url, method, param, value, context) method that: (1) if SSRF indicators found, tests SQLi payloads via SSRF redirect, (2) if LFI confirmed, attempts log poisoning chain (inject payload in User-Agent then include log file), (3) if reflection found without XSS, tries polyglot payloads with context-specific encoding",
+    "Implement _test_api_vulnerabilities(self, url, method, param, value, context) method that when is_api_endpoint=True: (1) tests BOLA/IDOR by manipulating ID parameters with sequential/random values and comparing responses, (2) tests for broken authentication by removing/modifying auth headers, (3) tests injection via JSON body with SQLi/NoSQLi/CMDi payloads adapted for JSON format, (4) tests mass assignment by sending additional fields (role, admin, is_admin, privilege) in requests, (5) tests excessive data exposure by requesting collections and checking if sensitive fields are returned, (6) tests rate limiting bypass by sending rapid requests and checking for inconsistent responses. Each sub-test emits findings via _add_finding()",
+    "Implement _test_second_order_deep(self, url, method, param, value) that: (1) injects payloads designed to trigger on secondary page loads (stored XSS in profile fields, SQLi in search history, SSTI in email templates), (2) visits related endpoints after injection to detect delayed execution, (3) uses timing-based confirmation for blind second-order SQLi",
+    "Implement _adaptive_waf_bypass(self, url, method, param, value, context) that: (1) detects WAF type from response headers/body, (2) selects appropriate bypass strategy from PayloadMutator, (3) applies graduated evasion: first try base payload, then single mutation, then chained mutations, (4) reports which evasion technique succeeded",
+    "Add DEEP_SCAN_CHAIN_TEMPLATES and API_VULN_PAYLOADS to config.py: DEEP_SCAN_CHAIN_TEMPLATES maps chain names to sequences of attack steps. API_VULN_PAYLOADS contains payloads specifically formatted for API testing (JSON injection payloads, mass assignment field lists, auth bypass headers, rate limit test patterns)",
+    "Add tests in tests/test_deep_scan.py that test: fingerprinting returns correct context (including is_api_endpoint detection), API vulnerability scanning tests BOLA/injection/mass-assignment correctly, recursive discovery extracts params from error responses, chained attack logic selects correct chains based on findings, WAF bypass escalation works through mutation levels. Use MockEngine/MockRequester from tests/fixtures.py."
+  ],
+  "acceptance_criteria": [
+    "modules/deep_scan.py compiles without errors (python -m py_compile modules/deep_scan.py)",
+    "config.py compiles with new DEEP_SCAN_CHAIN_TEMPLATES and API_VULN_PAYLOADS (python -m py_compile config.py)",
+    "DeepScanModule can be instantiated with MockEngine and test() runs without exception",
+    "Fingerprinting correctly identifies API endpoints from content-type and URL patterns",
+    "API vulnerability tests (BOLA, injection, mass assignment, auth bypass) execute correctly against mock responses",
+    "Recursive param discovery extracts parameter names from error response patterns",
+    "Chain selection logic picks correct attack chain based on context",
+    "tests/test_deep_scan.py passes all tests"
+  ],
+  "verification": [
+    "python -m py_compile modules/deep_scan.py",
+    "python -m py_compile config.py",
+    "python -m pytest tests/test_deep_scan.py -v --tb=short"
+  ],
+  "blocked_reason": null,
+  "findings": "All 35 tests pass. Had to patch _add_finding in tests because BaseModule._add_finding imports from core.engine which requires PyYAML (not available in sandbox). Used a _patched_add_finding helper and _SimpleFinding dataclass in tests to avoid the core import chain. The module itself compiles and imports cleanly since it only imports from config and modules.base. Existing tests (test_payloads_advanced.py + test_crawler_deep.py) all pass (60 tests). The user's live steering about scanning APIs for vulns/bugs/attacks was directly addressed by the comprehensive _test_api_vulnerabilities method which runs BOLA, broken auth, injection, mass assignment, excessive data exposure, and rate limit bypass tests whenever an API endpoint is detected."
+}

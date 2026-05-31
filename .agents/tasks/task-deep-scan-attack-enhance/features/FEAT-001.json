@@ -1,0 +1,32 @@
+{
+  "id": "FEAT-001",
+  "type": "feat",
+  "description": "Enhance the crawler (utils/crawler.py) with deeper parameter discovery capabilities: JSON body parameter extraction, multipart form detection, WebSocket endpoint discovery, API versioning pattern recognition, response-based injection point identification, and recursive hidden parameter mining from JavaScript. Also add a deep scan mode configuration to config.py.",
+  "status": "completed",
+  "steps": [
+    "Add a new method _extract_json_body_params(self, soup, url) to Crawler class in utils/crawler.py that parses JavaScript for JSON body structures, Content-Type: application/json patterns, and extracts all nested keys as testable parameters with source='json_body'",
+    "Add a new method _extract_multipart_params(self, soup, url) that identifies multipart/form-data forms and file upload fields, extracting field names as parameters with source='multipart'",
+    "Add a new method _extract_websocket_endpoints(self, soup, url) that detects WebSocket connection URLs (new WebSocket(...), io.connect(...), sockjs patterns) and registers them with source='websocket'",
+    "Add a new method _extract_api_versions(self, soup, url) that identifies API versioning patterns (/v1/, /v2/, /api/v3/) and generates alternate version URLs to test for deprecated insecure endpoints, registering them with source='api_version'",
+    "Add a new method _extract_response_params(self, response, url) that analyzes HTTP response headers (Link, X-Request-ID, custom headers with parameter hints) and response body patterns (JSON keys in responses, pagination params, cursor tokens) to discover additional injection points with source='response_extracted'",
+    "Add a new method _mine_deep_js_params(self, soup, url) that performs deeper JS analysis: finds object destructuring patterns, REST client configurations, GraphQL query variables, route definitions with path params, and state management keys, registering them with source='deep_js'",
+    "Call all new methods from _process_page() alongside existing extraction calls",
+    "Add a DEEP_SCAN_CONFIG dict to config.py with settings: max_js_depth=5, extract_response_params=True, mine_api_versions=True, websocket_discovery=True, recursive_param_limit=500",
+    "Add tests in tests/test_crawler_deep.py covering each new extraction method using MockEngine/MockRequester from tests/fixtures.py pattern (HTML fixtures with embedded JS, JSON bodies, WebSocket patterns, multipart forms)"
+  ],
+  "acceptance_criteria": [
+    "utils/crawler.py compiles without errors (python -m py_compile utils/crawler.py)",
+    "config.py compiles without errors (python -m py_compile config.py)",
+    "New extraction methods are called from _process_page()",
+    "Each new method adds parameters to self.parameters with distinct source labels",
+    "tests/test_crawler_deep.py passes all tests",
+    "No existing crawler behavior is broken"
+  ],
+  "verification": [
+    "python -m py_compile utils/crawler.py",
+    "python -m py_compile config.py",
+    "python -m pytest tests/test_crawler_deep.py -v --tb=short"
+  ],
+  "blocked_reason": null,
+  "findings": "All 34 tests pass. The _JS_NOISE frozenset filters out common JS keywords like 'name', 'type', 'value' from parameter extraction - tests should avoid using these as expected param names. The existing test_crawler.py imports bs4 directly and would fail in this environment, but the new test_crawler_deep.py uses MagicMock to avoid that dependency."
+}

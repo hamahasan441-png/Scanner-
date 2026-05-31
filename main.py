@@ -175,6 +175,13 @@ def main():
     parser.add_argument("--osint", action="store_true", help="Enable OSINT reconnaissance")
     parser.add_argument("--fuzz", action="store_true", help="Enable fuzzing (parameter, header, method, vhost)")
     parser.add_argument(
+        "--deep-scan",
+        action="store_true",
+        help="Enable deep multi-technique scan (fingerprinting, API vuln "
+        "tests, recursive param discovery, chained attacks, adaptive "
+        "WAF bypass, second-order injection)",
+    )
+    parser.add_argument(
         "--sqlmap",
         action="store_true",
         help="Enable sqlmap integration for deep SQLi/CMDi testing (requires sqlmap installed)",
@@ -369,6 +376,14 @@ def main():
              "origin spoof, method override) with per-host learning "
              "ledger so successful techniques bubble to the top of "
              "future attempts. Implies --waf-bypass.",
+    )
+    parser.add_argument(
+        "--gatebreaker",
+        action="store_true",
+        help="GateBreaker mode: detect and bypass WAF, auth, and "
+             "rate-limit gates using the full bypass ladder, with a "
+             "gates-broken summary. Implies --full-bypass / --waf-bypass "
+             "and escalates evasion.",
     )
     parser.add_argument(
         "--full-attack",
@@ -1505,14 +1520,22 @@ def main():
         sys.exit(1)
 
     # Build configuration
+    gb = getattr(args, "gatebreaker", False)
+    # GateBreaker needs the full bypass ladder available; escalate evasion
+    # to at least "high" so the orchestrated bypass attempts are not
+    # undercut by a "none" evasion profile.
+    _evasion = args.evasion
+    if gb and _evasion == "none":
+        _evasion = "high"
     config = {
         "depth": args.depth,
         "threads": args.threads,
         "timeout": args.timeout,
         "delay": args.delay,
-        "evasion": args.evasion,
-        "waf_bypass": args.waf_bypass or getattr(args, "full_bypass", False),
-        "full_bypass": getattr(args, "full_bypass", False),
+        "evasion": _evasion,
+        "waf_bypass": args.waf_bypass or getattr(args, "full_bypass", False) or gb,
+        "full_bypass": getattr(args, "full_bypass", False) or gb,
+        "gatebreaker": gb,
         "full_attack": getattr(args, "full_attack", False),
         "attack_confidence": getattr(args, "attack_confidence", 0.7),
         "attack_severity_floor": getattr(args, "attack_severity_floor", "HIGH"),
@@ -1622,6 +1645,11 @@ def main():
         "h2_smuggling": getattr(args, "h2_smuggling", False) or full,
         "cache_poisoning": getattr(args, "cache_poison", False) or full,
         "api_abuse": getattr(args, "api_abuse", False) or full,
+        # Deep multi-technique scanner — also auto-enabled by --gatebreaker
+        # (which fingerprints/feeds it) and by point-to-point coverage.
+        "deep_scan": getattr(args, "deep_scan", False) or getattr(args, "gatebreaker", False) or p2p,
+        # GateBreaker unified gate-bypass mode.
+        "gatebreaker": getattr(args, "gatebreaker", False),
     }
 
     if args.regulated_mission:

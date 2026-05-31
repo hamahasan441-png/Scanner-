@@ -1,0 +1,14 @@
+{
+  "task_id": "task-deep-scan-attack-enhance",
+  "task_description": "Enhance ATOMIC FRAMEWORK scanning depth and attack strength: deeper crawling with more injection point discovery, advanced polymorphic payloads with WAF evasion, and a new DeepScanModule that chains attacks, performs context-aware recursive testing, and automatically scans discovered APIs for vulnerabilities.",
+  "status": "completed",
+  "feature_order": ["FEAT-001", "FEAT-002", "FEAT-003"],
+  "blocked_reason": null,
+  "verification": {
+    "build": "pass",
+    "tests": "pass",
+    "test_quality": "pass",
+    "docker_build": "skipped",
+    "summary": "All 97 tests pass across 3 test files. All modified/new files compile cleanly. Code review issues addressed: BOLA path-parameter substitution, broken-auth baseline comparison, rate-limit threshold raised to 20, response-param noise filter added, payload duplication removed from WAF evasion, second-order timing calibrated against baseline, duplicate multipart entries fixed."
+  }
+}

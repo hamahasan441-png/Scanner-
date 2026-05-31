@@ -1,0 +1,31 @@
+{
+  "project_type": "Python security scanning framework (ATOMIC FRAMEWORK v11.0)",
+  "language": "Python 3.10+",
+  "build_system": "Makefile with pip. No package manager available in sandbox (INTEGRATIONS_ONLY)",
+  "test_framework": "pytest with tests/ directory. Shared fixtures in tests/fixtures.py (MockEngine, MockRequester, MockResponse, make_engine, make_response). Tests use unittest.mock for HTTP mocking.",
+  "build_command": "python -m py_compile on all .py files (since pip dependencies like yaml, requests, bs4 are not installed)",
+  "test_command": "python -m pytest tests/test_<specific_module>.py -v --tb=short (only tests that dont import from core/ work since PyYAML is missing)",
+  "verification_instructions": "1. Run python -m py_compile on all new/modified files. 2. Run python -c 'from modules.<module> import <Class>' to verify imports (modules that only import from config and modules.base work). 3. Run pytest on any new test files that only use tests/fixtures.py mocks.",
+  "snapshot_or_generated_files": null,
+  "setup_instructions": "No setup possible - INTEGRATIONS_ONLY network mode prevents pip install. Use existing stdlib + installed tools only.",
+  "environment_constraints": "INTEGRATIONS_ONLY network - no external packages available. Only stdlib + pytest/ruff/mypy/black installed. PyYAML, requests, bs4, flask NOT available. Validation must use AST-level compilation (py_compile) and tests that avoid importing core/ (which requires yaml). Modules can be tested standalone if they only import from config.py and modules/base.py.",
+  "contribution_requirements": "From CONTRIBUTING.md: Follow PEP 8 with 150 char line length. Module pattern: subclass BaseModule, implement test() and optionally test_url(). Register in core/engine.py. Add CLI flag in main.py. Add payloads to config.py Payloads class. Write tests in tests/test_<module>.py using mock patterns.",
+  "key_patterns": "1. BaseModule.test(url,method,param,value) is the main entry. 2. Payloads class in config.py holds all payload lists. 3. Modules get baseline response first, then test payloads comparing against baseline. 4. Time-based tests use confirmation retry. 5. Boolean tests use 3x consistency verification. 6. WAF bypass via self.requester.waf_bypass_encode(). 7. _emit_signal() preferred over _add_finding() for new code. 8. Crawler in utils/crawler.py extracts params from forms, URLs, JS, hidden inputs, path segments, comments, XML links, source maps.",
+  "relevant_files": [
+    "config.py",
+    "modules/base.py",
+    "modules/sqli.py",
+    "modules/xss.py",
+    "modules/ssrf.py",
+    "modules/lfi.py",
+    "modules/cmdi.py",
+    "modules/ssti.py",
+    "modules/nosqli.py",
+    "utils/crawler.py",
+    "utils/evasion.py",
+    "core/engine.py",
+    "tests/fixtures.py",
+    "tests/test_crawler.py"
+  ],
+  "directory_structure": "modules/ - attack modules (one per vuln type), core/ - engine orchestration, utils/ - crawler/requester/evasion, tests/ - one test file per module, config.py - all payloads and configuration, web/ - Flask dashboard"
+}

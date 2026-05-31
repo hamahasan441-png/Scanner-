@@ -1,0 +1,30 @@
+{
+  "id": "FEAT-002",
+  "type": "feat",
+  "description": "Add advanced payload variants and deeper attack techniques to existing modules (SQLi, XSS, SSRF, CMDi, LFI, SSTI). Expand config.py Payloads class with polymorphic payloads, second-order improvements, blind detection enhancements, WAF evasion variants, and context-aware payload generation. Also enhance the evasion engine with new mutation techniques.",
+  "status": "completed",
+  "steps": [
+    "Add new payload lists to config.py Payloads class: SQLI_POLYMORPHIC (15+ payloads using CHAR(), CONCAT(), hex encoding, comment injection that evade pattern-matching WAFs), SQLI_SECOND_ORDER_EXTENDED (10+ payloads for stored injection via registration/profile/comment flows with various quote styles and encoding), SQLI_CONDITIONAL_ERRORS (10+ payloads using CASE/IF/IIF for error-based conditional extraction on MySQL/MSSQL/PostgreSQL/Oracle)",
+    "Add new payload lists to config.py: XSS_MUTATION_CHAIN (10+ mXSS payloads exploiting browser HTML parser mutations), XSS_BLIND_CALLBACKS (8+ blind XSS payload templates with various callback mechanisms: img/fetch/navigator.sendBeacon/WebSocket), XSS_CONTEXT_AWARE with sub-lists for html_attr_context, js_string_context, url_context, css_context (5+ payloads each)",
+    "Add new payload lists to config.py: SSRF_ADVANCED_BYPASS (10+ payloads using DNS rebinding, URL parser differentials, redirect chains, IPv6 mapped addresses, decimal/octal IP tricks), CMDI_POLYGLOT (10+ payloads that work across bash/sh/powershell/cmd with multiple separator styles)",
+    "Add new payload lists to config.py: LFI_FILTER_CHAIN (8+ PHP filter chain payloads for arbitrary file read via chained convert.iconv filters), SSTI_SANDBOX_ESCAPE_ADVANCED (10+ payloads covering Python MRO exploitation, Jinja2 namespace tricks, Twig _self exploitation, Java reflection chains)",
+    "Add 3 new mutation techniques to utils/evasion.py PayloadMutator class: _mutate_unicode_normalize (exploits Unicode normalization: fullwidth chars, homoglyphs), _mutate_hpp_split (splits payload across duplicate parameters for HPP-based WAF bypass), _mutate_double_encode (applies double URL encoding for WAF bypass). Add these to the TECHNIQUES list.",
+    "Add a new method generate_context_payloads(self, vuln_type, context_info) to PayloadMutator in utils/evasion.py that takes a vulnerability type and context dict (response_content_type, reflection_context, waf_detected, technology_stack) and returns a tailored payload list by selecting and mutating base payloads based on context",
+    "Add tests in tests/test_payloads_advanced.py that verify: all new payload lists in config.py are non-empty lists of strings, PayloadMutator new techniques produce valid output, generate_context_payloads returns appropriate payloads for different contexts"
+  ],
+  "acceptance_criteria": [
+    "config.py compiles without errors (python -m py_compile config.py)",
+    "utils/evasion.py compiles without errors (python -m py_compile utils/evasion.py)",
+    "All new payload lists are accessible as Payloads.<NAME> and contain valid strings",
+    "New PayloadMutator techniques are in TECHNIQUES list and callable",
+    "generate_context_payloads returns different payload sets based on different inputs",
+    "tests/test_payloads_advanced.py passes all tests"
+  ],
+  "verification": [
+    "python -m py_compile config.py",
+    "python -m py_compile utils/evasion.py",
+    "python -m pytest tests/test_payloads_advanced.py -v --tb=short"
+  ],
+  "blocked_reason": null,
+  "findings": "All 26 tests pass. The 3 new evasion techniques (unicode_normalize, hpp_split, double_encode) were already added to PayloadMutator.TECHNIQUES list and implemented in FEAT-001, so this feature only added the generate_context_payloads() method to evasion.py. All 10 payload lists added after API_ABUSE_RATE_LIMIT_HEADERS. XSS_CONTEXT_AWARE is a dict with 4 keys (html_attr, js_string, url_context, css_context). The steering message about API scan for vuln/bug/attack is not applicable to this payload-only feature."
+}
