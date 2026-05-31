@@ -2,7 +2,7 @@
   "id": "FEAT-001",
   "type": "feat",
   "description": "Add three new attack modules: HTTP/2 Request Smuggling (modules/h2_smuggling.py), Web Cache Poisoning (modules/cache_poisoning.py), and API Abuse/Rate Limit Bypass (modules/api_abuse.py). Each follows BaseModule pattern from modules/base.py, uses _emit_signal for findings, and includes comprehensive payloads in config.py.",
-  "status": "in_progress",
+  "status": "completed",
   "steps": [
     "Create modules/h2_smuggling.py - HTTP/2 request smuggling scanner that tests H2.CL and H2.TE desync, CRLF in pseudo-headers, request splitting via HTTP/2 CONTINUATION frames, and websocket upgrade smuggling. Follow the raw-socket pattern from modules/request_smuggling.py. Class: H2SmugglingModule(BaseModule) with name='HTTP/2 Smuggling', vuln_type='h2_smuggling'. Implement test() and test_url() methods. Use _emit_signal for findings with severity CRITICAL, CVSS 9.1+.",
     "Create modules/cache_poisoning.py - Web cache poisoning scanner that tests: unkeyed headers (X-Forwarded-Host, X-Original-URL, X-Rewrite-URL), unkeyed query parameters, fat GET body parameters, cache key normalization issues, host header poisoning, port-based poisoning. Class: CachePoisoningModule(BaseModule) with name='Cache Poisoning', vuln_type='cache_poisoning'. Compare responses with and without cache-busting params to detect caching. Detect cache hits via Age, X-Cache, CF-Cache-Status headers.",
@@ -30,5 +30,5 @@
     "ruff check modules/h2_smuggling.py modules/cache_poisoning.py modules/api_abuse.py --select=E9,F63,F7,F82"
   ],
   "blocked_reason": null,
-  "findings": ""
+  "findings": "All 63 tests pass. py_compile passes for all files. ruff linter passes. mypy cannot run due to directory name (Scanner- is not valid Python package name) but AST parsing validates all files. The project uses _emit_signal for findings in all three new modules."
 }
