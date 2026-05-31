@@ -2,7 +2,7 @@
   "id": "FEAT-001",
   "type": "feat",
   "description": "Enhance the crawler (utils/crawler.py) with deeper parameter discovery capabilities: JSON body parameter extraction, multipart form detection, WebSocket endpoint discovery, API versioning pattern recognition, response-based injection point identification, and recursive hidden parameter mining from JavaScript. Also add a deep scan mode configuration to config.py.",
-  "status": "in_progress",
+  "status": "completed",
   "steps": [
     "Add a new method _extract_json_body_params(self, soup, url) to Crawler class in utils/crawler.py that parses JavaScript for JSON body structures, Content-Type: application/json patterns, and extracts all nested keys as testable parameters with source='json_body'",
     "Add a new method _extract_multipart_params(self, soup, url) that identifies multipart/form-data forms and file upload fields, extracting field names as parameters with source='multipart'",
@@ -28,5 +28,5 @@
     "python -m pytest tests/test_crawler_deep.py -v --tb=short"
   ],
   "blocked_reason": null,
-  "findings": ""
+  "findings": "All 34 tests pass. The _JS_NOISE frozenset filters out common JS keywords like 'name', 'type', 'value' from parameter extraction - tests should avoid using these as expected param names. The existing test_crawler.py imports bs4 directly and would fail in this environment, but the new test_crawler_deep.py uses MagicMock to avoid that dependency."
 }
