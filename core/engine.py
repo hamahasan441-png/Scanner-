@@ -176,7 +176,7 @@ class AtomicEngine:
             "collect": {"status": "pending", "data": {}},
         }
         self.attack_router = None
-        self._ws_callback = None  # WebSocket event callback (set by web app)
+        self._ws_callback = None  # optional event callback (pipeline_event hook)
 
         # Universal bypass orchestrator (lazy: only built when something
         # asks for it via build_orchestrator). Modules check

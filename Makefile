@@ -1,7 +1,7 @@
 # ATOMIC Framework v10.0 - Makefile
 # Common development and deployment shortcuts.
 
-.PHONY: help install dev test lint format type-check security-scan run web docker clean
+.PHONY: help install dev test lint format type-check security-scan run docker clean
 
 help: ## Show this help message
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
@@ -24,7 +24,7 @@ test-integration: ## Run integration tests only
 	python -m pytest tests/integration/ -v --tb=short
 
 test-coverage: ## Run tests with coverage report
-	python -m pytest tests/ -v --cov=core --cov=modules --cov=utils --cov=web \
+	python -m pytest tests/ -v --cov=core --cov=modules --cov=utils \
 		--cov-report=term-missing --cov-report=html
 
 lint: ## Run flake8 linter
@@ -35,17 +35,14 @@ format: ## Format code with black
 	black --line-length 150 .
 
 type-check: ## Run mypy type checker
-	mypy core/ modules/ utils/ web/ --ignore-missing-imports
+	mypy core/ modules/ utils/ --ignore-missing-imports
 
 security-scan: ## Run security scanners (bandit + pip-audit)
-	bandit -r core/ modules/ utils/ web/ -ll --exit-zero
+	bandit -r core/ modules/ utils/ -ll --exit-zero
 	pip-audit --strict --exit-zero || true
 
 run: ## Run a basic scan (set TARGET=https://example.com)
 	python main.py -t $(TARGET)
-
-web: ## Start the web dashboard
-	python main.py --web
 
 docker: ## Build and run with Docker
 	docker compose up --build

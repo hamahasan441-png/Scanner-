@@ -74,9 +74,6 @@ def check_dependencies():
     }
 
     optional = {
-        "flask": "Web interface",
-        "flask_socketio": "Real-time updates",
-        "flask_cors": "CORS support",
         "lxml": "XML/HTML parser (faster parsing)",
         "cryptography": "Encryption support",
         "paramiko": "SSH connections",
@@ -120,9 +117,6 @@ def install_deps():
         "fpdf2",
         "PyJWT",
         "urllib3",
-        "flask",
-        "flask-socketio",
-        "flask-cors",
         "pysocks",
         "colorama",
         "tqdm",

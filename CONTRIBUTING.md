@@ -51,7 +51,6 @@ python -m pytest tests/ -v -k "graphql"
 core/       — Engine components (orchestrator, AI, reporter, Burp tools)
 modules/    — Attack and scanning modules (one per vulnerability type)
 utils/      — Utility libraries (requester, crawler, evasion, database)
-web/        — Flask web dashboard and REST API
 tests/      — Unit and integration tests (one test file per module)
 config.py   — Payloads, configuration constants, MITRE mapping
 main.py     — CLI entry point

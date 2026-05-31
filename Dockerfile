@@ -1,7 +1,6 @@
 # ATOMIC Framework v10.0 - Docker Image
 # Usage:
 #   docker build -t atomic-framework .
-#   docker run -p 5000:5000 atomic-framework --web
 #   docker run atomic-framework -t https://target.com --full
 
 FROM python:3.12-slim
@@ -34,8 +33,5 @@ RUN mkdir -p reports shells wordlists logs
 RUN useradd -m -r atomic && chown -R atomic:atomic /app
 USER atomic
 
-# Default port for web dashboard
-EXPOSE 5000
-
 ENTRYPOINT ["python", "main.py"]
-CMD ["--web", "--web-host", "0.0.0.0"]
+CMD ["--help"]

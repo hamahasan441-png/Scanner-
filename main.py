@@ -523,23 +523,6 @@ def main():
     parser.add_argument("--quiet", "-q", action="store_true", help="Quiet mode")
     parser.add_argument("--rules", help="Path to scanner rules YAML file (default: scanner_rules.yaml)")
 
-    # Web dashboard
-    parser.add_argument("--web", action="store_true", help="Launch Flask web dashboard")
-    parser.add_argument(
-        "--web-host",
-        default="127.0.0.1",
-        help="Web dashboard bind address (default: 127.0.0.1, loopback only). "
-             "Use --web-public to bind on all interfaces.",
-    )
-    parser.add_argument(
-        "--web-public",
-        action="store_true",
-        help="Bind the web dashboard to 0.0.0.0 (reachable on the network). "
-             "Only use this on trusted networks; the dashboard exposes scan "
-             "control endpoints.",
-    )
-    parser.add_argument("--web-port", type=int, default=5000, help="Web dashboard port (default: 5000)")
-
     # Burp Suite-style tools
     parser.add_argument("--proxy-server", action="store_true", help="Launch intercepting proxy server")
     parser.add_argument("--proxy-port", type=int, default=8080, help="Proxy server port (default: 8080)")
@@ -917,46 +900,42 @@ def main():
     # ── OpenAPI spec generation ──────────────────────────────
     if getattr(args, "api_spec", False):
         try:
-            from web.openapi import generate_openapi_spec, print_openapi_spec
-            print_openapi_spec()
-        except ImportError:
-            try:
-                import json
-                spec = {
-                    "openapi": "3.0.0",
-                    "info": {
-                        "title": "ATOMIC Framework REST API",
-                        "version": "11.0.0",
-                        "description": "ATOMIC security scanning framework REST API"
+            import json
+            spec = {
+                "openapi": "3.0.0",
+                "info": {
+                    "title": "ATOMIC Framework REST API",
+                    "version": "11.0.0",
+                    "description": "ATOMIC security scanning framework REST API"
+                },
+                "paths": {
+                    "/api/scan": {
+                        "post": {
+                            "summary": "Start a scan",
+                            "requestBody": {
+                                "content": {"application/json": {"schema": {"type": "object"}}}
+                            },
+                            "responses": {"200": {"description": "Scan started"}}
+                        }
                     },
-                    "paths": {
-                        "/api/scan": {
-                            "post": {
-                                "summary": "Start a scan",
-                                "requestBody": {
-                                    "content": {"application/json": {"schema": {"type": "object"}}}
-                                },
-                                "responses": {"200": {"description": "Scan started"}}
-                            }
-                        },
-                        "/api/findings": {
-                            "get": {
-                                "summary": "Get findings",
-                                "responses": {"200": {"description": "List of findings"}}
-                            }
-                        },
-                        "/api/report/{scan_id}": {
-                            "get": {
-                                "summary": "Get report",
-                                "parameters": [{"name": "scan_id", "in": "path", "required": True, "schema": {"type": "string"}}],
-                                "responses": {"200": {"description": "Report data"}}
-                            }
+                    "/api/findings": {
+                        "get": {
+                            "summary": "Get findings",
+                            "responses": {"200": {"description": "List of findings"}}
+                        }
+                    },
+                    "/api/report/{scan_id}": {
+                        "get": {
+                            "summary": "Get report",
+                            "parameters": [{"name": "scan_id", "in": "path", "required": True, "schema": {"type": "string"}}],
+                            "responses": {"200": {"description": "Report data"}}
                         }
                     }
                 }
-                print(json.dumps(spec, indent=2))
-            except Exception as exc:
-                print(f"OpenAPI spec generation failed: {exc}")
+            }
+            print(json.dumps(spec, indent=2))
+        except Exception as exc:
+            print(f"OpenAPI spec generation failed: {exc}")
         return
 
     # ── Show learned payloads ─────────────────────────────────
@@ -1279,24 +1258,6 @@ def main():
             print(f"{Colors.info(f'Running Dirsearch on {args.target}...')}")
             _print_recon_result("Dirsearch", arsenal.dirsearch.run(args.target))
 
-        return
-
-    # Launch web dashboard
-    if args.web:
-        try:
-            from web.app import create_app
-
-            web_host = "0.0.0.0" if getattr(args, "web_public", False) else args.web_host
-            if web_host == "0.0.0.0":
-                print(
-                    f"{Colors.warning('Web dashboard binding to 0.0.0.0 — reachable on all interfaces. ')}"
-                    f"{Colors.warning('Ensure the network is trusted.')}"
-                )
-            _, run_app = create_app(host=web_host, port=args.web_port)
-            run_app()
-        except ImportError:
-            print(f"{Colors.error('Flask not installed. Run: pip install flask flask-cors')}")
-            sys.exit(1)
         return
 
     # Burp Suite-style tool handlers

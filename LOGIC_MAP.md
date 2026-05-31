@@ -5,8 +5,8 @@
 > update this file in the same commit.
 
 The framework is a multi-phase offensive security scanner written in Python.
-It exposes a CLI (`main.py`) and a Flask + Socket.IO dashboard (`web/app.py`),
-both driven by a single orchestrator (`core/engine.py`, class `AtomicEngine`).
+It exposes a CLI (`main.py`) driven by a single orchestrator
+(`core/engine.py`, class `AtomicEngine`).
 
 ---
 
@@ -17,12 +17,10 @@ both driven by a single orchestrator (`core/engine.py`, class `AtomicEngine`).
 3. [Engine Walkthrough](#engine-walkthrough)
 4. [Module Inventory](#module-inventory)
 5. [Core Components](#core-components)
-6. [Web Dashboard](#web-dashboard)
-7. [REST API Surface](#rest-api-surface)
-8. [Scoring Formula](#scoring-formula)
-9. [Security Hardening](#security-hardening)
-10. [Configuration](#configuration)
-11. [Known Drift](#known-drift)
+6. [Scoring Formula](#scoring-formula)
+7. [Security Hardening](#security-hardening)
+8. [Configuration](#configuration)
+9. [Known Drift](#known-drift)
 
 ---
 
@@ -38,10 +36,9 @@ both driven by a single orchestrator (`core/engine.py`, class `AtomicEngine`).
 │   │  (CLI)      │         │  (core/engine.py)│                       │
 │   └─────────────┘         └────────┬─────────┘                       │
 │                                    │                                 │
-│   ┌─────────────┐                  │   drives                        │
-│   │  web/app.py │──────────────────┤                                 │
-│   │  (Flask)    │                  ▼                                 │
-│   └─────────────┘     ┌────────────────────────────────┐             │
+│                                    │   drives                        │
+│                                    ▼                                 │
+│                       ┌────────────────────────────────┐             │
 │                       │     21-Phase Pipeline          │             │
 │                       │  (core/pipeline_contract.py)   │             │
 │                       └────────────────┬───────────────┘             │
@@ -64,7 +61,7 @@ both driven by a single orchestrator (`core/engine.py`, class `AtomicEngine`).
 
 The canonical pipeline lives in [`core/pipeline_contract.py`](core/pipeline_contract.py).
 It defines **21 phases** in strict forward order, plus a `Partition` enum that
-groups them for the dashboard (`recon`, `scan`, `exploit`, `collect`).
+groups them for reporting (`recon`, `scan`, `exploit`, `collect`).
 
 | #  | Phase             | Partition | Purpose                                                                         |
 |---:|-------------------|-----------|---------------------------------------------------------------------------------|
@@ -113,12 +110,12 @@ For each target, the engine:
 3. Walks the 21 phases.  Many phases are guarded by a CLI flag (e.g.
    `--shield-detect`, `--real-ip`, `--agent-scan`); when the flag is off the
    phase is recorded as a no-op event and skipped.
-4. After every phase the engine emits a `phase_event` to the WebSocket
+4. After every phase the engine emits a `phase_event` to an optional event
    callback (if attached) and appends to `self.pipeline['events']` (capped
    at 500 entries).
 5. The legacy 4-string `self.pipeline['phase']` tracker (`init`/`recon`/
    `scan`/`exploit`/`collect`/`done`) is still set in parallel for backward
-   compatibility with old dashboards; new code should consume the granular
+   compatibility; new code should consume the granular
    phase via `pipeline_contract.PipelineStateMachine`.
 6. After all phases complete, `engine.generate_reports()` runs separately so
    the engine and the reporter can be unit-tested independently.
@@ -257,62 +254,6 @@ private helpers.
 
 ---
 
-## Web Dashboard
-
-Single-page glassmorphism dashboard at `web/templates/index.html` plus
-`web/static/style.css`.  **30 nav tabs** total, including: Dashboard, Scanner,
-Pipeline, Exploits, Exploit Intel, Attack Map, Shells, Active, History,
-Findings, Kill Chains, AI Plan, Workers, Watch, Config, Rules, Live Feed,
-Auth, Scheduler, Compliance, Audit, Tools, Recon Arsenal, Plugins,
-Notifications, plus a few utility tabs.
-
-The dashboard uses Flask + flask-socketio (threading async_mode).  Real-time
-updates push pipeline events, findings, and shell output via Socket.IO; if
-Socket.IO is unavailable the front-end falls back to polling.
-
----
-
-## REST API Surface
-
-`web/app.py` declares **91 routes** at module scope.  Bucketed by URL prefix:
-
-| Prefix                            | Count | Purpose                                                |
-|-----------------------------------|------:|--------------------------------------------------------|
-| `/api/scan`, `/api/scans`         |     7 | Start / list / get / delete scans, status, batch.       |
-| `/api/findings`                   |     2 | Findings query.                                         |
-| `/api/report`                     |     1 | Render report in chosen format.                         |
-| `/api/shells`, `/api/shell/...`   |     3 | Shell list / execute / info.                            |
-| `/api/exploit*`, `/api/attack-*`  |     5 | Exploit results, intel, attack map, attack route, POC.  |
-| `/api/pipeline/...`               |     2 | Live pipeline state and event stream.                   |
-| `/api/stats`                      |     1 | Aggregate statistics.                                   |
-| `/api/tools/...`                  |     9 | Decode / encode / hash / compare / sequencer / repeater.|
-| `/api/rules/...`                  |    10 | Rules engine read-only views + reload.                  |
-| `/api/auth/...`                   |     8 | login / refresh / me / users CRUD / api-key.            |
-| `/api/schedules/...`              |     6 | Scheduler CRUD + history.                               |
-| `/api/scheduler/...`              |     2 | Scheduler start / stop.                                 |
-| `/api/compliance/...`             |     2 | Compliance analyse + frameworks list.                   |
-| `/api/audit/...`                  |     2 | Audit query + statistics.                               |
-| `/api/recon/...`                  |     3 | Recon arsenal list / run / full.                        |
-| `/api/discovery/...`              |     2 | Discovery (sub-recon) results.                          |
-| `/api/nuclei/...`                 |     2 | Nuclei adapter routes.                                  |
-| `/api/plugins/...`                |     3 | Plugin list / discover / toggle.                        |
-| `/api/notifications/...`          |     3 | Channel list / test / history.                          |
-| `/api/ai/...`                     |     3 | AI engine endpoints (heuristic + LLM).                  |
-| `/api/ai-plan`                    |     1 | LLM attack-plan generation.                             |
-| `/api/chat/...`                   |     3 | Chat endpoints (LLM integration).                       |
-| `/api/ollama/...`                 |     6 | Ollama backend management.                              |
-| `/api/kill-chains`                |     1 | Kill-chain analysis.                                    |
-| `/api/config/...`                 |     2 | Config file read / generate.                            |
-| `/api/workers`                    |     1 | Distributed worker status.                              |
-| `/`                               |     1 | Dashboard SPA.                                          |
-| **Total**                         |  **91** |                                                       |
-
-All `/api/*` endpoints except the SPA bootstrap require a valid API key
-via the `_require_api_key` decorator (timing-safe HMAC compare against
-`ATOMIC_API_KEY`).
-
----
-
 ## Scoring Formula
 
 `core/scan_priority_queue.py` (lines 25–30) — five base weights summing to
@@ -339,52 +280,31 @@ the scan queue.
 
 ### Authentication
 
-- Every `/api/*` endpoint except the SPA bootstrap is wrapped in
-  `_require_api_key` (`web/app.py`).  Comparison uses `hmac.compare_digest`
-  against `ATOMIC_API_KEY`; missing key in env disables the dashboard rather
-  than silently allowing access.
 - JWT auth (`core/auth.py`): PBKDF2-SHA256 password hashing, three roles
   (`admin` / `analyst` / `viewer`), token refresh, API-key tokens with
   `atk_` prefix.
-- Shell-execute (`POST /api/shell/{id}/execute`) requires API key **and**
-  rejects shell metacharacters (`;`, `|`, `` ` ``, `$()`) via an allowlist
-  filter before invoking the deployed shell.
 
 ### Input Sanitisation
 
-- Scan-ID validator: hex-UUID v4 pattern only.
-- Shell-ID validator: alphanumeric + hyphen, max 64 chars.
 - Shell command output: ANSI escape sequences stripped, hard 50 KB cap with
   `[OUTPUT TRUNCATED]` marker.
 - Report path traversal: filenames sanitised, restricted to `reports/`.
-
-### Network Surface
-
-- CORS origins are read from `ATOMIC_CORS_ORIGINS` (comma-separated). When
-  unset, all cross-origin requests are blocked.
-- Per-IP rate limiter: 60 requests / minute on standard endpoints, 10 / min
-  on auth endpoints.
-- Security headers: HSTS, CSP, X-Frame-Options, X-Content-Type-Options,
-  Referrer-Policy applied via `@app.after_request`.
 
 ### Secrets
 
 | Variable                  | Purpose                       | Notes                            |
 |---------------------------|-------------------------------|----------------------------------|
-| `ATOMIC_API_KEY`          | Dashboard / API auth          | Required for any `/api/*` access.|
 | `ATOMIC_AUTH_SECRET`      | JWT signing                   | Min 64 random chars.             |
 | `ATOMIC_ADMIN_PASSWORD`   | Initial admin account         | Min 16 chars.                    |
 | `ATOMIC_AUDIT_SECRET`     | HMAC-SHA256 audit log signing | Min 32 random chars.             |
 | `ATOMIC_DB_URL`           | DB connection                 | SQLAlchemy URI.                  |
-| `ATOMIC_CORS_ORIGINS`     | Allowed CORS origins          | Comma-separated.                 |
 | `ATOMIC_WEBHOOK_URL`      | Notification webhook          | Optional.                        |
 
 ### Known Risks
 
 - The default SQLite DB has no encryption — use PostgreSQL for production.
-- `core/os_shell.py` and `/api/shell/{id}/execute` are inherently dangerous;
-  both are gated by API key and the role permission `exploit`, but operators
-  should restrict the dashboard to a private network in real deployments.
+- `core/os_shell.py` is inherently dangerous and deploys real shells; use it
+  only against systems you are explicitly authorised to test.
 - The `--auto-exploit` flag will deploy webshells; see [Known Drift](#known-drift)
   below for the current confidence threshold.
 

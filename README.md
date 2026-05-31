@@ -2,7 +2,7 @@
 
 ⚠️ **FOR AUTHORIZED TESTING ONLY** ⚠️
 
-A powerful, modular web security testing framework optimized for Termux (Android) and Linux systems. Features an AI-powered vulnerability prediction engine, Burp Suite-style tools, exploit chaining, a Flask web dashboard, advanced evasion engine, and comprehensive vulnerability scanning across 27+ attack modules.
+A powerful, modular web security testing framework optimized for Termux (Android) and Linux systems. Features an AI-powered vulnerability prediction engine, Burp Suite-style tools, exploit chaining, advanced evasion engine, and comprehensive vulnerability scanning across 27+ attack modules.
 
 ## Quick Install
 
@@ -15,9 +15,6 @@ pip install -r requirements.txt
 ## Quick Start
 
 ```bash
-# Launch web dashboard
-python main.py --web
-
 # Basic CLI scan
 python main.py -t https://target.com
 
@@ -32,16 +29,6 @@ python main.py -t https://target.com --full --evasion insane --waf-bypass
 ```
 
 ## Features
-
-### 🚀 Flask Web Dashboard
-- **Real-time scanning** with live WebSocket status updates (SocketIO with polling fallback)
-- **Dark-themed UI** with severity-coded findings
-- **Scan management** — start, monitor, cancel, delete scans from browser
-- **Report downloads** — HTML, JSON, CSV, TXT, PDF, XML, SARIF
-- **Dashboard statistics** — severity breakdown, scan history
-- **API endpoints** with optional API key authentication and rate limiting
-- **File/batch scan** — Single target or multi-target file upload
-- Launch: `python main.py --web`
 
 ### ⚔️ Attack Modules (28+)
 - **SQL Injection** — Error-based, Union-based, Time-based, Boolean-based, Stacked queries
@@ -135,7 +122,7 @@ python main.py -t https://target.com --full --evasion insane --waf-bypass
 git clone https://github.com/hamahasan441-png/Scanner-.git
 cd Scanner-
 pip install -r requirements.txt
-python main.py --web
+python main.py --help
 ```
 
 ### Termux (Android)
@@ -201,13 +188,6 @@ python main.py --tools-install --tool nuclei
 > **Prerequisites for Rust tools:** Install Rust from https://rustup.rs/
 
 ## Usage
-
-### Web Dashboard
-```bash
-python main.py --web                          # Launch on 0.0.0.0:5000
-python main.py --web --web-port 8080          # Custom port
-python main.py --web --web-host 127.0.0.1     # Localhost only
-```
 
 ### CLI Scanning
 ```bash
@@ -326,9 +306,6 @@ python main.py --clear-db                                     # Clear scan datab
 | | `--discovery` | robots.txt, sitemap, API discovery |
 | | `--net-exploit` | Map open ports to known CVEs |
 | | `--tech-exploit` | Map technologies to known CVEs |
-| **Web** | `--web` | Launch Flask dashboard |
-| | `--web-host` | Dashboard host (default: 0.0.0.0) |
-| | `--web-port` | Dashboard port (default: 5000) |
 | **Reports** | `--report` | Generate report for scan ID |
 | | `--format` | Format: json/csv/html/txt/pdf/xml/sarif/all |
 | | `--list-scans` | List all previous scans |
@@ -364,13 +341,13 @@ python main.py --clear-db                                     # Clear scan datab
 │                         ☢  ATOMIC FRAMEWORK                             │
 │                            main.py (CLI)                                │
 ├──────────────┬──────────────┬─────────────────┬─────────────────────────┤
-│   Web UI     │  Burp Tools  │   Core Engine   │   AI Engine             │
-│  (Flask)     │  Proxy       │  (Orchestrator) │  (ML Prediction)        │
-│  Dashboard   │  Repeater    │  Crawler        │  Adaptive Testing       │
-│  REST API    │  Intruder    │  Requester      │  Learning Store         │
-│  WebSocket   │  Decoder     │  Baseline       │  Confidence Cal.        │
-│  Trend Chart │  Sequencer   │  Verifier       │  Exploit Strategy       │
-│  Glass UI    │  Comparer    │  Scorer         │  WAF Evasion Profiles   │
+│  CLI / Auto  │  Burp Tools  │   Core Engine   │   AI Engine             │
+│  Devil Mode  │  Proxy       │  (Orchestrator) │  (ML Prediction)        │
+│  GateBreaker │  Repeater    │  Crawler        │  Adaptive Testing       │
+│  DeepScan    │  Intruder    │  Requester      │  Learning Store         │
+│  FullAttack  │  Decoder     │  Baseline       │  Confidence Cal.        │
+│  BypassLadder│  Sequencer   │  Verifier       │  Exploit Strategy       │
+│  Evasion     │  Comparer    │  Scorer         │  WAF Evasion Profiles   │
 ├──────────────┴──────────────┴────────┬────────┴─────────────────────────┤
 │              §1 Setup                │       §2 Discovery               │
 │  • Scope enforcement                 │  • Crawling & param extraction   │
@@ -495,11 +472,6 @@ Scanner-/
 │   ├── sequencer.py             # Token randomness analysis (Burp-style)
 │   ├── comparer.py              # Response diffing & similarity (Burp-style)
 │   └── helpers.py               # Utility functions
-│
-├── web/                         # Flask web dashboard
-│   ├── app.py                   # Flask application + REST API
-│   ├── templates/index.html     # Dark-themed dashboard UI
-│   └── static/style.css         # Dashboard styles
 │
 ├── tests/                       # Test suite (57+ files, 1900+ tests)
 │   ├── conftest.py              # Pytest configuration
