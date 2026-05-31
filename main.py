@@ -777,6 +777,9 @@ def main():
         action="store_true",
         help="Enable dependency confusion / supply chain attack surface detection",
     )
+    parser.add_argument("--h2-smuggling", action="store_true", help="HTTP/2 request smuggling detection")
+    parser.add_argument("--cache-poison", action="store_true", help="Web cache poisoning detection")
+    parser.add_argument("--api-abuse", action="store_true", help="API abuse and rate limit bypass detection")
 
     # ── WAF AI Bypass ─────────────────────────────────────────
     parser.add_argument(
@@ -1616,6 +1619,9 @@ def main():
         "mfa_bypass": getattr(args, "mfa_bypass", False) or full,
         "api_versioning": getattr(args, "api_versioning", False) or full,
         "dep_confusion": getattr(args, "dep_confusion", False) or full,
+        "h2_smuggling": getattr(args, "h2_smuggling", False) or full,
+        "cache_poisoning": getattr(args, "cache_poison", False) or full,
+        "api_abuse": getattr(args, "api_abuse", False) or full,
     }
 
     if args.regulated_mission:

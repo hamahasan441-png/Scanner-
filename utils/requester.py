@@ -54,7 +54,7 @@ class ResponseCache:
         self.hits = 0
         self.misses = 0
 
-    def get(self, key: str):
+    def get(self, key: str) -> object | None:
         """Get cached response or None if miss/expired."""
         with self._lock:
             entry = self._cache.get(key)
@@ -72,7 +72,7 @@ class ResponseCache:
             self.hits += 1
             return response
 
-    def put(self, key: str, response):
+    def put(self, key: str, response: object) -> None:
         """Store response in cache."""
         with self._lock:
             if key in self._cache:
@@ -82,7 +82,7 @@ class ResponseCache:
             while len(self._cache) > self._max_size:
                 self._cache.popitem(last=False)
 
-    def clear(self):
+    def clear(self) -> None:
         """Clear entire cache."""
         with self._lock:
             self._cache.clear()
@@ -108,6 +108,72 @@ class ResponseCache:
     def hit_rate(self) -> float:
         total = self.hits + self.misses
         return self.hits / total if total > 0 else 0.0
+
+
+# ── Connection Pool Manager ────────────────────────────────────────────
+
+
+class ConnectionPoolManager:
+    """Manages HTTP session pooling for the Requester.
+
+    Configures urllib3 connection pool sizes on requests.Session objects
+    for connection reuse across multiple requests to the same host.
+    """
+
+    def __init__(
+        self,
+        pool_connections: int = 10,
+        pool_maxsize: int = 20,
+        max_retries: int = 3,
+    ) -> None:
+        self._pool_connections = pool_connections
+        self._pool_maxsize = pool_maxsize
+        self._max_retries = max_retries
+        self._session: object | None = None
+
+    def get_session(self) -> object:
+        """Get or create a configured requests.Session with connection pooling.
+
+        Returns the session object typed as Any since requests may not
+        be installed at runtime.
+        """
+        if self._session is not None:
+            return self._session
+
+        try:
+            import requests as _requests
+            from requests.adapters import HTTPAdapter as _HTTPAdapter
+            from requests.packages.urllib3.util.retry import Retry as _Retry
+
+            session = _requests.Session()
+            retry_strategy = _Retry(
+                total=self._max_retries,
+                backoff_factor=1,
+                status_forcelist=[429, 500, 502, 503, 504],
+            )
+            adapter = _HTTPAdapter(
+                max_retries=retry_strategy,
+                pool_connections=self._pool_connections,
+                pool_maxsize=self._pool_maxsize,
+            )
+            session.mount("http://", adapter)
+            session.mount("https://", adapter)
+            self._session = session
+            return session
+        except ImportError:
+            raise RuntimeError(
+                "requests library is not installed. "
+                "Install with: pip install requests"
+            )
+
+    def close(self) -> None:
+        """Close the managed session and release pooled connections."""
+        if self._session is not None:
+            try:
+                self._session.close()  # type: ignore[attr-defined]
+            except Exception:
+                pass
+            self._session = None
 
 
 # ── Scan Metrics Tracker ──────────────────────────────────────────────

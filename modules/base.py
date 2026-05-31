@@ -8,8 +8,20 @@ Every scanner module should subclass :class:`BaseModule` to inherit
 the standard constructor, helper utilities and the enforced
 ``test()`` / ``test_url()`` contract.
 """
+from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from typing import Any, Optional, Protocol
+
+
+class EngineProtocol(Protocol):
+    """Protocol describing the engine interface that modules depend on."""
+
+    config: dict[str, Any]
+    requester: Any  # Requester instance
+    findings: list[Any]
+
+    def add_finding(self, finding: Any) -> None: ...
 
 
 class BaseModule(ABC):
@@ -26,11 +38,11 @@ class BaseModule(ABC):
     vuln_type: str = ""
     requires_reflection: bool = False
 
-    def __init__(self, engine):
+    def __init__(self, engine: EngineProtocol) -> None:
         self.engine = engine
         self.requester = engine.requester
-        self.config = engine.config
-        self.verbose = engine.config.get("verbose", False)
+        self.config: dict[str, Any] = engine.config
+        self.verbose: bool = engine.config.get("verbose", False)
 
     @abstractmethod
     def test(self, url: str, method: str, param: str, value: str) -> None:
@@ -39,7 +51,7 @@ class BaseModule(ABC):
     def test_url(self, url: str) -> None:
         """Optional URL-level test (CORS, JWT, headers, etc.)."""
 
-    def _add_finding(self, **kwargs):
+    def _add_finding(self, **kwargs: Any) -> None:
         """Convenience wrapper to create and register a Finding.
 
         Legacy path: creates a ``core.engine.Finding`` directly and calls
@@ -50,7 +62,7 @@ class BaseModule(ABC):
         finding = Finding(**kwargs)
         self.engine.add_finding(finding)
 
-    def _emit_signal(self, **kwargs):
+    def _emit_signal(self, **kwargs: Any) -> Any:
         """Emit a ``ModuleSignal`` through the canonical emission pipeline.
 
         This is the preferred way for modules to report observations.
@@ -98,7 +110,7 @@ class BaseModule(ABC):
     # LLM-Enhanced Payload Helpers
     # ------------------------------------------------------------------
 
-    def _get_ai_payloads(self, vuln_type, standard_payloads, param_name=""):
+    def _get_ai_payloads(self, vuln_type: str, standard_payloads: list[str], param_name: str = "") -> list[str]:
         """Augment *standard_payloads* with LLM-generated suggestions.
 
         Calls ``AIEngine.get_llm_enhanced_payloads()`` when the local
@@ -113,7 +125,7 @@ class BaseModule(ABC):
         except Exception:
             return standard_payloads
 
-    def _ai_verify_response(self, vuln_type, url, param, payload, response_text):
+    def _ai_verify_response(self, vuln_type: str, url: str, param: str, payload: str, response_text: str) -> Optional[dict[str, Any]]:
         """Ask the LLM to verify whether a response confirms a vulnerability.
 
         Returns ``None`` when the LLM is unavailable (so callers should

@@ -402,6 +402,10 @@ class AtomicEngine:
             # Requires --local-llm / --llm-provider / --llm-profile to be
             # active; otherwise the module is a no-op.
             "llm_logic": ("modules.llm_logic", "LLMLogicModule"),
+            # HTTP/2 smuggling, cache poisoning, API abuse modules
+            "h2_smuggling": ("modules.h2_smuggling", "H2SmugglingModule"),
+            "cache_poisoning": ("modules.cache_poisoning", "CachePoisoningModule"),
+            "api_abuse": ("modules.api_abuse", "APIAbuseModule"),
         }
 
         modules_config = self.config.get("modules", {})
