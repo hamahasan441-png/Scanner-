@@ -2356,3 +2356,13 @@ MITRE_CWE_MAP = {
     "Missing Security Header": ("T1189", "CWE-693"),
     "Version Disclosure": ("T1592", "CWE-200"),
 }
+
+
+# Deep scan configuration for enhanced crawler parameter discovery
+DEEP_SCAN_CONFIG = {
+    "max_js_depth": 5,
+    "extract_response_params": True,
+    "mine_api_versions": True,
+    "websocket_discovery": True,
+    "recursive_param_limit": 500,
+}

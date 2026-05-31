@@ -96,6 +96,14 @@ class Crawler:
         self._extract_source_maps(soup, url, response)
         self._update_graph(url, response, soup)
 
+        # Deep scan extraction methods
+        self._extract_json_body_params(soup, url)
+        self._extract_multipart_params(soup, url)
+        self._extract_websocket_endpoints(soup, url)
+        self._extract_api_versions(soup, url)
+        self._extract_response_params(response, url)
+        self._mine_deep_js_params(soup, url)
+
     def _enqueue_links(self, soup, url, base_domain, to_visit, current_depth, depth):
         """Extract <a> links and add same-domain URLs to the crawl queue."""
         for link in soup.find_all("a", href=True):
@@ -575,3 +583,286 @@ class Crawler:
         for map_url in found_maps:
             self.resources["scripts"].add(map_url)
             self.parameters.append((map_url, "get", "", "", "source_map"))
+
+    # ------------------------------------------------------------------
+    # Deep scan extraction methods
+    # ------------------------------------------------------------------
+
+    def _extract_json_body_params(self, soup, url):
+        """Extract JSON body parameters from JavaScript fetch/axios calls.
+
+        Looks for fetch() with body:{}, JSON.stringify patterns, and
+        Content-Type: application/json headers to discover nested keys
+        that are used in POST requests.
+        """
+        for script in soup.find_all("script"):
+            if not script.string:
+                continue
+            src = script.string
+
+            # Pattern 1: fetch/axios with JSON body objects
+            # e.g. fetch(url, {body: JSON.stringify({key1: val, key2: val})})
+            stringify_blocks = re.findall(
+                r'JSON\.stringify\s*\(\s*\{([^}]+)\}', src
+            )
+            for block in stringify_blocks:
+                for key in re.findall(r'["\']?(\w+)["\']?\s*:', block):
+                    if key not in self._JS_NOISE and len(key) > 1:
+                        self.parameters.append((url, "post", key, "", "json_body"))
+
+            # Pattern 2: body: { key: value } in fetch options
+            body_blocks = re.findall(
+                r'body\s*:\s*\{([^}]+)\}', src
+            )
+            for block in body_blocks:
+                for key in re.findall(r'["\']?(\w+)["\']?\s*:', block):
+                    if key not in self._JS_NOISE and len(key) > 1:
+                        self.parameters.append((url, "post", key, "", "json_body"))
+
+            # Pattern 3: Content-Type: application/json with data objects
+            # Look for headers with json content type near data/payload objects
+            if "application/json" in src:
+                data_blocks = re.findall(
+                    r'(?:data|payload|requestBody)\s*[:=]\s*\{([^}]+)\}', src
+                )
+                for block in data_blocks:
+                    for key in re.findall(r'["\']?(\w+)["\']?\s*:', block):
+                        if key not in self._JS_NOISE and len(key) > 1:
+                            self.parameters.append((url, "post", key, "", "json_body"))
+
+            # Pattern 4: axios.post(url, {key: value})
+            axios_bodies = re.findall(
+                r'axios\.(?:post|put|patch)\s*\([^,]+,\s*\{([^}]+)\}', src
+            )
+            for block in axios_bodies:
+                for key in re.findall(r'["\']?(\w+)["\']?\s*:', block):
+                    if key not in self._JS_NOISE and len(key) > 1:
+                        self.parameters.append((url, "post", key, "", "json_body"))
+
+    def _extract_multipart_params(self, soup, url):
+        """Extract multipart/form-data form fields and file upload inputs.
+
+        Identifies forms with enctype="multipart/form-data" and extracts
+        field names including file inputs as testable parameters.
+        """
+        for form in soup.find_all("form"):
+            enctype = (form.get("enctype") or "").lower()
+            if "multipart/form-data" in enctype:
+                action = form.get("action", "")
+                form_url = urljoin(url, action) if action else url
+                method = form.get("method", "post").lower()
+
+                for inp in form.find_all(["input", "textarea", "select"]):
+                    name = inp.get("name")
+                    if name:
+                        input_type = inp.get("type", "text").lower()
+                        self.parameters.append(
+                            (form_url, method, name, "", "multipart")
+                        )
+                        # File inputs are especially interesting for upload testing
+                        if input_type == "file":
+                            self.parameters.append(
+                                (form_url, method, name, "", "multipart")
+                            )
+
+        # Also check JS for FormData usage
+        for script in soup.find_all("script"):
+            if not script.string:
+                continue
+            # formData.append('fieldName', ...)
+            for match in re.findall(
+                r'[Ff]orm[Dd]ata.*?\.append\s*\(\s*["\'](\w+)["\']', script.string
+            ):
+                self.parameters.append((url, "post", match, "", "multipart"))
+
+    def _extract_websocket_endpoints(self, soup, url):
+        """Extract WebSocket connection URLs from JavaScript.
+
+        Detects new WebSocket(...), io.connect(...), SockJS patterns,
+        and registers them with source='websocket'.
+        """
+        for script in soup.find_all("script"):
+            if not script.string:
+                continue
+            src = script.string
+
+            # new WebSocket('ws://...' or 'wss://...')
+            ws_patterns = [
+                r'new\s+WebSocket\s*\(\s*["\']([^"\']+)["\']',
+                r'io\s*\.\s*connect\s*\(\s*["\']([^"\']+)["\']',
+                r'io\s*\(\s*["\']([^"\']+)["\']',
+                r'SockJS\s*\(\s*["\']([^"\']+)["\']',
+                r'new\s+SockJS\s*\(\s*["\']([^"\']+)["\']',
+                r'["\'](\w+s?://[^"\']*(?:socket|ws|realtime)[^"\']*)["\']',
+            ]
+
+            for pattern in ws_patterns:
+                for match in re.findall(pattern, src):
+                    ws_url = urljoin(url, match)
+                    self.parameters.append((ws_url, "get", "", "", "websocket"))
+
+    def _extract_api_versions(self, soup, url):
+        """Identify API versioning patterns and generate alternate versions.
+
+        Finds /v1/, /v2/, /api/v3/ etc in links and scripts, then
+        generates alternate version URLs to test for deprecated insecure
+        endpoints.
+        """
+        version_pattern = re.compile(r'/v(\d+)/')
+        found_versioned = set()
+
+        # Check all links on the page
+        for link in soup.find_all("a", href=True):
+            href = link.get("href", "")
+            full_url = urljoin(url, href)
+            match = version_pattern.search(full_url)
+            if match:
+                found_versioned.add(full_url)
+
+        # Check script content for versioned API paths
+        for script in soup.find_all("script"):
+            if not script.string:
+                continue
+            # Find versioned paths in strings
+            for match in re.findall(r'["\']([^"\']*?/v\d+/[^"\']*)["\']', script.string):
+                full_url = urljoin(url, match)
+                found_versioned.add(full_url)
+
+        # For each versioned URL, generate alternate versions
+        for versioned_url in found_versioned:
+            match = version_pattern.search(versioned_url)
+            if match:
+                current_version = int(match.group(1))
+                # Generate v1 through v(current+1) to check for deprecated/beta
+                for v in range(1, min(current_version + 2, 10)):
+                    if v != current_version:
+                        alt_url = version_pattern.sub(f'/v{v}/', versioned_url, count=1)
+                        self.parameters.append(
+                            (alt_url, "get", "", "", "api_version")
+                        )
+            # Also register the original
+            self.parameters.append(
+                (versioned_url, "get", "", "", "api_version")
+            )
+
+    def _extract_response_params(self, response, url):
+        """Analyze HTTP response headers and body for parameter hints.
+
+        Examines Link headers, X-* headers with IDs, JSON response keys,
+        and pagination patterns to discover additional injection points.
+        """
+        if not response:
+            return
+
+        headers = response.headers if hasattr(response, "headers") else {}
+
+        # Link header parsing (pagination, related resources)
+        link_header = headers.get("Link", "") or headers.get("link", "")
+        if link_header:
+            # Extract URLs from Link header: <url>; rel="next"
+            for match in re.findall(r'<([^>]+)>', link_header):
+                link_url = urljoin(url, match)
+                parsed = urlparse(link_url)
+                if parsed.query:
+                    for name, values in parse_qs(parsed.query).items():
+                        for val in values:
+                            self.parameters.append(
+                                (link_url, "get", name, val, "response_extracted")
+                            )
+
+        # X-* headers that may contain IDs or tokens
+        for header_name, header_value in headers.items():
+            lower_name = header_name.lower()
+            if lower_name.startswith("x-") and header_value:
+                # Headers like X-Request-ID, X-Correlation-ID hint at params
+                param_hint = lower_name.replace("x-", "").replace("-", "_")
+                self.parameters.append(
+                    (url, "get", param_hint, header_value, "response_extracted")
+                )
+
+        # JSON response key extraction
+        text = response.text if hasattr(response, "text") else ""
+        if text:
+            # Look for JSON-like key patterns in response body
+            json_keys = re.findall(r'"(\w{2,30})"\s*:', text)
+            seen = set()
+            for key in json_keys:
+                if key not in seen and key not in self._JS_NOISE:
+                    seen.add(key)
+                    self.parameters.append(
+                        (url, "get", key, "", "response_extracted")
+                    )
+
+            # Pagination patterns: page, limit, offset, cursor, after, before
+            pagination_params = re.findall(
+                r'["\']?(page|limit|offset|cursor|after|before|per_page|page_size)["\']?\s*[:=]\s*["\']?(\w+)',
+                text
+            )
+            for pname, pval in pagination_params:
+                self.parameters.append(
+                    (url, "get", pname, pval, "response_extracted")
+                )
+
+    def _mine_deep_js_params(self, soup, url):
+        """Perform deeper JavaScript analysis for parameter discovery.
+
+        Covers: object destructuring patterns, GraphQL query variables,
+        route definitions with path parameters, and REST client configs.
+        """
+        for script in soup.find_all("script"):
+            if not script.string:
+                continue
+            src = script.string
+
+            # Pattern 1: Object destructuring: const {param1, param2} = ...
+            destructure_blocks = re.findall(
+                r'(?:const|let|var)\s*\{\s*([^}]+)\}\s*=', src
+            )
+            for block in destructure_blocks:
+                for key in re.findall(r'(\w+)', block):
+                    if key not in self._JS_NOISE and len(key) > 1:
+                        self.parameters.append((url, "get", key, "", "deep_js"))
+
+            # Pattern 2: GraphQL variables: variables: {key: value}
+            gql_vars = re.findall(
+                r'variables\s*:\s*\{([^}]+)\}', src
+            )
+            for block in gql_vars:
+                for key in re.findall(r'["\']?(\w+)["\']?\s*:', block):
+                    if key not in self._JS_NOISE and len(key) > 1:
+                        self.parameters.append((url, "post", key, "", "deep_js"))
+
+            # Pattern 3: Route definitions with path params
+            # e.g. path: '/users/:id', '/api/:resource/:id'
+            route_paths = re.findall(
+                r'path\s*:\s*["\']([^"\']+)["\']', src
+            )
+            for rpath in route_paths:
+                for param in re.findall(r':(\w+)', rpath):
+                    self.parameters.append((url, "get", param, "", "deep_js"))
+
+            # Pattern 4: Express/Koa style route params
+            # router.get('/users/:userId', ...)
+            router_routes = re.findall(
+                r'(?:router|app)\s*\.\s*(?:get|post|put|delete|patch)\s*\(\s*["\']([^"\']+)["\']',
+                src
+            )
+            for rpath in router_routes:
+                for param in re.findall(r':(\w+)', rpath):
+                    self.parameters.append((url, "get", param, "", "deep_js"))
+
+            # Pattern 5: GraphQL query/mutation field names
+            gql_fields = re.findall(
+                r'(?:query|mutation)\s+\w+\s*\(\s*([^)]+)\)', src
+            )
+            for block in gql_fields:
+                for var in re.findall(r'\$(\w+)', block):
+                    self.parameters.append((url, "post", var, "", "deep_js"))
+
+            # Pattern 6: State management keys (Redux/Vuex actions)
+            state_keys = re.findall(
+                r'(?:dispatch|commit)\s*\(\s*["\'](\w+)["\']', src
+            )
+            for key in state_keys:
+                if len(key) > 1 and key not in self._JS_NOISE:
+                    self.parameters.append((url, "get", key, "", "deep_js"))
