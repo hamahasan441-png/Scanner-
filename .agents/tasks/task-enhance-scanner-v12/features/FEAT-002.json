@@ -1,0 +1,30 @@
+{
+  "id": "FEAT-002",
+  "type": "feat",
+  "description": "Performance and scalability enhancements: Add an async HTTP client wrapper (utils/async_requester.py) with connection pooling, implement a concurrent scan worker pool (core/scan_pool.py) with configurable concurrency, and add a rate limiter with token bucket algorithm. These provide the infrastructure for async I/O and better concurrency without requiring httpx/aiohttp (uses concurrent.futures and threading for stdlib-only operation).",
+  "status": "completed",
+  "steps": [
+    "Create utils/async_requester.py - An async-capable request dispatcher that wraps the existing Requester with connection pooling and concurrent request execution. Implements: ConnectionPool class (manages a pool of reusable sessions with max_connections limit, checkout/return pattern, health checks), AsyncRequestDispatcher class (submits requests to a ThreadPoolExecutor, supports batch_request for multiple URLs, uses futures for non-blocking waits), RateLimiter class (token bucket algorithm with configurable rate and burst). All type-hinted with Python 3.10+ syntax.",
+    "Create core/scan_pool.py - A worker pool for concurrent module execution. Implements: ScanWorkerPool class that accepts a list of (module, url, method, param, value) tasks and executes them with bounded concurrency using ThreadPoolExecutor. Features: configurable max_workers, task prioritization (critical vulns first), graceful shutdown, progress tracking callback, error isolation (one module crash doesn't kill others), result aggregation. Type-hinted throughout.",
+    "Add type hints to utils/requester.py - Add comprehensive type annotations to the existing ResponseCache class and add a ConnectionPoolManager class that manages requests.Session objects with connection pooling (urllib3 pool_connections, pool_maxsize). Add return type annotations to all public methods.",
+    "Create tests/test_async_requester.py with 12+ tests covering: ConnectionPool init/checkout/return/exhaustion, RateLimiter token bucket behavior (allows burst then throttles), AsyncRequestDispatcher batch execution, timeout handling, pool cleanup.",
+    "Create tests/test_scan_pool.py with 10+ tests covering: ScanWorkerPool init, task submission, concurrent execution verification (timing), error isolation, graceful shutdown, progress callback invocation, result collection."
+  ],
+  "acceptance_criteria": [
+    "utils/async_requester.py passes py_compile and mypy --ignore-missing-imports",
+    "core/scan_pool.py passes py_compile and mypy --ignore-missing-imports",
+    "RateLimiter correctly implements token bucket (tests prove burst allowance + throttling)",
+    "ConnectionPool enforces max_connections limit (tests prove blocking when pool exhausted)",
+    "ScanWorkerPool isolates module errors (one failure doesn't crash others)",
+    "All test files pass pytest without external dependencies",
+    "All new code has comprehensive type hints (no Any escapes except where truly needed)"
+  ],
+  "verification": [
+    "python -m py_compile utils/async_requester.py && python -m py_compile core/scan_pool.py",
+    "python -m pytest tests/test_async_requester.py tests/test_scan_pool.py -v --tb=short",
+    "python -m mypy utils/async_requester.py core/scan_pool.py --ignore-missing-imports --no-error-summary 2>&1 | grep -c 'error' || true",
+    "ruff check utils/async_requester.py core/scan_pool.py --select=E9,F63,F7,F82"
+  ],
+  "blocked_reason": null,
+  "findings": "All 38 tests pass (24 in test_async_requester, 14 in test_scan_pool). py_compile passes for all new files. ruff linter passes. mypy passes on utils/async_requester.py and core/scan_pool.py with no errors (existing project has 170+ pre-existing mypy errors in other files). Used importlib.util to load core/scan_pool.py in tests to bypass core/__init__.py which triggers yaml dependency. Replaced the pre-existing httpx-based utils/async_requester.py with a stdlib-only implementation."
+}
