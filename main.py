@@ -175,6 +175,13 @@ def main():
     parser.add_argument("--osint", action="store_true", help="Enable OSINT reconnaissance")
     parser.add_argument("--fuzz", action="store_true", help="Enable fuzzing (parameter, header, method, vhost)")
     parser.add_argument(
+        "--deep-scan",
+        action="store_true",
+        help="Enable deep multi-technique scan (fingerprinting, API vuln "
+        "tests, recursive param discovery, chained attacks, adaptive "
+        "WAF bypass, second-order injection)",
+    )
+    parser.add_argument(
         "--sqlmap",
         action="store_true",
         help="Enable sqlmap integration for deep SQLi/CMDi testing (requires sqlmap installed)",
@@ -1622,6 +1629,9 @@ def main():
         "h2_smuggling": getattr(args, "h2_smuggling", False) or full,
         "cache_poisoning": getattr(args, "cache_poison", False) or full,
         "api_abuse": getattr(args, "api_abuse", False) or full,
+        # Deep multi-technique scanner — module file existed but was never
+        # wired in; enable via --deep-scan or point-to-point coverage.
+        "deep_scan": getattr(args, "deep_scan", False) or p2p,
     }
 
     if args.regulated_mission:

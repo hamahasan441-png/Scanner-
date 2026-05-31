@@ -406,6 +406,10 @@ class AtomicEngine:
             "h2_smuggling": ("modules.h2_smuggling", "H2SmugglingModule"),
             "cache_poisoning": ("modules.cache_poisoning", "CachePoisoningModule"),
             "api_abuse": ("modules.api_abuse", "APIAbuseModule"),
+            # Deep multi-technique scanner — module file existed but was never
+            # registered here, so `--deep-scan` (and its auto-enable paths)
+            # silently did nothing until now.
+            "deep_scan": ("modules.deep_scan", "DeepScanModule"),
         }
 
         modules_config = self.config.get("modules", {})
