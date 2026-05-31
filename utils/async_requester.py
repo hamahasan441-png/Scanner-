@@ -1,280 +1,249 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ATOMIC FRAMEWORK - Async HTTP Engine
-==========================================
+ATOMIC FRAMEWORK
+Async HTTP client wrapper with connection pooling, concurrent dispatch, and rate limiting.
 
-Drop-in async complement to ``utils/requester.py`` powered by ``httpx``.
-Enabled with the ``--async-mode`` CLI flag.  Falls back gracefully to the
-synchronous ``Requester`` when ``httpx`` is not installed.
-
-Key features:
-* Full async/await API via ``httpx.AsyncClient``
-* Concurrent batch requests with configurable semaphore
-* Same caching and evasion hooks as the sync requester
-* ``AsyncSmartRateLimiter`` — detects 429/503 and backs off automatically
-
-Usage::
-
-    from utils.async_requester import AsyncRequester
-
-    async def run():
-        req = AsyncRequester(engine.config)
-        resp = await req.get("https://target.com/page?id=1")
-        batch = await req.batch([("GET", url1), ("GET", url2)], concurrency=10)
+Uses only stdlib (concurrent.futures, threading, time) for portability.
 """
 
 from __future__ import annotations
 
-import asyncio
-import logging
+import threading
 import time
-from typing import Any, Dict, List, Optional, Tuple
-
-from config import Config, Colors
-
-logger = logging.getLogger(__name__)
-
-try:
-    import httpx
-
-    HTTPX_AVAILABLE = True
-except ImportError:
-    HTTPX_AVAILABLE = False
-    logger.debug("httpx not installed — async mode unavailable")
+from concurrent.futures import Future, ThreadPoolExecutor
+from typing import Any, Callable, Iterable, Iterator, Optional
 
 
-# ---------------------------------------------------------------------------
-# Smart rate limiter
-# ---------------------------------------------------------------------------
+class ConnectionPool:
+    """Thread-safe connection pool with max_connections limit.
+
+    Manages reusable 'session' slots. In production these wrap requests.Session,
+    but the pool logic itself is framework-agnostic (works with any object type).
+    """
+
+    def __init__(self, max_connections: int = 10, timeout: float = 30.0) -> None:
+        self._max_connections = max_connections
+        self._timeout = timeout
+        self._semaphore = threading.Semaphore(max_connections)
+        self._lock = threading.Lock()
+        self._pool: list[object] = []
+        self._in_use: int = 0
+        self._closed: bool = False
+
+    def acquire(self) -> object:
+        """Acquire a connection slot from the pool.
+
+        Blocks until a slot is available. Raises TimeoutError if the
+        configured timeout is exceeded while waiting.
+        """
+        if self._closed:
+            raise RuntimeError("ConnectionPool is closed")
+
+        acquired = self._semaphore.acquire(timeout=self._timeout)
+        if not acquired:
+            raise TimeoutError(
+                f"Could not acquire connection within {self._timeout}s "
+                f"(max_connections={self._max_connections})"
+            )
+
+        with self._lock:
+            self._in_use += 1
+            if self._pool:
+                return self._pool.pop()
+            # Create a new placeholder connection object
+            return object()
+
+    def release(self, conn: object) -> None:
+        """Return a connection to the pool."""
+        with self._lock:
+            self._in_use -= 1
+            if not self._closed:
+                self._pool.append(conn)
+        self._semaphore.release()
+
+    def close_all(self) -> None:
+        """Close all connections and mark pool as closed."""
+        with self._lock:
+            self._closed = True
+            self._pool.clear()
+            self._in_use = 0
+
+    @property
+    def available(self) -> int:
+        """Number of free slots (not currently checked out)."""
+        with self._lock:
+            return self._max_connections - self._in_use
+
+    @property
+    def in_use(self) -> int:
+        """Number of currently checked-out connections."""
+        with self._lock:
+            return self._in_use
 
 
-class AsyncSmartRateLimiter:
-    """Detects 429 / 503 responses and applies exponential back-off.
+class RateLimiter:
+    """Token bucket rate limiter.
 
-    Thread-safe via asyncio.Lock so it works correctly across concurrent tasks.
+    Allows `rate` requests per second with burst capacity of `burst`.
+    Thread-safe.
+    """
+
+    def __init__(self, rate: float = 10.0, burst: int = 20) -> None:
+        self._rate = rate
+        self._burst = burst
+        self._tokens: float = float(burst)
+        self._last_refill: float = time.monotonic()
+        self._lock = threading.Lock()
+
+    def _refill(self) -> None:
+        """Refill tokens based on elapsed time since last refill."""
+        now = time.monotonic()
+        elapsed = now - self._last_refill
+        self._tokens = min(float(self._burst), self._tokens + elapsed * self._rate)
+        self._last_refill = now
+
+    def acquire(self, timeout: float = 30.0) -> bool:
+        """Block until a token is available.
+
+        Returns True if a token was acquired, False if timeout was exceeded.
+        """
+        deadline = time.monotonic() + timeout
+        while True:
+            with self._lock:
+                self._refill()
+                if self._tokens >= 1.0:
+                    self._tokens -= 1.0
+                    return True
+            # Calculate how long until next token is available
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return False
+            # Sleep for a short interval then retry
+            wait_time = min(1.0 / self._rate if self._rate > 0 else 0.1, remaining)
+            time.sleep(wait_time)
+
+    def try_acquire(self) -> bool:
+        """Non-blocking attempt to acquire a token.
+
+        Returns True if a token was available, False otherwise.
+        """
+        with self._lock:
+            self._refill()
+            if self._tokens >= 1.0:
+                self._tokens -= 1.0
+                return True
+            return False
+
+    @property
+    def tokens(self) -> float:
+        """Current token count (refills on access)."""
+        with self._lock:
+            self._refill()
+            return self._tokens
+
+    def reset(self) -> None:
+        """Reset the rate limiter to full burst capacity."""
+        with self._lock:
+            self._tokens = float(self._burst)
+            self._last_refill = time.monotonic()
+
+
+class AsyncRequestDispatcher:
+    """Dispatches HTTP requests concurrently using a thread pool.
+
+    Integrates ConnectionPool and RateLimiter for controlled concurrency.
     """
 
     def __init__(
         self,
-        base_delay: float = 0.1,
-        max_delay: float = 60.0,
-        backoff_factor: float = 2.0,
-    ):
-        self.base_delay = base_delay
-        self.current_delay = base_delay
-        self.max_delay = max_delay
-        self.backoff_factor = backoff_factor
-        self._lock = asyncio.Lock()
-        self._throttled = False
-        self._rate_limit_hits = 0
+        max_workers: int = 20,
+        pool: Optional[ConnectionPool] = None,
+        rate_limiter: Optional[RateLimiter] = None,
+    ) -> None:
+        self._max_workers = max_workers
+        self._pool = pool
+        self._rate_limiter = rate_limiter
+        self._executor = ThreadPoolExecutor(max_workers=max_workers)
+        self._lock = threading.Lock()
+        self._pending: int = 0
+        self._completed: int = 0
+        self._shutdown: bool = False
 
-    async def on_response(self, status_code: int):
-        """Call this for every response.  Backs off on 429/503."""
-        if status_code in (429, 503):
-            async with self._lock:
-                self._rate_limit_hits += 1
-                self._throttled = True
-                self.current_delay = min(self.current_delay * self.backoff_factor, self.max_delay)
-                logger.info(
-                    "Rate limit detected (HTTP %d) — backing off to %.1fs",
-                    status_code,
-                    self.current_delay,
-                )
-            await asyncio.sleep(self.current_delay)
-        elif status_code < 400:
-            # Successful response — slowly recover
-            async with self._lock:
-                if self._throttled:
-                    self.current_delay = max(
-                        self.base_delay,
-                        self.current_delay / self.backoff_factor,
-                    )
-                    if self.current_delay <= self.base_delay * 1.1:
-                        self._throttled = False
+    def _wrap_task(self, fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+        """Wrap a task with pool acquisition and rate limiting."""
+        conn: Optional[object] = None
+        try:
+            if self._rate_limiter is not None:
+                self._rate_limiter.acquire()
 
-    async def wait(self):
-        """Honour the current inter-request delay."""
-        if self.current_delay > 0:
-            await asyncio.sleep(self.current_delay)
+            if self._pool is not None:
+                conn = self._pool.acquire()
 
-    @property
-    def stats(self) -> dict:
-        return {
-            "rate_limit_hits": self._rate_limit_hits,
-            "current_delay": self.current_delay,
-            "throttled": self._throttled,
-        }
+            return fn(*args, **kwargs)
+        finally:
+            if conn is not None and self._pool is not None:
+                self._pool.release(conn)
+            with self._lock:
+                self._pending -= 1
+                self._completed += 1
 
+    def submit(self, fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Future:  # type: ignore[type-arg]
+        """Submit a single task for execution.
 
-# ---------------------------------------------------------------------------
-# Async Requester
-# ---------------------------------------------------------------------------
-
-
-class AsyncRequester:
-    """Async HTTP client wrapping ``httpx.AsyncClient``.
-
-    Provides the same interface hints as the sync ``Requester`` so modules
-    can call it uniformly when ``--async-mode`` is active.
-    """
-
-    def __init__(self, config: dict):
-        self.config = config
-        self.timeout = config.get("timeout", Config.TIMEOUT)
-        self.rate_limiter = AsyncSmartRateLimiter(
-            base_delay=config.get("delay", Config.REQUEST_DELAY),
-        )
-        self._client: Optional["httpx.AsyncClient"] = None
-        self._semaphore: Optional[asyncio.Semaphore] = None
-        self.total_requests = 0
-        self.request_times: List[float] = []
-
-    async def __aenter__(self):
-        await self._open()
-        return self
-
-    async def __aexit__(self, *exc):
-        await self._close()
-
-    async def _open(self):
-        if not HTTPX_AVAILABLE:
-            raise RuntimeError("httpx is not installed. Run: pip install httpx")
-        concurrency = self.config.get("threads", 50)
-        self._semaphore = asyncio.Semaphore(concurrency)
-        headers = Config.get_random_headers()
-        proxy = self.config.get("proxy")
-        # TLS verification: ON by default; opt-in to insecure mode only via
-        # explicit --insecure-tls flag for self-signed-cert engagements.
-        verify_tls = not bool(self.config.get("insecure_tls", False))
-        if not verify_tls:
-            logger.warning(
-                "TLS certificate verification DISABLED (--insecure-tls). "
-                "Async HTTP traffic is vulnerable to MITM."
-            )
-        self._client = httpx.AsyncClient(
-            headers=headers,
-            timeout=self.timeout,
-            verify=verify_tls,
-            follow_redirects=True,
-            **({"proxy": proxy} if proxy else {}),
-        )
-
-    async def _close(self):
-        if self._client:
-            await self._client.aclose()
-            self._client = None
-
-    async def get(
-        self,
-        url: str,
-        params: Optional[dict] = None,
-        headers: Optional[dict] = None,
-    ) -> Optional[Any]:
-        return await self._request("GET", url, params=params, headers=headers)
-
-    async def post(
-        self,
-        url: str,
-        data: Optional[dict] = None,
-        json_data: Optional[dict] = None,
-        headers: Optional[dict] = None,
-    ) -> Optional[Any]:
-        return await self._request("POST", url, data=data, json=json_data, headers=headers)
-
-    async def _request(
-        self,
-        method: str,
-        url: str,
-        **kwargs,
-    ) -> Optional[Any]:
-        """Send a single request with rate-limit awareness and retry."""
-        if not self._client:
-            raise RuntimeError("AsyncRequester not opened. Use as async context manager.")
-
-        await self.rate_limiter.wait()
-
-        async with self._semaphore:
-            start = time.time()
-            try:
-                resp = await self._client.request(method, url, **kwargs)
-                self.total_requests += 1
-                self.request_times.append(time.time() - start)
-                await self.rate_limiter.on_response(resp.status_code)
-                return resp
-            except httpx.TimeoutException:
-                logger.debug("Async request timed out: %s %s", method, url)
-            except httpx.RequestError as exc:
-                logger.debug("Async request error: %s — %s", url, exc)
-            return None
-
-    async def batch(
-        self,
-        requests: List[Tuple[str, str]],
-        concurrency: Optional[int] = None,
-        extra_kwargs: Optional[List[dict]] = None,
-    ) -> List[Optional[Any]]:
-        """Send multiple (method, url) pairs concurrently.
-
-        Args:
-            requests:     List of (HTTP_METHOD, url) tuples.
-            concurrency:  Override semaphore limit for this batch.
-            extra_kwargs: Optional per-request extra kwargs (same index as requests).
-
-        Returns:
-            List of responses in the same order as *requests*.
+        Returns a Future representing the eventual result.
         """
-        if not self._client:
-            raise RuntimeError("AsyncRequester not opened. Use as async context manager.")
+        if self._shutdown:
+            raise RuntimeError("Dispatcher has been shut down")
 
-        sem = (
-            asyncio.Semaphore(concurrency)
-            if concurrency
-            else self._semaphore
-        )
+        with self._lock:
+            self._pending += 1
 
-        async def _one(idx: int, method: str, url: str) -> Tuple[int, Optional[Any]]:
-            kw = (extra_kwargs[idx] if extra_kwargs else {}) or {}
-            async with sem:
-                result = await self._request(method, url, **kw)
-            return idx, result
+        return self._executor.submit(self._wrap_task, fn, *args, **kwargs)
 
-        tasks = [_one(i, m, u) for i, (m, u) in enumerate(requests)]
-        pairs = await asyncio.gather(*tasks, return_exceptions=True)
+    def batch_submit(
+        self, tasks: list[tuple[Callable[..., Any], tuple[Any, ...], dict[str, Any]]]
+    ) -> list[Future]:  # type: ignore[type-arg]
+        """Submit a batch of tasks.
 
-        results: List[Optional[Any]] = [None] * len(requests)
-        for pair in pairs:
-            if isinstance(pair, Exception):
-                continue
-            idx, resp = pair
-            results[idx] = resp
+        Each task is a tuple of (callable, args_tuple, kwargs_dict).
+        Returns a list of Futures.
+        """
+        futures: list[Future] = []  # type: ignore[type-arg]
+        for fn, args, kwargs in tasks:
+            futures.append(self.submit(fn, *args, **kwargs))
+        return futures
 
-        return results
+    def map(
+        self, fn: Callable[..., Any], items: Iterable[Any], timeout: Optional[float] = None
+    ) -> Iterator[Any]:
+        """Map a callable over items concurrently, similar to executor.map.
+
+        Results are yielded in order of submission.
+        """
+        if self._shutdown:
+            raise RuntimeError("Dispatcher has been shut down")
+
+        futures: list[Future] = []  # type: ignore[type-arg]
+        for item in items:
+            futures.append(self.submit(fn, item))
+
+        for future in futures:
+            yield future.result(timeout=timeout)
+
+    def shutdown(self, wait: bool = True) -> None:
+        """Shut down the dispatcher and its thread pool."""
+        self._shutdown = True
+        self._executor.shutdown(wait=wait)
 
     @property
-    def stats(self) -> dict:
-        """Return request statistics."""
-        times = self.request_times
-        return {
-            "total_requests": self.total_requests,
-            "avg_response_time": (sum(times) / len(times)) if times else 0,
-            "rate_limiter": self.rate_limiter.stats,
-        }
+    def pending_count(self) -> int:
+        """Number of tasks currently pending execution."""
+        with self._lock:
+            return self._pending
 
-
-# ---------------------------------------------------------------------------
-# Convenience helper: run async scan function from sync context
-# ---------------------------------------------------------------------------
-
-
-def run_async(coro):
-    """Run an async coroutine from synchronous code."""
-    try:
-        loop = asyncio.get_event_loop()
-        if loop.is_closed():
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-    return loop.run_until_complete(coro)
+    @property
+    def completed_count(self) -> int:
+        """Number of tasks that have completed."""
+        with self._lock:
+            return self._completed
