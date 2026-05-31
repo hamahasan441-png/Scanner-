@@ -179,9 +179,12 @@ class TestExtractMultipartParams(unittest.TestCase):
             ]
         }])
         c._extract_multipart_params(soup, "http://example.com")
+        # Non-file inputs have source='multipart'
         param_names = [p[2] for p in c.parameters if p[4] == "multipart"]
-        self.assertIn("file", param_names)
         self.assertIn("description", param_names)
+        # File inputs have source='multipart_file'
+        file_param_names = [p[2] for p in c.parameters if p[4] == "multipart_file"]
+        self.assertIn("file", file_param_names)
 
     def test_non_multipart_form_ignored(self):
         c = self._make()
@@ -233,9 +236,9 @@ class TestExtractMultipartParams(unittest.TestCase):
             ]
         }])
         c._extract_multipart_params(soup, "http://example.com")
-        # File inputs should produce multipart params
-        multipart_params = [p for p in c.parameters if p[4] == "multipart" and p[2] == "document"]
-        self.assertTrue(len(multipart_params) >= 1)
+        # File inputs should produce exactly one entry with source='multipart_file'
+        file_params = [p for p in c.parameters if p[4] == "multipart_file" and p[2] == "document"]
+        self.assertEqual(len(file_params), 1)
 
 
 class TestExtractWebsocketEndpoints(unittest.TestCase):

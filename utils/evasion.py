@@ -280,8 +280,6 @@ class PayloadMutator:
                 payloads.extend(Payloads.SQLI_CONDITIONAL_ERRORS[6:])
             else:
                 payloads.extend(Payloads.SQLI_CONDITIONAL_ERRORS)
-            if waf_detected:
-                payloads.extend(Payloads.SQLI_POLYMORPHIC)
         elif vuln_type == "xss":
             if reflection in Payloads.XSS_CONTEXT_AWARE:
                 payloads = list(Payloads.XSS_CONTEXT_AWARE[reflection])

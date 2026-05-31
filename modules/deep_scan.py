@@ -212,7 +212,8 @@ class DeepScanModule(BaseModule):
 
         If param looks like an ID (numeric or UUID), try nearby IDs and
         compare responses. Different content returned for different IDs
-        without auth difference indicates BOLA.
+        without auth difference indicates BOLA. Handles both query-param
+        and path-based ID patterns (e.g. /api/users/5).
         """
         # Check if param value looks like an ID
         is_numeric = value.isdigit() if value else False
@@ -236,16 +237,28 @@ class DeepScanModule(BaseModule):
                 "00000000-0000-0000-0000-000000000001",
             ]
 
+        # Determine if the value appears in the URL path (path-based ID)
+        value_in_path = value and value in url.split("?")[0]
+
         # Get baseline response
         baseline = self.requester.request(url, method, data={param: value} if method == "POST" else None)
         if baseline is None:
             return
 
         for test_id in test_ids[:3]:  # Limit probes
-            resp = self.requester.request(
-                url, method,
-                data={param: test_id} if method == "POST" else None
-            )
+            if value_in_path:
+                # Substitute the ID in the URL path
+                test_url = url.replace(value, test_id, 1)
+                resp = self.requester.request(
+                    test_url, method,
+                    data={param: test_id} if method == "POST" else None
+                )
+            else:
+                test_url = url
+                resp = self.requester.request(
+                    url, method,
+                    data={param: test_id} if method == "POST" else None
+                )
             if resp is None:
                 continue
 
@@ -270,8 +283,15 @@ class DeepScanModule(BaseModule):
         """Test for broken authentication on API endpoint.
 
         Send request without Authorization header or with empty token.
-        If 200 returned with data, flag as broken auth.
+        If 200 returned with data, compare against an authenticated baseline.
+        If the endpoint returns the same data with legitimate auth, it is
+        public by design and should not be flagged.
         """
+        # First, get a baseline response with normal (legitimate) request
+        baseline = self.requester.request(url, method, data={param: value} if method == "POST" else None)
+        baseline_text = baseline.text if baseline else ""
+        baseline_status = baseline.status_code if baseline else 0
+
         auth_bypass_attempts = [
             {},
             {"Authorization": ""},
@@ -289,6 +309,10 @@ class DeepScanModule(BaseModule):
                 # Check that it contains actual data, not just error
                 body_lower = resp.text.lower()
                 if not any(err in body_lower for err in ("unauthorized", "forbidden", "login", "error")):
+                    # Baseline comparison: if the response matches the
+                    # authenticated baseline, the endpoint is public
+                    if baseline_status == 200 and resp.text == baseline_text:
+                        return  # Public endpoint, not a vuln
                     header_desc = str(headers) if headers else "no auth headers"
                     self._add_finding(
                         technique="Broken Authentication (API endpoint accessible without valid auth)",
@@ -410,11 +434,11 @@ class DeepScanModule(BaseModule):
     def _test_rate_limit(self, url, method, param, value):
         """Test for missing rate limiting on API endpoint.
 
-        Send 5 rapid requests. If all return 200 (no 429),
+        Send 20 rapid requests. If all return 200 (no 429),
         flag as missing rate limiting.
         """
         success_count = 0
-        total_requests = 5
+        total_requests = 20
 
         for _ in range(total_requests):
             resp = self.requester.request(url, method)
@@ -608,8 +632,18 @@ class DeepScanModule(BaseModule):
 
         Injects payloads designed to trigger on secondary operations,
         then makes follow-up requests to detect delayed execution.
+        Uses a baseline timing measurement to avoid false positives
+        from normal network latency.
         """
         payloads = getattr(Payloads, "SQLI_SECOND_ORDER_EXTENDED", [])
+
+        # Calibrate baseline timing before injection tests
+        baseline_start = time.time()
+        baseline_resp = self.requester.request(url, "GET")
+        baseline_elapsed = time.time() - baseline_start
+
+        # Threshold is baseline + 4 seconds to account for normal variation
+        timing_threshold = baseline_elapsed + 4.0
 
         for payload in payloads[:4]:
             # Inject the payload
@@ -628,15 +662,15 @@ class DeepScanModule(BaseModule):
             if followup_resp is None:
                 continue
 
-            # Check for timing-based second-order (significant delay)
-            if elapsed > 4.0:
+            # Check for timing-based second-order (significant delay above baseline)
+            if elapsed > timing_threshold:
                 self._add_finding(
                     technique="Second-Order SQL Injection (Time-based)",
                     url=url,
                     method=method,
                     param=param,
                     payload=payload,
-                    evidence=f"Follow-up request took {elapsed:.2f}s after injection (possible second-order blind SQLi)",
+                    evidence=f"Follow-up request took {elapsed:.2f}s after injection (baseline: {baseline_elapsed:.2f}s, threshold: {timing_threshold:.2f}s)",
                     severity="HIGH",
                     confidence="LOW",
                 )

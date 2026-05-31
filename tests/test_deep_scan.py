@@ -196,6 +196,28 @@ class TestApiVulnerabilities(unittest.TestCase):
         self.assertTrue(len(engine.findings) > 0)
         self.assertIn("BOLA", engine.findings[0].technique)
 
+    def test_bola_path_parameter_substitution(self):
+        """BOLA correctly substitutes ID in URL path for path-based APIs."""
+        baseline_resp = MockResponse(
+            text='{"user": "alice", "id": 5}',
+            status_code=200,
+            headers={"Content-Type": "application/json"},
+        )
+        other_resp = MockResponse(
+            text='{"user": "bob", "id": 6}',
+            status_code=200,
+            headers={"Content-Type": "application/json"},
+        )
+        # baseline + test IDs
+        mod, engine = _make_deep_scan_module([baseline_resp, other_resp, other_resp, other_resp])
+        mod._test_bola_idor("http://example.com/api/users/5", "GET", "id", "5")
+        self.assertTrue(len(engine.findings) > 0)
+        self.assertIn("BOLA", engine.findings[0].technique)
+        # Verify the requester was called with a modified URL
+        calls = engine.requester.call_log
+        # Second call should have a different URL (the path-substituted one)
+        self.assertIn("6", calls[1]["url"])
+
     def test_bola_not_triggered_for_non_numeric(self):
         """BOLA not tested when param is not numeric/UUID."""
         mod, engine = _make_deep_scan_module([])
@@ -204,25 +226,49 @@ class TestApiVulnerabilities(unittest.TestCase):
 
     def test_broken_auth_detection(self):
         """Broken auth detected when endpoint accessible without auth."""
-        resp = MockResponse(
+        # Baseline response (authenticated request) returns different data
+        baseline_resp = MockResponse(
+            text='{"users": [{"name": "admin", "email": "admin@test.com", "role": "superuser"}]}',
+            status_code=200,
+            headers={"Content-Type": "application/json"},
+        )
+        # Unauthenticated response returns data that differs from baseline
+        unauth_resp = MockResponse(
             text='{"users": [{"name": "admin", "email": "admin@test.com"}]}',
             status_code=200,
             headers={"Content-Type": "application/json"},
         )
-        # Multiple attempts, first one should trigger
-        mod, engine = _make_deep_scan_module([resp])
+        # First response is baseline, second is the bypass attempt
+        mod, engine = _make_deep_scan_module([baseline_resp, unauth_resp])
         mod._test_broken_auth("http://example.com/api/users", "GET", "id", "1")
         self.assertTrue(len(engine.findings) > 0)
         self.assertIn("Broken Authentication", engine.findings[0].technique)
 
+    def test_broken_auth_not_triggered_on_public_endpoint(self):
+        """Broken auth not flagged when endpoint is public (same data with/without auth)."""
+        resp = MockResponse(
+            text='{"status": "healthy", "version": "1.0.0"}',
+            status_code=200,
+            headers={"Content-Type": "application/json"},
+        )
+        # Baseline and bypass return identical data = public endpoint
+        mod, engine = _make_deep_scan_module([resp, resp, resp, resp, resp, resp])
+        mod._test_broken_auth("http://example.com/api/health", "GET", "id", "1")
+        self.assertEqual(len(engine.findings), 0)
+
     def test_broken_auth_not_triggered_on_401(self):
         """Broken auth not flagged when 401 is returned."""
+        baseline_resp = MockResponse(
+            text='{"data": "secret"}',
+            status_code=200,
+            headers={"Content-Type": "application/json"},
+        )
         resp = MockResponse(
             text='{"error": "unauthorized"}',
             status_code=401,
             headers={"Content-Type": "application/json"},
         )
-        mod, engine = _make_deep_scan_module([resp, resp, resp, resp, resp])
+        mod, engine = _make_deep_scan_module([baseline_resp, resp, resp, resp, resp, resp])
         mod._test_broken_auth("http://example.com/api/users", "GET", "id", "1")
         self.assertEqual(len(engine.findings), 0)
 
@@ -274,24 +320,23 @@ class TestApiVulnerabilities(unittest.TestCase):
         self.assertIn("Excessive Data Exposure", engine.findings[0].technique)
 
     def test_rate_limit_detection(self):
-        """Rate limit issue detected when all requests return 200."""
+        """Rate limit issue detected when all 20 requests return 200."""
         resp = MockResponse(
             text='{"data": "ok"}',
             status_code=200,
             headers={"Content-Type": "application/json"},
         )
-        mod, engine = _make_deep_scan_module([resp] * 5)
+        mod, engine = _make_deep_scan_module([resp] * 20)
         mod._test_rate_limit("http://example.com/api/sensitive", "GET", "id", "1")
         self.assertTrue(len(engine.findings) > 0)
         self.assertIn("Rate Limiting", engine.findings[0].technique)
 
     def test_rate_limit_not_triggered_on_429(self):
         """Rate limit not flagged when 429 is returned."""
-        resps = [
-            MockResponse(text="ok", status_code=200),
-            MockResponse(text="ok", status_code=200),
-            MockResponse(text="rate limited", status_code=429),
-        ]
+        ok_resp = MockResponse(text="ok", status_code=200)
+        rate_resp = MockResponse(text="rate limited", status_code=429)
+        # After a few 200s, a 429 appears
+        resps = [ok_resp] * 10 + [rate_resp]
         mod, engine = _make_deep_scan_module(resps)
         mod._test_rate_limit("http://example.com/api/data", "GET", "id", "1")
         self.assertEqual(len(engine.findings), 0)
@@ -501,6 +546,12 @@ class TestSecondOrder(unittest.TestCase):
 
     def test_detects_error_in_followup(self):
         """Second-order detected when error appears in follow-up response."""
+        # First response is the baseline timing calibration request
+        baseline_resp = MockResponse(
+            text="Normal page content",
+            status_code=200,
+            headers={},
+        )
         inject_resp = MockResponse(
             text="Profile updated",
             status_code=200,
@@ -511,8 +562,8 @@ class TestSecondOrder(unittest.TestCase):
             status_code=500,
             headers={},
         )
-        # Each payload iteration: inject + followup
-        mod, engine = _make_deep_scan_module([inject_resp, followup_resp])
+        # baseline + (inject + followup) per payload
+        mod, engine = _make_deep_scan_module([baseline_resp, inject_resp, followup_resp])
         mod._test_second_order_deep(
             "http://example.com/profile", "POST", "name", "test"
         )
@@ -521,9 +572,11 @@ class TestSecondOrder(unittest.TestCase):
 
     def test_no_finding_on_clean_followup(self):
         """No finding when follow-up response is clean."""
+        baseline_resp = MockResponse(text="Normal page", status_code=200, headers={})
         inject_resp = MockResponse(text="OK", status_code=200, headers={})
         followup_resp = MockResponse(text="Normal page content", status_code=200, headers={})
-        responses = [inject_resp, followup_resp] * 4
+        # baseline + (inject + followup) * 4 payloads
+        responses = [baseline_resp] + [inject_resp, followup_resp] * 4
         mod, engine = _make_deep_scan_module(responses)
         mod._test_second_order_deep(
             "http://example.com/profile", "POST", "name", "test"
@@ -541,8 +594,8 @@ class TestDeepScanIntegration(unittest.TestCase):
             status_code=200,
             headers={"Content-Type": "application/json"},
         )
-        # Provide plenty of responses for all sub-tests
-        mod, engine = _make_deep_scan_module([resp] * 100)
+        # Provide plenty of responses for all sub-tests (rate limit now uses 20)
+        mod, engine = _make_deep_scan_module([resp] * 200)
         # Should not raise
         mod.test("http://example.com/api/users", "GET", "id", "5")
 

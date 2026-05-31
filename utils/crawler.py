@@ -644,6 +644,7 @@ class Crawler:
 
         Identifies forms with enctype="multipart/form-data" and extracts
         field names including file inputs as testable parameters.
+        File inputs use source='multipart_file' to distinguish them.
         """
         for form in soup.find_all("form"):
             enctype = (form.get("enctype") or "").lower()
@@ -656,11 +657,13 @@ class Crawler:
                     name = inp.get("name")
                     if name:
                         input_type = inp.get("type", "text").lower()
-                        self.parameters.append(
-                            (form_url, method, name, "", "multipart")
-                        )
-                        # File inputs are especially interesting for upload testing
+                        # Use a distinct source for file inputs instead of
+                        # appending a duplicate generic entry.
                         if input_type == "file":
+                            self.parameters.append(
+                                (form_url, method, name, "", "multipart_file")
+                            )
+                        else:
                             self.parameters.append(
                                 (form_url, method, name, "", "multipart")
                             )
@@ -745,11 +748,24 @@ class Crawler:
                 (versioned_url, "get", "", "", "api_version")
             )
 
+    # Common output-only JSON field names that servers typically do not accept
+    # as input parameters.  Filtering these reduces scan noise on verbose APIs.
+    _RESPONSE_PARAM_NOISE = frozenset((
+        "id", "created_at", "updated_at", "deleted_at", "timestamp",
+        "created", "updated", "modified", "version", "etag",
+        "avatar_url", "gravatar_id", "html_url", "url",
+        "total_count", "count", "total", "size",
+        "sha", "hash", "checksum", "digest",
+        "status", "state", "message", "description",
+        "node_id", "ref", "object", "tree",
+    ))
+
     def _extract_response_params(self, response, url):
         """Analyze HTTP response headers and body for parameter hints.
 
         Examines Link headers, X-* headers with IDs, JSON response keys,
         and pagination patterns to discover additional injection points.
+        Applies a noise filter to skip common output-only field names.
         """
         if not response:
             return
@@ -787,7 +803,9 @@ class Crawler:
             json_keys = re.findall(r'"(\w{2,30})"\s*:', text)
             seen = set()
             for key in json_keys:
-                if key not in seen and key not in self._JS_NOISE:
+                if (key not in seen
+                        and key not in self._JS_NOISE
+                        and key not in self._RESPONSE_PARAM_NOISE):
                     seen.add(key)
                     self.parameters.append(
                         (url, "get", key, "", "response_extracted")
