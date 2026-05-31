@@ -664,6 +664,21 @@ def main():
         metavar="SECONDS",
         help="Time budget (seconds) for --auto mode (default: 3600)",
     )
+    parser.add_argument(
+        "--devil",
+        action="store_true",
+        help="DEVIL MODE: fully autonomous, maximum-intensity authorized "
+             "assessment. Composes point-to-point coverage + autonomous "
+             "orchestrator + gatebreaker + deep-scan + full-attack + "
+             "full-bypass + insane evasion into one self-directing run. "
+             "Requires --authorized.",
+    )
+    parser.add_argument(
+        "--smart",
+        dest="devil",
+        action="store_true",
+        help="Alias for --devil.",
+    )
 
     # ── Watch Mode ────────────────────────────────────────────
     parser.add_argument(
@@ -1482,6 +1497,29 @@ def main():
 
     # Build configuration
     gb = getattr(args, "gatebreaker", False)
+
+    # ── DEVIL MODE ────────────────────────────────────────────
+    # Self-directing meta-profile. Composes existing maximum-intensity
+    # capabilities into a single autonomous run — pure orchestration, no
+    # new offensive primitives. Force-enable the composed flags here,
+    # BEFORE the config/module dicts read them, so every downstream
+    # getattr()/p2p/_auto pick them up. Still fully gated on --authorized
+    # below (the auth gate runs regardless and is not weakened here).
+    devil = getattr(args, "devil", False)
+    if devil:
+        args.point_to_point = True   # full module + recon + exploit + network coverage
+        args.auto = True             # engage the autonomous ScanOrchestrator
+        args.gatebreaker = True      # unified WAF/auth/rate-limit gate bypass
+        args.deep_scan = True        # deep multi-technique + API vuln scanning
+        args.full_attack = True      # streaming per-finding exploitation
+        args.full_bypass = True      # universal BypassOrchestrator evasion ladder
+        args.smart_attack = True     # auto-route HIGH/CRITICAL findings to AttackRouter
+        # Escalate evasion to insane unless the operator already chose a
+        # higher/explicit profile.
+        if getattr(args, "evasion", "none") in ("none", "low", "medium"):
+            args.evasion = "insane"
+        gb = True
+
     # GateBreaker needs the full bypass ladder available; escalate evasion
     # to at least "high" so the orchestrated bypass attempts are not
     # undercut by a "none" evasion profile.
@@ -1696,6 +1734,26 @@ def main():
             f"{Colors.info('Re-run with --authorized to confirm you have written permission to test the listed targets.')}"
         )
         sys.exit(1)
+
+    # ── DEVIL MODE banner ─────────────────────────────────────
+    # Printed only AFTER the authorization gate above has passed, so
+    # devil mode can never be used to bypass the auth requirement.
+    if devil and not args.quiet:
+        print(
+            f"\n{Colors.warning('═══════════════════════════════════════════════════════════')}\n"
+            f"{Colors.warning('  😈  DEVIL MODE ENGAGED — autonomous, maximum intensity')}\n"
+            f"{Colors.warning('═══════════════════════════════════════════════════════════')}\n"
+            f"{Colors.warning('  Composing existing capabilities (no new primitives):')}\n"
+            f"{Colors.warning('    • point-to-point  — every module + recon + exploit + network')}\n"
+            f"{Colors.warning('    • auto            — autonomous ScanOrchestrator (self-select + feedback loops)')}\n"
+            f"{Colors.warning('    • gatebreaker     — unified WAF/auth/rate-limit gate bypass')}\n"
+            f"{Colors.warning('    • deep-scan       — multi-technique + API vulnerability scanning')}\n"
+            f"{Colors.warning('    • full-attack     — streaming per-finding exploitation')}\n"
+            f"{Colors.warning('    • full-bypass     — universal evasion ladder')}\n"
+            f"{Colors.warning(f'    • evasion         — {args.evasion}')}\n"
+            f"{Colors.warning('  Scope and authorization gates remain fully enforced.')}\n"
+            f"{Colors.warning('═══════════════════════════════════════════════════════════')}\n"
+        )
 
     # --unsafe-mode is gated on --authorized. It is per-run only: it
     # lifts the per-technique findings cap and lowers the auto-attack

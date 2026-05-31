@@ -26,6 +26,9 @@ python main.py -t https://target.com --full --auto-exploit
 
 # Maximum evasion mode with WAF bypass
 python main.py -t https://target.com --full --evasion insane --waf-bypass
+
+# Devil Mode — fully autonomous, maximum-intensity authorized assessment
+python main.py -t https://target.com --devil --authorized
 ```
 
 ## Features
@@ -189,6 +192,15 @@ python main.py --tools-install --tool nuclei
 
 ## Usage
 
+### Devil Mode (autonomous, maximum intensity)
+```bash
+# Self-directing run: composes point-to-point coverage + autonomous
+# orchestrator + gatebreaker + deep-scan + full-attack + full-bypass +
+# insane evasion. Requires --authorized.
+python main.py -t https://target.com --devil --authorized
+python main.py -t https://target.com --smart --authorized   # --smart is an alias for --devil
+```
+
 ### CLI Scanning
 ```bash
 python main.py -t https://target.com                          # Basic scan
@@ -306,6 +318,7 @@ python main.py --clear-db                                     # Clear scan datab
 | | `--discovery` | robots.txt, sitemap, API discovery |
 | | `--net-exploit` | Map open ports to known CVEs |
 | | `--tech-exploit` | Map technologies to known CVEs |
+| **Autonomous** | `--devil` / `--smart` | Devil Mode: fully autonomous, maximum-intensity authorized assessment (requires `--authorized`) |
 | **Reports** | `--report` | Generate report for scan ID |
 | | `--format` | Format: json/csv/html/txt/pdf/xml/sarif/all |
 | | `--list-scans` | List all previous scans |
