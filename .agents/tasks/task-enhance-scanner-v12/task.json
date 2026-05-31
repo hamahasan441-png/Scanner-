@@ -1,0 +1,7 @@
+{
+  "task_id": "task-enhance-scanner-v12",
+  "task_description": "Enhance ATOMIC FRAMEWORK: add new attack modules (HTTP/2 smuggling, cache poisoning, API abuse), improve performance/scalability (async dispatcher, connection pooling, rate limiting, worker pool), and strengthen code quality (type hints, exception hierarchy, shared test fixtures, better error handling).",
+  "status": "in_progress",
+  "feature_order": ["FEAT-001", "FEAT-002", "FEAT-003"],
+  "blocked_reason": null
+}

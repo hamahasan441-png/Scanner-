@@ -1,0 +1,30 @@
+{
+  "id": "FEAT-003",
+  "type": "refactor",
+  "description": "Code quality and reliability improvements: Add comprehensive type hints to core modules (modules/base.py, core/engine.py Finding dataclass, utils/requester.py), create a shared test fixtures module to DRY up repeated _MockEngine/_MockRequester/_MockResponse across 57+ test files, and improve error handling in the request pipeline with custom exception hierarchy.",
+  "status": "completed",
+  "steps": [
+    "Create utils/exceptions.py - Custom exception hierarchy for the framework: AtomicError (base), NetworkError (connection issues, subclasses: TimeoutError, ConnectionRefused, SSLError), ScanError (module execution failures, subclasses: ModuleLoadError, PayloadError), ConfigError (invalid configuration), RateLimitError (target rate limiting detected), WAFBlockError (WAF blocked request). All with type hints and docstrings.",
+    "Create tests/fixtures.py - Shared test fixture module containing MockResponse, MockRequester, MockEngine, MockFinding classes that all test files can import instead of redefining. MockRequester accepts responses list and returns them in order. MockEngine collects findings. Add factory functions: make_engine(responses=None, config=None), make_response(text='', status=200, headers=None). Fully type-hinted.",
+    "Enhance modules/base.py with comprehensive type hints - Add type annotations to all methods: test(url: str, method: str, param: str, value: str) -> None, test_url(url: str) -> None, _add_finding(**kwargs: Any) -> None, _emit_signal(**kwargs: Any) -> Any, _get_ai_payloads(vuln_type: str, standard_payloads: list[str], param_name: str = '') -> list[str], _ai_verify_response(...) -> Optional[dict]. Add Protocol class for Engine interface (EngineProtocol) so modules can type-check their engine dependency.",
+    "Add type annotations to core/engine.py Finding dataclass - Ensure all fields have proper type annotations (already has some but verify completeness). Add __slots__ consideration documentation. Ensure remediation and signals fields are properly typed.",
+    "Create tests/test_exceptions.py with 8+ tests: test hierarchy (isinstance checks), test error messages, test NetworkError subtypes, test ScanError subtypes, test exception can carry context data.",
+    "Create tests/test_fixtures.py with 10+ tests: test MockResponse attributes, test MockRequester returns responses in order, test MockRequester returns None when exhausted, test MockEngine collects findings, test make_engine factory, test make_response factory."
+  ],
+  "acceptance_criteria": [
+    "utils/exceptions.py defines clear exception hierarchy with proper inheritance",
+    "tests/fixtures.py provides MockResponse, MockRequester, MockEngine that match the interface used across all existing test files",
+    "modules/base.py has complete type annotations on all public and protected methods",
+    "All new files pass py_compile, ruff lint, and mypy type checking",
+    "Test files pass pytest without external dependencies",
+    "tests/fixtures.py MockEngine/MockRequester are interface-compatible with existing test mocks (same attributes: config, requester, findings, request method signature)"
+  ],
+  "verification": [
+    "python -m py_compile utils/exceptions.py && python -m py_compile tests/fixtures.py && python -m py_compile modules/base.py",
+    "python -m pytest tests/test_exceptions.py tests/test_fixtures.py -v --tb=short",
+    "python -m mypy utils/exceptions.py tests/fixtures.py modules/base.py --ignore-missing-imports",
+    "ruff check utils/exceptions.py tests/fixtures.py modules/base.py --select=E9,F63,F7,F82"
+  ],
+  "blocked_reason": null,
+  "findings": "All 40 tests pass (20 in test_exceptions, 20 in test_shared_fixtures). py_compile passes for all 5 files. ruff passes. mypy passes on all three target files individually (--namespace-packages --explicit-package-bases). Project-wide mypy shows 171 pre-existing errors in other files unrelated to this change. Used importlib.util to load modules in tests to avoid triggering missing dependencies via package __init__.py files."
+}
