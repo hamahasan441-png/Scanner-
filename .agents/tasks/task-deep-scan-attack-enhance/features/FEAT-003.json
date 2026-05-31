@@ -2,7 +2,7 @@
   "id": "FEAT-003",
   "type": "feat",
   "description": "Create a new DeepScanEngine module (modules/deep_scan.py) that orchestrates advanced multi-technique scanning by combining multiple attack vectors, performing recursive testing, chaining findings across modules, and implementing context-aware payload selection. Also includes API-specific vulnerability scanning: when APIs are discovered during crawling, automatically test them for common API vulnerabilities (BOLA/IDOR, broken auth, injection, mass assignment, rate limiting bypass, excessive data exposure).",
-  "status": "in_progress",
+  "status": "completed",
   "steps": [
     "Create modules/deep_scan.py with class DeepScanModule(BaseModule) that implements test() and test_url(). The module coordinates: (1) response fingerprinting to detect technology stack, WAF, and reflection context, (2) context-aware payload selection using PayloadMutator.generate_context_payloads(), (3) recursive parameter discovery by analyzing error responses for new injection points, (4) multi-vector combination testing (e.g., SSRF+SQLi chains, LFI+log poisoning chains, XSS+CSRF chains), (5) API endpoint deep scanning when API endpoints are detected",
     "Implement _fingerprint_target(self, url, method, param, value) method that sends benign probes and analyzes responses to determine: content_type, technology_hints (from headers/response patterns), waf_presence (from 403/406 patterns or known WAF headers), reflection_context (HTML body/attribute/JS string/URL/none), is_api_endpoint (from content-type application/json, URL patterns /api/, /v1/). Returns a context dict.",
@@ -30,5 +30,5 @@
     "python -m pytest tests/test_deep_scan.py -v --tb=short"
   ],
   "blocked_reason": null,
-  "findings": ""
+  "findings": "All 35 tests pass. Had to patch _add_finding in tests because BaseModule._add_finding imports from core.engine which requires PyYAML (not available in sandbox). Used a _patched_add_finding helper and _SimpleFinding dataclass in tests to avoid the core import chain. The module itself compiles and imports cleanly since it only imports from config and modules.base. Existing tests (test_payloads_advanced.py + test_crawler_deep.py) all pass (60 tests). The user's live steering about scanning APIs for vulns/bugs/attacks was directly addressed by the comprehensive _test_api_vulnerabilities method which runs BOLA, broken auth, injection, mass assignment, excessive data exposure, and rate limit bypass tests whenever an API endpoint is detected."
 }
