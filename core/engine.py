@@ -410,6 +410,9 @@ class AtomicEngine:
             # registered here, so `--deep-scan` (and its auto-enable paths)
             # silently did nothing until now.
             "deep_scan": ("modules.deep_scan", "DeepScanModule"),
+            # GateBreaker: unified WAF/auth/rate-limit gate detection and
+            # bypass orchestration on top of the BypassOrchestrator ladder.
+            "gatebreaker": ("modules.gatebreaker", "GateBreakerModule"),
         }
 
         modules_config = self.config.get("modules", {})
