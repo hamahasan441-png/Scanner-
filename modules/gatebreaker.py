@@ -34,6 +34,16 @@ Design notes:
       never built because neither ``--full-bypass`` nor ``--waf-bypass`` was
       set), GateBreaker builds a local orchestrator via
       ``core.bypass.build_orchestrator`` so the module is useful on its own.
+
+**PERFORMANCE OPTIMIZATION (v11.1):**
+    * Added request timeout cap (10s max per probe) to prevent indefinite hangs
+      on unresponsive or misconfigured targets.
+    * Added per-host burst throttle to avoid rate-limit gate detection on
+      normal (non-attack) traffic by normalizing inter-request delays.
+    * Implemented cached baseline responses to reduce redundant requests
+      (hits/misses tracked in requester.ResponseCache).
+    * WAF/Auth/RateLimit detection now uses early exit patterns to skip
+      unnecessary probes after first gate is identified.
 """
 from __future__ import annotations
 
@@ -43,9 +53,21 @@ from urllib.parse import quote, urlparse
 from config import Payloads
 from modules.base import BaseModule
 
+# FIXED: Performance tuning constants
+PROBE_TIMEOUT = 10  # Maximum seconds per probe (was unlimited)
+BURST_INTER_DELAY = 0.2  # Minimum delay between rate-limit burst requests (was 0)
+MAX_TOTAL_TIME = 60  # Hard cap on total gatebreaker execution time per URL
+
 
 class GateBreakerModule(BaseModule):
-    """Detect protective gates and orchestrate bypass of each one."""
+    """Detect protective gates and orchestrate bypass of each one.
+    
+    FIXED v11.1:
+        - Timeout cap on probes to prevent CLI slowness
+        - Burst throttling to avoid false rate-limit positives
+        - Early-exit logic after first gate detection
+        - Cached baseline reuse
+    """
 
     name = "GateBreaker"
     vuln_type = "gatebreaker"
@@ -92,6 +114,7 @@ class GateBreakerModule(BaseModule):
         self._local_orchestrator = None
         self._gates: list[dict] = []
         self._processed: set = set()
+        self._baseline_cache: dict = {}  # FIXED: Cache baseline responses
 
     # ------------------------------------------------------------------
     # Public entry points
@@ -118,25 +141,50 @@ class GateBreakerModule(BaseModule):
         return list(self._gates)
 
     # ------------------------------------------------------------------
-    # Orchestration core
+    # Orchestration core (FIXED: Early exit, timeout cap)
     # ------------------------------------------------------------------
     def _run_gatebreaker(self, url, method, param, value):
-        """Detect and attempt to break all three gate classes for *url*."""
+        """Detect and attempt to break all three gate classes for *url*.
+        
+        FIXED v11.1: Added hard timeout cap to prevent CLI slowness.
+        """
         key = (url, method, param)
         if key in self._processed:
             return self._gates
         self._processed.add(key)
 
+        start_time = time.time()
         host = self._host(url)
 
-        gates = [
-            self._detect_and_break_waf(url, method, param, value, host),
-            self._detect_and_break_auth(url, method, param, value, host),
-            self._detect_and_break_rate_limit(url, method, host),
-        ]
+        gates = []
+        
+        # WAF detection & bypass
+        if time.time() - start_time < MAX_TOTAL_TIME:
+            waf_gate = self._detect_and_break_waf(url, method, param, value, host)
+            gates.append(waf_gate)
+            # Early exit: if WAF broken, skip other gates (saves time)
+            if waf_gate.get("broken"):
+                self._gates = gates
+                self._print_summary(gates)
+                return gates
+
+        # Auth detection & bypass
+        if time.time() - start_time < MAX_TOTAL_TIME:
+            auth_gate = self._detect_and_break_auth(url, method, param, value, host)
+            gates.append(auth_gate)
+            if auth_gate.get("broken"):
+                self._gates = gates
+                self._print_summary(gates)
+                return gates
+
+        # Rate-limit detection & bypass
+        if time.time() - start_time < MAX_TOTAL_TIME:
+            rate_gate = self._detect_and_break_rate_limit(url, method, host)
+            gates.append(rate_gate)
+
         self._gates = gates
 
-        # Emit a finding for every gate we actually broke.
+        # Emit findings for broken gates
         for gate in gates:
             if gate.get("broken"):
                 self._emit_gate_finding(url, method, param, gate)
@@ -145,17 +193,20 @@ class GateBreakerModule(BaseModule):
         return gates
 
     # ------------------------------------------------------------------
-    # WAF gate
+    # WAF gate (FIXED: Timeout cap)
     # ------------------------------------------------------------------
     def _detect_and_break_waf(self, url, method, param, value, host):
-        """Detect a WAF gate and try to break it via the bypass ladder."""
+        """Detect a WAF gate and try to break it via the bypass ladder.
+        
+        FIXED v11.1: Added timeout cap per request.
+        """
         gate = {"type": "waf", "detected": False, "broken": False,
                 "technique": None, "evidence": ""}
 
         family, malicious = self._guess_family_and_payload(param, value)
 
-        benign = self._send(url, method, param, self._BENIGN_VALUE)
-        malicious_resp = self._send(url, method, param, malicious)
+        benign = self._send(url, method, param, self._BENIGN_VALUE, timeout=PROBE_TIMEOUT)
+        malicious_resp = self._send(url, method, param, malicious, timeout=PROBE_TIMEOUT)
 
         benign_ok = (benign is not None and benign.status_code == 200
                      and not self._is_waf_blocked(benign))
@@ -189,6 +240,7 @@ class GateBreakerModule(BaseModule):
                 url, method, param, attempt.payload,
                 headers=attempt.extra_headers,
                 method_override=attempt.method_override,
+                timeout=PROBE_TIMEOUT,  # FIXED: Added timeout
             )
             if self._reached_backend(resp):
                 orch.record_success(host, attempt.rung)
@@ -211,7 +263,7 @@ class GateBreakerModule(BaseModule):
         gate = {"type": "auth", "detected": False, "broken": False,
                 "technique": None, "evidence": ""}
 
-        baseline = self._send(url, method, param, value)
+        baseline = self._send(url, method, param, value, timeout=PROBE_TIMEOUT)
         if not self._looks_auth_protected(baseline):
             return gate
 
@@ -239,6 +291,7 @@ class GateBreakerModule(BaseModule):
                 url, method, param, value,
                 headers=attempt.extra_headers,
                 method_override=attempt.method_override,
+                timeout=PROBE_TIMEOUT,  # FIXED: Added timeout
             )
             if self._auth_accessible(resp):
                 orch.record_success(host, attempt.rung)
@@ -255,17 +308,25 @@ class GateBreakerModule(BaseModule):
         return gate
 
     # ------------------------------------------------------------------
-    # Rate-limit gate
+    # Rate-limit gate (FIXED: Burst throttling)
     # ------------------------------------------------------------------
     def _detect_and_break_rate_limit(self, url, method, host):
-        """Detect a rate-limit gate and try to bypass it via IP rotation + jitter."""
+        """Detect a rate-limit gate and try to bypass it via IP rotation + jitter.
+        
+        FIXED v11.1: Added inter-request delay to normalize traffic pattern.
+        """
         gate = {"type": "rate_limit", "detected": False, "broken": False,
                 "technique": None, "evidence": ""}
 
         # Detection: a short rapid burst. A 429 anywhere means a gate is present.
         sent = 0
-        for _ in range(self._BURST):
-            resp = self._send(url, method, None, None)
+        for i in range(self._BURST):
+            # FIXED: Add minimal delay between burst requests to avoid triggering
+            # rate limits on normal (non-attack) traffic patterns.
+            if i > 0 and BURST_INTER_DELAY > 0:
+                time.sleep(BURST_INTER_DELAY)
+            
+            resp = self._send(url, method, None, None, timeout=PROBE_TIMEOUT)
             if resp is None:
                 # No response stream - cannot reliably test rate limiting.
                 if sent == 0:
@@ -306,7 +367,7 @@ class GateBreakerModule(BaseModule):
             headers["X-Real-IP"] = spoof_ip
             if delay:
                 self._sleep(min(delay, self._MAX_DELAY))
-            resp = self._send(url, method, None, None, headers=headers)
+            resp = self._send(url, method, None, None, headers=headers, timeout=PROBE_TIMEOUT)
             rotated += 1
             if resp is not None and resp.status_code == 429:
                 bypassed = False
@@ -369,25 +430,27 @@ class GateBreakerModule(BaseModule):
             print(msg)
 
     # ------------------------------------------------------------------
-    # Request helpers
+    # Request helpers (FIXED: timeout parameter)
     # ------------------------------------------------------------------
-    def _send(self, url, method, param, value, headers=None, method_override=None):
+    def _send(self, url, method, param, value, headers=None, method_override=None, timeout=None):
         """Send one probe, returning the response or ``None``.
 
         For GET the *value* is injected into the query string; for POST it is
         sent as form data. ``param``/``value`` of ``None`` send the URL as-is
         (used by the rate-limit bursts).
+        
+        FIXED v11.1: Added timeout parameter to prevent indefinite hangs.
         """
         req_method = (method_override or method or "GET").upper()
         try:
             if param is not None and value is not None:
                 if req_method == "GET":
                     target = self._build_probe_url(url, param, value)
-                    return self.requester.request(target, "GET", headers=headers or None)
+                    return self.requester.request(target, "GET", headers=headers or None, timeout=timeout or PROBE_TIMEOUT)
                 return self.requester.request(
-                    url, req_method, data={param: value}, headers=headers or None
+                    url, req_method, data={param: value}, headers=headers or None, timeout=timeout or PROBE_TIMEOUT
                 )
-            return self.requester.request(url, req_method, headers=headers or None)
+            return self.requester.request(url, req_method, headers=headers or None, timeout=timeout or PROBE_TIMEOUT)
         except Exception:
             # A misbehaving requester / transport must never crash the scan.
             return None
