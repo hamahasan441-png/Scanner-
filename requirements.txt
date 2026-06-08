@@ -39,7 +39,7 @@ flask-cors==6.0.2
 
 # Utilities
 colorama==0.4.6
-tqdm==4.67.3
+tqdm==4.68.1
 
 # DNS resolution
 dnspython==2.8.0
