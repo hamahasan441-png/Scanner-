@@ -14,7 +14,7 @@ beautifulsoup4==4.14.3
 urllib3==2.7.0
 
 # Database
-sqlalchemy==2.0.50
+sqlalchemy==2.0.51
 
 # Report generation
 fpdf2==2.8.7
