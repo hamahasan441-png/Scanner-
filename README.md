@@ -2,7 +2,7 @@
 
 ⚠️ **FOR AUTHORIZED TESTING ONLY** ⚠️
 
-A powerful, modular web security testing framework optimized for Termux (Android) and Linux systems. Features an AI-powered vulnerability prediction engine, Burp Suite-style tools, exploit chaining, a Flask web dashboard, advanced evasion engine, and comprehensive vulnerability scanning across 27+ attack modules.
+A powerful, modular web security testing framework optimized for Termux (Android) and Linux systems. Features an AI-powered vulnerability prediction engine, Burp Suite-style tools, exploit chaining, a Flask web dashboard, advanced evasion engine, and comprehensive vulnerability scanning across 40+ attack modules.
 
 ## Quick Install
 
@@ -43,7 +43,7 @@ python main.py -t https://target.com --full --evasion insane --waf-bypass
 - **File/batch scan** — Single target or multi-target file upload
 - Launch: `python main.py --web`
 
-### ⚔️ Attack Modules (28+)
+### ⚔️ Attack Modules (40+)
 - **SQL Injection** — Error-based, Union-based, Time-based, Boolean-based, Stacked queries
 - **NoSQL Injection** — MongoDB operator injection, CouchDB, JavaScript evaluation
 - **Command Injection** — RCE detection and exploitation, reverse shell generation
