@@ -240,7 +240,6 @@ class CachePoisoningModule(BaseModule):
 
     def _test_host_header_poisoning(self, url):
         """Test for cache poisoning via Host header manipulation."""
-        parsed = urlparse(url)
         canary_host = "atomic-host-poison.evil.com"
 
         try:

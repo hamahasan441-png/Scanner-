@@ -79,7 +79,6 @@ class IDORModule(BaseModule):
                 return
 
             baseline_len = len(baseline.text)
-            baseline.status_code
         except Exception:
             return
 
