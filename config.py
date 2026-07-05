@@ -58,6 +58,24 @@ class Config:
     # GitHub API — optional token for higher rate limits (60 → 5000 req/hr)
     GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
 
+    # ── Self-update ──────────────────────────────────────────────────
+    # Repository the built-in updater tracks (--update / --check-update).
+    # Override to point at a fork, e.g. ATOMIC_UPDATE_REPO=owner/repo.
+    UPDATE_REPO = os.environ.get("ATOMIC_UPDATE_REPO", "hamahasan441-png/Scanner-").strip()
+    UPDATE_BRANCH = os.environ.get("ATOMIC_UPDATE_BRANCH", "main").strip()
+    # Non-blocking "update available" notice on startup. Disable with
+    # ATOMIC_NO_UPDATE_CHECK=1 (or the --no-update-check flag). The check
+    # is throttled to at most once per UPDATE_CHECK_INTERVAL seconds.
+    UPDATE_CHECK_ENABLED = os.environ.get("ATOMIC_NO_UPDATE_CHECK", "").strip() in ("", "0", "false", "False")
+    try:
+        UPDATE_CHECK_INTERVAL = int(os.environ.get("ATOMIC_UPDATE_INTERVAL", "86400"))
+    except ValueError:
+        UPDATE_CHECK_INTERVAL = 86400
+    # Automatically apply an available update on startup (git checkouts
+    # only), then re-exec with the new code. Opt-in via --auto-update or
+    # ATOMIC_AUTO_UPDATE=1.
+    AUTO_UPDATE = os.environ.get("ATOMIC_AUTO_UPDATE", "").strip() in ("1", "true", "True", "yes")
+
     # SecurityTrails API — optional key for passive subdomain enumeration
     SECURITYTRAILS_API_KEY = os.environ.get("SECURITYTRAILS_API_KEY", "")
 
