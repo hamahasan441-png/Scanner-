@@ -13,7 +13,7 @@ import logging
 import threading
 import time
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Callable, Optional
 
 logger = logging.getLogger(__name__)

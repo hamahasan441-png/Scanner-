@@ -304,7 +304,7 @@ def test_batch_scanner(vulnerable_server):
 def test_ci_mode_exit_code(vulnerable_server, engine_config, tmp_path):
     """Verify CI mode returns exit code 1 when findings exceed threshold."""
     from core.engine import AtomicEngine
-    from core.ci_mode import write_ci_summary, should_fail
+    from core.ci_mode import write_ci_summary
 
     target = f"{vulnerable_server}/search?q=test"
     engine = AtomicEngine(engine_config)

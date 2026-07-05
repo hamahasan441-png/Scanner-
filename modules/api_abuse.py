@@ -13,7 +13,7 @@ Detects API abuse vulnerabilities including:
 
 import json
 import random
-from urllib.parse import urlparse, urljoin
+from urllib.parse import urlparse
 
 from config import Payloads
 from modules.base import BaseModule

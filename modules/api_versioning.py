@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import re
 import urllib.parse
-from typing import List, Optional, Tuple
+from typing import Optional, Tuple
 
 from modules.base import BaseModule
 

@@ -27,7 +27,7 @@ from __future__ import annotations
 import logging
 import time
 from enum import Enum, auto
-from typing import TYPE_CHECKING, Dict, List, Optional, Set
+from typing import TYPE_CHECKING, Dict, List, Set
 
 from config import Colors
 

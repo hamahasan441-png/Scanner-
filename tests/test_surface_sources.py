@@ -14,7 +14,7 @@ import os
 import tempfile
 import unittest
 
-from core.models import ScanConfig, SurfaceParam
+from core.models import ScanConfig
 from core.surface import (
     build_target_surface,
     collect_from_crawler,

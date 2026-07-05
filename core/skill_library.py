@@ -20,7 +20,7 @@ this is purely additive metadata. Inspired by PurpleAILAB/Decepticon's
 skill-system concept (only the concept, no code).
 """
 
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, asdict
 from typing import List, Optional, Tuple
 
 

@@ -917,7 +917,7 @@ def main():
     # ── OpenAPI spec generation ──────────────────────────────
     if getattr(args, "api_spec", False):
         try:
-            from web.openapi import generate_openapi_spec, print_openapi_spec
+            from web.openapi import print_openapi_spec
             print_openapi_spec()
         except ImportError:
             try:
@@ -2143,7 +2143,6 @@ def main():
                     from core.browser_scanner import BrowserScanner
                     bscanner = BrowserScanner(engine, engine_type=config.get("browser_engine", "auto"))
                     if bscanner.is_available():
-                        from urllib.parse import urlparse as _up
                         all_urls = list(getattr(engine, "_scanned_urls", set()) or {target})
                         bscanner.scan(all_urls[:20])
                     else:
@@ -2160,7 +2159,7 @@ def main():
             # ── Kill Chain Analysis ────────────────────────────
             if getattr(args, "kill_chains", False) or full:
                 try:
-                    from core.kill_chain import generate_kill_chains, format_kill_chains_html
+                    from core.kill_chain import generate_kill_chains
                     chains = generate_kill_chains(engine.findings)
                     if chains:
                         print(f"\n{Colors.BOLD}{Colors.RED}[KILL CHAINS]{Colors.RESET}")

@@ -8,7 +8,6 @@ the sync ``Requester`` was reading ``config['verify_ssl']`` (default
 secure-by-default semantics so the regression cannot return.
 """
 
-import os
 import unittest
 
 
@@ -19,9 +18,7 @@ def _resolve(config, env=None):
     don't pay the cost of the requests/urllib3 import chain (which
     isn't available in some test environments).
     """
-    import importlib.util
     import os.path
-    import sys
 
     if "_resolve_module" not in _resolve.__dict__:
         # Lazy-load just _resolve_verify_tls by exec'ing a trimmed

@@ -14,7 +14,7 @@ Acceptance criteria (Commit 5):
 """
 
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from core.emit import (
     build_evidence,

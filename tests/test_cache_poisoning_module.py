@@ -4,7 +4,7 @@
 
 import sys
 import unittest
-from unittest.mock import MagicMock, patch, PropertyMock
+from unittest.mock import MagicMock
 
 # ---------------------------------------------------------------------------
 # Mock unavailable modules BEFORE importing the module under test
@@ -14,7 +14,7 @@ mock_models = MagicMock()
 sys.modules.setdefault("core.emit", mock_emit)
 sys.modules.setdefault("core.models", mock_models)
 
-from tests.fixtures import MockEngine, MockResponse, MockRequester
+from tests.fixtures import MockEngine, MockResponse
 
 
 # ===========================================================================

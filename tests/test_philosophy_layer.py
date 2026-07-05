@@ -17,7 +17,7 @@ import random
 import unittest
 
 from core.causal_correlator import CausalCorrelator
-from core.evidence_ledger import EvidenceLedger, hash_request, hash_response
+from core.evidence_ledger import EvidenceLedger, hash_request
 from core.hypothesis import (
     DEFAULT_PRIOR,
     Hypothesis,
@@ -25,7 +25,6 @@ from core.hypothesis import (
     Observation,
 )
 from core.oracle import (
-    BehaviorOracle,
     DiffOracle,
     ErrorOracle,
     OOBOracle,

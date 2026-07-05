@@ -29,7 +29,7 @@ import logging
 import math
 import re
 from dataclasses import dataclass, field
-from typing import Iterable, List, Optional, Sequence
+from typing import Iterable, List, Sequence
 
 logger = logging.getLogger(__name__)
 

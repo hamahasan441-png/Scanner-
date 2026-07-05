@@ -13,7 +13,6 @@ Detects HTTP/2 request smuggling vulnerabilities including:
 
 import socket
 import ssl
-import time
 from urllib.parse import urlparse
 
 from config import Payloads

@@ -13,7 +13,7 @@ Acceptance criteria (Commit 3):
 
 import unittest
 
-from core.models import ScanConfig, SurfaceEndpoint, SurfaceParam
+from core.models import ScanConfig, SurfaceParam
 from core.surface import (
     build_target_surface,
     endpoint_shape_key,

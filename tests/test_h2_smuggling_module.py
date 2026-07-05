@@ -14,7 +14,7 @@ mock_models = MagicMock()
 sys.modules.setdefault("core.emit", mock_emit)
 sys.modules.setdefault("core.models", mock_models)
 
-from tests.fixtures import MockEngine, MockResponse
+from tests.fixtures import MockEngine
 
 
 # ===========================================================================
