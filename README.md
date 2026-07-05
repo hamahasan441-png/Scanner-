@@ -271,6 +271,27 @@ python main.py --tools-install --tool nmap                    # Install a specif
 python main.py --clear-db                                     # Clear scan database
 ```
 
+### Keeping ATOMIC up to date
+The framework can update itself to the latest version from this GitHub repo.
+
+```bash
+python main.py --check-update                                 # Is a newer version available?
+python main.py --update                                       # Update in place (git fast-forward)
+python main.py --update --force                               # Update, discarding local changes
+python main.py -t https://target --auto-update                # Update first, then run with new code
+```
+
+- **git checkouts** update via a fast-forward `git pull` and never overwrite
+  local edits unless you pass `--force`.
+- **Non-git installs** get a version check against the latest release plus
+  upgrade instructions.
+- By default a throttled, non-blocking *"update available"* notice is shown on
+  startup (at most once per day). Silence it with `--no-update-check` or
+  `ATOMIC_NO_UPDATE_CHECK=1`.
+- Track a fork instead by setting `ATOMIC_UPDATE_REPO=owner/repo` (and
+  optionally `ATOMIC_UPDATE_BRANCH`). Set `ATOMIC_AUTO_UPDATE=1` to always
+  auto-update on startup.
+
 ## Command Line Options
 
 | Category | Option | Description |

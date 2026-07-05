@@ -31,6 +31,63 @@ def _parse_csv(value):
     return [x.strip() for x in value.split(",") if x.strip()]
 
 
+def _print_update_status(status, did_update=False):
+    """Human-readable rendering of an ``UpdateStatus``."""
+    if status.error:
+        print(f"{Colors.error('Update error:')} {status.error}")
+        return
+    if did_update:
+        print(f"{Colors.success('✓')} {status.detail or 'Update complete.'}")
+        return
+    if status.available:
+        print(f"{Colors.warning('⇧ Update available')} — current v{status.current}, "
+              f"latest {status.latest} (via {status.method}).")
+        print(f"  Run {Colors.BOLD}--update{Colors.RESET} to upgrade.")
+    else:
+        print(f"{Colors.success('✓ Up to date')} (v{status.current}).")
+
+
+def _maybe_auto_update(quiet=False):
+    """Apply an available update on startup, then re-exec with new code."""
+    # Prevent an infinite re-exec loop after we have already updated.
+    if os.environ.get("ATOMIC_UPDATED") == "1":
+        return
+    try:
+        from core.updater import check_for_update, perform_update
+
+        status = check_for_update()
+        if not status.available:
+            return
+        if not quiet:
+            print(f"{Colors.info('Auto-update: applying latest version…')}")
+        result = perform_update()
+        if result.error:
+            if not quiet:
+                print(f"{Colors.warning('Auto-update skipped:')} {result.error}")
+            return
+        if not quiet:
+            print(f"{Colors.success('✓')} {result.detail}")
+        # Reload the freshly pulled code by re-executing the same command.
+        os.environ["ATOMIC_UPDATED"] = "1"
+        os.execv(sys.executable, [sys.executable] + sys.argv)
+    except Exception as exc:  # never let auto-update abort the run
+        if not quiet:
+            print(f"{Colors.warning(f'Auto-update failed ({type(exc).__name__}): {exc}')}")
+
+
+def _startup_update_notice():
+    """One-line, throttled, fail-silent 'update available' notice."""
+    try:
+        from core.updater import check_throttled
+
+        status = check_throttled()
+        if status.available:
+            print(f"{Colors.warning('⇧ A new ATOMIC version is available')} "
+                  f"(latest {status.latest}). Run {Colors.BOLD}--update{Colors.RESET} to upgrade.")
+    except Exception:
+        pass  # the notice must never block or slow a real run
+
+
 def main():
     """Main entry point"""
     parser = argparse.ArgumentParser(
@@ -517,7 +574,7 @@ def main():
     # Utility options
     parser.add_argument("--install-deps", action="store_true", help="Install all dependencies")
     parser.add_argument("--check-deps", action="store_true", help="Check dependencies")
-    parser.add_argument("--update", action="store_true", help="Update framework")
+    parser.add_argument("--update", action="store_true", help="Update framework to the latest version from the GitHub repo")
     parser.add_argument("--clear-db", action="store_true", help="Clear database")
     parser.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
     parser.add_argument("--quiet", "-q", action="store_true", help="Quiet mode")
@@ -865,11 +922,58 @@ def main():
         help="Generate OpenAPI 3.0 spec for the REST API and exit",
     )
 
+    # ── Self-update ───────────────────────────────────────────
+    parser.add_argument(
+        "--check-update",
+        action="store_true",
+        help="Check the GitHub repo for a newer version and exit",
+    )
+    # NB: --update is declared in the Utility group above; its handler
+    # lives in the early self-update dispatch after the banner.
+    parser.add_argument(
+        "--auto-update",
+        action="store_true",
+        help="Apply an available update on startup, then continue with the new code",
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="With --update: overwrite local changes during update",
+    )
+    parser.add_argument(
+        "--no-update-check",
+        action="store_true",
+        help="Skip the automatic 'update available' notice on startup",
+    )
+
     args = parser.parse_args()
 
     # Print banner
     if not args.quiet:
         print_banner()
+
+    # ── Self-update commands (early exit, before any scan setup) ──
+    if getattr(args, "update", False) or getattr(args, "check_update", False):
+        from core.updater import check_for_update, perform_update
+
+        if args.update:
+            print(f"{Colors.info('Updating ATOMIC Framework…')}")
+            status = perform_update(force=getattr(args, "force", False))
+        else:
+            print(f"{Colors.info('Checking for updates…')}")
+            status = check_for_update()
+        _print_update_status(status, did_update=bool(args.update))
+        sys.exit(1 if status.error else 0)
+
+    # ── Auto-update on startup (opt-in) ───────────────────────
+    if getattr(args, "auto_update", False) or getattr(Config, "AUTO_UPDATE", False):
+        _maybe_auto_update(quiet=getattr(args, "quiet", False))
+    elif (
+        not getattr(args, "quiet", False)
+        and not getattr(args, "no_update_check", False)
+        and getattr(Config, "UPDATE_CHECK_ENABLED", True)
+    ):
+        _startup_update_notice()
 
     # ── Structured logging setup ─────────────────────────────
     if getattr(args, "log_json", False) or getattr(args, "log_file", None):
