@@ -23,7 +23,7 @@ import os
 from dataclasses import dataclass, field
 from typing import Any, Dict, Iterable, List, Optional
 
-from core.causal_correlator import CausalCorrelator, CausalNode
+from core.causal_correlator import CausalCorrelator
 from core.evidence_ledger import EvidenceLedger
 from core.hypothesis import Hypothesis, HypothesisEngine, Observation
 from core.oracle import (
@@ -38,8 +38,6 @@ from core.oracle import (
     aggregate,
 )
 from core.philosophy import (
-    Principle,
-    SecurityProperty,
     ThreatModel,
     default_threat_model,
     describe_finding_in_principle_terms,

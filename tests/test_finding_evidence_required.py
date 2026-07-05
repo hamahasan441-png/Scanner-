@@ -18,7 +18,6 @@ Acceptance criteria (Commit 7):
 """
 
 import unittest
-import logging
 
 from core.models import (
     CanonicalFinding,
@@ -30,7 +29,6 @@ from core.models import (
 )
 from core.validators import (
     FindingValidationError,
-    ValidationResult,
     validate_finding,
     validate_finding_required_evidence,
     validate_scan_result,

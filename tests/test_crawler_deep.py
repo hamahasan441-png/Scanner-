@@ -536,7 +536,7 @@ class TestProcessPageCallsNewMethods(unittest.TestCase):
 
     def test_process_page_integration(self):
         """Ensure _process_page calls new methods without crashing."""
-        from unittest.mock import patch, MagicMock as MM
+        from unittest.mock import patch
 
         c = self._make()
         soup = MagicMock()

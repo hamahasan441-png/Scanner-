@@ -26,7 +26,6 @@ import logging
 import os
 import sys
 import time
-import traceback
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 

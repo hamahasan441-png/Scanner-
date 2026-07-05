@@ -18,7 +18,7 @@ import importlib.util
 import os
 import sys
 import unittest
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 # Load core/full_attacker.py without dragging in core/__init__.py
 # (which imports the engine, which needs yaml).

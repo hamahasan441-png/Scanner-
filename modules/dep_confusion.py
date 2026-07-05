@@ -18,7 +18,7 @@ from __future__ import annotations
 import json
 import re
 import urllib.parse
-from typing import List, Optional, Set
+from typing import List, Set
 
 from modules.base import BaseModule
 

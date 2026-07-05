@@ -11,7 +11,7 @@ Detects web cache poisoning vulnerabilities including:
 - Port-based cache key issues
 """
 
-from urllib.parse import urlparse, urlencode, urlunparse, parse_qs
+from urllib.parse import urlparse
 import time
 import hashlib
 
@@ -192,7 +192,7 @@ class CachePoisoningModule(BaseModule):
                         method="GET",
                         param=param_name,
                         payload=f"{param_name}={canary}",
-                        evidence_text=f"Canary from unkeyed param reflected in cached response",
+                        evidence_text="Canary from unkeyed param reflected in cached response",
                         raw_confidence=0.80,
                         severity="HIGH",
                         cvss=7.5,

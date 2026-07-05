@@ -5,7 +5,7 @@
 import sys
 import json
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 # ---------------------------------------------------------------------------
 # Mock unavailable modules BEFORE importing the module under test

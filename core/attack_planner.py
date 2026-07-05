@@ -188,7 +188,7 @@ class AttackPlanner:
                 lines.append(f"  {k}: {v}")
 
         # Target info
-        lines.append(f"\n== Target ==")
+        lines.append("\n== Target ==")
         lines.append(f"  URL: {self.engine.target or 'unknown'}")
 
         # Current findings

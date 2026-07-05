@@ -21,7 +21,6 @@ import unittest
 from core.models import (
     CanonicalFinding,
     Evidence,
-    EvidenceSnippet,
     FindingGroup,
     ModuleSignal,
     Repro,

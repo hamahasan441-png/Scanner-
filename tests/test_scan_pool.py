@@ -13,7 +13,6 @@ import sys
 import time
 import threading
 
-import pytest
 
 # Load scan_pool directly from file to avoid core/__init__.py
 # which triggers yaml/requests dependencies

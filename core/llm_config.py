@@ -159,7 +159,7 @@ def print_status():
     print(f"  Model       : {cfg.get('model', '(default)')}")
 
     keys = get_api_keys(cfg)
-    print(f"  API keys    :")
+    print("  API keys    :")
     for p in SUPPORTED_PROVIDERS:
         v = keys.get(p, "")
         if v:

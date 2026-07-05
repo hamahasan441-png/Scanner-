@@ -154,7 +154,7 @@ def download_model(model_url=None, model_file=None, force=False):
     # leaves the .part file in place so the user can resume.
     except (KeyboardInterrupt, Exception) as exc:
         print(f"\n{Colors.warning(f'Download interrupted: {exc}')}")
-        print(f"{Colors.info(f'Partial file saved — re-run to resume.')}")
+        print(f"{Colors.info('Partial file saved — re-run to resume.')}")
         return ""
 
     # Rename from .part to final name

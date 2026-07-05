@@ -10,11 +10,10 @@ recursive param discovery, chained attacks, WAF bypass, second-order injection.
 import sys
 import os
 import unittest
-from unittest.mock import patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from tests.fixtures import MockEngine, MockResponse, MockRequester, make_engine, make_response
+from tests.fixtures import MockResponse, make_engine
 
 
 class _SimpleFinding:
