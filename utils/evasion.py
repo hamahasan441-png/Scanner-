@@ -264,7 +264,6 @@ class PayloadMutator:
         """
         from config import Payloads
 
-        content_type = context_info.get("response_content_type", "")
         reflection = context_info.get("reflection_context", "")
         waf_detected = context_info.get("waf_detected", False)
         tech_stack = context_info.get("technology_stack", "")

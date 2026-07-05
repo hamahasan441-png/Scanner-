@@ -43,8 +43,6 @@ class HPPModule(BaseModule):
             )
             if not baseline_resp:
                 return
-            baseline_resp.text or ""
-            baseline_resp.status_code
         except Exception:
             return
 

@@ -171,21 +171,35 @@ class DeepScanModule(BaseModule):
         if idx == -1:
             return "none"
 
-        # Check surrounding context
+        # Look both behind and ahead of the reflection point. The
+        # trailing context (``after``) disambiguates cases the leading
+        # context alone gets wrong.
         before = body[max(0, idx - 50):idx]
-        after = body[idx + len(value):idx + len(value) + 50]
+        after = body[idx + len(value):idx + len(value) + 80]
+        bl = before.lower()
 
-        # Check if inside an HTML attribute
-        if re.search(r'["\']$', before.rstrip()) or re.search(r'=\s*["\']?$', before):
-            return "html_attr"
-
-        # Check if inside a JS string
-        if re.search(r"(?:var|let|const|=)\s*['\"]$", before) or "script" in before.lower():
+        # Inside a <script> block? Treat as a JS string context. This is
+        # checked first because a JS assignment such as ``var x = "…"``
+        # also ends in a quote and would otherwise be mislabelled as an
+        # HTML attribute.
+        open_script = bl.rfind("<script")
+        close_script = bl.rfind("</script>")
+        if open_script != -1 and open_script > close_script:
             return "js_string"
 
-        # Check if in a URL context
-        if re.search(r"(?:href|src|action)\s*=\s*['\"]?$", before, re.IGNORECASE):
+        # URL-bearing attributes take precedence over generic attributes
+        # (href/src/action drive navigation and sink into different XSS
+        # payloads). The previous ordering made this branch unreachable.
+        if re.search(r"(?:href|src|action|formaction)\s*=\s*['\"][^'\"]*$", before, re.IGNORECASE):
             return "url"
+
+        # Generic HTML attribute value: the reflection sits inside a
+        # quoted attribute and a closing quote appears ahead before any
+        # new tag, or the value directly follows an opening quote.
+        if re.search(r"=\s*['\"][^'\"]*$", before) and re.match(r"[^<]*['\"]", after):
+            return "html_attr"
+        if re.search(r"['\"]$", before.rstrip()):
+            return "html_attr"
 
         # Default: HTML body
         return "html_body"
@@ -639,7 +653,8 @@ class DeepScanModule(BaseModule):
 
         # Calibrate baseline timing before injection tests
         baseline_start = time.time()
-        baseline_resp = self.requester.request(url, "GET")
+        # We only need the round-trip time here, not the body.
+        self.requester.request(url, "GET")
         baseline_elapsed = time.time() - baseline_start
 
         # Threshold is baseline + 4 seconds to account for normal variation

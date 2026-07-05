@@ -365,10 +365,19 @@ def _validate_shell_id(shell_id: str) -> bool:
 # Only allow a limited set of safe commands for remote shell execution.
 # Set ATOMIC_SHELL_ALLOWLIST env var to a comma-separated list of allowed
 # command prefixes to override.  Empty means use the defaults below.
+# NOTE: ``env`` and ``printenv`` are deliberately NOT in this list.
+#   * ``env <program> [args]`` executes an arbitrary program, bypassing
+#     the whole allowlist (e.g. ``env python3 /tmp/x`` — no dangerous
+#     flag, base command ``env`` is "safe", yet it runs attacker code).
+#   * ``printenv`` / bare ``env`` dump the process environment, which
+#     may include secrets (ATOMIC_API_KEY, GITHUB_TOKEN, DB creds).
+# The allowlist's contract is "safe, read-only, non-spawning commands",
+# and these two violate it. Operators who really need them can opt in
+# via ATOMIC_SHELL_ALLOWLIST.
 _DEFAULT_SHELL_ALLOWLIST = [
     "ls", "dir", "cat", "head", "tail", "whoami", "id", "uname",
     "pwd", "echo", "hostname", "ifconfig", "ip", "netstat", "ps",
-    "env", "printenv", "date", "uptime", "df", "free", "which",
+    "date", "uptime", "df", "free", "which",
     "file", "stat", "wc", "grep", "find", "type",
 ]
 

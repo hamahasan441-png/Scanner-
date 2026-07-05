@@ -207,8 +207,6 @@ class Crawler:
 
     def _extract_resources(self, soup, url: str):
         """Extract referenced resources: scripts, stylesheets, images, iframes, media"""
-        urlparse(url).netloc
-
         # Script sources
         for script in soup.find_all("script", src=True):
             src = urljoin(url, script["src"])
