@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ATOMIC — Security Dashboard</title>
+  <meta name="color-scheme" content="dark" />
+  <link rel="stylesheet" href="/static/app/css/dashboard.css?v={{ version }}" />
+</head>
+<body>
+  <noscript>This dashboard requires JavaScript. A non-JS build is not available.</noscript>
+
+  <!--
+    Socket.IO client (loaded first, deferred) so the WS manager can use
+    the global `io`. If it fails to load (offline / blocked), the app
+    degrades gracefully to polling — see static/app/js/core/ws.js.
+    Module scripts are deferred by default and execute in document order
+    after this classic deferred script, guaranteeing `io` is ready.
+  -->
+  <script defer src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js"
+          crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+
+  <script type="module" src="/static/app/js/main.js?v={{ version }}"></script>
+</body>
+</html>

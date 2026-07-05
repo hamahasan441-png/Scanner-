@@ -806,7 +806,19 @@ def _purge_completed_scans():
 
 @app.route("/")
 def dashboard():
-    """Render the main dashboard page."""
+    """Render the modern modular dashboard (ES-module SPA).
+
+    The new UI is a thin shell that lazy-loads views and is driven by
+    the WebSocket event stream instead of polling. The previous
+    single-file dashboard remains available at ``/legacy`` during the
+    transition (and as a no-JS-module fallback).
+    """
+    return render_template("dashboard.html", version=Config.VERSION)
+
+
+@app.route("/legacy")
+def dashboard_legacy():
+    """Render the legacy single-file dashboard (kept for fallback)."""
     return render_template("index.html", version=Config.VERSION)
 
 

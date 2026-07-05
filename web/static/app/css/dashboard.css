@@ -1,0 +1,196 @@
+/* ATOMIC dashboard — modern, performant, dark security-ops theme.
+   Single stylesheet, CSS variables, CSS grid. No framework, no runtime
+   cost. Uses system font stack (no web-font fetch). */
+
+:root {
+  --bg: #0b0f17;
+  --bg-2: #121826;
+  --bg-3: #1a2233;
+  --line: #26304a;
+  --fg: #e6ebf5;
+  --muted: #8a96b0;
+  --accent: #4c8dff;
+  --accent-2: #6ee7b7;
+  --danger: #ef4444;
+  --warn: #f59e0b;
+  --ok: #22c55e;
+  --crit: #ff4d6d;
+  --high: #ff7849;
+  --med: #f5b301;
+  --low: #4c8dff;
+  --info: #8a96b0;
+  --radius: 10px;
+  --shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
+  --sidebar-w: 232px;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--fg);
+  font: 14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+.mono { font-family: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace; }
+.muted { color: var(--muted); }
+.grow { flex: 1; }
+.hidden { display: none !important; }
+.truncate { max-width: 340px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Layout ------------------------------------------------------------- */
+.shell { display: grid; grid-template-columns: var(--sidebar-w) 1fr; min-height: 100vh; }
+
+.sidebar {
+  background: var(--bg-2);
+  border-right: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  padding: 18px 12px;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+}
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 18px; padding: 6px 8px 18px; letter-spacing: 0.5px; }
+.brand-mark { color: var(--accent); font-size: 22px; }
+
+.nav { display: flex; flex-direction: column; gap: 4px; }
+.nav-link {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 12px; border-radius: 8px;
+  color: var(--muted); text-decoration: none; font-weight: 500;
+  transition: background 0.12s, color 0.12s;
+}
+.nav-link:hover { background: var(--bg-3); color: var(--fg); }
+.nav-link.active { background: var(--accent); color: #fff; }
+.nav-ico { width: 18px; text-align: center; opacity: 0.9; }
+.nav-badge { margin-left: auto; background: var(--danger); color: #fff; border-radius: 10px; padding: 0 7px; font-size: 11px; font-weight: 700; }
+
+.sidebar-foot { margin-top: auto; display: flex; align-items: center; gap: 8px; padding: 10px 8px 0; font-size: 12px; }
+.legacy-link { margin-left: auto; text-decoration: none; }
+.legacy-link:hover { color: var(--fg); }
+
+.ws-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+.ws-on { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+.ws-off { background: var(--warn); }
+.ws-na { background: var(--muted); }
+
+.outlet { padding: 22px 26px; max-width: 1200px; }
+
+/* Headings & cards --------------------------------------------------- */
+.view-head { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+.view-head h2 { margin: 0; font-size: 20px; }
+.view-head h3 { margin: 0; font-size: 16px; }
+
+.card {
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 16px 18px;
+  margin-bottom: 18px;
+  box-shadow: var(--shadow);
+}
+.card h3 { margin: 0 0 12px; font-size: 15px; }
+.card h4 { margin: 16px 0 8px; font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+
+/* KPI grid ----------------------------------------------------------- */
+.kpi-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 12px; margin-bottom: 18px; }
+.kpi { background: var(--bg-2); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; }
+.kpi-value { font-size: 26px; font-weight: 700; }
+.kpi-label { color: var(--muted); font-size: 12px; margin-top: 2px; }
+.kpi-active .kpi-value { color: var(--accent-2); }
+.sev-critical .kpi-value { color: var(--crit); }
+.sev-high .kpi-value { color: var(--high); }
+.sev-medium .kpi-value { color: var(--med); }
+.sev-low .kpi-value { color: var(--low); }
+.sev-info .kpi-value { color: var(--info); }
+
+/* Active list -------------------------------------------------------- */
+.active-list { display: flex; flex-direction: column; gap: 6px; }
+.active-row { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; transition: border-color 0.12s; }
+.active-row:hover { border-color: var(--accent); }
+
+.pill { background: var(--bg-3); border-radius: 20px; padding: 2px 10px; font-size: 12px; color: var(--muted); white-space: nowrap; }
+.pill-phase { background: var(--accent); color: #fff; }
+
+/* Tables ------------------------------------------------------------- */
+.data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.data-table th { text-align: left; color: var(--muted); font-weight: 600; padding: 8px 10px; border-bottom: 1px solid var(--line); font-size: 12px; text-transform: uppercase; letter-spacing: 0.4px; }
+.data-table td { padding: 9px 10px; border-bottom: 1px solid var(--line); }
+.data-table tr:hover td { background: var(--bg-3); }
+.row-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+
+.sev-tag { padding: 2px 8px; border-radius: 6px; font-size: 11px; font-weight: 700; color: #0b0f17; }
+.sev-tag.sev-critical { background: var(--crit); color: #fff; }
+.sev-tag.sev-high { background: var(--high); }
+.sev-tag.sev-medium { background: var(--med); }
+.sev-tag.sev-low { background: var(--low); color: #fff; }
+.sev-tag.sev-info { background: var(--info); color: #fff; }
+
+/* Pipeline stages + live feed ---------------------------------------- */
+.stages { display: flex; gap: 8px; flex-wrap: wrap; }
+.stage { flex: 1; min-width: 90px; text-align: center; padding: 10px; border-radius: 8px; border: 1px solid var(--line); text-transform: capitalize; font-weight: 600; color: var(--muted); background: var(--bg-3); }
+.stage-done { color: var(--ok); border-color: var(--ok); }
+.stage-active { color: #fff; background: var(--accent); border-color: var(--accent); animation: pulse 1.6s infinite; }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.65; } }
+
+.feed { max-height: 320px; overflow-y: auto; font-family: ui-monospace, monospace; font-size: 12.5px; display: flex; flex-direction: column; gap: 2px; }
+.feed-row { display: flex; gap: 10px; padding: 4px 6px; border-radius: 5px; }
+.feed-row:hover { background: var(--bg-3); }
+.feed-type { color: var(--accent-2); min-width: 130px; }
+.feed-desc { color: var(--muted); word-break: break-all; }
+.feed-finding-new .feed-type { color: var(--high); }
+.feed-phase-start .feed-type, .feed-phase-end .feed-type { color: var(--accent); }
+
+/* Forms & controls --------------------------------------------------- */
+.input { width: 100%; background: var(--bg); border: 1px solid var(--line); color: var(--fg); border-radius: 8px; padding: 9px 11px; font: inherit; margin: 4px 0; }
+.input:focus { outline: none; border-color: var(--accent); }
+textarea.input { resize: vertical; font-family: ui-monospace, monospace; }
+
+.btn { background: var(--bg-3); color: var(--fg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 14px; font: inherit; font-weight: 600; cursor: pointer; transition: background 0.12s, border-color 0.12s; }
+.btn:hover { border-color: var(--accent); }
+.btn:disabled { opacity: 0.5; cursor: default; }
+.btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn-primary:hover { background: #3c7bea; }
+.btn-danger { color: var(--danger); }
+.btn-danger:hover { background: rgba(239, 68, 68, 0.12); border-color: var(--danger); }
+.btn-ghost { background: transparent; }
+.btn-sm { padding: 4px 9px; font-size: 12px; }
+
+.seg-group { display: inline-flex; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 3px; margin-bottom: 12px; }
+.seg { background: transparent; border: none; color: var(--muted); padding: 6px 14px; border-radius: 6px; cursor: pointer; font: inherit; font-weight: 600; }
+.seg.active { background: var(--accent); color: #fff; }
+
+.check { display: flex; align-items: center; gap: 8px; color: var(--fg); font-size: 13px; }
+.mod-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 8px; }
+.opt-grid { display: flex; gap: 20px; flex-wrap: wrap; margin: 14px 0; }
+.field-grid { display: flex; gap: 14px; align-items: flex-end; flex-wrap: wrap; margin: 8px 0; }
+.field-grid label { display: flex; flex-direction: column; gap: 2px; font-size: 12px; color: var(--muted); }
+.scan-form .btn-primary { margin-top: 12px; }
+
+.tools-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; }
+.code-out { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 12px; max-height: 300px; overflow: auto; white-space: pre-wrap; word-break: break-all; font-size: 12px; margin-top: 10px; }
+
+/* States ------------------------------------------------------------- */
+.loading { display: flex; align-items: center; gap: 10px; color: var(--muted); padding: 12px 0; }
+.spinner { width: 16px; height: 16px; border: 2px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.empty-state { color: var(--muted); text-align: center; padding: 28px; }
+
+/* Toasts ------------------------------------------------------------- */
+.toast-root { position: fixed; right: 18px; bottom: 18px; display: flex; flex-direction: column; gap: 8px; z-index: 9999; }
+.toast { background: var(--bg-3); border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 8px; padding: 10px 14px; box-shadow: var(--shadow); opacity: 0; transform: translateY(8px); transition: opacity 0.25s, transform 0.25s; max-width: 340px; }
+.toast.show { opacity: 1; transform: none; }
+.toast-success { border-left-color: var(--ok); }
+.toast-error { border-left-color: var(--danger); }
+.toast-warn { border-left-color: var(--warn); }
+
+/* Responsive --------------------------------------------------------- */
+@media (max-width: 760px) {
+  .shell { grid-template-columns: 1fr; }
+  .sidebar { position: static; height: auto; flex-direction: row; flex-wrap: wrap; align-items: center; }
+  .nav { flex-direction: row; flex-wrap: wrap; }
+  .sidebar-foot { margin: 0; }
+}
