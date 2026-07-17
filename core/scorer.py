@@ -15,8 +15,12 @@ Confidence formula:
           / TOTAL_WEIGHT
 """
 
+import logging
+
 from core.baseline import BaselineEngine
 from core.normalizer import normalize
+
+_logger = logging.getLogger(__name__)
 
 # Default signal weight constants (from pipeline §7-8)
 DEFAULT_WEIGHT_TIMING = 3
@@ -352,7 +356,10 @@ class SignalScorer:
             # Check if the vuln_type is predicted for this context
             score = predictions.get(vuln_type, 0.0)
             return min(1.0, score)
-        except Exception:
+        except Exception as exc:
+            # Silently returning 0.0 hides a broken context-intelligence
+            # lookup that would understate every finding's confidence.
+            _logger.debug("context_fit scoring failed for %s", vuln_type, exc_info=exc)
             return 0.0
 
     def score_impact(self, vuln_type):
@@ -367,8 +374,8 @@ class SignalScorer:
             for key, template in CVSS_TEMPLATES.items():
                 if key in (vuln_type or "").lower():
                     return min(1.0, template["base"] / 10.0)
-        except Exception:
-            pass
+        except Exception as exc:
+            _logger.debug("impact scoring failed for %s", vuln_type, exc_info=exc)
         return 0.3  # default moderate impact
 
     def analyze(

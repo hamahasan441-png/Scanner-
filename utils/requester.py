@@ -743,9 +743,11 @@ class Requester:
         if self._rate_limiter is not None:
             try:
                 self._rate_limiter.enforce_rate_limit()
-            except Exception:
-                # A misbehaving limiter must not break the request path.
-                pass
+            except Exception as exc:
+                # A misbehaving limiter must not break the request path,
+                # but a silently-broken throttle is a scan-integrity issue
+                # (we could be hammering the target), so leave a trace.
+                _logger.debug("rate limiter raised; ignoring", exc_info=exc)
 
         self._apply_request_delay()
         url, data, req_headers = self._prepare_request_data(url, data, headers)
@@ -774,16 +776,23 @@ class Requester:
 
         except requests.exceptions.ProxyError as e:
             self.metrics.record_request(success=False, response_time=time.time() - req_start)
+            # Structured DEBUG trace so failures are captured under
+            # --log-json/--log-file even without --verbose. A dropped
+            # probe is a potential missed finding, so it must be
+            # diagnosable after the fact rather than vanishing.
+            _logger.debug("proxy error", exc_info=e, extra={"url": url, "method": method})
             if self.config.get("verbose"):
                 print(f"{Colors.error(f'Proxy error: {e}')}")
             return None
         except requests.exceptions.Timeout:
             self.metrics.record_request(success=False, response_time=time.time() - req_start)
+            _logger.debug("request timeout", extra={"url": url, "method": method})
             if self.config.get("verbose"):
                 print(f"{Colors.error('Request timeout')}")
             return None
         except requests.exceptions.RequestException as e:
             self.metrics.record_request(success=False, response_time=time.time() - req_start)
+            _logger.debug("request error", exc_info=e, extra={"url": url, "method": method})
             if self.config.get("verbose"):
                 print(f"{Colors.error(f'Request error: {e}')}")
             return None
