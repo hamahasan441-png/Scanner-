@@ -62,7 +62,7 @@ def _is_cdn_ip(ip_str):
 
 def _mmh3_hash(data: bytes) -> int:
     """Minimal MurmurHash3-32 (no external deps)."""
-    h = hashlib.md5(data).hexdigest()  # fallback pseudo-hash
+    h = hashlib.md5(data, usedforsecurity=False).hexdigest()  # fallback pseudo-hash
     return int(h[:8], 16)
 
 
@@ -462,7 +462,7 @@ class RealIPScanner:
                         if title and resp_title and title.lower() == resp_title.lower():
                             return True
                         resp_hash = (
-                            hashlib.md5(resp.text.encode("utf-8", "ignore")).hexdigest()
+                            hashlib.md5(resp.text.encode("utf-8", "ignore"), usedforsecurity=False).hexdigest()
                             if hasattr(resp, "text")
                             else ""
                         )
@@ -513,7 +513,7 @@ class RealIPScanner:
             resp = self.requester.request(target_url, "GET", timeout=10)
             if resp and hasattr(resp, "text"):
                 title = self._extract_title(resp.text)
-                body_hash = hashlib.md5(resp.text.encode("utf-8", "ignore")).hexdigest()
+                body_hash = hashlib.md5(resp.text.encode("utf-8", "ignore"), usedforsecurity=False).hexdigest()
                 self._target_fingerprint = (title, body_hash)
         except Exception:
             self._target_fingerprint = None

@@ -121,7 +121,7 @@ class CachePoisoningModule(BaseModule):
             ]
 
         canary = "atomic-cache-poison-{}".format(
-            hashlib.md5(url.encode()).hexdigest()[:8]
+            hashlib.md5(url.encode(), usedforsecurity=False).hexdigest()[:8]
         )
 
         for header_name in poisoning_headers:
@@ -168,7 +168,7 @@ class CachePoisoningModule(BaseModule):
     def _test_unkeyed_query_params(self, url):
         """Test for cache poisoning via unkeyed query parameters."""
         canary = "atomic-qp-{}".format(
-            hashlib.md5(url.encode()).hexdigest()[:8]
+            hashlib.md5(url.encode(), usedforsecurity=False).hexdigest()[:8]
         )
         test_params = ["utm_source", "utm_content", "utm_medium", "fbclid", "_ga", "callback"]
 
@@ -205,7 +205,7 @@ class CachePoisoningModule(BaseModule):
     def _test_fat_get(self, url):
         """Test for cache poisoning via fat GET requests (body in GET)."""
         canary = "atomic-fat-{}".format(
-            hashlib.md5(url.encode()).hexdigest()[:8]
+            hashlib.md5(url.encode(), usedforsecurity=False).hexdigest()[:8]
         )
 
         try:

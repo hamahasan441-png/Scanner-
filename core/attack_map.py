@@ -439,7 +439,7 @@ class NodeClassifier:
             # Classify node type
             node_type = NodeClassifier._classify_type(technique, severity, cvss)
 
-            node_id = hashlib.md5(f"{url}:{technique}:{getattr(finding, 'param', '')}".encode()).hexdigest()[:10]
+            node_id = hashlib.md5(f"{url}:{technique}:{getattr(finding, 'param', '')}".encode(), usedforsecurity=False).hexdigest()[:10]
 
             label = f"{technique.title()} @ {url[:60]}"
 
