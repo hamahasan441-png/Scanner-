@@ -109,15 +109,29 @@ class OSShellHandler:
                 return True
         return False
 
-    # Characters that could allow command chaining in a shell context
-    _SHELL_META = set(";|&`$(){}")
-
     def _exec(self, cmd: str) -> Optional[str]:
-        """Execute *cmd* through the web shell and return stdout."""
+        """Execute *cmd* through the web shell and return stdout.
+
+        This is an operator-driven, post-exploitation OS shell: the
+        command runs on the *remote, already-compromised target* through
+        a deployed web shell, not on the scanner host. Shell
+        metacharacters (``|``, ``;``, ``&&``, redirects, subshells) are
+        therefore first-class features here — an operator legitimately
+        needs ``cat /etc/passwd | grep root`` or ``uname -a; id``.
+
+        A previous revision rejected any command containing
+        ``;|&`` $(){}``, which (a) provided *no* protection to the
+        scanner host — execution is remote by design — and (b) silently
+        broke the tool's own built-ins (``sysinfo`` uses ``||`` and
+        ``|``), so those rows always came back empty. The filter is gone;
+        the argument is still URL-encoded so it survives transport
+        intact.
+
+        The scanner-host-protecting allowlist lives on the *web API*
+        surface (``web/app.py``'s ``_is_shell_command_allowed``), which
+        is where untrusted callers are gated. That control is unaffected.
+        """
         if not self._shell_url:
-            return None
-        # Reject commands containing shell metacharacters to prevent chaining
-        if self._SHELL_META.intersection(cmd):
             return None
         try:
             from urllib.parse import quote as _url_quote

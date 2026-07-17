@@ -139,6 +139,18 @@ class TestIsShellCommandAllowed(unittest.TestCase):
             with self.subTest(cmd=cmd):
                 self.assertFalse(_is_shell_command_allowed(cmd))
 
+    def test_blocks_find_exec_flag_bypass(self):
+        """`find` is allowlisted but `-exec` escalates it to arbitrary code."""
+        self.assertFalse(_is_shell_command_allowed("find / -exec cat /etc/shadow {} +"))
+        self.assertFalse(_is_shell_command_allowed("find . -delete"))
+
+    def test_blocks_ip_netns_exec_bypass(self):
+        """`ip` is allowlisted but `ip netns exec <ns> <prog>` spawns arbitrary
+        programs via the bare `exec` sub-command (no leading dash), which the
+        dangerous-flag scan alone would miss."""
+        self.assertFalse(_is_shell_command_allowed("ip netns exec myns /bin/sh"))
+        self.assertFalse(_is_shell_command_allowed("ip netns exec myns id"))
+
     def test_returns_false_for_empty_command(self):
         self.assertFalse(_is_shell_command_allowed(""))
 
