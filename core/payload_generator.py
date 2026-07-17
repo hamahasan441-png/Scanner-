@@ -303,7 +303,7 @@ class PayloadGenerator:
         if key and "{{key}}" in tpl:
             import hashlib
 
-            tpl = tpl.replace("{{key}}", hashlib.md5(key.encode()).hexdigest())
+            tpl = tpl.replace("{{key}}", hashlib.md5(key.encode(), usedforsecurity=False).hexdigest())
         return tpl
 
     # ------------------------------------------------------------------

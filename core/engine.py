@@ -1650,7 +1650,7 @@ class AtomicEngine:
         def _payload_fingerprint(value: str) -> str:
             if not value:
                 return ""
-            return hashlib.sha1(value.encode("utf-8", "replace")).hexdigest()[:8]
+            return hashlib.sha1(value.encode("utf-8", "replace"), usedforsecurity=False).hexdigest()[:8]
 
         new_key = (
             finding.technique,

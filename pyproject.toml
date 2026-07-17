@@ -44,3 +44,17 @@ dev = [
 
 [tool.setuptools.packages.find]
 include = ["core*", "modules*", "utils*", "web*"]
+
+[tool.bandit]
+# ATOMIC is an *offensive* security tool. By design it embeds attack
+# payloads (eval/exec/SQL strings), shells out to external recon tools
+# via subprocess, and computes non-cryptographic content fingerprints
+# with md5. Those legitimately trip Bandit's lower-severity heuristics.
+#
+# Rather than blanket-skipping whole test IDs (which would blind us to a
+# genuine hardcoded secret or an unsafe deserialization in the tool's
+# *own* code), CI gates only on HIGH severity + HIGH confidence findings
+# (see .github/workflows/security.yml and ci.yml). A full lower-severity
+# scan is still run and uploaded as an informational artifact. This
+# section just scopes what Bandit walks.
+exclude_dirs = ["tests", ".git", "build", "dist", ".venv", "venv", "node_modules"]

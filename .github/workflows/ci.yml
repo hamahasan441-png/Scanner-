@@ -141,12 +141,17 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install bandit pip-audit
+          pip install "bandit[toml]" pip-audit
 
-      - name: Run Bandit security linter
+      - name: Run Bandit security linter (informational)
         run: |
-          bandit -r core/ modules/ utils/ web/ scanner/ -ll --exit-zero -f json -o bandit-report.json
-          bandit -r core/ modules/ utils/ web/ scanner/ -ll --exit-zero
+          bandit -c pyproject.toml -r core/ modules/ utils/ web/ scanner/ -ll --exit-zero -f json -o bandit-report.json
+          bandit -c pyproject.toml -r core/ modules/ utils/ web/ scanner/ -ll --exit-zero
+
+      - name: Bandit gate (fail on HIGH severity + HIGH confidence)
+        run: |
+          bandit -c pyproject.toml -r core/ modules/ utils/ web/ scanner/ \
+            --severity-level high --confidence-level high
 
       - name: Run pip-audit dependency check
         run: |

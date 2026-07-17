@@ -29,11 +29,21 @@ jobs:
       - name: Install Bandit
         run: pip install bandit[toml]
 
-      - name: Run Bandit security scan
+      - name: Run Bandit security scan (informational, all severities)
         run: |
-          bandit -r core/ modules/ utils/ web/ scanner/ -f json -o bandit-results.json --exit-zero
-          bandit -r core/ modules/ utils/ web/ scanner/ -f screen --exit-zero
+          bandit -c pyproject.toml -r core/ modules/ utils/ web/ scanner/ -f json -o bandit-results.json --exit-zero
+          bandit -c pyproject.toml -r core/ modules/ utils/ web/ scanner/ -f screen --exit-zero
         continue-on-error: true
+
+      - name: Run Bandit gate (fail on HIGH severity + HIGH confidence)
+        # Blocking: a HIGH/HIGH finding in the scanner's OWN code (e.g. a
+        # real hardcoded secret, unsafe pickle load, or shell=True on
+        # tainted input) must stop the build. The payload strings and
+        # subprocess/md5 usage inherent to an offensive tool sit at
+        # LOW/MEDIUM and are reported by the informational step above.
+        run: |
+          bandit -c pyproject.toml -r core/ modules/ utils/ web/ scanner/ \
+            --severity-level high --confidence-level high
 
       - name: Upload Bandit results
         if: always()
