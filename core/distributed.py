@@ -49,7 +49,7 @@ def _connect_redis(redis_url: str):
         client.ping()
         return client
     except ImportError:
-        raise RuntimeError("redis-py not installed. Run: pip install redis")
+        raise RuntimeError("redis-py not installed. Run: pip install redis") from None
     except Exception as exc:
         raise RuntimeError(f"Cannot connect to Redis at {redis_url}: {exc}") from exc
 

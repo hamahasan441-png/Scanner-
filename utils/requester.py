@@ -164,7 +164,7 @@ class ConnectionPoolManager:
             raise RuntimeError(
                 "requests library is not installed. "
                 "Install with: pip install requests"
-            )
+            ) from None
 
     def close(self) -> None:
         """Close the managed session and release pooled connections."""

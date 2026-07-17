@@ -41,7 +41,7 @@ except ImportError as _yaml_exc:  # pragma: no cover - environment-specific
         "    pip install -r requirements.txt\n"
         f"  (original error: {_yaml_exc})\n\n"
     )
-    raise SystemExit(1)
+    raise SystemExit(1) from None
 
 from config import Colors
 

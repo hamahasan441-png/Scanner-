@@ -414,6 +414,18 @@ _SHELL_DANGEROUS_FLAGS = frozenset({
 })
 
 
+# Bare (non-flag) sub-command tokens that let an allowlisted base command
+# spawn an arbitrary program. The classic case is ``ip netns exec <ns>
+# <program>`` — ``ip`` is allowlisted and ``exec`` is not a ``-flag`` so
+# the dangerous-flag scan above misses it. ``nsenter``-style ``exec``
+# sub-commands are the same shape. Denying the bare tokens closes the gap
+# regardless of the base command. (Requires root + an existing netns to
+# exploit, but the allowlist's contract is "non-spawning", so it belongs
+# here.) Over-broad on purpose: e.g. ``echo exec`` is also rejected, which
+# is an acceptable price for a security allowlist.
+_SHELL_DANGEROUS_SUBCOMMANDS = frozenset({"exec", "execdir"})
+
+
 def _is_shell_command_allowed(cmd: str) -> bool:
     """Check if a shell command is in the allowlist.
 
@@ -464,6 +476,9 @@ def _is_shell_command_allowed(cmd: str) -> bool:
     for tok in tokens[1:]:
         bare = tok.split("=", 1)[0]
         if tok in _SHELL_DANGEROUS_FLAGS or bare in _SHELL_DANGEROUS_FLAGS:
+            return False
+        # Deny bare spawn sub-commands (e.g. ``ip netns exec ...``).
+        if tok in _SHELL_DANGEROUS_SUBCOMMANDS:
             return False
 
     return True
