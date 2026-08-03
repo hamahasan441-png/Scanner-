@@ -2535,6 +2535,7 @@ class Colors:
     CYAN = "\033[96m"
     WHITE = "\033[97m"
     BOLD = "\033[1m"
+    DIM = "\033[2m"
     UNDERLINE = "\033[4m"
     RESET = "\033[0m"
 

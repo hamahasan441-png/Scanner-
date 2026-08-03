@@ -146,6 +146,22 @@ class FindingGroupModel(Base if SQLALCHEMY_AVAILABLE else object):
         recommended_next_check = Column(Text)
 
 
+class MetadataModel(Base if SQLALCHEMY_AVAILABLE else object):
+    """Generic key/value store for framework metadata.
+
+    Used by features that need small, persistent state that does not belong
+    to a single scan — e.g. watch-mode baseline fingerprints keyed by target.
+    """
+
+    if SQLALCHEMY_AVAILABLE:
+        __tablename__ = "metadata_kv"
+
+        id = Column(Integer, primary_key=True)
+        key = Column(String(255), unique=True, nullable=False, index=True)
+        value = Column(Text)
+        updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
 class Database:
     """Database handler"""
 
@@ -330,6 +346,43 @@ class Database:
             session.close()
         except Exception as e:
             print(f"[!] Error updating shell: {e}")
+
+    # ------------------------------------------------------------------
+    # Generic key/value metadata store
+    # ------------------------------------------------------------------
+
+    def get_metadata(self, key):
+        """Return the stored string value for ``key`` or ``None`` if unset."""
+        if not self.Session:
+            return None
+
+        try:
+            session = self.Session()
+            row = session.query(MetadataModel).filter_by(key=key).first()
+            value = row.value if row else None
+            session.close()
+            return value
+        except Exception as e:
+            print(f"[!] Error reading metadata: {e}")
+            return None
+
+    def set_metadata(self, key, value):
+        """Insert or update the string ``value`` stored under ``key``."""
+        if not self.Session:
+            return
+
+        try:
+            session = self.Session()
+            row = session.query(MetadataModel).filter_by(key=key).first()
+            if row:
+                row.value = value
+                row.updated_at = datetime.now(timezone.utc)
+            else:
+                session.add(MetadataModel(key=key, value=value))
+            session.commit()
+            session.close()
+        except Exception as e:
+            print(f"[!] Error saving metadata: {e}")
 
     # ------------------------------------------------------------------
     # Canonical persistence (CanonicalFinding, FindingGroup, ScanResult)

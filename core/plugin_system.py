@@ -226,6 +226,20 @@ class PluginManager:
                 pass
         return plugin is not None
 
+    def unload_plugin(self, name: str) -> bool:
+        """Unload a previously loaded plugin.
+
+        Removes it from the registry (invoking ``teardown`` if present) and
+        purges its cached entry from ``sys.modules`` so that a subsequent
+        :meth:`load_plugin` re-executes the plugin's current source. This is
+        what makes hot-reloading actually pick up code changes rather than
+        re-registering the stale, already-imported module.
+        """
+        removed = self.unregister(name)
+        # Purge the cached module so a reload picks up new code.
+        sys.modules.pop(f"plugins.{name}", None)
+        return removed
+
     # --- Query ---
 
     def list_plugins(self) -> List[dict]:
