@@ -88,6 +88,41 @@ def _startup_update_notice():
         pass  # the notice must never block or slow a real run
 
 
+def _apply_profile(args):
+    """Expand ``--profile`` into the underlying flags.
+
+    Additive only: a profile turns flags *on*; it never overrides an option the
+    operator set explicitly, and it is a no-op when ``--profile`` is absent, so
+    default behaviour is unchanged. Explicit flags layer on top of the profile.
+    """
+    profile = getattr(args, "profile", None)
+    if not profile:
+        return args
+
+    if profile == "quick":
+        # Fast, low-noise core web checks at shallow depth.
+        for m in ("sqli", "xss", "lfi", "cmdi"):
+            setattr(args, m, True)
+        if getattr(args, "depth", 3) > 1:
+            args.depth = 1
+    elif profile == "standard":
+        # All standard web modules.
+        args.full = True
+    elif profile == "deep":
+        # Standard modules + deep-scan + recon at a deeper crawl.
+        args.full = True
+        for m in ("deep_scan", "recon", "discovery", "tech_detect"):
+            if hasattr(args, m):
+                setattr(args, m, True)
+        if getattr(args, "depth", 3) < 5:
+            args.depth = 5
+    elif profile == "paranoid":
+        # Everything: recon, exploitation, network, post-exploitation.
+        args.point_to_point = True
+
+    return args
+
+
 def main():
     """Main entry point"""
     parser = argparse.ArgumentParser(
@@ -189,6 +224,16 @@ def main():
     parser.add_argument("--delay", type=float, default=0.1, help="Delay between requests (default: 0.1)")
 
     # Module options
+    parser.add_argument(
+        "--profile",
+        choices=["quick", "standard", "deep", "paranoid"],
+        default=None,
+        help="Scan preset that expands to a sensible bundle of flags so common "
+        "scans need only one option: 'quick' (fast core web checks, depth 1), "
+        "'standard' (all standard web modules, = --full), 'deep' (--full + "
+        "deep-scan + recon, depth 5), 'paranoid' (= --point-to-point, full "
+        "coverage incl. exploitation). Explicit flags still layer on top.",
+    )
     parser.add_argument("--full", action="store_true", help="Enable all modules")
     parser.add_argument(
         "--point-to-point",
@@ -947,6 +992,7 @@ def main():
     )
 
     args = parser.parse_args()
+    args = _apply_profile(args)
 
     # Print banner
     if not args.quiet:

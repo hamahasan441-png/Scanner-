@@ -451,7 +451,7 @@ Scanner-/
 ├── pyproject.toml               # Package configuration
 ├── setup.sh                     # Setup script
 │
-├── core/                        # Core engine components (21 modules)
+├── core/                        # Core engine components (90 modules — representative subset shown)
 │   ├── engine.py                # Scan orchestration engine & Finding dataclass
 │   ├── ai_engine.py             # ML-based vulnerability prediction & adaptive strategies
 │   ├── reporter.py              # Multi-format report generation (HTML/JSON/CSV/TXT/PDF/XML/SARIF)
@@ -473,7 +473,7 @@ Scanner-/
 │   ├── intruder.py              # Intruder attack orchestration (Burp-style)
 │   └── banner.py                # ASCII banner display
 │
-├── modules/                     # Attack & scan modules (30+)
+├── modules/                     # Attack & scan modules (47 — representative subset shown)
 │   ├── base.py                  # Abstract BaseModule interface
 │   ├── sqli.py                  # SQL Injection (8 techniques: error, blind, union, 2nd-order, OOB, WAF bypass)
 │   ├── xss.py                   # Cross-Site Scripting (reflected, stored, DOM, mXSS, blind, CSP bypass, polyglot)

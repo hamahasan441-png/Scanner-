@@ -1374,6 +1374,23 @@ class AtomicEngine:
         should_auto_attack = modules_config.get("auto_exploit", False) or (
             exploitable_findings and modules_config.get("smart_attack", False)
         )
+        # Governance gate: opt-in authorization enforcement + audit trail for
+        # offensive actions (default-permissive; see core/authorization.py).
+        if should_auto_attack and self.findings:
+            from core.authorization import audit_offensive_action, check_authorization
+
+            _authz_ok, _authz_reason = check_authorization(self.config)
+            audit_offensive_action(
+                "auto_attack",
+                self.target,
+                {"exploitable_findings": len(exploitable_findings), "reason": _authz_reason},
+                allowed=_authz_ok,
+            )
+            if not _authz_ok:
+                should_auto_attack = False
+                logger.warning("Auto-attack blocked by authorization gate: %s", _authz_reason)
+                if self.config.get("verbose"):
+                    print(f"{Colors.warning(_authz_reason)}")
         if should_auto_attack and self.findings:
             try:
                 from core.attack_router import AttackRouter
