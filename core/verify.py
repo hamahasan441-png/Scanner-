@@ -181,8 +181,10 @@ class RepeatabilityVerifier(IVerifier):
                         confirmations += 1
 
                 time.sleep(0.1)
-            except Exception:
-                pass
+            except Exception as exc:
+                # A dropped probe is a lost confirmation — surface it so a
+                # verification miss can be explained (see PHILOSOPHY.md).
+                logger.debug("Repeatability probe failed for %s: %s", signal.url, exc, exc_info=True)
 
         result.confirmations = confirmations
         result.verified = confirmations >= max(1, int(self._n * MIN_CONFIRMATIONS_RATIO))
@@ -271,8 +273,9 @@ class TimingVerifier(IVerifier):
                 elapsed = time.time() - t0
                 if resp is not None:
                     timings.append(elapsed)
-            except Exception:
-                pass
+            except Exception as exc:
+                # A dropped timing sample skews the timing verdict; log it.
+                logger.debug("Timing probe failed for %s: %s", signal.url, exc, exc_info=True)
 
         if not timings:
             result.notes = "No timing samples collected"
