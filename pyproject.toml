@@ -23,7 +23,7 @@ dependencies = [
     "flask-socketio==5.6.1",
     "flask-cors==6.0.5",
     "colorama==0.4.6",
-    "tqdm==4.68.3",
+    "tqdm==4.70.0",
     "dnspython==2.8.0",
     "PyYAML==6.0.3",
     "scapy==2.7.0",
