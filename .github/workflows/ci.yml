@@ -125,6 +125,45 @@ jobs:
         run: |
           python -m pytest tests/integration/ -v --tb=short
 
+  type-check:
+    name: Type Safety (informational)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install mypy
+
+      - name: Type-check with mypy (informational)
+        continue-on-error: true
+        run: |
+          # A full type check surfaces missing-attribute / bad-call defects that
+          # flake8's bug-class rules (E9,F63,F7,F82) structurally cannot see.
+          # This exact class has shipped real runtime bugs (e.g. a Colors.DIM
+          # crash, a missing Database.get_metadata, a missing
+          # PluginManager.unload_plugin). This job is INFORMATIONAL for now
+          # (continue-on-error) so it never blocks a merge while the pre-existing
+          # annotation debt is paid down. Graduation plan: promote the
+          # [attr-defined]/[call-arg] subset to a blocking gate once the current
+          # false positives are annotated away. See REVIEW_MANAGER.md (Phase 0).
+          MYPYPATH=. mypy core modules utils \
+            --ignore-missing-imports --follow-imports=silent \
+            --explicit-package-bases --namespace-packages || true
+          echo "----- high-signal bug classes (attr-defined / call-arg) -----"
+          MYPYPATH=. mypy core modules utils \
+            --ignore-missing-imports --follow-imports=silent \
+            --explicit-package-bases --namespace-packages 2>/dev/null \
+            | grep -E "\[(attr-defined|call-arg)\]" || echo "No high-signal type bugs found."
+
   security:
     name: Security Scanning
     runs-on: ubuntu-latest
