@@ -140,8 +140,25 @@ class PluginManager:
                 discovered.append(entry)
         return discovered
 
+    ALLOWED_CAPABILITIES = {"scanner","recon","report","utility"}
+    def _validate_manifest(self, info_dict, plugin_name):
+        cap = info_dict.get("capabilities", info_dict.get("category","scanner"))
+        if isinstance(cap, str):
+            cap = [cap]
+        for c in cap:
+            if c not in self.ALLOWED_CAPABILITIES and c not in ("exploit",):
+                return False, f"capability {c} denied"
+        # deny filesystem/network/shell by default unless explicitly allowlisted via ATOMIC_PLUGIN_ALLOW_EXPLOIT
+        if "exploit" in cap and not __import__("os").environ.get("ATOMIC_PLUGIN_ALLOW_EXPLOIT"):
+            return False, "exploit capability requires ATOMIC_PLUGIN_ALLOW_EXPLOIT=1"
+        return True, ""
+
     def load_plugin(self, plugin_name: str) -> Optional[PluginInfo]:
         """Load a plugin from the plugins directory by name."""
+        # sanitize name to prevent traversal
+        import re
+        if not re.match(r"^[a-zA-Z0-9_-]+$", plugin_name):
+            return None
         plugin_path = os.path.join(self._plugin_dir, plugin_name)
         init_path = os.path.join(plugin_path, "__init__.py")
 
@@ -149,10 +166,6 @@ class PluginManager:
             return None
 
         try:
-            # Add plugin dir to path temporarily
-            if plugin_path not in sys.path:
-                sys.path.insert(0, plugin_path)
-
             spec = importlib.util.spec_from_file_location(
                 f"plugins.{plugin_name}",
                 init_path,
@@ -165,6 +178,10 @@ class PluginManager:
 
             # Extract plugin_info dict
             info_dict = getattr(module, "plugin_info", {})
+            ok, reason = self._validate_manifest(info_dict, plugin_name)
+            if not ok:
+                import logging as _lg; _lg.getLogger(__name__).warning(f"Plugin {plugin_name} blocked: {reason}")
+                return None
             scanner_class = getattr(module, "PluginScanner", None)
 
             instance = None

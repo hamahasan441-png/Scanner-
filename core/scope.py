@@ -127,11 +127,40 @@ class ScopePolicy:
     # Scope validation
     # ------------------------------------------------------------------
 
+    def _check_ip_block(self, url: str) -> bool:
+        """Block private/metadata IPs at scope layer (defense in depth with SafeHTTPClient)."""
+        try:
+            from core.http.safe_client import IPPolicy, DNSPolicy
+            import ipaddress
+            parsed = urlparse(url)
+            host = parsed.hostname or ""
+            if not host:
+                return False
+            try:
+                ip = ipaddress.ip_address(host.strip("[]"))
+                return IPPolicy().validate(ip) is not None
+            except ValueError:
+                # hostname — resolve and check
+                try:
+                    ips = DNSPolicy().resolve(host)
+                    for ip in ips:
+                        if IPPolicy().validate(ip) is not None:
+                            return True
+                except Exception:
+                    pass
+            return False
+        except Exception:
+            return False
+
     def is_in_scope(self, url):
         """Check whether a URL falls within the defined scan scope.
 
         Returns True if in scope, False if out of scope (should be skipped).
         """
+        # Canonicalize + IP block first
+        if self._check_ip_block(url):
+            self.blocked_count += 1
+            return False
         parsed = urlparse(url)
         domain = parsed.netloc.split(":")[0]
 
