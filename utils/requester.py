@@ -732,6 +732,17 @@ class Requester:
         if not self.session:
             return None
 
+        # Centralized SSRF / scope defense via SafeHTTPClient
+        try:
+            from core.http.safe_client import SafeHTTPClient as _Safe
+            _safe = _Safe(allow_private=self.config.get("allow_private_ips", False))
+            ok, err = _safe.validate_request(url)
+            if not ok:
+                _logger.warning(f"SSRF/scope blocked: {url} -> {err}")
+                return None
+        except ImportError:
+            pass
+
         cache_key, cached = self._check_cache(url, method, data, files)
         if cached is not None:
             return cached

@@ -313,6 +313,10 @@ class ReportGenerator:
 
         try:
             with open(filepath, "w") as f:
+                try:
+                    os.chmod(filepath, 0o640)
+                except Exception:
+                    pass
                 json.dump(report, f, indent=2, default=str)
         except (IOError, OSError) as e:
             print(f"{Colors.error(f'Cannot write report to {filepath}: {e}')}")
