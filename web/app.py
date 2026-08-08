@@ -125,7 +125,21 @@ _SAFE_SCAN_ID = re.compile(r"^[a-zA-Z0-9_-]+$")
 # key to prevent unauthorised access to the scanner.
 
 _API_KEY = os.environ.get("ATOMIC_API_KEY", "")
+_ATOMIC_ENV = os.environ.get("ATOMIC_ENV", "").lower()
 
+def require_capability(cap: str):
+    """RBAC decorator — checks JWT role has permission `cap`. Falls back to API key if no JWT."""
+    def deco(f):
+        @wraps(f)
+        def wrapped(*args, **kwargs):
+            user = _get_current_user()
+            if user:
+                perms = PERMISSIONS.get(user.get("role",""), set())
+                if cap not in perms:
+                    return jsonify({"status":"error","data":"Forbidden: missing capability "+cap}), 403
+            return f(*args, **kwargs)
+        return wrapped
+    return deco
 
 def _require_api_key(f):
     """Enforce API key authentication when ATOMIC_API_KEY is configured.
@@ -140,8 +154,9 @@ def _require_api_key(f):
 
     @wraps(f)
     def decorated(*args, **kwargs):
+        if _ATOMIC_ENV == "production" and not _API_KEY:
+            return jsonify({"status":"error","data":"Server misconfigured: ATOMIC_API_KEY required in production"}), 503
         if not _API_KEY:
-            # No key configured — allow unauthenticated access
             return f(*args, **kwargs)
 
         supplied = request.headers.get("X-API-Key", "") or request.args.get("api_key", "")
@@ -850,15 +865,18 @@ def dashboard_legacy():
 @_require_api_key
 @_rate_limit
 def list_scans():
-    """Return a list of all past scans."""
+    """Return a list of all past scans. Supports ?limit=&offset="""
+    # pagination handled inside
     db = _get_db()
     if db is None:
         return jsonify({"status": "error", "data": "Database unavailable"}), 503
 
     session = None
     try:
+        limit = min(request.args.get("limit", 100, type=int), 200)
+        offset = max(request.args.get("offset", 0, type=int), 0)
         session = db.Session()
-        scans = session.query(ScanModel).order_by(ScanModel.start_time.desc()).all()
+        scans = session.query(ScanModel).order_by(ScanModel.start_time.desc()).limit(limit).offset(offset).all()
         data = []
         for s in scans:
             data.append(
@@ -1528,6 +1546,14 @@ def api_repeater():
         return jsonify({"status": "error", "data": "Missing url field"}), 400
     if not url.startswith(("http://", "https://")):
         return jsonify({"status": "error", "data": "URL must start with http:// or https://"}), 400
+    try:
+        from core.http.safe_client import SafeHTTPClient
+        c = SafeHTTPClient(allow_private=False)
+        ok, err = c.validate_request(url)
+        if not ok:
+            return jsonify({"status":"error","data":f"SSRF blocked: {err}"}), 403
+    except Exception:
+        pass
     try:
         from core.repeater import Repeater
 
