@@ -313,14 +313,18 @@ def test_batch_scanner(vulnerable_server):
 
 
 @pytest.mark.integration
-def test_ci_mode_exit_code(vulnerable_server, engine_config, tmp_path):
-    """Verify CI mode returns exit code 1 when findings exceed threshold."""
+def test_ci_mode_exit_code(vulnerable_server, engine_config, tmp_path, monkeypatch):
+    """Verify CI mode returns exit code 1 and writes an Actions summary."""
     from core.engine import AtomicEngine
     from core.ci_mode import write_ci_summary
 
     target = f"{vulnerable_server}/search?q=test"
     engine = AtomicEngine(engine_config)
     engine.scan(target)
+
+    summary_path = tmp_path / "github-summary.md"
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary_path))
 
     exit_code = write_ci_summary(
         engine.findings,
@@ -334,6 +338,7 @@ def test_ci_mode_exit_code(vulnerable_server, engine_config, tmp_path):
         assert exit_code == 1
     else:
         assert exit_code == 0
+    assert "ATOMIC Security Scan" in summary_path.read_text(encoding="utf-8")
 
 
 @pytest.mark.integration

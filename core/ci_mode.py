@@ -260,11 +260,23 @@ def _write_github_step_summary(
         )
         sev_counts[sev] = sev_counts.get(sev, 0) + 1
 
+    def _field(finding, name, default):
+        """Read a finding field without eagerly calling ``dict.get``.
+
+        ``getattr(obj, name, obj.get(...))`` is unsafe because Python evaluates
+        the default expression even when the attribute exists. That only
+        surfaced in Actions, where summary generation is enabled for object
+        findings.
+        """
+        if isinstance(finding, dict):
+            return finding.get(name, default)
+        return getattr(finding, name, default)
+
     rows = "\n".join(
-        f"| {getattr(f, 'technique', f.get('technique', '?')) if not isinstance(f, dict) else f.get('technique', '?')} "
-        f"| {getattr(f, 'severity', 'INFO') if not isinstance(f, dict) else f.get('severity', 'INFO')} "
-        f"| {getattr(f, 'url', '') if not isinstance(f, dict) else f.get('url', '')} "
-        f"| {getattr(f, 'cvss', 0.0) if not isinstance(f, dict) else f.get('cvss', 0.0)} |"
+        f"| {_field(f, 'technique', '?')} "
+        f"| {_field(f, 'severity', 'INFO')} "
+        f"| {_field(f, 'url', '')} "
+        f"| {_field(f, 'cvss', 0.0)} |"
         for f in findings[:50]
     )
 
