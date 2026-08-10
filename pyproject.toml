@@ -42,6 +42,25 @@ dev = [
     "flake8>=7.3.0",
 ]
 
+[tool.pytest.ini_options]
+# Capture stdout/stderr at the Python (sys) level rather than pytest's
+# default OS file-descriptor level.
+#
+# Default fd-level capture wraps every test in os.dup2() calls on fds 1/2.
+# If any test leaves a background thread/subprocess alive (e.g. a full
+# ``main()`` scan that spins up worker/callback threads) that later writes
+# to — or whose socket reuses — fd 1/2, pytest's fd bookkeeping is corrupted
+# and it dies while flushing its own terminal output:
+#
+#     INTERNALERROR> OSError: [Errno 9] Bad file descriptor
+#
+# That crash aborts the whole session, so every test that had not yet run
+# is reported as failed — a cascade that shows up as "hundreds of failures"
+# concentrated in the alphabetically-late suites (surface_*, verify_*, web_*)
+# even though those tests pass in isolation. sys-level capture performs no fd
+# juggling and is immune. The capsys/capfd fixtures continue to work.
+addopts = "--capture=sys"
+
 [tool.setuptools.packages.find]
 include = ["core*", "modules*", "utils*", "web*"]
 
