@@ -123,14 +123,26 @@ def vulnerable_server():
     port = _get_free_port()
     base_url = f"http://127.0.0.1:{port}"
 
-    server_thread = threading.Thread(
-        target=lambda: app.run(host="127.0.0.1", port=port, use_reloader=False),
-        daemon=True,
-    )
-    server_thread.start()
-    time.sleep(0.5)  # let Flask start
+    # Use werkzeug's make_server (not app.run) so the server can be shut
+    # down cleanly in teardown. A fire-and-forget ``app.run()`` in a
+    # daemon thread is never stopped: its listening socket and
+    # request-logging streams survive into pytest's session teardown,
+    # where they are finalised abruptly — a classic trigger for the
+    # ``INTERNALERROR ... OSError: [Errno 9] Bad file descriptor`` crash
+    # pytest raises when it subsequently flushes its own captured output.
+    from werkzeug.serving import make_server
 
-    yield base_url
+    server = make_server("127.0.0.1", port, app, threaded=True)
+    server_thread = threading.Thread(target=server.serve_forever, daemon=True)
+    server_thread.start()
+    time.sleep(0.5)  # let the server start accepting connections
+
+    try:
+        yield base_url
+    finally:
+        server.shutdown()          # break out of serve_forever()
+        server_thread.join(timeout=5)
+        server.server_close()      # close the listening socket fd
 
 
 @pytest.fixture
