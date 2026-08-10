@@ -42,6 +42,11 @@ dev = [
     "flake8>=7.3.0",
 ]
 
+[tool.pytest.ini_options]
+markers = [
+    "integration: tests that exercise multiple components or a local HTTP server",
+]
+
 [tool.setuptools.packages.find]
 include = ["core*", "modules*", "utils*", "web*"]
 

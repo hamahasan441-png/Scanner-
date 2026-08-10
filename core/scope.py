@@ -128,7 +128,14 @@ class ScopePolicy:
     # ------------------------------------------------------------------
 
     def _check_ip_block(self, url: str) -> bool:
-        """Block private/metadata IPs at scope layer (defense in depth with SafeHTTPClient)."""
+        """Block private/metadata IPs unless the operator explicitly opted in.
+
+        ``Requester`` and this scope layer must use the same policy; otherwise
+        ``allow_private_ips`` passes transport validation but module probes are
+        silently removed as out of scope.
+        """
+        if self.engine.config.get("allow_private_ips", False):
+            return False
         try:
             from core.http.safe_client import IPPolicy, DNSPolicy
             import ipaddress

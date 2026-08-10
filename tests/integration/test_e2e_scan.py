@@ -123,14 +123,21 @@ def vulnerable_server():
     port = _get_free_port()
     base_url = f"http://127.0.0.1:{port}"
 
-    server_thread = threading.Thread(
-        target=lambda: app.run(host="127.0.0.1", port=port, use_reloader=False),
-        daemon=True,
-    )
-    server_thread.start()
-    time.sleep(0.5)  # let Flask start
+    # Use a controllable WSGI server so no listener or logging thread survives
+    # pytest teardown and corrupts output capture file descriptors.
+    from werkzeug.serving import make_server
 
-    yield base_url
+    server = make_server("127.0.0.1", port, app, threaded=True)
+    server_thread = threading.Thread(target=server.serve_forever, daemon=True)
+    server_thread.start()
+    time.sleep(0.5)  # let the server start accepting connections
+
+    try:
+        yield base_url
+    finally:
+        server.shutdown()
+        server_thread.join(timeout=5)
+        server.server_close()
 
 
 @pytest.fixture
@@ -142,14 +149,16 @@ def engine_config():
         "delay": 0.0,
         "verbose": False,
         "quiet": True,
-        "modules": {
-            "sqli": True,
-            "xss": True,
-            "lfi": True,
-            "cors": True,
-            "open_redirect": True,
-            "ssrf": True,
-        },
+        # This fixture intentionally scans its own loopback-only test server.
+        # Production defaults must continue to reject private addresses.
+        "allow_private_ips": True,
+        # Local deterministic fixture; throttling would turn a few-second
+        # integration check into several minutes without testing rate policy.
+        "rate_limit": 0,
+        # Individual tests opt into one module at a time. This keeps the E2E
+        # suite focused and prevents unrelated payload families from turning a
+        # single detector check into a full multi-minute scan.
+        "modules": {"sqli": True},
     }
 
 
@@ -196,7 +205,8 @@ def test_xss_detected(vulnerable_server, engine_config):
     from core.engine import AtomicEngine
 
     target = f"{vulnerable_server}/greet?name=World"
-    engine = AtomicEngine(engine_config)
+    config = {**engine_config, "modules": {"xss": True}}
+    engine = AtomicEngine(config)
     engine.scan(target)
 
     techs = _techniques(engine.findings)
@@ -210,7 +220,8 @@ def test_cors_misconfiguration_detected(vulnerable_server, engine_config):
     from core.engine import AtomicEngine
 
     target = f"{vulnerable_server}/api/data"
-    engine = AtomicEngine(engine_config)
+    config = {**engine_config, "modules": {"cors": True}}
+    engine = AtomicEngine(config)
     engine.scan(target)
 
     techs = _techniques(engine.findings)
@@ -224,7 +235,8 @@ def test_open_redirect_detected(vulnerable_server, engine_config):
     from core.engine import AtomicEngine
 
     target = f"{vulnerable_server}/redirect?url=/"
-    engine = AtomicEngine(engine_config)
+    config = {**engine_config, "modules": {"open_redirect": True}}
+    engine = AtomicEngine(config)
     engine.scan(target)
 
     techs = _techniques(engine.findings)

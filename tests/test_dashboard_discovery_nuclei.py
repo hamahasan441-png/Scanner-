@@ -308,67 +308,74 @@ class TestNucleiTemplateViewAPI(unittest.TestCase):
 
 
 class TestDashboardPanels(unittest.TestCase):
-    """Tests that the dashboard HTML contains the new panels."""
+    """Tests that the feature-complete legacy dashboard contains its panels.
+
+    The root route now serves the code-split application shell; the large
+    server-rendered dashboard remains intentionally available at ``/legacy``.
+    """
 
     def setUp(self):
         app.config["TESTING"] = True
         self.client = app.test_client()
 
+    def _dashboard(self):
+        return self.client.get("/legacy")
+
     def test_dashboard_has_discovery_tab(self):
-        resp = self.client.get("/")
+        resp = self._dashboard()
         self.assertIn(b"Discovery", resp.data)
         self.assertIn(b"switchPanel('discovery')", resp.data)
 
     def test_dashboard_has_nuclei_tab(self):
-        resp = self.client.get("/")
+        resp = self._dashboard()
         self.assertIn(b"Nuclei", resp.data)
         self.assertIn(b"switchPanel('nuclei')", resp.data)
 
     def test_dashboard_has_discovery_panel(self):
-        resp = self.client.get("/")
+        resp = self._dashboard()
         self.assertIn(b"panel-discovery", resp.data)
         self.assertIn(b"ULTIMATE Discovery Wordlist", resp.data)
 
     def test_dashboard_has_nuclei_panel(self):
-        resp = self.client.get("/")
+        resp = self._dashboard()
         self.assertIn(b"panel-nuclei", resp.data)
         self.assertIn(b"Nuclei Templates", resp.data)
 
     def test_dashboard_has_discovery_load_buttons(self):
-        resp = self.client.get("/")
+        resp = self._dashboard()
         self.assertIn(b"_loadDiscoveryPaths", resp.data)
         self.assertIn(b"_loadDiscoveryExtensions", resp.data)
 
     def test_dashboard_has_nuclei_load_button(self):
-        resp = self.client.get("/")
+        resp = self._dashboard()
         self.assertIn(b"_loadNucleiTemplates", resp.data)
 
     def test_dashboard_has_discovery_search(self):
-        resp = self.client.get("/")
+        resp = self._dashboard()
         self.assertIn(b"disc-search", resp.data)
 
     def test_dashboard_has_nuclei_search(self):
-        resp = self.client.get("/")
+        resp = self._dashboard()
         self.assertIn(b"nuclei-search", resp.data)
 
     def test_dashboard_has_nuclei_severity_filter(self):
-        resp = self.client.get("/")
+        resp = self._dashboard()
         self.assertIn(b"_nucleiFilterSeverity", resp.data)
 
     def test_dashboard_has_nuclei_template_viewer(self):
-        resp = self.client.get("/")
+        resp = self._dashboard()
         self.assertIn(b"nuclei-template-viewer", resp.data)
 
     def test_dashboard_has_discovery_scan_option(self):
-        resp = self.client.get("/")
+        resp = self._dashboard()
         self.assertIn(b"opt-discovery", resp.data)
 
     def test_dashboard_has_nuclei_scan_option(self):
-        resp = self.client.get("/")
+        resp = self._dashboard()
         self.assertIn(b"opt-nuclei-builtin", resp.data)
 
     def test_dashboard_has_all_24_tabs(self):
-        resp = self.client.get("/")
+        resp = self._dashboard()
         expected_tabs = [
             "dashboard",
             "scanner",

@@ -214,9 +214,9 @@ class Verifier:
         if "time-based" in technique_lower or "blind" in technique_lower:
             return elapsed >= 4.0, resp_len
 
-        if "error" in technique_lower:
+        if "error" in technique_lower or "sql" in technique_lower:
             evidence_lower = finding.evidence.lower()
-            if "error" in evidence_lower:
+            if "error" in evidence_lower or "sql" in technique_lower:
                 keywords = ["sql", "syntax", "mysql", "postgresql", "oracle", "sqlite", "mssql"]
                 return any(kw in response_text for kw in keywords), resp_len
 
