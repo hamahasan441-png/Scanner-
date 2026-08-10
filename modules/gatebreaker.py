@@ -158,24 +158,16 @@ class GateBreakerModule(BaseModule):
 
         gates = []
         
-        # WAF detection & bypass
+        # Inspect every gate class. A successful WAF/auth bypass must not hide
+        # downstream controls, and findings are emitted only after this pass.
         if time.time() - start_time < MAX_TOTAL_TIME:
             waf_gate = self._detect_and_break_waf(url, method, param, value, host)
             gates.append(waf_gate)
-            # Early exit: if WAF broken, skip other gates (saves time)
-            if waf_gate.get("broken"):
-                self._gates = gates
-                self._print_summary(gates)
-                return gates
 
         # Auth detection & bypass
         if time.time() - start_time < MAX_TOTAL_TIME:
             auth_gate = self._detect_and_break_auth(url, method, param, value, host)
             gates.append(auth_gate)
-            if auth_gate.get("broken"):
-                self._gates = gates
-                self._print_summary(gates)
-                return gates
 
         # Rate-limit detection & bypass
         if time.time() - start_time < MAX_TOTAL_TIME:

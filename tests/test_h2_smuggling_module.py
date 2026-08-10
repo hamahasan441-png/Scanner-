@@ -2,17 +2,8 @@
 # -*- coding: utf-8 -*-
 """Unit tests for the HTTP/2 Smuggling module (modules/h2_smuggling.py)."""
 
-import sys
 import unittest
 from unittest.mock import MagicMock, patch
-
-# ---------------------------------------------------------------------------
-# Mock unavailable modules BEFORE importing the module under test
-# ---------------------------------------------------------------------------
-mock_emit = MagicMock()
-mock_models = MagicMock()
-sys.modules.setdefault("core.emit", mock_emit)
-sys.modules.setdefault("core.models", mock_models)
 
 from tests.fixtures import MockEngine
 

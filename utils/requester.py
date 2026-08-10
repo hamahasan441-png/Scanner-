@@ -149,7 +149,10 @@ class ConnectionPoolManager:
             retry_strategy = _Retry(
                 total=self._max_retries,
                 backoff_factor=1,
-                status_forcelist=[429, 500, 502, 503, 504],
+                # 429 and 500 are scanner signals (rate limiting and possible
+                # injection errors), not transient transport failures. Return
+                # them to modules unchanged instead of sleeping/retrying.
+                status_forcelist=[502, 503, 504],
             )
             adapter = _HTTPAdapter(
                 max_retries=retry_strategy,
@@ -384,8 +387,10 @@ class Requester:
         retry_strategy = Retry(
             total=3,
             backoff_factor=1,
-            status_forcelist=[429, 500, 502, 503, 504],
-            allowed_methods=["HEAD", "GET", "OPTIONS", "POST", "PUT", "DELETE"],
+            # Preserve 429/500 responses for detection logic. Retry only
+            # transient gateway/service failures and only idempotent methods.
+            status_forcelist=[502, 503, 504],
+            allowed_methods=["HEAD", "GET", "OPTIONS"],
         )
         # Connection pooling.
         # ``pool_connections`` = number of connection pools (one per host).

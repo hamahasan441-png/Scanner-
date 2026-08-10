@@ -13,8 +13,13 @@ class _EngineCapture:
     """Helper that patches AtomicEngine to capture config."""
 
     def _run_main(self, extra_argv):
-        argv = ["main.py", "-t", "https://example.com", "--quiet"] + extra_argv
-        with patch.object(sys, "argv", argv), patch("main.AtomicEngine") as mock_cls, patch("main.print_banner"):
+        argv = ["main.py", "-t", "https://example.com", "--quiet", "--authorized"] + extra_argv
+        with (
+            patch.object(sys, "argv", argv),
+            patch("main.AtomicEngine") as mock_cls,
+            patch("main.print_banner"),
+            patch("core.local_llm.LocalLLM.ensure_ready", return_value=False),
+        ):
             engine = mock_cls.return_value
             engine.scan.return_value = None
             engine.generate_reports.return_value = None
@@ -74,18 +79,14 @@ class TestPointToPoint(_EngineCapture, unittest.TestCase):
         for mod in recon_modules:
             self.assertTrue(cfg["modules"][mod], f"{mod} should be enabled")
 
-    def test_point_to_point_enables_exploitation_modules(self):
+    def test_point_to_point_routes_exploitation_without_duplicate_paths(self):
         cfg = self._run_main(["--point-to-point"])
-        exploit_modules = [
-            "shell",
-            "dump",
-            "os_shell",
-            "brute",
-            "exploit_chain",
-            "auto_exploit",
-        ]
-        for mod in exploit_modules:
-            self.assertTrue(cfg["modules"][mod], f"{mod} should be enabled")
+        self.assertTrue(cfg["modules"]["auto_exploit"])
+        self.assertTrue(cfg["modules"]["smart_attack"])
+        # AttackRouter owns these capabilities in point-to-point mode; legacy
+        # one-shot paths stay disabled to avoid duplicate destructive actions.
+        for mod in ("shell", "dump", "os_shell", "brute", "exploit_chain"):
+            self.assertFalse(cfg["modules"][mod], f"{mod} should be deconflicted")
 
     def test_point_to_point_enables_scapy_modules(self):
         cfg = self._run_main(["--point-to-point"])

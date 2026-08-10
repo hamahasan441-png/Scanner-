@@ -2,18 +2,9 @@
 # -*- coding: utf-8 -*-
 """Unit tests for the API Abuse module (modules/api_abuse.py)."""
 
-import sys
 import json
 import unittest
 from unittest.mock import MagicMock
-
-# ---------------------------------------------------------------------------
-# Mock unavailable modules BEFORE importing the module under test
-# ---------------------------------------------------------------------------
-mock_emit = MagicMock()
-mock_models = MagicMock()
-sys.modules.setdefault("core.emit", mock_emit)
-sys.modules.setdefault("core.models", mock_models)
 
 from tests.fixtures import MockEngine, MockResponse
 

@@ -891,7 +891,7 @@ class TestChatAPI(unittest.TestCase):
 
     def test_dashboard_contains_chat_tab(self):
         """Dashboard HTML includes Chat tab."""
-        resp = self.client.get("/")
+        resp = self.client.get("/legacy")
         self.assertIn(b"Chat", resp.data)
         self.assertIn(b"panel-chat", resp.data)
 
@@ -942,7 +942,7 @@ class TestAIBrainAPI(unittest.TestCase):
 
     def test_dashboard_contains_ai_brain_tab(self):
         """Dashboard HTML includes AI Brain tab."""
-        resp = self.client.get("/")
+        resp = self.client.get("/legacy")
         self.assertIn(b"AI Brain", resp.data)
         self.assertIn(b"panel-ai-brain", resp.data)
 

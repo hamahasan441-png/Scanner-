@@ -144,7 +144,7 @@ class SQLiModule(BaseModule):
                 data = {param: payload}
                 response = self.requester.request(url, method, data=data)
 
-                if not response:
+                if response is None:
                     continue
 
                 # Check for SQL errors
@@ -307,7 +307,7 @@ class SQLiModule(BaseModule):
                 data = {param: payload}
                 response = self.requester.request(url, method, data=data)
 
-                if not response:
+                if response is None:
                     continue
 
                 # Check if UNION was successful (no error and different response)
@@ -471,7 +471,7 @@ class SQLiModule(BaseModule):
                 response = self.requester.request(url, method, data=data)
                 elapsed = time.time() - start_time
 
-                if not response:
+                if response is None:
                     continue
 
                 # Check for SQL error signatures NEW in this response
@@ -568,7 +568,7 @@ class SQLiModule(BaseModule):
                         check_url = f"{base_url}{endpoint}"
                         response = self.requester.request(check_url, "GET")
 
-                        if not response:
+                        if response is None:
                             continue
 
                         response_text = response.text.lower()
@@ -735,7 +735,7 @@ class SQLiModule(BaseModule):
                 data = {param: payload}
                 response = self.requester.request(url, method, data=data)
 
-                if not response:
+                if response is None:
                     continue
 
                 response_text = response.text.lower()
@@ -812,7 +812,7 @@ class SQLiModule(BaseModule):
             try:
                 data = {param: payload}
                 response = self.requester.request(url, method, data=data)
-                if not response:
+                if response is None:
                     continue
 
                 response_text = response.text.lower()

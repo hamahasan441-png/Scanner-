@@ -79,6 +79,7 @@ class TestRegulatedMissionCLI(unittest.TestCase):
             "-t",
             "https://example.com",
             "--quiet",
+            "--authorized",
             "--allow-domain",
             "example.com,api.example.com",
             "--allow-path",
@@ -102,7 +103,7 @@ class _EngineCapture:
 
     def _run_main(self, extra_argv):
         """Run main.main() with given CLI args and return the captured config dict."""
-        argv = ["main.py", "-t", "https://example.com", "--quiet"] + extra_argv
+        argv = ["main.py", "-t", "https://example.com", "--quiet", "--authorized"] + extra_argv
         with patch.object(sys, "argv", argv), patch("main.AtomicEngine") as mock_cls, patch("main.print_banner"):
             engine = mock_cls.return_value
             engine.scan.return_value = None
