@@ -376,20 +376,30 @@ def _classify_reflection_context(payload: str, body: str) -> str:
     # Look at up to 60 chars before/after
     pre = body[max(0, idx - 60): idx].lower()
     post = body[idx + len(payload): idx + len(payload) + 60].lower()
+    pre_r = pre.rstrip()
 
-    # Use both ``pre`` and ``post`` so we don't miscategorise contexts whose
-    # delimiter sits AFTER the payload (e.g. ``"key":"PAYLOAD"`` — the
-    # closing quote is only visible in ``post``).
-    if (
-        "application/json" in body[:200].lower()
-        or pre.lstrip().startswith('"')
-        or ":{" in pre
-        or post.rstrip().startswith('"')
-    ):
-        return "json"
-    # Check JS context before attr (script tags contain var x = '...' which looks like attr)
+    # Order matters: a JS assignment (``var x = '...'``), an HTML
+    # attribute value (``name="..."``) and a JSON string value all sit
+    # inside quotes, and an attribute's *closing* quote looks identical
+    # to a JSON value's. So we classify from the most-specific preceding
+    # delimiter outward, and never treat a trailing attribute quote as
+    # JSON (the previous ``post.startswith('"')`` check did exactly that,
+    # misclassifying every quoted attribute as JSON).
+    #
+    # 1. JS: inside a <script> block or a JS assignment.
     if "<script" in pre or "var " in pre or "function(" in pre or "</script" in post:
         return "js"
-    if any(c in pre for c in ["=\"", "= \"", "= '"]):
+    # 2. HTML attribute value: payload immediately follows ``name="`` /
+    #    ``name='`` (optionally spaced around ``=``).
+    if pre_r.endswith(("=\"", "='", "= \"", "= '")):
         return "attr"
+    # 3. JSON: explicit content-type, or the payload is a JSON string
+    #    value (``:"PAYLOAD"``) or key (``"PAYLOAD":``).
+    if (
+        "application/json" in body[:200].lower()
+        or pre_r.endswith((':"', ": \""))
+        or ":{" in pre
+        or post.lstrip().startswith('":')
+    ):
+        return "json"
     return "html_body"
