@@ -68,3 +68,71 @@ Behaviour-neutral cleanups of `B018`/`F841` findings:
   would tighten it.
 - 📝 **`ip … netns exec <cmd>`** is a theoretical allowlist bypass (needs
   root + a netns). Low risk; consider denying bare `exec` sub-tokens.
+
+
+---
+
+# Bug Audit — round 2 (type-driven pass)
+
+A second pass driven by a full `mypy --ignore-missing-imports` type-check
+of `core/`, `modules/`, and `utils/`. This surfaced three real defects
+that the ruff bug-class rules could not see because they are
+**missing-attribute / missing-method** calls, two of which are hidden
+behind `except: pass` so they fail silently rather than at import time.
+
+## 4. ✅ `Colors.DIM` referenced but never defined — crash under `--verbose`
+**`config.py::Colors` · `core/exploit_searcher.py`** — HIGH (crash)
+
+`core/exploit_searcher.py` uses `Colors.DIM` at **7 sites** (all inside
+`if self.verbose:` diagnostic prints), but the `Colors` class never
+defined a `DIM` attribute. Any of those paths — hit whenever an exploit
+reference lookup logs a diagnostic in verbose mode — raised
+`AttributeError: type object 'Colors' has no attribute 'DIM'`, turning a
+harmless log line into an unhandled crash.
+
+**Fix:** added the standard ANSI dim code `DIM = "\033[2m"` to `Colors`.
+`DIM` was the only `Colors.*` symbol referenced anywhere in the tree that
+was missing (all of `BLUE/BOLD/CYAN/GREEN/RED/RESET/WHITE/YELLOW` exist).
+
+## 5. ✅ Watch-mode fingerprint persistence was silently broken
+**`utils/database.py::Database` · `core/watch_mode.py`** — MEDIUM (functional)
+
+`core/watch_mode.py` persists its baseline finding fingerprints via
+`engine.db.get_metadata(key)` / `engine.db.set_metadata(key, value)`, but
+`Database` never implemented either method. Both call sites are wrapped in
+`try/except`, so instead of crashing they **failed silently**: the load
+always returned an empty set and the save was a no-op. Net effect — watch
+mode could never persist a baseline across iterations/restarts, so its
+delta detection re-reported **every** finding as "new" on each run.
+
+**Fix:** added a generic key/value table (`MetadataModel` → `metadata_kv`)
+plus `Database.get_metadata()` / `Database.set_metadata()` (insert-or-update),
+matching the session-handling style of the existing `*_shell` helpers.
+
+## 6. ✅ Plugin hot-reload never actually unloaded the old module
+**`core/plugin_system.py::PluginManager` · `core/plugin_hotreload.py`** — MEDIUM (functional)
+
+`PluginHotReloader._reload_plugin()` calls
+`self.plugin_manager.unload_plugin(name)`, but `PluginManager` only had
+`load_plugin` / `run_plugin` / `unregister` — no `unload_plugin`. The call
+sat inside `try/except: pass`, so a reload silently skipped the unload and
+then re-`load_plugin`-ed. Because the plugin module stayed cached in
+`sys.modules`, the "reload" re-registered the **stale, already-imported
+code** and code changes were never picked up.
+
+**Fix:** added `PluginManager.unload_plugin(name)` which reuses
+`unregister()` (invoking the plugin's `teardown()` if present) and then
+purges `sys.modules["plugins.<name>"]` so the subsequent `load_plugin`
+re-executes the plugin's current source — real hot-reload.
+
+## Method
+
+All three were found by re-running `mypy` under a Python that had it
+available and filtering the `[attr-defined]` diagnostics down to concrete,
+named classes (discarding `object`/`Collection`/`Optional`-narrowing
+noise). Verified: `py_compile` + `ruff --select=E9,F63,F7,F82,F821,F811`
+clean on every changed file, and the three targeted `mypy` errors are
+gone (196 → 188 total, no new errors). The full `pytest` suite could not
+run in this sandbox (no PyPI access for `requests`/`flask`/`sqlalchemy`),
+so please confirm the first CI run is green; the changes are additive and
+break no existing test expectations.
