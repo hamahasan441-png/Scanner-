@@ -62,9 +62,8 @@ Behaviour-neutral cleanups of `B018`/`F841` findings:
 - 📝 **~245 silent `except: pass`** across `core/` and `modules/`: a
   swallowed exception in a scanner is a missed finding. Route through
   `core/structured_logger` (even at debug level) for observability.
-- 📝 **Second-order SQLi error check** (`deep_scan`) compares follow-up
-  responses to error signatures without baselining, risking false
-  positives when the app always emits a matching token. A baseline diff
-  would tighten it.
+- ✅ **Second-order SQLi error check** (`deep_scan`) now baselines follow-up
+  responses against the pre-injection baseline body, filtering out false
+  positives when an application always emits a matching token in normal responses.
 - 📝 **`ip … netns exec <cmd>`** is a theoretical allowlist bypass (needs
   root + a netns). Low risk; consider denying bare `exec` sub-tokens.

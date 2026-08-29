@@ -17,7 +17,13 @@ import fcntl
 
 from config import Config, Colors
 
-LEARNING_FILE = os.path.join(Config.BASE_DIR, ".atomic_learning.json")
+# RELIABILITY FIX (REL-003): the learned-intelligence store is scan *data*,
+# not source code.  Writing it into BASE_DIR pollutes the source tree (which
+# may be read-only in containers or served by the web app).  Use the user
+# data root (ATOMIC_HOME) like reports/shells/DB, falling back to BASE_DIR
+# only when ATOMIC_HOME is unavailable.  Mirrors the PERSIST-001 fix.
+_LEARNING_ROOT = getattr(Config, "ATOMIC_HOME", None) or getattr(Config, "BASE_DIR", ".")
+LEARNING_FILE = os.path.join(_LEARNING_ROOT, ".atomic_learning.json")
 
 # Records older than this many seconds are pruned on load (90 days)
 DATA_EXPIRY_TTL = 90 * 24 * 3600
@@ -68,11 +74,22 @@ class LearningStore:
     # ------------------------------------------------------------------
 
     def _load(self):
-        """Load learning data from disk, pruning expired records."""
-        if not os.path.isfile(LEARNING_FILE):
-            return
+        """Load learning data from disk, pruning expired records.
+
+        REL-003 migration: if the store has not been written at the new
+        ATOMIC_HOME location yet but a legacy source-tree file exists,
+        read the legacy file once (the next save persists to the new
+        location).
+        """
+        path = LEARNING_FILE
+        if not os.path.isfile(path):
+            legacy_path = os.path.join(getattr(Config, "BASE_DIR", "."), ".atomic_learning.json")
+            if legacy_path != LEARNING_FILE and os.path.isfile(legacy_path):
+                path = legacy_path
+            else:
+                return
         try:
-            with open(LEARNING_FILE, "r") as f:
+            with open(path, "r") as f:
                 data = json.load(f)
             self.successful_payloads = data.get("successful_payloads", {})
             self.failed_payloads = data.get("failed_payloads", {})

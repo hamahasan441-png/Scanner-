@@ -296,8 +296,17 @@ def build_repro(signal: ModuleSignal) -> Repro:
 def score_signal(signal: ModuleSignal) -> tuple:
     """Derive (severity, confidence) from a ModuleSignal.
 
-    If the signal has a non-zero ``raw_confidence``, use it directly.
-    Otherwise fall back to a minimal default based on vuln_type.
+    The deterministic engine — never the LLM — has the final word on
+    confidence (SEC-007):
+
+    * Signals carrying a non-zero ``raw_confidence`` start from it.
+    * Signals whose ``extra['source'] == "llm"`` are AI judgement.  When
+      they are NOT backed by deterministic evidence
+      (``extra['deterministic']`` falsy) and NOT independently verified,
+      the confidence is capped below the HIGH band so an unverified model
+      verdict can never mint HIGH/CRITICAL findings on its own.
+    * Signals with deterministic evidence or verifier confirmation keep
+      their evidence-derived score.
 
     Returns:
         (severity: str, confidence: float)
@@ -308,6 +317,15 @@ def score_signal(signal: ModuleSignal) -> tuple:
     if confidence == 0.0:
         # Minimal signal: assign LOW confidence by default
         confidence = 0.25
+
+    extra = signal.extra or {}
+    if (
+        extra.get("source") == "llm"
+        and not extra.get("verified")
+        and not extra.get("deterministic")
+    ):
+        # Unsubstantiated AI judgement: cap below HIGH (0.70).
+        confidence = min(confidence, 0.60)
 
     severity = "INFO"
     for threshold, sev in _SEVERITY_FROM_CONFIDENCE:

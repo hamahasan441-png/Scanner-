@@ -569,6 +569,32 @@ class TestSecondOrder(unittest.TestCase):
         self.assertTrue(len(engine.findings) > 0)
         self.assertIn("Second-Order", engine.findings[0].technique)
 
+    def test_no_finding_when_error_in_baseline(self):
+        """No finding when error signature already exists in baseline."""
+        # Baseline response already contains the word 'error: sql syntax error'
+        baseline_resp = MockResponse(
+            text="Pre-existing error: sql syntax error near admin",
+            status_code=200,
+            headers={},
+        )
+        inject_resp = MockResponse(
+            text="Profile updated",
+            status_code=200,
+            headers={},
+        )
+        followup_resp = MockResponse(
+            text="Pre-existing error: sql syntax error near admin",
+            status_code=200,
+            headers={},
+        )
+        responses = [baseline_resp] + [inject_resp, followup_resp] * 4
+        mod, engine = _make_deep_scan_module(responses)
+        mod._test_second_order_deep(
+            "http://example.com/profile", "POST", "name", "test"
+        )
+        # Should be suppressed by baseline comparison
+        self.assertEqual(len(engine.findings), 0)
+
     def test_no_finding_on_clean_followup(self):
         """No finding when follow-up response is clean."""
         baseline_resp = MockResponse(text="Normal page", status_code=200, headers={})

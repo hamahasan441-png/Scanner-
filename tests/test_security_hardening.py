@@ -26,23 +26,31 @@ import web.app as web_app_module
 # ── API key authentication ────────────────────────────────────────────────
 
 class TestRequireApiKeyNoKeyConfigured(unittest.TestCase):
-    """When ATOMIC_API_KEY is empty, all requests should pass through."""
+    """Fail-closed authentication when ATOMIC_API_KEY is empty.
+
+    HISTORICAL NOTE (TST-005): this suite previously asserted that an empty
+    API key disabled authentication entirely.  The framework is now
+    fail-closed: with ``ATOMIC_AUTH_REQUIRED`` defaulting to true, requests
+    must carry a valid Bearer token or user API key even when no static
+    service key is configured.
+    """
 
     def setUp(self):
         self.app = app
         self.client = self.app.test_client()
 
     @patch.object(web_app_module, "_API_KEY", "")
-    def test_unauthenticated_access_allowed_when_key_empty(self):
-        """Decorator is a no-op when no API key is configured."""
+    @patch.object(web_app_module, "_AUTH_REQUIRED", True)
+    def test_unauthenticated_access_rejected_when_key_empty(self):
+        """No static key configured does NOT mean open access."""
 
         @_require_api_key
         def dummy_view():
             return "ok"
 
         with self.app.test_request_context():
-            resp = dummy_view()
-            self.assertEqual(resp, "ok")
+            resp, status = dummy_view()
+            self.assertEqual(status, 401)
 
 
 class TestRequireApiKeyWithKeyConfigured(unittest.TestCase):
@@ -89,7 +97,11 @@ class TestRequireApiKeyWithKeyConfigured(unittest.TestCase):
             self.assertEqual(resp, "ok")
 
     @patch.object(web_app_module, "_API_KEY", SECRET)
-    def test_allows_access_with_correct_query_param(self):
+    def test_rejects_key_in_query_string(self):
+        """Query-string secrets are deliberately rejected (logged by
+        proxies/browsers); the X-API-Key header is the only accepted
+        transport."""
+
         @_require_api_key
         def dummy_view():
             return "ok"
@@ -97,8 +109,8 @@ class TestRequireApiKeyWithKeyConfigured(unittest.TestCase):
         with self.app.test_request_context(
             query_string={"api_key": self.SECRET}
         ):
-            resp = dummy_view()
-            self.assertEqual(resp, "ok")
+            resp, status = dummy_view()
+            self.assertEqual(status, 401)
 
 
 # ── Shell command allowlist ───────────────────────────────────────────────

@@ -15,14 +15,11 @@ Verification strategy:
   - Adjust payload thresholds if needed (learn from noise)
 """
 
-import logging
 import time
 
 
 from config import Colors
 from core.normalizer import normalize
-
-logger = logging.getLogger(__name__)
 
 # Number of re-test rounds for verification
 VERIFY_ROUNDS = 3
@@ -148,9 +145,8 @@ class Verifier:
                     confirmations += 1
                 if resp_len is not None:
                     response_lengths.append(resp_len)
-            except Exception as exc:
-                # A failed re-test round weakens confirmation; record why.
-                logger.debug("Verification re-test round failed for %s: %s", getattr(finding, "url", "?"), exc, exc_info=True)
+            except Exception:
+                pass
             time.sleep(self._get_adaptive_delay())
 
         # Check consistency of response lengths across rounds
@@ -214,11 +210,23 @@ class Verifier:
         if "time-based" in technique_lower or "blind" in technique_lower:
             return elapsed >= 4.0, resp_len
 
-        if "error" in technique_lower or "sql" in technique_lower:
-            evidence_lower = finding.evidence.lower()
-            if "error" in evidence_lower or "sql" in technique_lower:
+        evidence_lower = finding.evidence.lower()
+        if "error" in technique_lower:
+            if "error" in evidence_lower:
                 keywords = ["sql", "syntax", "mysql", "postgresql", "oracle", "sqlite", "mssql"]
                 return any(kw in response_text for kw in keywords), resp_len
+
+        # ERROR-BASED FIX: error-driven findings are frequently labeled by
+        # the database family ("SQL Injection (MYSQL)", "… (Stacked
+        # Queries)", "… (WAF Bypass)") rather than the word "error", so the
+        # branch above missed them and every genuine error-based SQLi
+        # finding was dropped during verification (false negatives).
+        # Route on the evidence instead: when the recorded evidence is an
+        # error indicator, re-confirmation means the error signature is
+        # still present in the re-test response.
+        if "sql injection" in technique_lower and "error" in evidence_lower:
+            keywords = ["sql", "syntax", "mysql", "postgresql", "oracle", "sqlite", "mssql"]
+            return any(kw in response_text for kw in keywords), resp_len
 
         if "xss" in technique_lower or "reflected" in technique_lower:
             return finding.payload in response.text, resp_len
@@ -238,9 +246,8 @@ class Verifier:
                 clean_len = len(normalize(clean_response.text))
                 # Only confirm if response differs significantly from a clean request
                 return abs(resp_len - clean_len) > 200, resp_len
-        except Exception as exc:
-            # Clean-baseline comparison failed; fall through to unconfirmed.
-            logger.debug("Clean-baseline re-request failed for %s: %s", getattr(finding, "url", "?"), exc, exc_info=True)
+        except Exception:
+            pass
         return False, resp_len
 
     def _retest_url(self, finding):

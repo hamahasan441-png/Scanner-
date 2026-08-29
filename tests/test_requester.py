@@ -178,3 +178,59 @@ class TestTestConnection(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestNoStatusRetries(unittest.TestCase):
+    """REL-001 regression: 5xx responses are detection evidence.
+
+    The session must NOT retry on response status codes, and the final
+    response (including error bodies) must reach the caller.
+    """
+
+    def _live_500_server(self):
+        import threading
+        from http.server import BaseHTTPRequestHandler, HTTPServer
+
+        state = {"hits": 0}
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                state["hits"] += 1
+                self.send_response(500)
+                self.end_headers()
+                self.wfile.write(b"You have an error in your SQL syntax near 'x'")
+
+            def log_message(self, *a):
+                pass
+
+        srv = HTTPServer(("127.0.0.1", 0), Handler)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        return srv, srv.server_address[1], state
+
+    def test_500_response_not_retried_and_body_returned(self):
+        srv, port, state = self._live_500_server()
+        try:
+            req = Requester({"timeout": 10, "delay": 0, "verbose": False})
+            import time
+
+            t0 = time.time()
+            resp = req.request(f"http://127.0.0.1:{port}/item?id=1", "GET")
+            elapsed = time.time() - t0
+            self.assertIsNotNone(resp, "5xx response must be returned, not dropped")
+            self.assertEqual(getattr(resp, "status_code", None), 500)
+            self.assertIn("SQL syntax", getattr(resp, "text", "") or "")
+            self.assertEqual(state["hits"], 1, "5xx must not trigger retries")
+            self.assertLess(elapsed, 3.0, "no multi-second retry backoff expected")
+        finally:
+            srv.shutdown()
+
+    def test_retry_adapter_has_empty_status_forcelist(self):
+        req = Requester({"timeout": 5, "delay": 0, "verbose": False})
+        adapter = req.session.get_adapter("http://example.com")
+        retries = adapter.max_retries
+        self.assertEqual(
+            set(retries.status_forcelist or ()),
+            set(),
+            "scanner must never retry on response status",
+        )
+        self.assertEqual(retries.read, 0, "read errors must not be retried (non-idempotent risk)")

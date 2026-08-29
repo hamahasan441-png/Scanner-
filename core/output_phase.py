@@ -177,6 +177,34 @@ class OutputPhase:
 
         output_dir = self.engine.config.get("output_dir", Config.REPORTS_DIR)
 
+        # Coverage accounting (best-effort, read-only). Never let a coverage
+        # computation error abort report generation.
+        coverage = None
+        surface_coverage = None
+        try:
+            summary = self.engine.get_coverage_summary()
+            coverage = summary.to_dict() if summary is not None else None
+        except Exception:
+            coverage = None
+        try:
+            surface_coverage = self.engine.get_surface_ledger().to_dict()
+        except Exception:
+            surface_coverage = None
+        coverage_plan = None
+        try:
+            coverage_plan = self.engine.get_coverage_plan()
+        except Exception:
+            coverage_plan = None
+        authz = None
+        try:
+            matrix = self.engine.get_authz_matrix()
+            d = matrix.to_dict()
+            # Only attach when there is something to report.
+            if d.get("summary", {}).get("cells_total", 0) > 0:
+                authz = d
+        except Exception:
+            authz = None
+
         generator = ReportGenerator(
             scan_id=self.engine.scan_id,
             findings=findings,
@@ -189,6 +217,10 @@ class OutputPhase:
             shield_profile=shield_profile,
             origin_result=origin_result,
             agent_result=agent_result,
+            coverage=coverage,
+            surface_coverage=surface_coverage,
+            coverage_plan=coverage_plan,
+            authz=authz,
         )
         # Attach finding groups so reporters that know about them can
         # render the cluster section. Reporters that ignore the attribute

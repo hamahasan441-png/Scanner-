@@ -88,6 +88,144 @@ def _startup_update_notice():
         pass  # the notice must never block or slow a real run
 
 
+def _validate_cli_args(args, parser):
+    """Validate CLI argument combinations and ranges.
+    
+    Checks:
+    - Numeric parameter ranges
+    - Flag dependencies (e.g., --llm-agent requires LLM backend)
+    - Flag conflicts
+    - Port ranges
+    - Required authorization for dangerous operations
+    
+    Returns True if valid, exits with error message if invalid.
+    """
+    errors = []
+    warnings = []
+    
+    # ── Numeric range validation ──────────────────────────────
+    if args.depth < 1 or args.depth > 10:
+        errors.append(f"--depth must be between 1 and 10 (got {args.depth})")
+    
+    if args.threads < 1 or args.threads > 1000:
+        errors.append(f"--threads must be between 1 and 1000 (got {args.threads})")
+    
+    if args.timeout < 1:
+        errors.append(f"--timeout must be >= 1 second (got {args.timeout})")
+    
+    if args.delay < 0:
+        errors.append(f"--delay must be >= 0 (got {args.delay})")
+    
+    if args.rate_limit < 0:
+        errors.append(f"--rate-limit must be >= 0 (got {args.rate_limit})")
+    
+    if args.web_port < 1 or args.web_port > 65535:
+        errors.append(f"--web-port must be between 1 and 65535 (got {args.web_port})")
+    
+    if args.proxy_port < 1 or args.proxy_port > 65535:
+        errors.append(f"--proxy-port must be between 1 and 65535 (got {args.proxy_port})")
+    
+    if args.attack_confidence < 0.0 or args.attack_confidence > 1.0:
+        errors.append(f"--attack-confidence must be between 0.0 and 1.0 (got {args.attack_confidence})")
+    
+    if getattr(args, "watch_interval", 300) < 1:
+        errors.append(f"--watch-interval must be >= 1 second (got {args.watch_interval})")
+    
+    if getattr(args, "batch_parallel", 1) < 1:
+        errors.append(f"--batch-parallel must be >= 1 (got {args.batch_parallel})")
+    
+    if getattr(args, "max_agent_steps", 12) < 1:
+        errors.append(f"--max-agent-steps must be >= 1 (got {args.max_agent_steps})")
+    
+    if getattr(args, "max_steps_per_phase", 3) < 1:
+        errors.append(f"--max-steps-per-phase must be >= 1 (got {args.max_steps_per_phase})")
+    
+    if getattr(args, "agent_time_budget", 1800) < 10:
+        errors.append(f"--agent-time-budget must be >= 10 seconds (got {args.agent_time_budget})")
+    
+    # ── Flag dependency validation ────────────────────────────
+    # --llm-agent / --kill-chain requires an LLM backend
+    if (getattr(args, "llm_agent", False) or getattr(args, "kill_chain", False)):
+        has_llm = (
+            getattr(args, "local_llm", False) or
+            getattr(args, "llm_provider", None) or
+            getattr(args, "llm_profile", None)
+        )
+        if not has_llm:
+            errors.append(
+                "--llm-agent / --kill-chain requires an LLM backend "
+                "(use --local-llm, --llm-provider, or --llm-profile)"
+            )
+    
+    # --intruder requires --target
+    if getattr(args, "intruder", False) and not args.target:
+        errors.append("--intruder requires -t/--target")
+    
+    # --full-attack / --smart-attack requires --authorized
+    if getattr(args, "full_attack", False) and not args.authorized:
+        errors.append("--full-attack requires --authorized")
+    
+    if getattr(args, "smart_attack", False) and not args.authorized:
+        errors.append("--smart-attack requires --authorized")
+    
+    # --auto-exploit requires --authorized
+    if getattr(args, "auto_exploit", False) and not args.authorized:
+        errors.append("--auto-exploit requires --authorized")
+    
+    # --shell / --dump / --os-shell / --brute / --exploit-chain require --authorized
+    dangerous_flags = ["shell", "dump", "os_shell", "brute", "exploit_chain"]
+    for flag in dangerous_flags:
+        if getattr(args, flag, False) and not args.authorized:
+            errors.append(f"--{flag.replace('_', '-')} requires --authorized")
+    
+    # --llm-provider requires API key (unless using --llm-config first)
+    if getattr(args, "llm_provider", None) and not getattr(args, "llm_config", False):
+        api_key = getattr(args, "api_key", None)
+        provider = args.llm_provider
+        # Check env var for the provider
+        env_key_map = {
+            "anthropic": "ANTHROPIC_API_KEY",
+            "openai": "OPENAI_API_KEY",
+            "gemini": "GEMINI_API_KEY",
+            "groq": "GROQ_API_KEY",
+            "mistral": "MISTRAL_API_KEY",
+            "deepseek": "DEEPSEEK_API_KEY",
+            "xai": "XAI_API_KEY",
+            "dashscope": "DASHSCOPE_API_KEY",
+            "together_ai": "TOGETHER_AI_API_KEY",
+        }
+        env_var = env_key_map.get(provider)
+        if env_var and not os.environ.get(env_var) and not api_key:
+            warnings.append(
+                f"--llm-provider {provider} typically requires an API key "
+                f"(set {env_var} or use --api-key)"
+            )
+    
+    # ── Flag conflict validation ──────────────────────────────
+    # Can't use both --local-llm and --llm-provider without a profile
+    if (getattr(args, "local_llm", False) and 
+        getattr(args, "llm_provider", None) and 
+        not getattr(args, "llm_profile", None)):
+        warnings.append(
+            "Both --local-llm and --llm-provider specified without --llm-profile. "
+            "Cloud provider will take precedence."
+        )
+    
+    # ── Output errors and warnings ────────────────────────────
+    if warnings and not args.quiet:
+        for warn in warnings:
+            print(f"{Colors.warning('⚠ Warning:')} {warn}")
+    
+    if errors:
+        print(f"\n{Colors.error('❌ CLI validation failed:')}\n")
+        for err in errors:
+            print(f"  {Colors.RED}•{Colors.RESET} {err}")
+        print(f"\n{Colors.info('Run with --help for usage information.')}\n")
+        sys.exit(1)
+    
+    return True
+
+
 def _apply_profile(args):
     """Expand ``--profile`` into the underlying flags.
 
@@ -619,6 +757,11 @@ def main():
     # Utility options
     parser.add_argument("--install-deps", action="store_true", help="Install all dependencies")
     parser.add_argument("--check-deps", action="store_true", help="Check dependencies")
+    parser.add_argument(
+        "--check-config",
+        action="store_true",
+        help="Validate CLI arguments, config files, and environment without running a scan",
+    )
     parser.add_argument("--update", action="store_true", help="Update framework to the latest version from the GitHub repo")
     parser.add_argument("--clear-db", action="store_true", help="Clear database")
     parser.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
@@ -993,6 +1136,9 @@ def main():
 
     args = parser.parse_args()
     args = _apply_profile(args)
+    
+    # Validate CLI arguments before proceeding
+    _validate_cli_args(args, parser)
 
     # Print banner
     if not args.quiet:
@@ -1626,6 +1772,80 @@ def main():
     if args.install_deps:
         install_deps()
         return
+
+    # ── Check config (validate environment without scanning) ─────
+    if getattr(args, "check_config", False):
+        print(f"{Colors.info('Checking configuration and environment...')}\n")
+        all_ok = True
+        
+        # Check Python version
+        py_version = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
+        if sys.version_info >= (3, 8):
+            print(f"  {Colors.success('✓')} Python {py_version}")
+        else:
+            print(f"  {Colors.error('✗')} Python {py_version} (requires 3.8+)")
+            all_ok = False
+        
+        # Check core dependencies
+        deps = ["requests", "urllib3", "yaml", "colorama"]
+        for dep in deps:
+            try:
+                __import__(dep)
+                print(f"  {Colors.success('✓')} {dep}")
+            except ImportError:
+                print(f"  {Colors.error('✗')} {dep} (not installed)")
+                all_ok = False
+        
+        # Check output directory
+        output_dir = args.output or Config.REPORTS_DIR
+        try:
+            os.makedirs(output_dir, exist_ok=True)
+            print(f"  {Colors.success('✓')} Output directory: {output_dir}")
+        except OSError as e:
+            print(f"  {Colors.error('✗')} Output directory: {e}")
+            all_ok = False
+        
+        # Check scanner rules
+        rules_path = getattr(args, "rules", None) or "scanner_rules.yaml"
+        if os.path.isfile(rules_path):
+            print(f"  {Colors.success('✓')} Rules file: {rules_path}")
+        else:
+            print(f"  {Colors.warning('!')} Rules file not found: {rules_path}")
+        
+        # Check external tools
+        print(f"\n{Colors.info('Optional external tools:')}")
+        try:
+            from utils.tool_downloader import TOOL_REGISTRY
+            available = 0
+            for tool_name in ["nmap", "nuclei", "whatweb", "subfinder"]:
+                try:
+                    from core.tool_integrator import NmapAdapter, NucleiAdapter, WhatWebAdapter, SubfinderAdapter
+                    adapter_map = {
+                        "nmap": NmapAdapter,
+                        "nuclei": NucleiAdapter,
+                        "whatweb": WhatWebAdapter,
+                        "subfinder": SubfinderAdapter,
+                    }
+                    adapter = adapter_map[tool_name]()
+                    if adapter.is_available():
+                        print(f"  {Colors.success('✓')} {tool_name}")
+                        available += 1
+                    else:
+                        print(f"  {Colors.warning('○')} {tool_name} (not installed)")
+                except Exception:
+                    print(f"  {Colors.warning('○')} {tool_name} (not installed)")
+            if available == 0:
+                print(f"  {Colors.info('  Run --tools-install to install external tools')}")
+        except Exception:
+            print(f"  {Colors.warning('○')} Could not check tool status")
+        
+        print()
+        if all_ok:
+            print(f"{Colors.success('✓ Configuration check passed')}")
+            sys.exit(0)
+        else:
+            print(f"{Colors.error('✗ Configuration check failed')}")
+            sys.exit(1)
 
     # Handle report generation
     if args.report:

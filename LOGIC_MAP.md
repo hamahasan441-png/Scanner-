@@ -164,6 +164,7 @@ modules that are not yet fully wired into the CLI flag set.
 | `request_smuggling.py`      | `RequestSmugglingModule`    | HTTP Request Smuggling                                        |
 | `cloud_scanner.py`          | `CloudScanner`              | S3 / IMDS / IAM / Kubernetes                                  |
 | `scapy_crawler.py`          | `ScapyCrawler`              | Packet-level network discovery                                |
+| `firewall_bypass.py`        | `FirewallBypassModule`      | NGFW/ACL bypass (path, IP allowlist, port, origin, IPv6)      |
 | `network_exploits.py`       | `NetworkExploitScanner`     | Map open ports/services to known CVEs                         |
 | `tech_exploits.py`          | `TechExploitScanner`        | Map fingerprinted tech to known CVEs                          |
 

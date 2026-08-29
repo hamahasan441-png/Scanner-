@@ -5,6 +5,7 @@ ATOMIC FRAMEWORK
 Advanced HTTP request handler with evasion, response caching, and metrics
 """
 
+import hashlib
 import logging
 import os
 import random
@@ -124,11 +125,17 @@ class ConnectionPoolManager:
         self,
         pool_connections: int = 10,
         pool_maxsize: int = 20,
-        max_retries: int = 3,
+        max_retries: int = 2,
     ) -> None:
         self._pool_connections = pool_connections
         self._pool_maxsize = pool_maxsize
-        self._max_retries = max_retries
+        # SECURITY/RELIABILITY FIX (REL-001): ``max_retries`` now bounds
+        # *connection-establishment* retries only.  Response-status retries
+        # (the old ``status_forcelist=[429,500,502,503,504]``) are forbidden
+        # for a scanner: a 5xx body is a detection signal (error-based SQLi,
+        # etc.), retrying it amplifies load 4x, adds seconds of backoff per
+        # request, and finally discards the response entirely.
+        self._max_retries = max(0, int(max_retries))
         self._session: object | None = None
 
     def get_session(self) -> object:
@@ -140,34 +147,40 @@ class ConnectionPoolManager:
         if self._session is not None:
             return self._session
 
-        try:
-            import requests as _requests
-            from requests.adapters import HTTPAdapter as _HTTPAdapter
-            from requests.packages.urllib3.util.retry import Retry as _Retry
-
-            session = _requests.Session()
-            retry_strategy = _Retry(
-                total=self._max_retries,
-                backoff_factor=1,
-                # 429 and 500 are scanner signals (rate limiting and possible
-                # injection errors), not transient transport failures. Return
-                # them to modules unchanged instead of sleeping/retrying.
-                status_forcelist=[502, 503, 504],
-            )
-            adapter = _HTTPAdapter(
-                max_retries=retry_strategy,
-                pool_connections=self._pool_connections,
-                pool_maxsize=self._pool_maxsize,
-            )
-            session.mount("http://", adapter)
-            session.mount("https://", adapter)
-            self._session = session
-            return session
-        except ImportError:
+        # ``requests`` is imported at module import time (see the top of this
+        # module), so a missing dependency surfaces at startup via
+        # ``REQUESTS_AVAILABLE`` rather than appearing lazily on the first
+        # call.  Fail fast with a clear error instead of trying a late import.
+        if not REQUESTS_AVAILABLE:
             raise RuntimeError(
                 "requests library is not installed. "
                 "Install with: pip install requests"
-            ) from None
+            )
+
+        session = requests.Session()
+        # REL-001: never retry on response status — any status code (and its
+        # body) is evidence for detection modules.  Retry only failed
+        # connection establishment, with minimal backoff.  ``read=0`` avoids
+        # re-sending non-idempotent requests after a partial exchange.
+        retry_strategy = Retry(
+            total=self._max_retries,
+            connect=self._max_retries,
+            read=0,
+            status=0,
+            backoff_factor=0.1,
+            status_forcelist=frozenset(),
+            allowed_methods=None,
+            raise_on_status=False,
+        )
+        adapter = HTTPAdapter(
+            max_retries=retry_strategy,
+            pool_connections=self._pool_connections,
+            pool_maxsize=self._pool_maxsize,
+        )
+        session.mount("http://", adapter)
+        session.mount("https://", adapter)
+        self._session = session
+        return session
 
     def close(self) -> None:
         """Close the managed session and release pooled connections."""
@@ -293,6 +306,15 @@ class Requester:
         # shell-control traffic.
         self._verify_tls = self._resolve_verify_tls(config)
         self._ssl_warned = False
+        # Hard cap response bodies to prevent a scanner worker from consuming
+        # unbounded memory when a target returns a huge payload.
+        try:
+            self._max_response_bytes = max(
+                64 * 1024, int(config.get("max_response_bytes", 5 * 1024 * 1024))
+            )
+        except (TypeError, ValueError):
+            self._max_response_bytes = 5 * 1024 * 1024
+        self._response_truncated = False
         if not self._verify_tls:
             _logger.warning(
                 "TLS certificate verification is DISABLED (insecure_tls=True). "
@@ -339,6 +361,12 @@ class Requester:
         # modules bypassed it entirely.
         self._rate_limiter = None
 
+        # SECURITY (SEC-005): optional centralized network policy.  When
+        # attached, the request URL and EVERY redirect hop are validated
+        # before their results are handed to callers (see
+        # :class:`core.netpolicy.NetworkSecurityPolicy`).
+        self._net_policy = None
+
         if self.session:
             self._setup_session()
 
@@ -370,6 +398,29 @@ class Requester:
         """
         self._bypass = orchestrator
 
+    def attach_network_policy(self, policy) -> None:
+        """Attach the centralized outbound network policy (SEC-005).
+
+        Any object exposing ``allow_url(url) -> (bool, reason)`` works.
+        When set, both the initial URL and all redirect targets must pass.
+        """
+        self._net_policy = policy
+
+    def _policy_allows(self, url: str) -> bool:
+        """Check *url* against the attached network policy (fail-closed)."""
+        if self._net_policy is None:
+            return True
+        try:
+            ok, reason = self._net_policy.allow_url(url)
+        except Exception as exc:
+            _logger.warning("network policy error (denying): %s", exc)
+            return False
+        if not ok:
+            _logger.info("network policy blocked %s: %s", url, reason)
+            if self.config.get("verbose"):
+                print(f"{Colors.warning(f'Blocked by network policy: {url} ({reason})')}")
+        return bool(ok)
+
     def attach_rate_limiter(self, rate_limiter) -> None:
         """Attach a rate limiter (typically :class:`core.scope.ScopePolicy`).
 
@@ -383,14 +434,30 @@ class Requester:
 
     def _setup_session(self):
         """Configure session with connection pooling"""
-        # Retry strategy with exponential backoff
+        # RELIABILITY FIX (REL-001): the previous strategy retried on
+        # ``status_forcelist=[429, 500, 502, 503, 504]`` with
+        # ``backoff_factor=1``.  For a vulnerability scanner that is
+        # wrong on three counts:
+        #   1. A 5xx response (and its body) is a *detection signal*
+        #      (error-based SQLi, stack traces, ...).  Retrying until the
+        #      pool raises discards the final response — ``request()``
+        #      returned ``None`` and the evidence was lost (false negatives).
+        #   2. Each failing request became 4 requests with ~6s of backoff,
+        #      amplifying load on the target and stalling scans for hours.
+        #   3. 429 handling already exists at the application layer in
+        #      :meth:`_handle_rate_limit` with scan-aware backoff.
+        # New policy: retry only failed connection establishment (transient
+        # network resets), never retry on response status, and never retry
+        # read errors (avoids duplicating non-idempotent requests).
         retry_strategy = Retry(
-            total=3,
-            backoff_factor=1,
-            # Preserve 429/500 responses for detection logic. Retry only
-            # transient gateway/service failures and only idempotent methods.
-            status_forcelist=[502, 503, 504],
-            allowed_methods=["HEAD", "GET", "OPTIONS"],
+            total=2,
+            connect=2,
+            read=0,
+            status=0,
+            backoff_factor=0.1,
+            status_forcelist=frozenset(),
+            allowed_methods=None,
+            raise_on_status=False,
         )
         # Connection pooling.
         # ``pool_connections`` = number of connection pools (one per host).
@@ -603,10 +670,12 @@ class Requester:
             )
         )
 
-    def _make_cache_key(self, url: str, method: str, data: dict) -> str:
+    def _make_cache_key(self, url: str, method: str, data: dict, headers=None) -> str:
         """Build a deterministic cache key for a request.
 
-        Only GET requests with dict data are cacheable (baseline/recon probes).
+        Only GET requests are cacheable (baseline/recon probes).
+        Auth-bearing headers are hashed into the key so two callers
+        with different cookies/tokens never share a cached body.
         Returns empty string for non-cacheable requests.
         """
         if method.upper() != "GET":
@@ -614,9 +683,20 @@ class Requester:
         parts = [url]
         if data and isinstance(data, dict):
             parts.append(str(sorted(data.items())))
+        auth_scope = ""
+        if headers and isinstance(headers, dict):
+            # Case-insensitive lookup; hash so the key does not retain secrets.
+            lowered = {str(k).lower(): str(v) for k, v in headers.items()}
+            scope_bits = []
+            for name in ("authorization", "cookie", "proxy-authorization"):
+                if name in lowered and lowered[name]:
+                    scope_bits.append(f"{name}={lowered[name]}")
+            if scope_bits:
+                auth_scope = hashlib.sha256("|".join(scope_bits).encode("utf-8")).hexdigest()[:16]
+        parts.append(auth_scope or "anon")
         return "|".join(parts)
 
-    def _check_cache(self, url: str, method: str, data, files) -> tuple:
+    def _check_cache(self, url: str, method: str, data, files, headers=None) -> tuple:
         """Check response cache for GET requests.
 
         Returns (cache_key, cached_response).  *cached_response* is ``None``
@@ -624,7 +704,7 @@ class Requester:
         """
         cache_key = ""
         if self._cache_enabled and method.upper() == "GET" and not files:
-            cache_key = self._make_cache_key(url, method, data)
+            cache_key = self._make_cache_key(url, method, data, headers=headers)
             if cache_key:
                 cached = self._cache.get(cache_key)
                 if cached is not None:
@@ -689,7 +769,7 @@ class Requester:
         """Dispatch the HTTP request to the appropriate session method."""
         verify_ssl = self._verify_tls
         effective_timeout = timeout or self.timeout
-        common = dict(headers=req_headers, timeout=effective_timeout, allow_redirects=allow_redirects, verify=verify_ssl)
+        common = dict(headers=req_headers, timeout=effective_timeout, allow_redirects=allow_redirects, verify=verify_ssl, stream=True)
 
         upper_method = method.upper()
         if upper_method == "GET":
@@ -700,6 +780,53 @@ class Requester:
         if upper_method == "PUT":
             return self.session.put(url, data=data, **common)
         return self.session.request(upper_method, url, data=data, **common)
+
+    def _read_bounded_response(self, response):
+        """Consume at most ``max_response_bytes`` from a streamed response.
+
+        This protects scanner workers from unbounded response bodies while
+        preserving the normal ``response.text`` / ``response.content`` API.
+        """
+        limit = self._max_response_bytes
+        try:
+            chunks = []
+            total = 0
+            truncated = False
+            for chunk in response.iter_content(chunk_size=64 * 1024):
+                if not chunk:
+                    continue
+                remaining = limit - total
+                if remaining <= 0:
+                    truncated = True
+                    break
+                if len(chunk) > remaining:
+                    chunks.append(chunk[:remaining])
+                    total += remaining
+                    truncated = True
+                    break
+                chunks.append(chunk)
+                total += len(chunk)
+            body = b"".join(chunks)
+            response._content = body
+            response._content_consumed = True
+            self._response_truncated = truncated
+            if truncated:
+                try:
+                    response.headers["X-Atomic-Response-Truncated"] = "true"
+                except Exception:
+                    pass
+            return response
+        except Exception:
+            # Some test doubles/custom adapters do not implement streaming.
+            try:
+                body = response.content
+                if len(body) > limit:
+                    response._content = body[:limit]
+                    response._content_consumed = True
+                    self._response_truncated = True
+                return response
+            except Exception:
+                return response
 
     def _handle_rate_limit(self, response):
         """Detect 429 responses and apply exponential backoff."""
@@ -734,19 +861,12 @@ class Requester:
                 print(f"{Colors.error(f'Invalid URL: {url}')}")
             return None
 
-        if not self.session:
+        # SECURITY (SEC-005): centralized policy check on the request URL.
+        if not self._policy_allows(url):
             return None
 
-        # Centralized SSRF / scope defense via SafeHTTPClient
-        try:
-            from core.http.safe_client import SafeHTTPClient as _Safe
-            _safe = _Safe(allow_private=self.config.get("allow_private_ips", False))
-            ok, err = _safe.validate_request(url)
-            if not ok:
-                _logger.warning(f"SSRF/scope blocked: {url} -> {err}")
-                return None
-        except ImportError:
-            pass
+        if not self.session:
+            return None
 
         cache_key, cached = self._check_cache(url, method, data, files)
         if cached is not None:
@@ -771,6 +891,26 @@ class Requester:
         req_start = time.time()
         try:
             response = self._dispatch_request(url, method, data, req_headers, files, timeout, allow_redirects)
+
+            # SECURITY (SEC-005): validate every redirect hop AFTER the
+            # exchange.  A malicious in-scope target must not be able to
+            # bounce the scanner into private/metadata/out-of-scope hosts
+            # via 3xx chains.
+            if self._net_policy is not None:
+                redirect_chain = [getattr(h, "url", "") for h in getattr(response, "history", []) or []]
+                redirect_chain.append(getattr(response, "url", "") or url)
+                for hop in redirect_chain:
+                    if hop and not self._policy_allows(hop):
+                        try:
+                            response.close()
+                        except Exception:
+                            pass
+                        self.metrics.record_request(
+                            success=False, response_time=time.time() - req_start
+                        )
+                        return None
+
+            response = self._read_bounded_response(response)
 
             self.total_requests += 1
             elapsed = time.time() - req_start

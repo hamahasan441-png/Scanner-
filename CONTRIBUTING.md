@@ -129,14 +129,65 @@ class TestMyVulnModule(unittest.TestCase):
         # ... test logic
 ```
 
+## CI / CD Pipeline
+
+Every pull request is automatically checked by the CI pipeline before it can
+be merged. The following checks run on each PR:
+
+| Check | What it does |
+|-------|-------------|
+| 🔀 Merge Conflict Check | Detects conflict markers and merge issues with `main` |
+| 🐍 Python Syntax Check | Compiles all `.py` files; runs `flake8` critical checks |
+| 📋 Config Validation | Validates YAML/JSON files; checks `requirements.txt` ↔ `pyproject.toml` sync |
+| 🧪 Tests | Runs `pytest` on Python 3.10, 3.11, and 3.12 |
+| 🔒 Security Scan | Runs `bandit` (HIGH severity + HIGH confidence gate) |
+
+### Auto-Fixer
+
+When CI finds fixable errors, the **ATOMIC Auto-Fixer** runs automatically and
+commits corrections back to your PR branch. It fixes:
+
+- Black formatting (line-length=150)
+- Import sorting (isort, black-compatible)
+- Trailing whitespace and end-of-file normalization
+- YAML syntax repairs (tabs → spaces, etc.)
+- Stale `__pycache__` cleanup
+
+**Run the auto-fixer locally** before pushing:
+
+```bash
+# Dry-run (see what would be fixed without changing files)
+make auto-check
+
+# Apply all fixes
+make auto-fix
+
+# Run all CI checks locally
+make ci-local
+```
+
+Issues that cannot be auto-fixed (syntax errors, undefined names, security
+findings) are reported and require manual attention.
+
+### Branch Protection
+
+The `main` branch is protected — PRs must pass all CI checks and receive at
+least one approval before merging. To set up branch protection (repo admins):
+
+```bash
+python tools/setup_branch_protection.py
+```
+
 ## Submitting Changes
 
 1. Fork the repository
 2. Create a feature branch: `git checkout -b feature/my-feature`
 3. Make your changes with tests
-4. Ensure all tests pass: `python -m pytest tests/ -v`
-5. Ensure linting passes: `flake8 . --select=E9,F63,F7,F82`
-6. Open a pull request with a clear description
+4. Run the auto-fixer locally: `make auto-fix`
+5. Run CI checks locally: `make ci-local`
+6. Ensure all tests pass: `python -m pytest tests/ -v`
+7. Ensure linting passes: `flake8 . --select=E9,F63,F7,F82`
+8. Open a pull request with a clear description
 
 ## Reporting Issues
 

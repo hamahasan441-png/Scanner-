@@ -32,7 +32,7 @@ class ProtoPollutionModule(BaseModule):
                     method,
                     params={param: payload},
                 )
-                if not response:
+                if response is None:
                     continue
                 body = response.text or ""
                 if self._is_polluted(body, payload):
@@ -72,7 +72,7 @@ class ProtoPollutionModule(BaseModule):
             try:
                 test_url = url.rstrip("/") + "?" + payload
                 response = self.requester.request(test_url, "GET")
-                if not response:
+                if response is None:
                     continue
                 body = response.text or ""
                 if '"isAdmin":true' in body or '"isAdmin": true' in body:
@@ -115,7 +115,7 @@ class ProtoPollutionModule(BaseModule):
                     headers={"Content-Type": "application/json"},
                     data=payload,
                 )
-                if not response:
+                if response is None:
                     continue
                 body = response.text or ""
                 if '"isAdmin":true' in body or '"isAdmin": true' in body:

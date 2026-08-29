@@ -21,6 +21,11 @@ class _BaseWebTest(unittest.TestCase):
         self.client = app.test_client()
         _rate_counters.clear()
 
+    def tearDown(self):
+        # TESTING disables authentication/CSRF in web.app; leaking it into
+        # later test files silently bypasses their security assertions.
+        app.config["TESTING"] = False
+
 
 # -----------------------------------------------------------------------
 # /api/stats
@@ -248,55 +253,84 @@ class TestToolsEncodings(_BaseWebTest):
 # /api/auth/*
 # -----------------------------------------------------------------------
 class TestAuthLogin(_BaseWebTest):
+    """Login behavior with a configured ATOMIC_AUTH_SECRET.
 
+    The endpoint is fail-closed: without an explicitly configured auth
+    secret it returns 503 before touching the user store (see
+    ``test_login_requires_configured_secret`` below).  The behavior tests
+    therefore pin ``AUTH_SECRET_CONFIGURED=True``.
+    """
+
+    @patch.object(web_app_module, "AUTH_SECRET_CONFIGURED", True)
     def test_login_missing_body(self):
         resp = self.client.post("/api/auth/login", json={})
         self.assertEqual(resp.status_code, 400)
 
+    @patch.object(web_app_module, "AUTH_SECRET_CONFIGURED", True)
     def test_login_missing_password(self):
         resp = self.client.post("/api/auth/login", json={"username": "admin"})
         self.assertEqual(resp.status_code, 400)
 
+    @patch.object(web_app_module, "AUTH_SECRET_CONFIGURED", True)
     @patch.object(web_app_module, "_user_store", None)
     def test_login_auth_unavailable(self):
         resp = self.client.post("/api/auth/login", json={"username": "a", "password": "b"})
         self.assertEqual(resp.status_code, 503)
 
+    @patch.object(web_app_module, "AUTH_SECRET_CONFIGURED", True)
     @patch.object(web_app_module, "_user_store")
     def test_login_invalid_creds(self, mock_store):
         mock_store.authenticate.return_value = None
         resp = self.client.post("/api/auth/login", json={"username": "a", "password": "b"})
         self.assertEqual(resp.status_code, 401)
 
+    @patch.object(web_app_module, "AUTH_SECRET_CONFIGURED", True)
     @patch.object(web_app_module, "_user_store")
     def test_login_success(self, mock_store):
         mock_store.authenticate.return_value = {"access_token": "tok"}
         resp = self.client.post("/api/auth/login", json={"username": "a", "password": "b"})
         self.assertEqual(resp.status_code, 200)
 
+    @patch.object(web_app_module, "AUTH_SECRET_CONFIGURED", False)
+    def test_login_requires_configured_secret(self):
+        """Fail-closed: no secret configured -> 503 regardless of body."""
+        resp = self.client.post("/api/auth/login", json={"username": "a", "password": "b"})
+        self.assertEqual(resp.status_code, 503)
+
 
 class TestAuthRefresh(_BaseWebTest):
+    """Refresh behavior with a configured ATOMIC_AUTH_SECRET (fail-closed
+    503 gate pinned separately)."""
 
+    @patch.object(web_app_module, "AUTH_SECRET_CONFIGURED", True)
     def test_refresh_missing_token(self):
         resp = self.client.post("/api/auth/refresh", json={})
         self.assertEqual(resp.status_code, 400)
 
+    @patch.object(web_app_module, "AUTH_SECRET_CONFIGURED", True)
     @patch.object(web_app_module, "_user_store", None)
     def test_refresh_unavailable(self):
         resp = self.client.post("/api/auth/refresh", json={"refresh_token": "tok"})
         self.assertEqual(resp.status_code, 503)
 
+    @patch.object(web_app_module, "AUTH_SECRET_CONFIGURED", True)
     @patch.object(web_app_module, "_user_store")
     def test_refresh_invalid(self, mock_store):
         mock_store.refresh_access_token.return_value = None
         resp = self.client.post("/api/auth/refresh", json={"refresh_token": "bad"})
         self.assertEqual(resp.status_code, 401)
 
+    @patch.object(web_app_module, "AUTH_SECRET_CONFIGURED", True)
     @patch.object(web_app_module, "_user_store")
     def test_refresh_success(self, mock_store):
         mock_store.refresh_access_token.return_value = {"access_token": "new"}
         resp = self.client.post("/api/auth/refresh", json={"refresh_token": "good"})
         self.assertEqual(resp.status_code, 200)
+
+    @patch.object(web_app_module, "AUTH_SECRET_CONFIGURED", False)
+    def test_refresh_requires_configured_secret(self):
+        resp = self.client.post("/api/auth/refresh", json={"refresh_token": "good"})
+        self.assertEqual(resp.status_code, 503)
 
 
 class TestAuthUsers(_BaseWebTest):

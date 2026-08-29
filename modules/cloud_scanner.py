@@ -241,7 +241,7 @@ class CloudScannerModule(BaseModule):
                     data=data,
                     headers=extra_headers,
                 )
-                if not response:
+                if response is None:
                     continue
 
                 text = response.text
@@ -269,7 +269,7 @@ class CloudScannerModule(BaseModule):
         try:
             data = {param: value}
             response = self.requester.request(url, method, data=data)
-            if not response:
+            if response is None:
                 return
             text = response.text
             self._scan_text_for_secrets(text, url, param)
@@ -289,7 +289,7 @@ class CloudScannerModule(BaseModule):
 
             try:
                 response = self.requester.request(probe_url, "GET")
-                if not response:
+                if response is None:
                     continue
                 if response.status_code == 200 and len(response.text) > 10:
                     # Verify it's not a generic 404 / error page
@@ -357,7 +357,7 @@ class CloudScannerModule(BaseModule):
         """Probe a single cloud storage bucket URL for public listing."""
         try:
             response = self.requester.request(bucket_url, "GET")
-            if not response:
+            if response is None:
                 return
             text = response.text
 

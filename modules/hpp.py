@@ -66,7 +66,7 @@ class HPPModule(BaseModule):
                         headers={"Content-Type": "application/x-www-form-urlencoded"},
                     )
 
-                if not response:
+                if response is None:
                     continue
 
                 # Detect HPP: significant behaviour change

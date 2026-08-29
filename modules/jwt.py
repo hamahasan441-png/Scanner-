@@ -43,7 +43,7 @@ class JWTModule(BaseModule):
         try:
             response = self.requester.request(url, "GET")
 
-            if not response:
+            if response is None:
                 return
 
             # Check cookies

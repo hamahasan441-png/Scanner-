@@ -25,8 +25,10 @@ class _MockRequester:
     def __init__(self, responses=None):
         self._responses = responses or []
         self._call_idx = 0
+        self.allow_redirects = []
 
     def request(self, url, method, data=None, headers=None, allow_redirects=True):
+        self.allow_redirects.append(allow_redirects)
         if self._call_idx < len(self._responses):
             resp = self._responses[self._call_idx]
             self._call_idx += 1
@@ -90,6 +92,14 @@ class TestSSRFModuleInit(unittest.TestCase):
         self.assertIn("weak", mod.ssrf_indicators)
         self.assertGreater(len(mod.ssrf_indicators["strong"]), 0)
         self.assertGreater(len(mod.ssrf_indicators["weak"]), 0)
+
+    def test_probe_never_follows_client_side_redirects(self):
+        from modules.ssrf import SSRFModule
+
+        engine = _MockEngine([_MockResponse()])
+        mod = SSRFModule(engine)
+        mod._request("http://target.test/fetch", "GET", data={"url": "http://127.0.0.1"})
+        self.assertEqual(engine.requester.allow_redirects, [False])
 
 
 # ===========================================================================

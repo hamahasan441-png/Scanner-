@@ -1,0 +1,212 @@
+{
+  "schema_version": 1,
+  "tools": {
+    "subfinder": {
+      "version": "portable-11.0",
+      "binary": "subfinder",
+      "sha256": "6d3955a05c97fbbb1a890c94d7000ab52b5f79db91e0ae4ea037105fc4dc0c98",
+      "platforms": [
+        "linux-x86_64"
+      ],
+      "source": "portable_wrapper"
+    },
+    "amass": {
+      "version": "portable-11.0",
+      "binary": "amass",
+      "sha256": "6d3955a05c97fbbb1a890c94d7000ab52b5f79db91e0ae4ea037105fc4dc0c98",
+      "platforms": [
+        "linux-x86_64"
+      ],
+      "source": "portable_wrapper"
+    },
+    "dnsx": {
+      "version": "portable-11.0",
+      "binary": "dnsx",
+      "sha256": "6d3955a05c97fbbb1a890c94d7000ab52b5f79db91e0ae4ea037105fc4dc0c98",
+      "platforms": [
+        "linux-x86_64"
+      ],
+      "source": "portable_wrapper"
+    },
+    "httpx": {
+      "version": "portable-11.0",
+      "binary": "httpx",
+      "sha256": "6d3955a05c97fbbb1a890c94d7000ab52b5f79db91e0ae4ea037105fc4dc0c98",
+      "platforms": [
+        "linux-x86_64"
+      ],
+      "source": "portable_wrapper"
+    },
+    "naabu": {
+      "version": "portable-11.0",
+      "binary": "naabu",
+      "sha256": "6d3955a05c97fbbb1a890c94d7000ab52b5f79db91e0ae4ea037105fc4dc0c98",
+      "platforms": [
+        "linux-x86_64"
+      ],
+      "source": "portable_wrapper"
+    },
+    "katana": {
+      "version": "portable-11.0",
+      "binary": "katana",
+      "sha256": "6d3955a05c97fbbb1a890c94d7000ab52b5f79db91e0ae4ea037105fc4dc0c98",
+      "platforms": [
+        "linux-x86_64"
+      ],
+      "source": "portable_wrapper"
+    },
+    "ffuf": {
+      "version": "portable-11.0",
+      "binary": "ffuf",
+      "sha256": "6d3955a05c97fbbb1a890c94d7000ab52b5f79db91e0ae4ea037105fc4dc0c98",
+      "platforms": [
+        "linux-x86_64"
+      ],
+      "source": "portable_wrapper"
+    },
+    "nuclei": {
+      "version": "portable-11.0",
+      "binary": "nuclei",
+      "sha256": "6d3955a05c97fbbb1a890c94d7000ab52b5f79db91e0ae4ea037105fc4dc0c98",
+      "platforms": [
+        "linux-x86_64"
+      ],
+      "source": "portable_wrapper"
+    },
+    "interactsh-client": {
+      "version": "portable-11.0",
+      "binary": "interactsh-client",
+      "sha256": "6d3955a05c97fbbb1a890c94d7000ab52b5f79db91e0ae4ea037105fc4dc0c98",
+      "platforms": [
+        "linux-x86_64"
+      ],
+      "source": "portable_wrapper"
+    },
+    "nmap": {
+      "version": "portable-11.0",
+      "binary": "nmap",
+      "sha256": "6d3955a05c97fbbb1a890c94d7000ab52b5f79db91e0ae4ea037105fc4dc0c98",
+      "platforms": [
+        "linux-x86_64"
+      ],
+      "source": "portable_wrapper"
+    },
+    "nikto": {
+      "version": "portable-11.0",
+      "binary": "nikto",
+      "sha256": "6d3955a05c97fbbb1a890c94d7000ab52b5f79db91e0ae4ea037105fc4dc0c98",
+      "platforms": [
+        "linux-x86_64"
+      ],
+      "source": "portable_wrapper"
+    },
+    "whatweb": {
+      "version": "portable-11.0",
+      "binary": "whatweb",
+      "sha256": "6d3955a05c97fbbb1a890c94d7000ab52b5f79db91e0ae4ea037105fc4dc0c98",
+      "platforms": [
+        "linux-x86_64"
+      ],
+      "source": "portable_wrapper"
+    },
+    "gau": {
+      "version": "portable-11.0",
+      "binary": "gau",
+      "sha256": "6d3955a05c97fbbb1a890c94d7000ab52b5f79db91e0ae4ea037105fc4dc0c98",
+      "platforms": [
+        "linux-x86_64"
+      ],
+      "source": "portable_wrapper"
+    },
+    "waybackurls": {
+      "version": "portable-11.0",
+      "binary": "waybackurls",
+      "sha256": "6d3955a05c97fbbb1a890c94d7000ab52b5f79db91e0ae4ea037105fc4dc0c98",
+      "platforms": [
+        "linux-x86_64"
+      ],
+      "source": "portable_wrapper"
+    },
+    "gobuster": {
+      "version": "portable-11.0",
+      "binary": "gobuster",
+      "sha256": "6d3955a05c97fbbb1a890c94d7000ab52b5f79db91e0ae4ea037105fc4dc0c98",
+      "platforms": [
+        "linux-x86_64"
+      ],
+      "source": "portable_wrapper"
+    },
+    "feroxbuster": {
+      "version": "portable-11.0",
+      "binary": "feroxbuster",
+      "sha256": "6d3955a05c97fbbb1a890c94d7000ab52b5f79db91e0ae4ea037105fc4dc0c98",
+      "platforms": [
+        "linux-x86_64"
+      ],
+      "source": "portable_wrapper"
+    },
+    "masscan": {
+      "version": "portable-11.0",
+      "binary": "masscan",
+      "sha256": "6d3955a05c97fbbb1a890c94d7000ab52b5f79db91e0ae4ea037105fc4dc0c98",
+      "platforms": [
+        "linux-x86_64"
+      ],
+      "source": "portable_wrapper"
+    },
+    "rustscan": {
+      "version": "portable-11.0",
+      "binary": "rustscan",
+      "sha256": "6d3955a05c97fbbb1a890c94d7000ab52b5f79db91e0ae4ea037105fc4dc0c98",
+      "platforms": [
+        "linux-x86_64"
+      ],
+      "source": "portable_wrapper"
+    },
+    "hakrawler": {
+      "version": "portable-11.0",
+      "binary": "hakrawler",
+      "sha256": "6d3955a05c97fbbb1a890c94d7000ab52b5f79db91e0ae4ea037105fc4dc0c98",
+      "platforms": [
+        "linux-x86_64"
+      ],
+      "source": "portable_wrapper"
+    },
+    "arjun": {
+      "version": "portable-11.0",
+      "binary": "arjun",
+      "sha256": "6d3955a05c97fbbb1a890c94d7000ab52b5f79db91e0ae4ea037105fc4dc0c98",
+      "platforms": [
+        "linux-x86_64"
+      ],
+      "source": "portable_wrapper"
+    },
+    "paramspider": {
+      "version": "portable-11.0",
+      "binary": "paramspider",
+      "sha256": "6d3955a05c97fbbb1a890c94d7000ab52b5f79db91e0ae4ea037105fc4dc0c98",
+      "platforms": [
+        "linux-x86_64"
+      ],
+      "source": "portable_wrapper"
+    },
+    "dirsearch": {
+      "version": "portable-11.0",
+      "binary": "dirsearch",
+      "sha256": "6d3955a05c97fbbb1a890c94d7000ab52b5f79db91e0ae4ea037105fc4dc0c98",
+      "platforms": [
+        "linux-x86_64"
+      ],
+      "source": "portable_wrapper"
+    },
+    "interactsh": {
+      "version": "portable-11.0",
+      "binary": "interactsh",
+      "sha256": "6d3955a05c97fbbb1a890c94d7000ab52b5f79db91e0ae4ea037105fc4dc0c98",
+      "platforms": [
+        "linux-x86_64"
+      ],
+      "source": "portable_wrapper"
+    }
+  }
+}

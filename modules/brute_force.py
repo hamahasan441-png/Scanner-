@@ -161,6 +161,14 @@ class BruteForceModule:
             Successfully cracked credentials (``url``, ``username``,
             ``password``).
         """
+        # Authorization gate: brute force is exploitation, not detection.
+        try:
+            from core.authorization import require_authorized
+            require_authorized("brute-force", target=getattr(self.engine, "target", None))
+        except (ImportError, PermissionError) as exc:
+            print(f"{Colors.warning(f'Brute force blocked: {exc}')}")
+            return self.results
+
         usernames = usernames or DEFAULT_USERNAMES
         passwords = passwords or DEFAULT_PASSWORDS
 
@@ -266,7 +274,7 @@ class BruteForceModule:
                 password,
                 static_fields,
             )
-            if not resp:
+            if resp is None:
                 continue
 
             resp_lower = resp.text.lower()

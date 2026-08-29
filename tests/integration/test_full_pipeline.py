@@ -205,9 +205,18 @@ class TestBasicScanFlow(unittest.TestCase):
         engine.requester.test_connection.return_value = False
 
         engine.scan("http://unreachable.test")
-        # The failed connection terminates recon explicitly; it must not leave
-        # the pipeline reporting a phase that is still running.
+        # Unreachable targets are a CLASSIFIED failure (not a silently stuck
+        # "running" phase): recon is marked failed, a phase_end event with
+        # reason target_unreachable is emitted, and the scan phase never
+        # starts.
         self.assertEqual(engine.pipeline["recon"]["status"], "failed")
+        self.assertNotEqual(engine.pipeline["scan"]["status"], "running")
+        reasons = [
+            e.get("data", {}).get("reason")
+            for e in engine.pipeline["events"]
+            if e.get("type") == "phase_end"
+        ]
+        self.assertIn("target_unreachable", reasons)
 
     def test_scan_records_pipeline_events_with_structure(self):
         engine = self._run_scan()

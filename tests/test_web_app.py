@@ -33,7 +33,7 @@ class TestDashboardRoute(unittest.TestCase):
         self.assertEqual(resp.status_code, 200)
 
     def test_dashboard_contains_atomic(self):
-        resp = self.client.get("/")
+        resp = self.client.get("/legacy")
         self.assertIn(b"ATOMIC", resp.data)
 
 
@@ -102,6 +102,11 @@ class TestStartScan(unittest.TestCase):
     def setUp(self):
         app.config["TESTING"] = True
         self.client = app.test_client()
+        self._thread_patch = patch("web.app.threading.Thread")
+        self._thread_patch.start()
+
+    def tearDown(self):
+        self._thread_patch.stop()
 
     def test_missing_body_returns_400(self):
         resp = self.client.post("/api/scan")
@@ -357,8 +362,11 @@ class TestScanStartValidation(unittest.TestCase):
         app.config["TESTING"] = True
         self.client = app.test_client()
         _rate_counters.clear()
+        self._thread_patch = patch("web.app.threading.Thread")
+        self._thread_patch.start()
 
     def tearDown(self):
+        self._thread_patch.stop()
         _rate_counters.clear()
 
     def test_empty_string_target_returns_400(self):
@@ -483,16 +491,16 @@ class TestDashboardContent(unittest.TestCase):
         self.assertIn("text/html", resp.content_type)
 
     def test_dashboard_contains_html_tags(self):
-        resp = self.client.get("/")
+        resp = self.client.get("/legacy")
         self.assertIn(b"<html", resp.data.lower())
         self.assertIn(b"</html>", resp.data.lower())
 
     def test_dashboard_contains_head_section(self):
-        resp = self.client.get("/")
+        resp = self.client.get("/legacy")
         self.assertIn(b"<head", resp.data.lower())
 
     def test_dashboard_contains_body_section(self):
-        resp = self.client.get("/")
+        resp = self.client.get("/legacy")
         self.assertIn(b"<body", resp.data.lower())
 
 
@@ -671,6 +679,11 @@ class TestFileScanAPI(unittest.TestCase):
     def setUp(self):
         app.config["TESTING"] = True
         self.client = app.test_client()
+        self._thread_patch = patch("web.app.threading.Thread")
+        self._thread_patch.start()
+
+    def tearDown(self):
+        self._thread_patch.stop()
 
     def test_multiple_targets_returns_multiple_scan_ids(self):
         """Sending a targets list should start one scan per valid target."""
@@ -1051,3 +1064,21 @@ class TestOllamaAPI(unittest.TestCase):
         resp = self.client.get("/api/ollama/chat/history")
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.get_json()["data"], [])
+
+
+class TestDashboardRoutes(unittest.TestCase):
+    """TST-004 regression: '/' serves the new SPA, '/legacy' the classic UI."""
+
+    def setUp(self):
+        app.config["TESTING"] = True
+        self.client = app.test_client()
+
+    def test_root_serves_spa_shell(self):
+        resp = self.client.get("/")
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn(b"/static/app/js/main.js", resp.data)
+
+    def test_legacy_serves_classic_dashboard(self):
+        resp = self.client.get("/legacy")
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn(b"panel-dashboard", resp.data)

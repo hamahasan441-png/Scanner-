@@ -33,6 +33,10 @@ class ReportGenerator:
         shield_profile=None,
         origin_result=None,
         agent_result=None,
+        coverage=None,
+        surface_coverage=None,
+        coverage_plan=None,
+        authz=None,
     ):
         # Sanitize scan_id to prevent path traversal in report filenames
         if not self._SAFE_ID.match(scan_id or ""):
@@ -51,6 +55,16 @@ class ReportGenerator:
         self.shield_profile = shield_profile or {}
         self.origin_result = origin_result or {}
         self.agent_result = agent_result or {}
+        # Coverage accounting (optional). ``coverage`` is a CoverageSummary
+        # dict (per-endpoint/validator); ``surface_coverage`` is a
+        # SurfaceLedger dict (per attack-surface category). Both default to
+        # None so existing callers are unaffected.
+        self.coverage = coverage
+        self.surface_coverage = surface_coverage
+        # Coverage-closure plan (what remains untested + recommended safe tests)
+        self.coverage_plan = coverage_plan
+        # Authorization matrix (expected vs. observed access) from authz findings
+        self.authz = authz
         # Finding groups (correlated clusters). Optional — empty by
         # default; OutputPhase populates this attribute after running
         # the deterministic correlator.
@@ -309,14 +323,14 @@ class ReportGenerator:
             "origin_exposure_note": self._origin_exposure_info(),
             "remediation_plan": self._remediation_plan(),
             "agent_reasoning_log": self._agent_reasoning_log(),
+            "coverage": self.coverage,
+            "surface_coverage": self.surface_coverage,
+            "coverage_plan": self.coverage_plan,
+            "authz": self.authz,
         }
 
         try:
             with open(filepath, "w") as f:
-                try:
-                    os.chmod(filepath, 0o640)
-                except Exception:
-                    pass
                 json.dump(report, f, indent=2, default=str)
         except (IOError, OSError) as e:
             print(f"{Colors.error(f'Cannot write report to {filepath}: {e}')}")
@@ -324,8 +338,10 @@ class ReportGenerator:
 
         return filepath
 
+
     def _generate_html(self):
         """Generate HTML report with Phase 10 enrichment sections."""
+        import html as _html_escape
         filepath = os.path.join(self.output_dir, f"report_{self.scan_id}.html")
         findings_data = self._get_findings_data()
 
@@ -337,28 +353,35 @@ class ReportGenerator:
             "INFO": "#6c757d",
         }
 
+        def _esc(s):
+            return _html_escape.escape(str(s or ""), quote=True)
+
         # ── Executive summary cards ──
         sev_counts = self._severity_counts()
         sev_cards = ""
         for sev in ["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"]:
             cnt = sev_counts.get(sev, 0)
             if cnt:
-                color = severity_colors.get(sev, "#6c757d")
-                sev_cards += f'<div class="summary-card"><h3 style="color:{color}">{cnt}</h3><p>{sev}</p></div>'
+                color = _esc(severity_colors.get(sev, "#6c757d"))
+                sev_cards += f'<div class="summary-card"><h3 style="color:{color}">{cnt}</h3><p>{_esc(sev)}</p></div>'
 
         top_risks_html = ""
         for r in self._top_critical_risks():
-            top_risks_html += (
-                f"<li><strong>{r.get('technique', '')}</strong> (CVSS {r.get('cvss', 0)}) — {r.get('url', '')[:80]}</li>"
-            )
+            tech = _esc(r.get('technique', ''))
+            cvss = _esc(r.get('cvss', 0))
+            url = _esc((r.get('url', '') or '')[:80])
+            top_risks_html += f"<li><strong>{tech}</strong> (CVSS {cvss}) — {url}</li>"
 
         origin_info = self._origin_exposure_info()
         origin_html = ""
         if origin_info.get("origin_ip"):
-            origin_html = f"""<p><span style="color:#e94560">⚠ Origin IP exposed:</span> {origin_info['origin_ip']}
-            (confidence: {origin_info.get('confidence', 0):.0%}, method: {origin_info.get('method', '')})</p>"""
+            conf_pct = "{:.0%}".format(origin_info.get('confidence', 0))
+            origin_html = (
+                f"<p><span style=\"color:#e94560\">⚠ Origin IP exposed:</span> {_esc(origin_info['origin_ip'])}"
+                f" (confidence: {_esc(conf_pct)}, method: {_esc(origin_info.get('method', ''))})</p>"
+            )
         if origin_info.get("cdn_provider"):
-            origin_html += f"<p>CDN provider: {origin_info['cdn_provider']}"
+            origin_html += f"<p>CDN provider: {_esc(origin_info['cdn_provider'])}"
             if origin_info.get("cdn_misconfigured"):
                 origin_html += ' <span style="color:#f39c12">(misconfigured)</span>'
             origin_html += "</p>"
@@ -366,28 +389,37 @@ class ReportGenerator:
         # ── Findings table rows ──
         findings_html = ""
         for f in findings_data:
-            color = severity_colors.get(f.get("severity", "INFO"), "#6c757d")
+            color = _esc(severity_colors.get(f.get("severity", "INFO"), "#6c757d"))
             signals = f.get("signals", {})
             signals_html = ""
             if signals:
-                signals_html = (
+                sig_str = (
                     f"T:{signals.get('timing', 0):.1f} "
                     f"E:{signals.get('error', 0):.1f} "
                     f"R:{signals.get('reflection', 0):.1f} "
                     f"D:{signals.get('diff', 0):.1f}"
                 )
-            remediation = f.get("remediation", "")
+                signals_html = _esc(sig_str)
+            remediation = _esc((f.get("remediation", "") or "")[:120])
+            sev = _esc(f.get('severity', 'INFO'))
+            tech = _esc(f.get('technique', ''))
+            url = _esc(f.get('url', ''))
+            param = _esc(f.get('param', ''))
+            payload = _esc((f.get('payload', '') or '')[:80])
+            evidence = _esc((f.get('evidence', '') or '')[:100])
+            conf_val = f.get('confidence', 0)
+            conf_str = _esc("{:.0%}".format(conf_val))
             findings_html += f"""
             <tr>
-                <td><span style="color:{color};font-weight:bold">{f.get('severity', 'INFO')}</span></td>
-                <td>{f.get('technique', '')}</td>
-                <td style="word-break:break-all">{f.get('url', '')}</td>
-                <td>{f.get('param', '')}</td>
-                <td><code>{f.get('payload', '')[:80]}</code></td>
-                <td>{f.get('evidence', '')[:100]}</td>
-                <td>{f.get('confidence', 0):.0%}</td>
+                <td><span style="color:{color};font-weight:bold">{sev}</span></td>
+                <td>{tech}</td>
+                <td style="word-break:break-all">{url}</td>
+                <td>{param}</td>
+                <td><code>{payload}</code></td>
+                <td>{evidence}</td>
+                <td>{conf_str}</td>
                 <td style="font-size:11px">{signals_html}</td>
-                <td style="font-size:11px">{remediation[:120]}</td>
+                <td style="font-size:11px">{remediation}</td>
             </tr>"""
 
         # ── Exploit chains section ──
@@ -396,12 +428,15 @@ class ReportGenerator:
         if chains_data:
             chains_html = "<h2>Exploit Chains</h2>"
             for ch in chains_data:
-                ch_color = severity_colors.get(ch.get("combined_severity", "HIGH"), "#e74c3c")
-                steps = " → ".join(ch.get("steps", []))
+                ch_color = _esc(severity_colors.get(ch.get("combined_severity", "HIGH"), "#e74c3c"))
+                steps = _esc(" → ".join(ch.get("steps", [])))
+                ch_id = _esc(ch.get('id', ''))
+                ch_name = _esc(ch.get('name', ''))
+                ch_cvss = _esc(ch.get('combined_cvss', 0))
                 chains_html += f"""
                 <div style="background:#16213e;padding:12px;border-radius:6px;margin:8px 0;border-left:4px solid {ch_color}">
-                    <strong style="color:{ch_color}">[{ch.get('id', '')}] {ch.get('name', '')}</strong>
-                    <span style="color:#aaa;margin-left:10px">CVSS {ch.get('combined_cvss', 0)}</span>
+                    <strong style="color:{ch_color}">[{ch_id}] {ch_name}</strong>
+                    <span style="color:#aaa;margin-left:10px">CVSS {ch_cvss}</span>
                     <p style="margin:4px 0 0;color:#ccc">Steps: {steps}</p>
                 </div>"""
 
@@ -409,11 +444,14 @@ class ReportGenerator:
         waf_html = ""
         waf_info = self._waf_bypass_info()
         if waf_info.get("waf_detected"):
-            waf_html = f'<h2>WAF Bypass Disclosure</h2><p>WAF detected: <strong>{waf_info.get("waf_provider", "Unknown")}</strong></p>'
+            waf_provider = _esc(waf_info.get("waf_provider", "Unknown"))
+            waf_html = f'<h2>WAF Bypass Disclosure</h2><p>WAF detected: <strong>{waf_provider}</strong></p>'
             if waf_info.get("bypasses"):
                 waf_html += "<ul>"
                 for bp in waf_info["bypasses"]:
-                    waf_html += f"<li>{bp.get('technique', '')} — <code>{bp.get('payload', '')[:80]}</code></li>"
+                    t = _esc(bp.get('technique', ''))
+                    p = _esc((bp.get('payload', '') or '')[:80])
+                    waf_html += f"<li>{t} — <code>{p}</code></li>"
                 waf_html += "</ul>"
             else:
                 waf_html += '<p style="color:#aaa">No confirmed WAF bypasses.</p>'
@@ -424,8 +462,11 @@ class ReportGenerator:
         if rem_plan:
             rem_html = "<h2>Remediation Plan</h2><ol>"
             for item in rem_plan:
-                color = severity_colors.get(item.get("severity", "INFO"), "#6c757d")
-                rem_html += f'<li><span style="color:{color}">[{item["severity"]}]</span> <strong>{item["technique"]}</strong> — {item["remediation"]}</li>'
+                col = _esc(severity_colors.get(item.get("severity", "INFO"), "#6c757d"))
+                sev = _esc(item.get("severity", "INFO"))
+                tech = _esc(item.get("technique", ""))
+                rem = _esc(item.get("remediation", ""))
+                rem_html += f'<li><span style="color:{col}">[{sev}]</span> <strong>{tech}</strong> — {rem}</li>'
             rem_html += "</ol>"
 
         # ── Agent reasoning log ──
@@ -435,18 +476,32 @@ class ReportGenerator:
             agent_html = "<h2>Agent Reasoning Log</h2><ul>"
             for entry in agent_log:
                 icon = "✓" if entry["type"] == "goal_completed" else "↗"
-                agent_html += f'<li>{icon} [{entry["type"]}] {entry["description"]}</li>'
+                etype = _esc(entry["type"])
+                desc = _esc(entry["description"])
+                iesc = _esc(icon)
+                agent_html += f'<li>{iesc} [{etype}] {desc}</li>'
             agent_html += "</ul>"
 
         duration = ""
         if self.start_time and self.end_time:
-            duration = f"{(self.end_time - self.start_time).total_seconds():.1f}s"
+            try:
+                duration = f"{(self.end_time - self.start_time).total_seconds():.1f}s"
+            except Exception:
+                duration = _esc(str(self.end_time - self.start_time))
+
+        saf_scan_id = _esc(self.scan_id)
+        saf_target = _esc(self.target)
+        saf_start = _esc(self.start_time)
+        saf_end = _esc(self.end_time)
+        saf_duration = _esc(duration)
+        saf_version = _esc(Config.VERSION)
+        saf_now = _esc(datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC'))
 
         html = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>ATOMIC Framework - Scan Report {self.scan_id}</title>
+    <title>ATOMIC Framework - Scan Report {saf_scan_id}</title>
     <style>
         body {{ font-family: 'Segoe UI', Arial, sans-serif; margin: 20px; background: #1a1a2e; color: #eee; }}
         h1 {{ color: #e94560; }}
@@ -464,20 +519,20 @@ class ReportGenerator:
     </style>
 </head>
 <body>
-    <h1>ATOMIC Framework v{Config.VERSION} - Scan Report</h1>
+    <h1>ATOMIC Framework v{saf_version} - Scan Report</h1>
 
     <h2>Executive Summary</h2>
     <div class="summary">
-        <div class="summary-card"><h3>{self.scan_id}</h3><p>Scan ID</p></div>
+        <div class="summary-card"><h3>{saf_scan_id}</h3><p>Scan ID</p></div>
         <div class="summary-card"><h3>{len(self.findings)}</h3><p>Findings</p></div>
         <div class="summary-card"><h3>{self.total_requests}</h3><p>Requests</p></div>
-        <div class="summary-card"><h3>{duration}</h3><p>Duration</p></div>
+        <div class="summary-card"><h3>{saf_duration}</h3><p>Duration</p></div>
         {sev_cards}
     </div>
 
-    <p><strong>Target:</strong> {self.target}</p>
-    <p><strong>Start:</strong> {self.start_time}</p>
-    <p><strong>End:</strong> {self.end_time}</p>
+    <p><strong>Target:</strong> {saf_target}</p>
+    <p><strong>Start:</strong> {saf_start}</p>
+    <p><strong>End:</strong> {saf_end}</p>
 
     {f'<h3>Top Critical Risks</h3><ol>{top_risks_html}</ol>' if top_risks_html else ''}
     {origin_html}
@@ -504,7 +559,7 @@ class ReportGenerator:
     {agent_html}
 
     <p style="color:#666;margin-top:30px;text-align:center">
-        Generated by ATOMIC Framework v{Config.VERSION} | {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}
+        Generated by ATOMIC Framework v{saf_version} | {saf_now}
     </p>
 </body>
 </html>"""
@@ -517,6 +572,7 @@ class ReportGenerator:
             return None
 
         return filepath
+
 
     def _generate_csv(self):
         """Generate CSV report"""
@@ -979,8 +1035,16 @@ class ReportGenerator:
         return json.dumps(scan_result.to_dict(), sort_keys=True, indent=indent, default=str)
 
     @staticmethod
-    def scan_result_to_canonical_sarif(scan_result) -> dict:
+    def scan_result_to_canonical_sarif(scan_result, baseline=None) -> dict:
         """Pure canonical SARIF v2.1.0 object from a ``ScanResult``.
+
+        When ``baseline`` (a previous report dict with a ``findings`` list) is
+        supplied, each result is stamped with SARIF's native ``baselineState``
+        — ``new`` (not in the baseline), ``updated`` (present but severity or
+        confidence moved), or ``unchanged`` — so CI code-scanning can surface
+        only newly-introduced issues. Findings match by the stable
+        ``finding_id``. Omitting ``baseline`` leaves the output byte-identical
+        to before (no ``baselineState`` field).
 
         Differences from the legacy ``_generate_sarif``:
         * ``ruleId`` is derived from ``finding.technique`` → stable slug
@@ -1004,6 +1068,14 @@ class ReportGenerator:
             "LOW": "note",
             "INFO": "note",
         }
+
+        # Index baseline findings (by stable finding_id) for baselineState.
+        baseline_index = {}
+        if baseline:
+            from core.regression import stable_finding_key
+            for bf in (baseline.get("findings") if isinstance(baseline, dict) else None) or []:
+                if isinstance(bf, dict):
+                    baseline_index[stable_finding_key(bf)] = bf
 
         rules = {}   # rule_id → rule_entry (deduped)
         results = []
@@ -1073,6 +1145,15 @@ class ReportGenerator:
                     "group_id": finding.group_id,
                 },
             }
+            if baseline:
+                b = baseline_index.get(finding.finding_id)
+                if b is None:
+                    result_entry["baselineState"] = "new"
+                elif (b.get("severity", "INFO") != finding.severity
+                        or (b.get("confidence", 0.0) or 0.0) != (finding.confidence or 0.0)):
+                    result_entry["baselineState"] = "updated"
+                else:
+                    result_entry["baselineState"] = "unchanged"
             results.append(result_entry)
 
         sarif = {

@@ -69,6 +69,17 @@ class SSRFModule(BaseModule):
             ],
         }
 
+    def _request(self, url: str, method: str, **kwargs):
+        """Issue a probe without following client-side redirects.
+
+        SSRF payloads are sent to the application under test.  Following a
+        reflected ``Location`` header would make the scanner itself contact
+        the injected internal address, creating scope drift, false positives,
+        and long timeouts.  The target response is the evidence we need.
+        """
+        kwargs["allow_redirects"] = False
+        return self.requester.request(url, method, **kwargs)
+
     def test(self, url: str, method: str, param: str, value: str):
         """Test for SSRF"""
         # Test internal endpoints
@@ -113,7 +124,7 @@ class SSRFModule(BaseModule):
 
         # Get baseline to filter pre-existing indicators
         try:
-            baseline_response = self.requester.request(url, method, data={param: value})
+            baseline_response = self._request(url, method, data={param: value})
             baseline_lower = baseline_response.text.lower() if baseline_response else ""
         except Exception:
             baseline_lower = ""
@@ -121,8 +132,8 @@ class SSRFModule(BaseModule):
         for payload in llm_payloads:
             try:
                 data = {param: payload}
-                response = self.requester.request(url, method, data=data)
-                if not response:
+                response = self._request(url, method, data=data)
+                if response is None:
                     continue
                 resp_lower = response.text.lower()
                 for ind in self.ssrf_indicators.get("strong", []):
@@ -156,7 +167,7 @@ class SSRFModule(BaseModule):
 
         # Get baseline to filter pre-existing indicators
         try:
-            baseline_response = self.requester.request(url, method, data={param: value})
+            baseline_response = self._request(url, method, data={param: value})
             baseline_lower = baseline_response.text.lower() if baseline_response else ""
         except Exception:
             baseline_lower = ""
@@ -164,8 +175,8 @@ class SSRFModule(BaseModule):
         for payload in payloads:
             try:
                 data = {param: payload}
-                response = self.requester.request(url, method, data=data)
-                if not response:
+                response = self._request(url, method, data=data)
+                if response is None:
                     continue
                 text = response.text.lower()
                 # Only check strong indicators and require them to be NEW
@@ -196,7 +207,7 @@ class SSRFModule(BaseModule):
 
         # Get baseline to filter pre-existing indicators
         try:
-            baseline_response = self.requester.request(url, method, data={param: value})
+            baseline_response = self._request(url, method, data={param: value})
             baseline_lower = baseline_response.text.lower() if baseline_response else ""
         except Exception:
             baseline_lower = ""
@@ -204,8 +215,8 @@ class SSRFModule(BaseModule):
         for payload in payloads:
             try:
                 data = {param: payload}
-                response = self.requester.request(url, method, data=data)
-                if not response:
+                response = self._request(url, method, data=data)
+                if response is None:
                     continue
                 text = response.text.lower()
                 # Only check strong indicators and require them to be NEW
@@ -238,7 +249,7 @@ class SSRFModule(BaseModule):
 
         # Get baseline to filter pre-existing indicators
         try:
-            baseline_response = self.requester.request(url, method, data={param: value})
+            baseline_response = self._request(url, method, data={param: value})
             baseline_lower = baseline_response.text.lower() if baseline_response else ""
         except Exception:
             baseline_lower = ""
@@ -246,8 +257,8 @@ class SSRFModule(BaseModule):
         for payload in k8s_payloads:
             try:
                 data = {param: payload}
-                response = self.requester.request(url, method, data=data)
-                if not response:
+                response = self._request(url, method, data=data)
+                if response is None:
                     continue
                 text = response.text.lower()
                 # Require at least 2 NEW indicators to reduce false positives
@@ -276,7 +287,7 @@ class SSRFModule(BaseModule):
         # Measure baseline
         try:
             start = time.time()
-            self.requester.request(url, method, data={param: value})
+            self._request(url, method, data={param: value})
             baseline = time.time() - start
         except Exception:
             baseline = 0
@@ -290,7 +301,7 @@ class SSRFModule(BaseModule):
         for payload in timing_payloads:
             try:
                 start = time.time()
-                self.requester.request(url, method, data={param: payload})
+                self._request(url, method, data={param: payload})
                 elapsed = time.time() - start
                 # If response takes significantly longer, server may be trying to connect
                 if elapsed > baseline + 3.0 and elapsed >= 3.5:
@@ -329,7 +340,7 @@ class SSRFModule(BaseModule):
         # Get baseline response for comparison
         try:
             baseline_data = {param: value}
-            baseline = self.requester.request(url, method, data=baseline_data)
+            baseline = self._request(url, method, data=baseline_data)
             if not baseline:
                 return
             baseline_len = len(baseline.text)
@@ -340,9 +351,9 @@ class SSRFModule(BaseModule):
         for target in internal_targets:
             try:
                 data = {param: target}
-                response = self.requester.request(url, method, data=data)
+                response = self._request(url, method, data=data)
 
-                if not response:
+                if response is None:
                     continue
 
                 # Check for successful internal access
@@ -407,9 +418,9 @@ class SSRFModule(BaseModule):
                         headers["Metadata"] = "true"
 
                     data = {param: endpoint}
-                    response = self.requester.request(url, method, data=data, headers=headers)
+                    response = self._request(url, method, data=data, headers=headers)
 
-                    if not response:
+                    if response is None:
                         continue
 
                     # Check for cloud metadata indicators
@@ -463,7 +474,7 @@ class SSRFModule(BaseModule):
         # Get baseline response for comparison
         try:
             baseline_data = {param: value}
-            baseline = self.requester.request(url, method, data=baseline_data)
+            baseline = self._request(url, method, data=baseline_data)
             if not baseline:
                 return
             baseline_len = len(baseline.text)
@@ -474,9 +485,9 @@ class SSRFModule(BaseModule):
         for payload in bypass_techniques:
             try:
                 data = {param: payload}
-                response = self.requester.request(url, method, data=data)
+                response = self._request(url, method, data=data)
 
-                if not response:
+                if response is None:
                     continue
 
                 # Check for successful access
@@ -537,9 +548,9 @@ class SSRFModule(BaseModule):
         for protocol in protocols:
             try:
                 data = {param: protocol}
-                response = self.requester.request(url, method, data=data)
+                response = self._request(url, method, data=data)
 
-                if not response:
+                if response is None:
                     continue
 
                 # Check for protocol-specific responses
@@ -568,7 +579,7 @@ class SSRFModule(BaseModule):
         try:
             payload = f"http://{host}:{port}"
             data = {param: payload}
-            response = self.requester.request(url, "GET", data=data)
+            response = self._request(url, "GET", data=data)
 
             if response:
                 # Analyze response to determine if port is open

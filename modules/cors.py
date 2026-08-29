@@ -71,7 +71,7 @@ class CORSModule(BaseModule):
                 headers = {"Origin": origin}
                 response = self.requester.request(url, "GET", headers=headers)
 
-                if not response:
+                if response is None:
                     continue
 
                 acao = response.headers.get("Access-Control-Allow-Origin", "")

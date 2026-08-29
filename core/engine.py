@@ -49,10 +49,13 @@ REMEDIATION_MAP = {
     "open redirect": "Validate and whitelist redirect URLs. Avoid using user input in redirect targets.",
     "crlf": "Strip or encode CR/LF characters from user input before including in HTTP headers.",
     "http parameter pollution": "Normalize duplicate parameters server-side. Validate input at each processing layer.",
-    "network exploit": "Patch or upgrade affected network services. Restrict access via firewall rules and network segmentation.",
-    "tech exploit": "Update detected technologies and frameworks to latest versions. Remove version disclosure headers.",
-    "missing security header": "Add recommended security headers (HSTS, CSP, X-Frame-Options, X-Content-Type-Options).",
-}
+            "network exploit": "Patch or upgrade affected network services. Restrict access via firewall rules and network segmentation.",
+            "tech exploit": "Update detected technologies and frameworks to latest versions. Remove version disclosure headers.",
+            "missing security header": "Add recommended security headers (HSTS, CSP, X-Frame-Options, X-Content-Type-Options).",
+            "firewall bypass": "Enforce ACLs on the origin, not only the edge. Do not trust X-Forwarded-For / CF-Connecting-IP unless the hop is a known proxy. Normalize paths before matching URL rules. Restrict origin to CDN/WAF source IPs only.",
+            "path acl": "Normalize and decode URLs before ACL evaluation. Match on the canonical path, not the raw request-target.",
+            "ip allowlist": "Ignore client-supplied forwarding headers except from a pinned proxy CIDR. Bind allowlists to the TCP source address.",
+        }
 
 
 @dataclass
@@ -246,6 +249,33 @@ class AtomicEngine:
             # Older Requester implementations without the hook — nothing to do.
             pass
 
+        # SECURITY (SEC-005): attach the centralized network policy when it
+        # is active (allowed domains configured and/or private-target
+        # blocking enabled).  Every request URL and redirect hop is then
+        # validated inside the Requester.  Inactive policy (no constraints
+        # configured) leaves behavior unchanged for operator-driven scans.
+        self.net_policy = None
+        try:
+            from core.netpolicy import NetworkSecurityPolicy
+
+            scope_domains = (self.config.get("scope") or {}).get("allowed_domains") or []
+            policy = NetworkSecurityPolicy.from_env()
+            if scope_domains and not policy.allowed_domains:
+                policy = NetworkSecurityPolicy(
+                    allowed_domains=list(scope_domains),
+                    block_private=policy.block_private,
+                )
+            if policy.active:
+                self.net_policy = policy
+                self.requester.attach_network_policy(policy)
+                logger.info(
+                    "Network policy active (domains=%s, block_private=%s)",
+                    sorted(policy.allowed_domains) or "-",
+                    policy.block_private,
+                )
+        except Exception as exc:
+            logger.debug("Network policy unavailable: %s", exc)
+
         # --- Philosophy layer (opt-in) ---
         # When config["philosophy"] is true, attach the reasoning layer
         # that adds: falsifiable hypotheses with Bayesian belief updates,
@@ -328,7 +358,7 @@ class AtomicEngine:
         # also pipes outbound scan traffic through ``bypass.apply()``
         # to inject IP-spoofing / origin-spoofing headers when
         # WAF-class blocks are detected.
-        if config.get("full_bypass") or config.get("waf_bypass"):
+        if config.get("full_bypass") or config.get("waf_bypass") or config.get("firewall_bypass"):
             try:
                 from core.bypass import build_orchestrator
 
@@ -413,6 +443,60 @@ class AtomicEngine:
             # GateBreaker: unified WAF/auth/rate-limit gate detection and
             # bypass orchestration on top of the BypassOrchestrator ladder.
             "gatebreaker": ("modules.gatebreaker", "GateBreakerModule"),
+            # Firewall Bypass: network / NGFW / ACL (path, IP, port,
+            # protocol, origin hop) — complementary to WAF/GateBreaker.
+            "firewall_bypass": ("modules.firewall_bypass", "FirewallBypassModule"),
+            # TLS / cryptographic configuration (non-invasive) — closes the
+            # TLS_CRYPTO attack-surface blind spot.
+            "tls": ("modules.tls_scan", "TLSScanModule"),
+            # Secrets exposure (non-invasive) — closes the SECRETS blind spot.
+            "secrets": ("modules.secrets_scan", "SecretsScanModule"),
+            # ── NEW: Complete coverage modules ──────────────────────────
+            # Network Infrastructure
+            "dns_attacks": ("modules.dns_attacks", "DNSAttackModule"),
+            "snmp_enum": ("modules.snmp_enum", "SNMPEnumModule"),
+            "smb_attacks": ("modules.smb_attacks", "SMBAttackModule"),
+            "ssh_attacks": ("modules.ssh_attacks", "SSHAttackModule"),
+            "rdp_attacks": ("modules.rdp_attacks", "RDPAttackModule"),
+            "nfs_enum": ("modules.nfs_enum", "NFSEnumModule"),
+            "rpc_enum": ("modules.rpc_enum", "RPCEnumModule"),
+            "vnc_attacks": ("modules.vnc_attacks", "VNCAttackModule"),
+            "ipv6_attacks": ("modules.ipv6_attacks", "IPv6AttackModule"),
+            "vlan_hopping": ("modules.vlan_hopping", "VLANHoppingModule"),
+            "vpn_attacks": ("modules.vpn_attacks", "VPNAttackModule"),
+            "dhcp_attacks": ("modules.dhcp_attacks", "DHCPAttackModule"),
+            "arp_attacks": ("modules.arp_attacks", "ARPAttackModule"),
+            "icmp_attacks": ("modules.icmp_attacks", "ICMPAttackModule"),
+            # Web Applications
+            "csrf": ("modules.csrf", "CSRFModule"),
+            "clickjacking": ("modules.clickjacking", "ClickjackingModule"),
+            "host_header": ("modules.host_header", "HostHeaderModule"),
+            "mass_assignment": ("modules.mass_assignment", "MassAssignmentModule"),
+            "webdav": ("modules.webdav", "WebDAVModule"),
+            "ssi_injection": ("modules.ssi_injection", "SSIInjectionModule"),
+            # APIs
+            "soap_wsdl": ("modules.soap_wsdl", "SOAPModule"),
+            "grpc": ("modules.grpc", "GRPCModule"),
+            "webhook_ssrf": ("modules.webhook_ssrf", "WebhookSSRFModule"),
+            # Cloud & Container
+            "container_escape": ("modules.container_escape", "ContainerEscapeModule"),
+            "cicd_injection": ("modules.cicd_injection", "CICDInjectionModule"),
+            "aws_iam_privesc": ("modules.aws_iam_privesc", "AWSIAMPrivescModule"),
+            "service_mesh": ("modules.service_mesh", "ServiceMeshModule"),
+            # IoT/OT/ICS
+            "ics_protocols": ("modules.ics_protocols", "ICSProtocolModule"),
+            # Supply Chain
+            "typosquatting": ("modules.typosquatting", "TyposquattingModule"),
+            # Cryptography
+            "covert_channels": ("modules.covert_channels", "CovertChannelModule"),
+            "crypto_weakness": ("modules.crypto_weakness", "CryptoWeaknessModule"),
+            # Post-Exploitation
+            "credential_dump": ("modules.credential_dump", "CredentialDumpModule"),
+            "lateral_movement": ("modules.lateral_movement", "LateralMovementModule"),
+            "ad_attacks": ("modules.ad_attacks", "ADAttackModule"),
+            # Zero-Day
+            "coverage_fuzz": ("modules.coverage_fuzz", "CoverageFuzzModule"),
+            "symbolic_exec": ("modules.symbolic_exec", "SymbolicExecModule"),
         }
 
         modules_config = self.config.get("modules", {})
@@ -549,7 +633,14 @@ class AtomicEngine:
         }
 
     def _run_external_tools_auto(self, target: str):
-        """Run integrated external tools automatically when enabled."""
+        """Run integrated external tools automatically when enabled and convert
+        their results into canonical findings so the framework actually uses them
+        in jobs, tasks, reports, and attack planning.
+
+        Tools run: whatweb, httpx, nikto, nuclei, nmap, plus recon arsenal
+        (subfinder, amass, katana, etc) when available. Results are turned
+        into Findings.
+        """
         if not self.config.get("auto_external_tools", False):
             return
         if not self.tools:
@@ -560,28 +651,124 @@ class AtomicEngine:
         domain = urlparse(target).hostname or ""
         all_results = {}
 
+        # OBSERVABILITY (SEC-011): external-tool failures are scan-
+        # completeness events, not verbose-only noise.  They are classified
+        # and logged structurally so a missing tool phase is diagnosable
+        # after the fact instead of vanishing silently.
         try:
             all_results.update(self.tools.run_recon_suite(target, domain=domain))
         except Exception as exc:
+            logger.warning(
+                "external_tools failure",
+                extra={"phase": "recon_suite", "target": target, "classification": "recoverable", "error": str(exc)},
+            )
             if self.config.get("verbose"):
                 print(f"{Colors.warning(f'External recon suite error: {exc}')}")
 
         try:
             all_results.update(self.tools.run_vuln_scan(target))
         except Exception as exc:
+            logger.warning(
+                "external_tools failure",
+                extra={"phase": "vuln_scan", "target": target, "classification": "recoverable", "error": str(exc)},
+            )
             if self.config.get("verbose"):
                 print(f"{Colors.warning(f'External vuln suite error: {exc}')}")
 
+        # Also run full recon arsenal if available (subdomain, crawler, etc)
+        if getattr(self, "recon_arsenal", None):
+            try:
+                arsenal_results = self.recon_arsenal.run_full_recon(target, domain=domain)
+                all_results.update(arsenal_results)
+            except Exception as exc:
+                logger.warning(
+                    "external_tools failure",
+                    extra={"phase": "recon_arsenal", "target": target, "classification": "recoverable", "error": str(exc)},
+                )
+                if self.config.get("verbose"):
+                    print(f"{Colors.warning(f'Recon arsenal error: {exc}')}")
+
         if all_results:
+            # SECURITY FIX (SEC-013, defense in depth): simulation stub
+            # output must never become findings, even when simulation mode
+            # is enabled — fabricated data is for workflow demos only.
+            try:
+                from core.tool_runtime import is_simulated_tool as _is_sim_tool
+            except Exception:
+                def _is_sim_tool(_name):
+                    return False
+
+            # Convert tool findings into engine findings so framework uses them
+            converted = 0
+            skipped_simulated = []
+            for tool_name, res in all_results.items():
+                if not getattr(res, "success", False):
+                    continue
+                if _is_sim_tool(tool_name):
+                    skipped_simulated.append(tool_name)
+                    continue
+                for f in getattr(res, "findings", []) or []:
+                    try:
+                        # Normalize tool finding dict to engine Finding
+                        if isinstance(f, dict):
+                            technique = f.get("type") or f.get("template_id") or f.get("technology") or f.get("subdomain") or tool_name
+                            # Build meaningful technique label
+                            if tool_name == "nuclei" and f.get("name"):
+                                technique = f"External Tool (Nuclei: {f.get('name')})"
+                            elif tool_name == "nmap" and f.get("type") == "open_port":
+                                technique = f"External Tool (Nmap: Open Port {f.get('port')}/{f.get('protocol')})"
+                            elif tool_name in ("subfinder", "amass") and f.get("subdomain"):
+                                technique = f"External Tool ({tool_name}: Subdomain {f.get('subdomain')})"
+                            elif f.get("url"):
+                                technique = f"External Tool ({tool_name}: {f.get('url')[:60]})"
+                            else:
+                                technique = f"External Tool ({tool_name}: {technique})"
+
+                            evidence = f.get("details") or f.get("msg") or f.get("description") or str(f)[:500]
+                            url = f.get("url") or f.get("host") or f.get("matched_at") or target
+
+                            # Severity mapping
+                            sev = "INFO"
+                            if tool_name == "nuclei":
+                                raw_sev = (f.get("severity") or "").upper()
+                                if raw_sev in ("CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"):
+                                    sev = raw_sev
+                            elif tool_name == "nmap" and f.get("type") == "vulnerability":
+                                sev = "HIGH"
+                            elif tool_name in ("nikto",):
+                                sev = "MEDIUM"
+
+                            finding = Finding(
+                                technique=technique,
+                                url=url,
+                                severity=sev,
+                                confidence=0.85 if tool_name in ("nuclei", "nmap") else 0.70,
+                                evidence=evidence[:500],
+                                extracted_data=str(f)[:1000],
+                            )
+                            self.add_finding(finding)
+                            converted += 1
+                    except Exception:
+                        continue
+
             results = [res for res in all_results.values() if hasattr(res, "success")]
+            if skipped_simulated:
+                logger.info(
+                    "External tools: skipped findings conversion for simulated tools: %s",
+                    ", ".join(sorted(skipped_simulated)),
+                )
             self.emit_pipeline_event(
                 "external_tools_completed",
                 {
                     "tools": list(all_results.keys()),
                     "success_count": sum(1 for r in results if r.success),
                     "failure_count": sum(1 for r in results if not r.success),
+                    "findings_converted": converted,
+                    "simulated_skipped": sorted(skipped_simulated),
                 },
             )
+            if self.config.get("verbose"):
+                print(f"{Colors.info(f'External tools: {converted} findings converted from {len(all_results)} tools')}")
 
     def scan(self, target: str):
         """Scan a target URL.
@@ -1171,7 +1358,9 @@ class AtomicEngine:
                         continue
 
                 def _do_test(m=module_instance, e=ep):
-                    self.scope.enforce_rate_limit()
+                    # Rate limiting is handled by the Requester via
+                    # attach_rate_limiter() — no need to call it here
+                    # (which caused double-throttling and halved throughput).
                     delay = self.adaptive.get_delay()
                     if delay > 0:
                         time.sleep(delay)
@@ -1368,30 +1557,27 @@ class AtomicEngine:
         # AI-driven auto-exploit: orchestrates data extraction, shell
         # upload, and system enumeration based on confirmed findings.
         # Auto-attack runs ONLY when explicitly opted-in via --auto-exploit
-        # or --smart-attack. Previously `smart_attack` defaulted to True,
-        # which silently fired post-exploitation on any HIGH finding.
+        # or --smart-attack AND --authorized is set.
         exploitable_findings = [f for f in self.findings if f.severity in ("CRITICAL", "HIGH") and f.confidence >= 0.6]
         should_auto_attack = modules_config.get("auto_exploit", False) or (
             exploitable_findings and modules_config.get("smart_attack", False)
         )
-        # Governance gate: opt-in authorization enforcement + audit trail for
-        # offensive actions (default-permissive; see core/authorization.py).
         if should_auto_attack and self.findings:
-            from core.authorization import audit_offensive_action, check_authorization
-
-            _authz_ok, _authz_reason = check_authorization(self.config)
-            audit_offensive_action(
-                "auto_attack",
-                self.target,
-                {"exploitable_findings": len(exploitable_findings), "reason": _authz_reason},
-                allowed=_authz_ok,
-            )
-            if not _authz_ok:
-                should_auto_attack = False
-                logger.warning("Auto-attack blocked by authorization gate: %s", _authz_reason)
+            # Authorization gate: require --authorized or ATOMIC_AUTHORIZED=1
+            # for ALL post-exploit actions. Fail-closed.
+            if not self.config.get("_authorized") and not self.config.get("authorized"):
                 if self.config.get("verbose"):
-                    print(f"{Colors.warning(_authz_reason)}")
-        if should_auto_attack and self.findings:
+                    print(f"{Colors.warning('Auto-attack blocked: --authorized required for exploitation.')}")
+                should_auto_attack = False
+            else:
+                try:
+                    from core.authorization import require_authorized
+                    require_authorized("auto-attack", target=target)
+                except (ImportError, PermissionError) as _auth_exc:
+                    if self.config.get("verbose"):
+                        print(f"{Colors.warning(f'Auto-attack blocked: {_auth_exc}')}")
+                    should_auto_attack = False
+
             try:
                 from core.attack_router import AttackRouter
 
@@ -1426,55 +1612,72 @@ class AtomicEngine:
         # so that run() actually deploys webshells.  Without this flag
         # run() short-circuits at its scan_only guard and silently does
         # nothing — the bug noted in LOGIC_MAP.md "Known Drift #3".
-        if modules_config.get("shell", False) and self.findings:
-            try:
-                from modules.uploader import ShellUploader
+        _is_authorized = self.config.get("_authorized") or self.config.get("authorized")
 
-                uploader = ShellUploader(self, scan_only=False)
-                uploader.run(self.findings, forms)
-            except Exception as e:
+        if modules_config.get("shell", False) and self.findings:
+            if not _is_authorized:
                 if self.config.get("verbose"):
-                    print(f"{Colors.error(f'Shell upload error: {e}')}")
+                    print(f"{Colors.warning('Shell upload skipped: --authorized required.')}")
+            else:
+                try:
+                    from modules.uploader import ShellUploader
+                    uploader = ShellUploader(self, scan_only=False)
+                    uploader.run(self.findings, forms)
+                except Exception as e:
+                    if self.config.get("verbose"):
+                        print(f"{Colors.error(f'Shell upload error: {e}')}")
 
         if modules_config.get("dump", False) and self.findings:
-            try:
-                from modules.dumper import DataDumper
-
-                dumper = DataDumper(self)
-                dumper.run(self.findings)
-            except Exception as e:
+            if not _is_authorized:
                 if self.config.get("verbose"):
-                    print(f"{Colors.error(f'Data dump error: {e}')}")
+                    print(f"{Colors.warning('Data dump skipped: --authorized required.')}")
+            else:
+                try:
+                    from modules.dumper import DataDumper
+                    dumper = DataDumper(self)
+                    dumper.run(self.findings)
+                except Exception as e:
+                    if self.config.get("verbose"):
+                        print(f"{Colors.error(f'Data dump error: {e}')}")
 
         if modules_config.get("os_shell", False) and self.findings:
-            try:
-                from core.os_shell import OSShellHandler
-
-                handler = OSShellHandler(self)
-                handler.run(self.findings, forms)
-            except Exception as e:
+            if not _is_authorized:
                 if self.config.get("verbose"):
-                    print(f"{Colors.error(f'OS shell error: {e}')}")
+                    print(f"{Colors.warning('OS shell skipped: --authorized required.')}")
+            else:
+                try:
+                    from core.os_shell import OSShellHandler
+                    handler = OSShellHandler(self)
+                    handler.run(self.findings, forms)
+                except Exception as e:
+                    if self.config.get("verbose"):
+                        print(f"{Colors.error(f'OS shell error: {e}')}")
 
         if modules_config.get("brute", False):
-            try:
-                from modules.brute_force import BruteForceModule
-
-                bruter = BruteForceModule(self)
-                bruter.run(forms)
-            except Exception as e:
+            if not _is_authorized:
                 if self.config.get("verbose"):
-                    print(f"{Colors.error(f'Brute force error: {e}')}")
+                    print(f"{Colors.warning('Brute force skipped: --authorized required.')}")
+            else:
+                try:
+                    from modules.brute_force import BruteForceModule
+                    bruter = BruteForceModule(self)
+                    bruter.run(forms)
+                except Exception as e:
+                    if self.config.get("verbose"):
+                        print(f"{Colors.error(f'Brute force error: {e}')}")
 
         if modules_config.get("exploit_chain", False) and self.findings:
-            try:
-                from core.exploit_chain import ExploitChainEngine
-
-                chainer = ExploitChainEngine(self)
-                chainer.run(self.findings)
-            except Exception as e:
+            if not _is_authorized:
                 if self.config.get("verbose"):
-                    print(f"{Colors.error(f'Exploit chain error: {e}')}")
+                    print(f"{Colors.warning('Exploit chain skipped: --authorized required.')}")
+            else:
+                try:
+                    from core.exploit_chain import ExploitChainEngine
+                    chainer = ExploitChainEngine(self)
+                    chainer.run(self.findings)
+                except Exception as e:
+                    if self.config.get("verbose"):
+                        print(f"{Colors.error(f'Exploit chain error: {e}')}")
 
         # ── PIPELINE: Exploit phase complete → Collect phase ──────
         self.pipeline["exploit"]["status"] = "completed"
@@ -1834,6 +2037,94 @@ class AtomicEngine:
         full evidence, repro, and verification metadata.
         """
         return list(self._canonical_findings.values())
+
+    def get_coverage_summary(self):
+        """Compute a :class:`core.models.CoverageSummary` for this scan.
+
+        Read-only aggregation over data the engine already holds: the
+        discovered ``TargetSurface`` (endpoints), the enabled modules
+        (validators), and the canonical findings (validated cells). Returns
+        ``None`` if nothing is available to summarize.
+
+        This threads no state through the scan loop — it is safe to call at
+        any time after a scan and is consumed by reporters and the web API.
+        """
+        from core.coverage import build_coverage
+
+        findings = self.get_canonical_findings()
+        if self.surface is None and not findings:
+            return None
+        validators = [
+            name for name, enabled in (self.config.get("modules", {}) or {}).items()
+            if enabled is True
+        ]
+        engine = build_coverage(self.surface, findings, validators=validators or None)
+        return engine.summary()
+
+    def get_surface_ledger(self):
+        """Build a :class:`core.surface_ledger.SurfaceLedger` for this scan.
+
+        Read-only aggregation: enabled modules mark their attack-surface
+        category as tested; canonical findings mark their category as having
+        issues. Surfaces no enabled module covers stay NOT_TESTED and are
+        reported as explicit blind spots. Threads no state through the scan
+        loop.
+        """
+        from core.surface_map import build_surface_ledger
+
+        enabled = [
+            name for name, on in (self.config.get("modules", {}) or {}).items()
+            if on is True
+        ]
+        return build_surface_ledger(enabled, self.get_canonical_findings())
+
+    def get_coverage_plan(self):
+        """Compute a coverage-closure plan for this scan ("leave no blind spot").
+
+        Combines the per-endpoint coverage grid with the per-category surface
+        ledger to list what has not been tested and a prioritized set of
+        recommended safe validations. Returns ``None`` if there is nothing to
+        plan over. Read-only; recommends but never executes.
+        """
+        from core.coverage import build_coverage
+        from core.coverage_planner import plan_coverage_gaps
+
+        findings = self.get_canonical_findings()
+        if self.surface is None and not findings:
+            return None
+        validators = [
+            name for name, on in (self.config.get("modules", {}) or {}).items()
+            if on is True
+        ]
+        cov = build_coverage(self.surface, findings, validators=validators or None)
+        return plan_coverage_gaps(cov, self.get_surface_ledger(), validators or None)
+
+    def run_coverage_closure(self, auto_validators=None, budget=100, max_iterations=25):
+        """Actively drive real non-invasive validation to coverage closure.
+
+        Runs the enabled, non-invasive validator modules against the discovered
+        surface until gaps close or the budget is spent, then returns the
+        driver's run report. Invasive/exploitative validators are never
+        auto-run (they are reported as ``skipped_invasive``); exploitation
+        stays behind the authorization gate.
+
+        This performs real requests and is an explicit, opt-in operation — it
+        is NOT part of the default scan flow.
+        """
+        from core.coverage_executor import run_coverage_closure
+
+        return run_coverage_closure(
+            self, auto_validators=auto_validators,
+            budget=budget, max_iterations=max_iterations,
+        )
+
+    def get_authz_matrix(self):
+        """Build a :class:`core.authz_matrix.AuthorizationMatrix` from this
+        scan's access-control findings (IDOR/BOLA), read-only. Returns the
+        matrix (possibly empty)."""
+        from core.authz_matrix import build_authz_matrix_from_findings
+
+        return build_authz_matrix_from_findings(self.get_canonical_findings())
 
     def _print_attack_results(self):
         """Display rich attack/exploitation results in the console."""

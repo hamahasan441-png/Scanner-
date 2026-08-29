@@ -55,7 +55,16 @@ class _OOBHandler(BaseHTTPRequestHandler):
 class OOBCallbackServer:
     """Lightweight HTTP callback server for blind detection."""
 
-    def __init__(self, listen_host="0.0.0.0", listen_port=8888, external_domain=None):
+    def __init__(self, listen_host="127.0.0.1", listen_port=8888, external_domain=None):
+        # SECURITY FIX (OOB-001): Default bind to 127.0.0.1, not 0.0.0.0,
+        # to avoid exposing callback endpoint to network by default.
+        # Public binding requires explicit ATOMIC_OOB_PUBLIC=1 or
+        # listen_host override.
+        import os as _os
+        if listen_host == "0.0.0.0":
+            # If env explicitly allows public, keep it; otherwise force localhost
+            if _os.environ.get("ATOMIC_OOB_PUBLIC", "").lower() not in {"1", "true", "yes"}:
+                listen_host = "127.0.0.1"
         self.listen_host = listen_host
         self.listen_port = listen_port
         self.external_domain = external_domain or f"localhost:{listen_port}"

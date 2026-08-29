@@ -651,11 +651,11 @@ class DeepScanModule(BaseModule):
         """
         payloads = getattr(Payloads, "SQLI_SECOND_ORDER_EXTENDED", [])
 
-        # Calibrate baseline timing before injection tests
+        # Calibrate baseline timing and error baseline before injection tests
         baseline_start = time.time()
-        # We only need the round-trip time here, not the body.
-        self.requester.request(url, "GET")
+        baseline_resp = self.requester.request(url, "GET")
         baseline_elapsed = time.time() - baseline_start
+        baseline_text_lower = baseline_resp.text.lower() if (baseline_resp and baseline_resp.text) else ""
 
         # Threshold is baseline + 4 seconds to account for normal variation
         timing_threshold = baseline_elapsed + 4.0
@@ -691,11 +691,11 @@ class DeepScanModule(BaseModule):
                 )
                 return
 
-            # Check for error patterns in follow-up
+            # Check for error patterns in follow-up (only if not pre-existing in baseline)
             if followup_resp.text:
                 body_lower = followup_resp.text.lower()
                 for error_sig in self._INJECTION_ERROR_PATTERNS[:6]:
-                    if error_sig in body_lower:
+                    if error_sig in body_lower and error_sig not in baseline_text_lower:
                         self._add_finding(
                             technique="Second-Order SQL Injection (Error-based)",
                             url=url,

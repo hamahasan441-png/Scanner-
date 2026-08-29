@@ -319,7 +319,7 @@ class FuzzerModule(BaseModule):
             try:
                 test_url = f"{url}{'&' if '?' in url else '?'}{param_name}=test123"
                 response = self.requester.request(test_url, "GET")
-                if not response:
+                if response is None:
                     continue
                 if response.status_code != baseline_status or abs(len(response.text) - baseline_len) > 50:
                     discovered_params.append((url, "get", param_name, "test123", "fuzzer"))
@@ -452,7 +452,7 @@ class FuzzerModule(BaseModule):
             try:
                 test_url = f"{url}{'&' if '?' in url else '?'}{param_name}=test123"
                 response = self.requester.request(test_url, "GET")
-                if not response:
+                if response is None:
                     continue
                 if response.status_code != baseline_status or abs(len(response.text) - baseline_len) > 50:
                     discovered.append(param_name)
@@ -506,7 +506,7 @@ class FuzzerModule(BaseModule):
                 ]
                 for test_val in test_values:
                     response = self.requester.request(url, "GET", headers={header_name: test_val})
-                    if not response:
+                    if response is None:
                         continue
                     if response.status_code != baseline_status or abs(len(response.text) - baseline_len) > 100:
                         discovered.append(f"{header_name}: {test_val}")
@@ -536,7 +536,7 @@ class FuzzerModule(BaseModule):
         for http_method in self.http_methods:
             try:
                 response = self.requester.request(url, http_method)
-                if not response:
+                if response is None:
                     continue
                 if response.status_code not in (405, 501):
                     allowed_methods.append(http_method)
@@ -621,7 +621,7 @@ class FuzzerModule(BaseModule):
             try:
                 vhost = f"{prefix}.{domain}"
                 response = self.requester.request(url, "GET", headers={"Host": vhost})
-                if not response:
+                if response is None:
                     continue
                 resp_len = len(response.text)
                 if resp_len > 0 and abs(resp_len - baseline_len) > 100 and response.status_code != 404:
@@ -665,7 +665,7 @@ class FuzzerModule(BaseModule):
         for ctype in content_types:
             try:
                 response = self.requester.request(url, "POST", headers={"Content-Type": ctype}, data="")
-                if not response:
+                if response is None:
                     continue
                 resp_len = len(response.text)
                 if response.status_code != baseline_status or abs(resp_len - baseline_len) > 100:
@@ -715,7 +715,7 @@ class FuzzerModule(BaseModule):
             try:
                 test_url = urljoin(base_url, spath)
                 response = self.requester.request(test_url, "GET")
-                if not response:
+                if response is None:
                     continue
                 if response.status_code == 200 and len(response.text) > 0:
                     discovered.append(f"{spath} [{response.status_code}] [{len(response.text)}B]")
@@ -1077,7 +1077,7 @@ class FuzzerModule(BaseModule):
                 try:
                     test_url = f"{url}{'&' if '?' in url else '?'}{param}={value}"
                     resp = self.requester.request(test_url, "GET")
-                    if not resp:
+                    if resp is None:
                         continue
                     tested += 1
 
@@ -1144,7 +1144,7 @@ class FuzzerModule(BaseModule):
             try:
                 test_url = f"{url}{'&' if '?' in url else '?'}{param}={value}"
                 resp = self.requester.request(test_url, "GET")
-                if not resp:
+                if resp is None:
                     continue
 
                 if self._is_anomalous(resp, baseline_status, baseline_len, baseline_text):
@@ -1169,7 +1169,7 @@ class FuzzerModule(BaseModule):
     @staticmethod
     def _is_anomalous(resp, baseline_status, baseline_len, baseline_text):
         """Check if a response is anomalous compared to baseline."""
-        if not resp:
+        if resp is None:
             return False
 
         # Status code change
@@ -1423,7 +1423,7 @@ class FuzzerModule(BaseModule):
             try:
                 test_url = f"{base}{path}"
                 resp = self.requester.request(test_url, "GET")
-                if not resp:
+                if resp is None:
                     continue
                 # Skip custom 404s
                 if resp.status_code == canary_status and abs(len(resp.text) - canary_len) < 50:
@@ -1495,7 +1495,7 @@ class FuzzerModule(BaseModule):
             try:
                 test_url = f"{url}{'&' if '?' in url else '?'}{param_name}=test123"
                 resp = self.requester.request(test_url, "GET")
-                if not resp:
+                if resp is None:
                     continue
                 if resp.status_code != baseline_status or abs(len(resp.text) - baseline_len) > 50:
                     discovered.add(param_name)

@@ -83,7 +83,7 @@ class XSSModule(BaseModule):
             try:
                 data = {param: payload}
                 response = self.requester.request(url, method, data=data)
-                if not response:
+                if response is None:
                     continue
                 # Only flag if the full payload is reflected and was NOT in baseline
                 if payload in response.text and payload not in baseline_text:
@@ -197,7 +197,7 @@ class XSSModule(BaseModule):
             try:
                 data = {param: payload}
                 response = self.requester.request(url, method, data=data)
-                if not response:
+                if response is None:
                     continue
                 # Only flag when the payload is reflected AND was NOT
                 # already in the baseline (rules out generic echo of
@@ -246,7 +246,7 @@ class XSSModule(BaseModule):
             try:
                 data = {param: payload}
                 response = self.requester.request(url, method, data=data)
-                if not response:
+                if response is None:
                     continue
                 # Only flag when the payload is reflected AND was NOT
                 # already in the baseline.
@@ -280,7 +280,7 @@ class XSSModule(BaseModule):
             try:
                 data = {param: payload}
                 response = self.requester.request(url, method, data=data)
-                if not response:
+                if response is None:
                     continue
                 if payload in response.text:
                     from core.engine import Finding
@@ -316,7 +316,7 @@ class XSSModule(BaseModule):
             try:
                 data = {param: payload}
                 response = self.requester.request(url, method, data=data)
-                if not response:
+                if response is None:
                     continue
                 if payload in response.text:
                     from core.engine import Finding
@@ -354,7 +354,7 @@ class XSSModule(BaseModule):
                 data = {param: payload}
                 response = self.requester.request(url, method, data=data)
 
-                if not response:
+                if response is None:
                     continue
 
                 response_text = response.text
@@ -464,7 +464,7 @@ class XSSModule(BaseModule):
         try:
             response = self.requester.request(url, "GET")
 
-            if not response:
+            if response is None:
                 return
 
             for indicator in dom_indicators:

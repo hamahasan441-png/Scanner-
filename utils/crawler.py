@@ -6,11 +6,6 @@ Advanced Web Crawler Module
 """
 
 import re
-try:
-    from core.http.safe_client import SafeHTTPClient
-    _HAS_SAFECLIENT=True
-except ImportError:
-    _HAS_SAFECLIENT=False
 from urllib.parse import urljoin, urlparse, parse_qs
 
 

@@ -11,6 +11,7 @@ Detects HTTP/2 request smuggling vulnerabilities including:
 - WebSocket upgrade smuggling over HTTP/2
 """
 
+import re
 import socket
 import ssl
 from urllib.parse import urlparse
@@ -69,19 +70,23 @@ class H2SmugglingModule(BaseModule):
             f"\r\n"
             f"{body}"
         )
+        # Follow-up request to detect poisoning.  This MUST travel on the
+        # SAME connection as the poison request: only then can a desynced
+        # backend serve the queued (smuggled) request/response into the
+        # follow-up's response stream.  A fresh socket per request can
+        # never observe response-queue poisoning.
+        followup = (
+            f"GET {path} HTTP/1.1\r\n"
+            f"Host: {host}\r\n"
+            f"Connection: close\r\n"
+            f"\r\n"
+        )
 
         try:
-            self._raw_send(host, port, raw.encode(), use_ssl)
-            # Follow-up request to detect poisoning
-            normal = (
-                f"GET {path} HTTP/1.1\r\n"
-                f"Host: {host}\r\n"
-                f"Connection: close\r\n"
-                f"\r\n"
+            combined = self._raw_send_pipeline(
+                host, port, [raw.encode(), followup.encode()], use_ssl
             )
-            resp2 = self._raw_send(host, port, normal.encode(), use_ssl)
-
-            if resp2 and self._is_poisoned(resp2):
+            if combined and self._is_poisoned(combined):
                 self._emit_signal(
                     vuln_type="h2_smuggling",
                     technique="HTTP/2 Request Smuggling (H2.CL Desync)",
@@ -89,7 +94,7 @@ class H2SmugglingModule(BaseModule):
                     method="POST",
                     param="",
                     payload=raw[:300],
-                    evidence_text=resp2[:500].decode(errors="replace") if resp2 else "",
+                    evidence_text=combined[:500].decode(errors="replace") if combined else "",
                     raw_confidence=0.85,
                     severity="CRITICAL",
                     cvss=9.1,
@@ -116,10 +121,20 @@ class H2SmugglingModule(BaseModule):
             f"\r\n"
             f"{body}"
         )
+        # Reuse a single connection so a desync surfaces in the follow-up
+        # response stream (same rationale as H2.CL).
+        followup = (
+            f"GET {path} HTTP/1.1\r\n"
+            f"Host: {host}\r\n"
+            f"Connection: close\r\n"
+            f"\r\n"
+        )
 
         try:
-            resp = self._raw_send(host, port, raw.encode(), use_ssl)
-            if resp and (b"SMUGGLED_H2TE" in resp or self._is_poisoned(resp)):
+            combined = self._raw_send_pipeline(
+                host, port, [raw.encode(), followup.encode()], use_ssl
+            )
+            if combined and (b"SMUGGLED_H2TE" in combined or self._is_poisoned(combined)):
                 self._emit_signal(
                     vuln_type="h2_smuggling",
                     technique="HTTP/2 Request Smuggling (H2.TE Desync)",
@@ -127,7 +142,7 @@ class H2SmugglingModule(BaseModule):
                     method="POST",
                     param="",
                     payload=raw[:300],
-                    evidence_text=resp[:500].decode(errors="replace") if resp else "",
+                    evidence_text=combined[:500].decode(errors="replace") if combined else "",
                     raw_confidence=0.80,
                     severity="CRITICAL",
                     cvss=9.1,
@@ -195,10 +210,19 @@ class H2SmugglingModule(BaseModule):
             f"Connection: close\r\n"
             f"\r\n"
         )
+        # Follow-up on the same connection to catch a split/queued request.
+        followup = (
+            f"GET {path} HTTP/1.1\r\n"
+            f"Host: {host}\r\n"
+            f"Connection: close\r\n"
+            f"\r\n"
+        )
 
         try:
-            resp = self._raw_send(host, port, raw.encode(), use_ssl)
-            if resp and self._is_poisoned(resp):
+            combined = self._raw_send_pipeline(
+                host, port, [raw.encode(), followup.encode()], use_ssl
+            )
+            if combined and self._is_poisoned(combined):
                 self._emit_signal(
                     vuln_type="h2_smuggling",
                     technique="HTTP/2 Request Splitting (Oversized Headers)",
@@ -206,7 +230,7 @@ class H2SmugglingModule(BaseModule):
                     method="GET",
                     param="",
                     payload="X-Oversized: [8192 bytes + CRLF + smuggled request]",
-                    evidence_text=resp[:500].decode(errors="replace") if resp else "",
+                    evidence_text=combined[:500].decode(errors="replace") if combined else "",
                     raw_confidence=0.75,
                     severity="CRITICAL",
                     cvss=9.1,
@@ -235,7 +259,7 @@ class H2SmugglingModule(BaseModule):
 
         try:
             resp = self._raw_send(host, port, raw.encode(), use_ssl)
-            if resp and (b"101" in resp or self._is_poisoned(resp)):
+            if resp and (self._has_upgrade_101(resp) or self._is_poisoned(resp)):
                 # Check if the smuggled request was processed
                 if self._is_poisoned(resp) or b"admin" in resp.lower():
                     self._emit_signal(
@@ -311,24 +335,91 @@ class H2SmugglingModule(BaseModule):
             except Exception:
                 pass
 
+    def _raw_send_pipeline(self, host, port, requests, use_ssl, timeout=None):
+        """Send several raw HTTP requests over ONE connection and return the
+        accumulated response bytes.
+
+        Request-smuggling detection fundamentally requires connection reuse:
+        a desynced backend queues the smuggled bytes and serves them into the
+        NEXT request on the SAME connection.  Opening a fresh socket per
+        request (as ``_raw_send`` does) can therefore never observe response
+        queue poisoning.  This helper sends the poison request and the
+        follow-up request back-to-back over a single socket and returns the
+        concatenated responses, which ``_is_poisoned`` then inspects for an
+        extra (smuggled) response.
+
+        Args:
+            requests: Iterable of raw byte-encoded HTTP requests.
+
+        Returns:
+            Raw response bytes for the whole connection, or ``None`` on error.
+        """
+        timeout = timeout or self.timeout
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(timeout)
+        try:
+            sock.connect((host, port))
+            if use_ssl:
+                ctx = ssl.create_default_context()
+                ctx.check_hostname = False
+                ctx.verify_mode = ssl.CERT_NONE
+                sock = ctx.wrap_socket(sock, server_hostname=host)
+            for req in requests:
+                sock.sendall(req)
+            resp = b""
+            while True:
+                try:
+                    chunk = sock.recv(4096)
+                    if not chunk:
+                        break
+                    resp += chunk
+                except socket.timeout:
+                    break
+            return resp
+        except Exception:
+            return None
+        finally:
+            try:
+                sock.close()
+            except Exception:
+                pass
+
     @staticmethod
     def _is_poisoned(resp):
-        """Heuristic: the response shows signs of request smuggling."""
+        """Return True only on strong evidence of request-smuggling desync.
+
+        A well-behaved server returns exactly one HTTP response per request.
+        Seeing TWO or more complete status lines in a single connection read
+        means the connection carried an extra (smuggled) request/response —
+        the fingerprint of response-queue poisoning.
+
+        Generic errors from deliberately malformed probe input (``400 Bad
+        Request``, ``403 Forbidden``, ``405 Method Not Allowed``, ...) are
+        NOT treated as evidence: almost any well-behaved server returns one
+        of those for a malformed request, so matching them produces a finding
+        on every target.
+        """
         if isinstance(resp, bytes):
             resp_str = resp.decode(errors="replace")
         else:
             resp_str = resp
-        indicators = [
-            "HTTP/1.1 405",
-            "HTTP/1.1 400",
-            "HTTP/1.0 400",
-            "Unrecognized method",
-            "Invalid request",
-            "Bad Request",
-            "Method Not Allowed",
-            "403 Forbidden",
-        ]
-        return any(ind in resp_str for ind in indicators)
+        status_lines = re.findall(r"(?:^|\r\n)HTTP/\d\.\d \d{3}", resp_str)
+        return len(status_lines) >= 2
+
+    @staticmethod
+    def _has_upgrade_101(resp):
+        """Return True only if the response carries a real 101 Upgrade.
+
+        The literal bytes ``b\"101\"`` can appear anywhere in a body (an error
+        code, a version number, a length), so a substring check produces false
+        positives.  Requiring an actual ``HTTP/1.x 101`` status line makes the
+        detection precise.
+        """
+        if isinstance(resp, bytes):
+            resp_str = resp.decode(errors="replace")
+        else:
+            resp_str = resp
+        return bool(re.search(r"(?:^|\r\n)HTTP/\d\.\d 101\b", resp_str))
 
     @staticmethod
     def _has_crlf_evidence(resp):

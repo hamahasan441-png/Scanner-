@@ -457,6 +457,205 @@ class FindingGroup:
 
 
 # ---------------------------------------------------------------------------
+# Coverage
+# ---------------------------------------------------------------------------
+
+
+class CoverageState:
+    """Lifecycle states for a (endpoint, validator) coverage cell.
+
+    Ordered by strength via :data:`COVERAGE_RANK` so that merges never
+    silently downgrade a stronger observation (e.g. a VALIDATED cell is
+    never demoted back to PLANNED).
+    """
+
+    DISCOVERED = "DISCOVERED"      # endpoint known, nothing planned yet
+    PLANNED = "PLANNED"            # a validator was scheduled for it
+    SKIPPED = "SKIPPED"            # deliberately not run (scope/budget)
+    UNSUPPORTED = "UNSUPPORTED"    # validator can't apply to this endpoint
+    BLOCKED = "BLOCKED"            # couldn't run (auth/WAF/network)
+    TESTED = "TESTED"             # validator ran, no positive finding
+    INCONCLUSIVE = "INCONCLUSIVE"  # validator ran, result ambiguous
+    VALIDATED = "VALIDATED"       # validator ran and confirmed a finding
+
+    ALL = (
+        DISCOVERED, PLANNED, SKIPPED, UNSUPPORTED, BLOCKED,
+        TESTED, INCONCLUSIVE, VALIDATED,
+    )
+
+
+# Strength ranking: a mark() only ever moves a cell to an equal-or-higher rank.
+COVERAGE_RANK: Dict[str, int] = {
+    CoverageState.DISCOVERED: 0,
+    CoverageState.PLANNED: 1,
+    CoverageState.SKIPPED: 2,
+    CoverageState.UNSUPPORTED: 2,
+    CoverageState.BLOCKED: 2,
+    CoverageState.TESTED: 3,
+    CoverageState.INCONCLUSIVE: 3,
+    CoverageState.VALIDATED: 4,
+}
+
+
+@dataclass
+class CoverageRecord:
+    """One coverage cell: the state of a single validator against a single
+    endpoint.  The ``cell_key`` is a stable, param-agnostic identity so the
+    same (endpoint, validator) pair is tracked consistently across runs."""
+
+    endpoint_key: str = ""     # METHOD:netloc:path (param-agnostic)
+    url: str = ""
+    method: str = "GET"
+    validator: str = ""        # module / technique name
+    state: str = CoverageState.DISCOVERED
+    note: str = ""
+
+    @property
+    def cell_key(self) -> str:
+        return f"{self.endpoint_key}::{self.validator}"
+
+    def to_dict(self) -> dict:
+        return {
+            "endpoint_key": self.endpoint_key,
+            "method": self.method,
+            "note": self.note,
+            "state": self.state,
+            "url": self.url,
+            "validator": self.validator,
+        }
+
+
+@dataclass
+class CoverageSummary:
+    """Aggregate coverage metrics for a scan, consumed by reporters/web."""
+
+    endpoints_total: int = 0
+    endpoints_tested: int = 0        # >= TESTED for at least one validator
+    endpoints_validated: int = 0     # >= VALIDATED for at least one validator
+    endpoint_coverage_pct: float = 0.0
+    cells_total: int = 0
+    state_counts: Dict[str, int] = field(default_factory=dict)
+    validator_counts: Dict[str, int] = field(default_factory=dict)
+    untested_endpoints: List[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict:
+        return {
+            "cells_total": self.cells_total,
+            "endpoint_coverage_pct": self.endpoint_coverage_pct,
+            "endpoints_tested": self.endpoints_tested,
+            "endpoints_total": self.endpoints_total,
+            "endpoints_validated": self.endpoints_validated,
+            "state_counts": {k: self.state_counts[k] for k in sorted(self.state_counts)},
+            "untested_endpoints": sorted(self.untested_endpoints),
+            "validator_counts": {
+                k: self.validator_counts[k] for k in sorted(self.validator_counts)
+            },
+        }
+
+
+# ---------------------------------------------------------------------------
+# Attack-surface taxonomy + surface-category coverage ledger
+# ---------------------------------------------------------------------------
+
+
+class SurfaceCategory:
+    """The major attack-surface classes a complete assessment must account for.
+
+    The point of enumerating these is to make blind spots explicit: a
+    category left at ``NOT_TESTED`` shows up in the report rather than being
+    silently omitted.
+    """
+
+    NETWORK = "NETWORK"
+    WEB_APP = "WEB_APP"
+    API = "API"
+    AUTHENTICATION = "AUTHENTICATION"
+    AUTHORIZATION = "AUTHORIZATION"
+    INPUT_PROCESSING = "INPUT_PROCESSING"
+    FILE_HANDLING = "FILE_HANDLING"
+    CLIENT_SIDE = "CLIENT_SIDE"
+    BUSINESS_LOGIC = "BUSINESS_LOGIC"
+    HTTP_EDGE = "HTTP_EDGE"
+    DNS_DOMAIN = "DNS_DOMAIN"
+    TLS_CRYPTO = "TLS_CRYPTO"
+    CLOUD_PLATFORM = "CLOUD_PLATFORM"
+    SECRETS = "SECRETS"
+    SECURITY_CONTROLS = "SECURITY_CONTROLS"
+    TECH_VERSION = "TECH_VERSION"
+
+    ALL = (
+        NETWORK, WEB_APP, API, AUTHENTICATION, AUTHORIZATION, INPUT_PROCESSING,
+        FILE_HANDLING, CLIENT_SIDE, BUSINESS_LOGIC, HTTP_EDGE, DNS_DOMAIN,
+        TLS_CRYPTO, CLOUD_PLATFORM, SECRETS, SECURITY_CONTROLS, TECH_VERSION,
+    )
+
+
+class SurfaceCoverageStatus:
+    """The outcome of assessing a surface category.
+
+    Deliberately distinguishes the four states the roadmap insists must never
+    be collapsed: NOT_TESTED vs TESTED_NO_ISSUE vs INCONCLUSIVE vs (issues).
+    """
+
+    NOT_TESTED = "NOT_TESTED"
+    TESTED_NO_ISSUE = "TESTED_NO_ISSUE"
+    TESTED_ISSUES = "TESTED_ISSUES"
+    INCONCLUSIVE = "INCONCLUSIVE"
+    SKIPPED = "SKIPPED"          # deliberately out of scope / budget
+    BLOCKED = "BLOCKED"          # could not test (auth/WAF/network)
+    UNSUPPORTED = "UNSUPPORTED"  # no validator available for this category
+
+    ALL = (
+        NOT_TESTED, TESTED_NO_ISSUE, TESTED_ISSUES, INCONCLUSIVE,
+        SKIPPED, BLOCKED, UNSUPPORTED,
+    )
+
+
+@dataclass
+class SurfaceLedgerEntry:
+    """Coverage record for one attack-surface category."""
+
+    category: str = ""
+    status: str = SurfaceCoverageStatus.NOT_TESTED
+    tested_count: int = 0          # discrete checks executed
+    issue_count: int = 0           # findings attributed to this category
+    reason: str = ""               # why SKIPPED/BLOCKED/INCONCLUSIVE
+    evidence_refs: List[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict:
+        return {
+            "category": self.category,
+            "evidence_refs": sorted(self.evidence_refs),
+            "issue_count": self.issue_count,
+            "reason": self.reason,
+            "status": self.status,
+            "tested_count": self.tested_count,
+        }
+
+
+# ---------------------------------------------------------------------------
+# Finding lifecycle state
+# ---------------------------------------------------------------------------
+
+
+class FindingState:
+    """Evidence-driven lifecycle for a finding.
+
+    CRITICAL/HIGH findings may only reach ``CONFIRMED`` with two independent
+    forms of evidence (see :func:`core.finding_state.derive_finding_state`);
+    this is a deliberate false-positive brake on the highest-impact claims.
+    """
+
+    SUSPECTED = "SUSPECTED"                    # hypothesis, no evidence yet
+    OBSERVED = "OBSERVED"                      # a raw signal seen, not validated
+    VALIDATED = "VALIDATED"                    # reproduced/validated
+    CONFIRMED = "CONFIRMED"                    # validated + sufficient independent evidence
+    REJECTED_FALSE_POSITIVE = "REJECTED_FALSE_POSITIVE"
+
+    ALL = (SUSPECTED, OBSERVED, VALIDATED, CONFIRMED, REJECTED_FALSE_POSITIVE)
+
+
+# ---------------------------------------------------------------------------
 # ScanResult
 # ---------------------------------------------------------------------------
 
@@ -473,9 +672,11 @@ class ScanResult:
     findings: List[CanonicalFinding] = field(default_factory=list)
     groups: List[FindingGroup] = field(default_factory=list)
     surface: Optional[TargetSurface] = None
+    coverage: Optional[CoverageSummary] = None
 
     def to_dict(self) -> dict:
         return {
+            "coverage": self.coverage.to_dict() if self.coverage else None,
             "end_time": self.end_time,
             "findings": [f.to_dict() for f in self.findings],
             "groups": [g.to_dict() for g in self.groups],

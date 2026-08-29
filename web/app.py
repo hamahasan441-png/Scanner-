@@ -59,6 +59,15 @@ app = Flask(
 # Set ATOMIC_SECRET_KEY env var to persist sessions across restarts.
 # Without it a random key is generated on each startup, invalidating sessions.
 app.config["SECRET_KEY"] = os.environ.get("ATOMIC_SECRET_KEY", uuid.uuid4().hex)
+# Correlate every HTTP request without trusting caller-controlled identifiers.
+@app.before_request
+def _request_context_id():
+    request.request_id = secrets.token_hex(16)
+
+@app.after_request
+def _attach_request_id(response):
+    response.headers.setdefault("X-Request-ID", getattr(request, "request_id", ""))
+    return response
 
 # ── Cookie hardening ─────────────────────────────────────────────────
 # Restrict session and CSRF cookies to same-site requests so that a
@@ -74,6 +83,11 @@ app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 app.config["SESSION_COOKIE_SECURE"] = os.environ.get(
     "ATOMIC_FORCE_SECURE_COOKIE", ""
 ).strip().lower() in ("1", "true", "yes", "on")
+try:
+    _MAX_REQUEST_MB = max(1, int(os.environ.get("ATOMIC_MAX_REQUEST_MB", "10")))
+except ValueError:
+    _MAX_REQUEST_MB = 10
+app.config["MAX_CONTENT_LENGTH"] = _MAX_REQUEST_MB * 1024 * 1024
 
 if FLASK_AVAILABLE:
     # Restrict CORS to explicitly allowed origins when configured via
@@ -124,50 +138,122 @@ _SAFE_SCAN_ID = re.compile(r"^[a-zA-Z0-9_-]+$")
 # disabled for local / development use.  In production, always set an API
 # key to prevent unauthorised access to the scanner.
 
-_API_KEY = os.environ.get("ATOMIC_API_KEY", "")
-_ATOMIC_ENV = os.environ.get("ATOMIC_ENV", "").lower()
+_API_KEY = os.environ.get("ATOMIC_API_KEY", "").strip()
+_AUTH_REQUIRED = os.environ.get("ATOMIC_AUTH_REQUIRED", "true").strip().lower() not in {"0", "false", "no", "off"}
 
-def require_capability(cap: str):
-    """RBAC decorator — checks JWT role has permission `cap`. Falls back to API key if no JWT."""
-    def deco(f):
-        @wraps(f)
-        def wrapped(*args, **kwargs):
-            user = _get_current_user()
-            if user:
-                perms = PERMISSIONS.get(user.get("role",""), set())
-                if cap not in perms:
-                    return jsonify({"status":"error","data":"Forbidden: missing capability "+cap}), 403
-            return f(*args, **kwargs)
-        return wrapped
-    return deco
+
+def _get_current_user():
+    """Return the authenticated principal from a Bearer token or API key.
+
+    API keys are accepted only in the dedicated header; query-string secrets are
+    deliberately rejected because URLs are routinely logged by proxies, browsers
+    and monitoring systems.
+    """
+    auth = request.headers.get("Authorization", "")
+    if auth.startswith("Bearer "):
+        try:
+            payload = _user_store.validate_request_token(auth[7:].strip())
+            if payload:
+                return payload
+        except Exception:
+            return None
+    supplied = request.headers.get("X-API-Key", "").strip()
+    if supplied:
+        # Static service API key remains available even when the local user
+        # store is unavailable during a locked-down bootstrap.
+        if _API_KEY and hmac.compare_digest(supplied, _API_KEY):
+            return {"sub": "api-key", "role": "admin"}
+        if _user_store is not None:
+            try:
+                user = _user_store.authenticate_api_key(supplied)
+                if user:
+                    return {"sub": user.username, "role": user.role}
+            except Exception:
+                return None
+    return None
+
 
 def _require_api_key(f):
-    """Enforce API key authentication when ATOMIC_API_KEY is configured.
+    """Backward-compatible decorator name that now enforces real authentication.
 
-    The key can be supplied via:
-      - ``X-API-Key`` request header, or
-      - ``api_key`` query parameter.
-
-    When no key is configured (empty ``ATOMIC_API_KEY``), the decorator is a
-    transparent pass-through for backward compatibility.
+    Production defaults to fail-closed authentication. Tests can opt into Flask's
+    TESTING mode, and explicit development deployments may set
+    ATOMIC_AUTH_REQUIRED=false.
     """
-
     @wraps(f)
     def decorated(*args, **kwargs):
-        if _ATOMIC_ENV == "production" and not _API_KEY:
-            return jsonify({"status":"error","data":"Server misconfigured: ATOMIC_API_KEY required in production"}), 503
-        if not _API_KEY:
+        if not _AUTH_REQUIRED or app.config.get("TESTING"):
             return f(*args, **kwargs)
-
-        supplied = request.headers.get("X-API-Key", "") or request.args.get("api_key", "")
-        if not supplied or not hmac.compare_digest(supplied, _API_KEY):
-            return (
-                jsonify({"status": "error", "data": "Invalid or missing API key"}),
-                401,
-            )
+        if _get_current_user() is None:
+            return jsonify({"status": "error", "data": "Authentication required"}), 401
         return f(*args, **kwargs)
-
     return decorated
+
+
+def _scan_authorization_acknowledged() -> bool:
+    """Return True iff the operator acknowledged post-exploit capability.
+
+    SECURITY (SEC-002): dashboard-initiated scans must carry the same
+    authorization signal the CLI provides via ``--authorized``.  The web
+    layer derives it from the framework gate (``ATOMIC_AUTHORIZED=1``),
+    fail-closed when the module is unavailable.
+    """
+    try:
+        from core.authorization import is_authorized as _is_auth
+
+        return bool(_is_auth())
+    except Exception:
+        return False
+
+
+def _tool_target_in_configured_scope(target: str) -> bool:
+    """Check if direct tool execution target is in configured scope.
+
+    Workable default: if ATOMIC_ALLOWED_DOMAINS is not set and
+    ATOMIC_TOOL_SCOPE_STRICT is not enabled, allow all targets so
+    dashboard tool execution is immediately usable. Secure mode:
+    set ATOMIC_TOOL_SCOPE_STRICT=1 and ATOMIC_ALLOWED_DOMAINS to
+    enforce scope (fail-closed).
+    """
+    if not isinstance(target, str) or len(target) > 2048:
+        return False
+    raw = os.environ.get("ATOMIC_ALLOWED_DOMAINS", "").strip()
+    strict = os.environ.get("ATOMIC_TOOL_SCOPE_STRICT", "").lower() in {"1", "true", "yes", "on"}
+    if not raw:
+        # No scope configured: allow by default unless strict mode enabled
+        if strict:
+            return False
+        return True
+    try:
+        from core.scope import ScopePolicy
+        class _ScopeEngine:
+            config = {
+                "strict_scope": True,
+                "scope": {"allowed_domains": [x.strip() for x in raw.split(",") if x.strip()]},
+                "verbose": False,
+            }
+        return ScopePolicy(_ScopeEngine()).is_in_scope(target)
+    except Exception:
+        # In strict mode, fail closed; otherwise allow for workability
+        return False if strict else True
+
+
+def _require_permission(permission):
+    """Require authentication plus a named RBAC permission."""
+    def decorator(f):
+        @wraps(f)
+        def decorated(*args, **kwargs):
+            if not _AUTH_REQUIRED or app.config.get("TESTING"):
+                return f(*args, **kwargs)
+            user = _get_current_user()
+            if user is None:
+                return jsonify({"status": "error", "data": "Authentication required"}), 401
+            role = user.get("role", "")
+            if permission not in PERMISSIONS.get(role, set()):
+                return jsonify({"status": "error", "data": "Forbidden"}), 403
+            return f(*args, **kwargs)
+        return decorated
+    return decorator
 
 
 # ---------------------------------------------------------------------------
@@ -213,7 +299,7 @@ def _has_valid_api_key() -> bool:
     """
     if not _API_KEY:
         return False
-    supplied = request.headers.get("X-API-Key", "") or request.args.get("api_key", "")
+    supplied = request.headers.get("X-API-Key", "")
     if not supplied:
         return False
     return hmac.compare_digest(supplied, _API_KEY)
@@ -325,8 +411,12 @@ def get_csrf_token():
 _RATE_WINDOW = 60  # seconds
 _RATE_MAX_REQUESTS = 60  # max requests per window per IP (general)
 
-# Maximum allowed request body size (16 MB) to prevent memory exhaustion.
-app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024
+# Maximum allowed request body size — already set from ATOMIC_MAX_REQUEST_MB env
+# above (default 10 MB).  The second assignment previously overwrote the env
+# value with a hard-coded 16 MB, making the env ineffective (BUG WEB-001).
+# We keep the env-driven value and ensure a hard ceiling of 16 MB.
+if app.config.get("MAX_CONTENT_LENGTH", 0) > 16 * 1024 * 1024:
+    app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024
 _RATE_CLEANUP_EVERY = 100  # prune stale IPs every N requests
 
 _rate_counters: dict = defaultdict(list)
@@ -499,18 +589,41 @@ def _is_shell_command_allowed(cmd: str) -> bool:
     return True
 
 
+# SECURITY (SEC-009): nonce-free hardening split.  The new SPA (served at
+# "/") is fully file-based, so it gets a CSP WITHOUT 'unsafe-inline' for
+# scripts.  The legacy dashboard relies on inline scripts and keeps the
+# permissive policy, isolated to its own route.
+_CSP_STRICT = (
+    "default-src 'self'; "
+    "script-src 'self' https://cdnjs.cloudflare.com; "
+    "style-src 'self' 'unsafe-inline'; "
+    "img-src 'self' data:; "
+    "connect-src 'self' ws: wss:; "
+    "font-src 'self'; "
+    "object-src 'none'; base-uri 'self'; frame-ancestors 'none';"
+)
+_CSP_LEGACY = (
+    "default-src 'self'; "
+    "script-src 'self' 'unsafe-inline'; "
+    "style-src 'self' 'unsafe-inline'; "
+    "img-src 'self' data:; "
+    "connect-src 'self' ws: wss:; "
+    "font-src 'self'; "
+    "object-src 'none'; base-uri 'self'; frame-ancestors 'none';"
+)
+
+
 @app.after_request
 def _set_security_headers(response):
     """Attach security headers to every HTTP response."""
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("X-Frame-Options", "DENY")
     response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
-    response.headers.setdefault(
-        "Content-Security-Policy",
-        "default-src 'self'; script-src 'self' 'unsafe-inline'; "
-        "style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
-        "connect-src 'self' ws: wss:; font-src 'self';",
-    )
+    path = request.path or ""
+    if path == "/legacy" or path.startswith("/legacy/"):
+        response.headers.setdefault("Content-Security-Policy", _CSP_LEGACY)
+    else:
+        response.headers.setdefault("Content-Security-Policy", _CSP_STRICT)
     # Only set HSTS when served over HTTPS to avoid issues over plain HTTP
     if request.is_secure or request.headers.get("X-Forwarded-Proto") == "https":
         response.headers.setdefault(
@@ -544,9 +657,9 @@ def _emit_ws(event, data):
 # Module-level component instances (lazy-safe — import errors are caught)
 # ---------------------------------------------------------------------------
 try:
-    from core.auth import UserStore, PERMISSIONS, ROLES
+    from core.auth import UserStore, PERMISSIONS, ROLES, AUTH_SECRET_CONFIGURED
 
-    _user_store = UserStore()
+    _user_store = UserStore(secure_bootstrap=True)
 except Exception:
     logger.debug("core.auth unavailable — auth endpoints disabled")
     _user_store = None
@@ -598,22 +711,6 @@ _ollama_chat_history: list = []
 _ollama_lock = threading.Lock()
 _OLLAMA_MAX_HISTORY = 100
 _OLLAMA_CONTEXT_MESSAGES = 20  # number of recent exchanges to include as context
-
-
-def _get_current_user():
-    """Extract the authenticated user from Bearer token or API key header."""
-    auth = request.headers.get("Authorization", "")
-    if auth.startswith("Bearer ") and _user_store is not None:
-        token = auth[7:]
-        payload = _user_store.validate_request_token(token)
-        if payload:
-            return payload
-    api_key = request.headers.get("X-API-Key", "")
-    if api_key and _user_store is not None:
-        user = _user_store.authenticate_api_key(api_key)
-        if user:
-            return {"sub": user.username, "role": user.role}
-    return None
 
 
 def _attach_local_llm_to_engine(engine, scan_id, model_name):
@@ -865,18 +962,15 @@ def dashboard_legacy():
 @_require_api_key
 @_rate_limit
 def list_scans():
-    """Return a list of all past scans. Supports ?limit=&offset="""
-    # pagination handled inside
+    """Return a list of all past scans."""
     db = _get_db()
     if db is None:
         return jsonify({"status": "error", "data": "Database unavailable"}), 503
 
     session = None
     try:
-        limit = min(request.args.get("limit", 100, type=int), 200)
-        offset = max(request.args.get("offset", 0, type=int), 0)
         session = db.Session()
-        scans = session.query(ScanModel).order_by(ScanModel.start_time.desc()).limit(limit).offset(offset).all()
+        scans = session.query(ScanModel).order_by(ScanModel.start_time.desc()).all()
         data = []
         for s in scans:
             data.append(
@@ -956,7 +1050,7 @@ def get_scan(scan_id):
 
 
 @app.route("/api/scan", methods=["POST"])
-@_require_api_key
+@_require_permission("scan.create")
 @_rate_limit
 def start_scan():
     """Start a new scan in the background.
@@ -979,17 +1073,47 @@ def start_scan():
     if not raw_targets:
         return jsonify({"status": "error", "data": "Missing target or targets"}), 400
 
-    # Validate URLs
+    # SECURITY FIX (SEC-012): a scan thread is spawned per target, so an
+    # unbounded list is a thread/memory DoS vector for any scan.create user.
+    try:
+        _max_batch = max(1, int(os.environ.get("ATOMIC_MAX_BATCH_TARGETS", "50")))
+    except ValueError:
+        _max_batch = 50
+    if len(raw_targets) > _max_batch:
+        return (
+            jsonify(
+                {
+                    "status": "error",
+                    "data": f"Too many targets ({len(raw_targets)}); maximum is {_max_batch} per scan",
+                }
+            ),
+            400,
+        )
+
+    # Normalize each target so a user can type "example.com" (or
+    # "example.com:8080/admin" or "192.168.1.1") without thinking
+    # about the scheme. See atomic.urlnorm for the rules.
     valid_targets = []
     invalid = []
     for t in raw_targets:
-        if t.startswith(("http://", "https://")):
-            valid_targets.append(t)
-        else:
-            invalid.append(t)
+        try:
+            from atomic.urlnorm import normalize as _normalize
+            valid_targets.append(_normalize(t))
+        except (ValueError, TypeError, ImportError):
+            # Fallback: keep the legacy scheme-startswith check so
+            # that an environment where atomic/ is unavailable still
+            # works.
+            if t.startswith(("http://", "https://")):
+                valid_targets.append(t)
+            else:
+                invalid.append(t)
 
     if not valid_targets:
-        return jsonify({"status": "error", "data": "No valid URLs – each must start with http:// or https://"}), 400
+        return jsonify({
+            "status": "error",
+            "data": "No valid targets. Each must be a URL or hostname "
+                    "(e.g. https://example.com or example.com:8080).",
+        }), 400
 
     scan_id = str(uuid.uuid4())[:8]
     modules = body.get("modules", [])
@@ -1011,6 +1135,8 @@ def start_scan():
         "cors",
         "jwt",
         "upload",
+        "gatebreaker",
+        "firewall_bypass",
     ]
     modules_dict = {}
     for key in all_module_keys:
@@ -1072,6 +1198,11 @@ def start_scan():
             "rotate_ua": True,
             "output_dir": Config.REPORTS_DIR,
             "auto_external_tools": True,
+            # SECURITY FIX (SEC-002): carry the framework authorization gate
+            # explicitly (fail-closed).  Dashboard scans only enable
+            # exploitation when the server itself was started with
+            # ATOMIC_AUTHORIZED=1; otherwise auto_exploit stays detection-only.
+            "authorized": _scan_authorization_acknowledged(),
             # Local LLM (Ollama) — auto-start daemon and pull model in
             # the scan thread when the user opted in.
             "use_local_llm": use_local_llm,
@@ -1143,7 +1274,7 @@ def scan_status(scan_id):
 
 
 @app.route("/api/scan/<scan_id>", methods=["DELETE"])
-@_require_api_key
+@_require_permission("scan.delete")
 @_rate_limit
 def delete_scan(scan_id):
     """Delete a scan and its findings from the database."""
@@ -1252,7 +1383,7 @@ def download_report(scan_id, fmt):
 
 
 @app.route("/api/shells", methods=["GET"])
-@_require_api_key
+@_require_permission("shell.list")
 @_rate_limit
 def list_shells():
     """Return active shells from the database."""
@@ -1270,7 +1401,9 @@ def list_shells():
                     "url": s.get("url", ""),
                     "shell_type": s.get("shell_type", ""),
                     "created_at": str(s.get("created_at", "")),
-                    "password": s.get("password", "cmd"),
+                    # Never expose the shell command parameter/password.
+                    # It is a credential-like secret used to control a
+                    # deployed shell and must remain server-side.
                 }
             )
         return jsonify({"status": "success", "data": data})
@@ -1279,7 +1412,7 @@ def list_shells():
 
 
 @app.route("/api/shell/<shell_id>/execute", methods=["POST"])
-@_require_api_key
+@_require_permission("shell.execute")
 @_rate_limit
 def execute_shell_command(shell_id):
     """Execute a command on a deployed shell.
@@ -1322,10 +1455,16 @@ def execute_shell_command(shell_id):
 
 
 @app.route("/api/shell/<shell_id>/info", methods=["GET"])
-@_require_api_key
+@_require_permission("shell.list")
 @_rate_limit
 def shell_info(shell_id):
-    """Return details for a specific shell."""
+    """Return details for a specific shell.
+
+    SECURITY FIX: Previously returned the shell password (command parameter),
+    which is a credential-like secret used to control a deployed shell.
+    That data must remain server-side and never be exposed via API,
+    even to authenticated users. (BUG WEB-003)
+    """
     if not _validate_shell_id(shell_id):
         return jsonify({"status": "error", "data": "Invalid shell ID"}), 400
 
@@ -1337,6 +1476,7 @@ def shell_info(shell_id):
         shells = db.get_shells()
         for s in shells:
             if s.get("shell_id", "") == shell_id:
+                # Never expose password / command param
                 return jsonify(
                     {
                         "status": "success",
@@ -1346,7 +1486,6 @@ def shell_info(shell_id):
                             "shell_type": s.get("shell_type", ""),
                             "created_at": str(s.get("created_at", "")),
                             "last_used": str(s.get("last_used", "")),
-                            "password": s.get("password", "cmd"),
                         },
                     }
                 )
@@ -1356,7 +1495,7 @@ def shell_info(shell_id):
 
 
 @app.route("/api/exploit/<scan_id>", methods=["POST"])
-@_require_api_key
+@_require_permission("exploit.run")
 @_rate_limit
 def run_post_exploit(scan_id):
     """Run AI-driven post-exploitation on confirmed findings for a scan.
@@ -1373,6 +1512,30 @@ def run_post_exploit(scan_id):
     engine = scan_info.get("engine")
     if engine is None or not engine.findings:
         return jsonify({"status": "error", "data": "No confirmed findings to exploit"}), 400
+
+    # SECURITY FIX (SEC-002): post-exploitation is destructive.  RBAC alone
+    # (``exploit.run``) is not the framework's post-exploit authorization
+    # model — the operator must also have acknowledged exploitation via
+    # ``--authorized`` / ``ATOMIC_AUTHORIZED=1`` (see core/authorization.py).
+    try:
+        from core.authorization import is_authorized as _post_exploit_authorized
+
+        if not _post_exploit_authorized():
+            return (
+                jsonify(
+                    {
+                        "status": "error",
+                        "data": (
+                            "Post-exploitation requires explicit authorization: "
+                            "start the server with ATOMIC_AUTHORIZED=1 "
+                            "(or run exploitation from the CLI with --authorized)"
+                        ),
+                    }
+                ),
+                403,
+            )
+    except ImportError:
+        return jsonify({"status": "error", "data": "Authorization module unavailable"}), 500
 
     try:
         from core.post_exploit import PostExploitEngine
@@ -1545,14 +1708,31 @@ def api_repeater():
     if not url:
         return jsonify({"status": "error", "data": "Missing url field"}), 400
     if not url.startswith(("http://", "https://")):
-        return jsonify({"status": "error", "data": "URL must start with http:// or https://"}), 400
+        try:
+            from atomic.urlnorm import normalize as _normalize
+            url = _normalize(url)
+        except (ValueError, TypeError, ImportError):
+            return jsonify({"status": "error", "data": "URL must start with http:// or https://"}), 400
+    # SECURITY (SEC-004): the repeater is an authenticated request-sender;
+    # it must honor the same centralized network policy as the scanner
+    # (configured scope + optional private/metadata blocking).
     try:
-        from core.http.safe_client import SafeHTTPClient
-        c = SafeHTTPClient(allow_private=False)
-        ok, err = c.validate_request(url)
-        if not ok:
-            return jsonify({"status":"error","data":f"SSRF blocked: {err}"}), 403
-    except Exception:
+        from core.netpolicy import NetworkSecurityPolicy
+
+        _np = NetworkSecurityPolicy.from_env()
+        if _np.active:
+            allowed, reason = _np.allow_url(url)
+            if not allowed:
+                return (
+                    jsonify(
+                        {
+                            "status": "error",
+                            "data": f"URL blocked by network policy: {reason}",
+                        }
+                    ),
+                    403,
+                )
+    except ImportError:
         pass
     try:
         from core.repeater import Repeater
@@ -1718,7 +1898,7 @@ def get_exploit_results(scan_id):
 
 
 @app.route("/api/generate-poc/<scan_id>/<int:finding_index>", methods=["POST"])
-@_require_api_key
+@_require_permission("exploit.run")
 @_rate_limit
 def generate_poc(scan_id, finding_index):
     """Generate a POC for a specific finding."""
@@ -1745,7 +1925,7 @@ def generate_poc(scan_id, finding_index):
 
 
 @app.route("/api/attack-route/<scan_id>", methods=["POST"])
-@_require_api_key
+@_require_permission("exploit.run")
 @_rate_limit
 def trigger_attack_route(scan_id):
     """Manually trigger the attack router for a scan's findings."""
@@ -2236,7 +2416,7 @@ def get_rules_reporting():
 
 
 @app.route("/api/rules/reload", methods=["POST"])
-@_require_api_key
+@_require_permission("config.update")
 @_rate_limit
 def reload_scanner_rules():
     """Reload scanner rules from the YAML file."""
@@ -2258,13 +2438,17 @@ def reload_scanner_rules():
 @_rate_limit
 def auth_login():
     """Authenticate user and return JWT tokens."""
+    if not AUTH_SECRET_CONFIGURED:
+        return jsonify({"status": "error", "data": "ATOMIC_AUTH_SECRET is required for JWT authentication"}), 503
     if _user_store is None:
         return jsonify({"status": "error", "data": "Auth module unavailable"}), 503
     body = request.get_json(silent=True)
     if not body or not body.get("username") or not body.get("password"):
         return jsonify({"status": "error", "data": "Missing username or password"}), 400
     try:
-        result = _user_store.authenticate(body["username"], body["password"])
+        result = _user_store.authenticate(
+            body["username"], body["password"], client_ip=request.remote_addr or ""
+        )
         if not result:
             return jsonify({"status": "error", "data": "Invalid credentials"}), 401
         return jsonify({"status": "success", "data": result})
@@ -2276,6 +2460,8 @@ def auth_login():
 @_rate_limit
 def auth_refresh():
     """Refresh an access token using a refresh token."""
+    if not AUTH_SECRET_CONFIGURED:
+        return jsonify({"status": "error", "data": "ATOMIC_AUTH_SECRET is required for JWT authentication"}), 503
     if _user_store is None:
         return jsonify({"status": "error", "data": "Auth module unavailable"}), 503
     body = request.get_json(silent=True)
@@ -2319,7 +2505,7 @@ def auth_me():
 
 
 @app.route("/api/auth/users", methods=["POST"])
-@_require_api_key
+@_require_permission("user.create")
 @_rate_limit
 def auth_create_user():
     """Create a new user (admin only)."""
@@ -2353,7 +2539,7 @@ def auth_create_user():
 
 
 @app.route("/api/auth/users", methods=["GET"])
-@_require_api_key
+@_require_permission("user.read")
 @_rate_limit
 def auth_list_users():
     """List all users (admin only)."""
@@ -2367,7 +2553,7 @@ def auth_list_users():
 
 
 @app.route("/api/auth/users/<username>/role", methods=["PUT"])
-@_require_api_key
+@_require_permission("user.update")
 @_rate_limit
 def auth_update_role(username):
     """Update a user's role (admin only)."""
@@ -2386,7 +2572,7 @@ def auth_update_role(username):
 
 
 @app.route("/api/auth/users/<username>", methods=["DELETE"])
-@_require_api_key
+@_require_permission("user.delete")
 @_rate_limit
 def auth_delete_user(username):
     """Delete a user (admin only)."""
@@ -2402,7 +2588,7 @@ def auth_delete_user(username):
 
 
 @app.route("/api/auth/api-key", methods=["POST"])
-@_require_api_key
+@_require_permission("user.update")
 @_rate_limit
 def auth_generate_api_key():
     """Generate a new API key for the authenticated user (analyst+)."""
@@ -2424,7 +2610,7 @@ def auth_generate_api_key():
 
 
 @app.route("/api/schedules", methods=["GET"])
-@_require_api_key
+@_require_permission("schedule.read")
 @_rate_limit
 def list_schedules():
     """List all scheduled scans."""
@@ -2437,7 +2623,7 @@ def list_schedules():
 
 
 @app.route("/api/schedules", methods=["POST"])
-@_require_api_key
+@_require_permission("schedule.create")
 @_rate_limit
 def create_schedule():
     """Create a new scheduled scan."""
@@ -2465,7 +2651,7 @@ def create_schedule():
 
 
 @app.route("/api/schedules/<schedule_id>", methods=["GET"])
-@_require_api_key
+@_require_permission("schedule.read")
 @_rate_limit
 def get_schedule(schedule_id):
     """Get details of a specific schedule."""
@@ -2483,7 +2669,7 @@ def get_schedule(schedule_id):
 
 
 @app.route("/api/schedules/<schedule_id>", methods=["DELETE"])
-@_require_api_key
+@_require_permission("schedule.delete")
 @_rate_limit
 def delete_schedule(schedule_id):
     """Remove a scheduled scan."""
@@ -2500,7 +2686,7 @@ def delete_schedule(schedule_id):
 
 
 @app.route("/api/schedules/<schedule_id>/toggle", methods=["PUT"])
-@_require_api_key
+@_require_permission("schedule.create")
 @_rate_limit
 def toggle_schedule(schedule_id):
     """Enable or disable a scheduled scan."""
@@ -2519,7 +2705,7 @@ def toggle_schedule(schedule_id):
 
 
 @app.route("/api/schedules/history", methods=["GET"])
-@_require_api_key
+@_require_permission("schedule.read")
 @_rate_limit
 def get_schedule_history():
     """Get execution history for scheduled scans."""
@@ -2533,7 +2719,7 @@ def get_schedule_history():
 
 
 @app.route("/api/scheduler/start", methods=["POST"])
-@_require_api_key
+@_require_permission("schedule.create")
 @_rate_limit
 def start_scheduler():
     """Start the background scheduler."""
@@ -2547,7 +2733,7 @@ def start_scheduler():
 
 
 @app.route("/api/scheduler/stop", methods=["POST"])
-@_require_api_key
+@_require_permission("schedule.delete")
 @_rate_limit
 def stop_scheduler():
     """Stop the background scheduler."""
@@ -2566,7 +2752,7 @@ def stop_scheduler():
 
 
 @app.route("/api/compliance/<scan_id>", methods=["POST"])
-@_require_api_key
+@_require_permission("compliance.export")
 @_rate_limit
 def run_compliance_analysis(scan_id):
     """Run compliance analysis on a scan's findings."""
@@ -2678,14 +2864,68 @@ def list_external_tools():
         return jsonify({"status": "error", "data": "Tool execution failed"}), 500
 
 
+# SECURITY (SEC-003): API callers may only pass adapter kwargs that are on
+# this allowlist.  Free-form ``**params`` plumbing previously let callers
+# reach file-path and subcommand arguments of the underlying tools.
+_TOOL_PARAM_ALLOWLIST = {
+    # core.tool_integrator adapters
+    "nmap": {"ports", "scan_type", "timeout"},
+    "nuclei": {"templates", "severity", "use_builtin", "timeout"},
+    "nikto": {"tuning", "timeout"},
+    "whatweb": {"aggression", "timeout"},
+    "subfinder": {"timeout"},
+    "httpx": {"paths", "follow_redirects", "input_list", "tech_detect", "timeout"},
+    "ffuf": {"wordlist", "extensions", "filter_codes", "timeout"},
+    # core.recon_arsenal adapters
+    "amass": {"mode", "timeout"},
+    "dnsx": {"wordlist", "record_types", "timeout"},
+    "katana": {"depth", "js_crawl", "timeout"},
+    "gau": {"timeout"},
+    "waybackurls": {"timeout"},
+    "paramspider": {"exclude", "timeout"},
+    "gobuster": {"mode", "wordlist", "extensions", "timeout"},
+    "feroxbuster": {"wordlist", "depth", "extensions", "filter_code", "timeout"},
+    "dirsearch": {"timeout"},
+    "masscan": {"ports", "rate", "timeout"},
+    "rustscan": {"ports", "batch_size", "timeout"},
+    "hakrawler": {"depth", "scope", "timeout"},
+    "arjun": {"method", "timeout"},
+}
+
+
+def _filter_tool_params(tool_name: str, body: dict):
+    """Return (params, error_response).  Rejects unknown kwargs (fail-closed)."""
+    allowed = _TOOL_PARAM_ALLOWLIST.get(tool_name, set())
+    candidates = {k: v for k, v in body.items() if k not in ("target", "domain")}
+    unknown = sorted(k for k in candidates if k not in allowed)
+    if unknown:
+        return None, (
+            jsonify(
+                {
+                    "status": "error",
+                    "data": f"Unsupported parameter(s) for {tool_name}: {', '.join(unknown)}",
+                }
+            ),
+            400,
+        )
+    return {k: candidates[k] for k in candidates if k in allowed}, None
+
+
 @app.route("/api/tools/external/<tool_name>/run", methods=["POST"])
-@_require_api_key
+@_require_permission("tools.use")
 @_rate_limit
 def run_external_tool(tool_name):
     """Run a specific external security tool against a target."""
     body = request.get_json(silent=True)
     if not body or not body.get("target"):
         return jsonify({"status": "error", "data": "Missing target"}), 400
+    target = body["target"]
+    if not _tool_target_in_configured_scope(target):
+        return jsonify({"status": "error", "data": "Target is outside the configured authorization scope"}), 403
+    # SEC-003: reject unknown kwargs instead of forwarding them blindly.
+    params, err = _filter_tool_params(tool_name, body)
+    if err:
+        return err
     try:
         from core.tool_integrator import ToolIntegrator
 
@@ -2695,7 +2935,6 @@ def run_external_tool(tool_name):
             return jsonify({"status": "error", "data": f"Unknown tool: {tool_name}"}), 404
         if not available[tool_name]:
             return jsonify({"status": "error", "data": f"Tool {tool_name} is not installed"}), 503
-        params = {k: v for k, v in body.items() if k != "target"}
         result = integrator.run_tool(tool_name, body["target"], **params)
         return jsonify({"status": "success", "data": result.to_dict()})
     except Exception:
@@ -2731,13 +2970,20 @@ def list_recon_arsenal():
 
 
 @app.route("/api/recon/arsenal/<tool_name>/run", methods=["POST"])
-@_require_api_key
+@_require_permission("tools.use")
 @_rate_limit
 def run_recon_tool(tool_name):
     """Run a specific recon arsenal tool against a target."""
     body = request.get_json(silent=True)
     if not body or not body.get("target"):
         return jsonify({"status": "error", "data": "Missing target"}), 400
+    target = body["target"]
+    if not _tool_target_in_configured_scope(target):
+        return jsonify({"status": "error", "data": "Target is outside the configured authorization scope"}), 403
+    # SEC-003: reject unknown kwargs instead of forwarding them blindly.
+    params, err = _filter_tool_params(tool_name, body)
+    if err:
+        return err
     try:
         from core.recon_arsenal import ReconArsenal
 
@@ -2747,7 +2993,6 @@ def run_recon_tool(tool_name):
             return jsonify({"status": "error", "data": f"Unknown recon tool: {tool_name}"}), 404
         if not available[tool_name]:
             return jsonify({"status": "error", "data": f"Tool {tool_name} is not installed"}), 503
-        params = {k: v for k, v in body.items() if k != "target"}
         result = arsenal.run_tool(tool_name, body["target"], **params)
         return jsonify({"status": "success", "data": result.to_dict()})
     except Exception:
@@ -2755,19 +3000,27 @@ def run_recon_tool(tool_name):
 
 
 @app.route("/api/recon/arsenal/full", methods=["POST"])
-@_require_api_key
+@_require_permission("tools.use")
 @_rate_limit
 def run_full_recon():
     """Run full recon arsenal with all available tools."""
     body = request.get_json(silent=True)
     if not body or not body.get("target"):
         return jsonify({"status": "error", "data": "Missing target"}), 400
+    # SECURITY FIX (SEC-001): this endpoint previously skipped the centralized
+    # scope gate its sibling tool endpoints enforce, allowing the full
+    # arsenal (incl. port scanners) against arbitrary targets.
+    target = body["target"]
+    if not _tool_target_in_configured_scope(target):
+        return jsonify({"status": "error", "data": "Target is outside the configured authorization scope"}), 403
+    domain = body.get("domain", "") or ""
+    if domain and not _tool_target_in_configured_scope(domain):
+        return jsonify({"status": "error", "data": "Domain is outside the configured authorization scope"}), 403
     try:
         from core.recon_arsenal import ReconArsenal
 
         arsenal = ReconArsenal()
-        domain = body.get("domain", "")
-        results = arsenal.run_full_recon(body["target"], domain=domain)
+        results = arsenal.run_full_recon(target, domain=domain)
         return jsonify(
             {
                 "status": "success",
@@ -2797,7 +3050,7 @@ def list_plugins():
 
 
 @app.route("/api/plugins/discover", methods=["POST"])
-@_require_api_key
+@_require_permission("plugin.manage")
 @_rate_limit
 def discover_plugins():
     """Discover and load available plugins."""
@@ -2811,7 +3064,7 @@ def discover_plugins():
 
 
 @app.route("/api/plugins/<name>/toggle", methods=["POST"])
-@_require_api_key
+@_require_permission("plugin.manage")
 @_rate_limit
 def toggle_plugin(name):
     """Enable or disable a plugin."""
@@ -2846,7 +3099,7 @@ def list_notification_channels():
 
 
 @app.route("/api/notifications/test", methods=["POST"])
-@_require_api_key
+@_require_permission("notification.manage")
 @_rate_limit
 def send_test_notification():
     """Send a test notification to verify channel configuration."""
@@ -2918,7 +3171,7 @@ def _create_chat_message(sender_raw, text_raw):
 
 
 @app.route("/api/chat/messages", methods=["POST"])
-@_require_api_key
+@_require_permission("chat.write")
 @_rate_limit
 def post_chat_message():
     """Send a new chat message. Broadcasts via WebSocket if available."""
@@ -2933,7 +3186,7 @@ def post_chat_message():
 
 
 @app.route("/api/chat/messages", methods=["DELETE"])
-@_require_api_key
+@_require_permission("chat.manage")
 @_rate_limit
 def clear_chat_messages():
     """Clear all chat messages."""
@@ -2992,7 +3245,7 @@ def get_ai_summary():
 
 
 @app.route("/api/ai/predictions", methods=["POST"])
-@_require_api_key
+@_require_permission("tools.use")
 @_rate_limit
 def get_ai_predictions():
     """Get AI vulnerability predictions for a URL/parameter."""
@@ -3258,7 +3511,7 @@ def ollama_status():
 
 
 @app.route("/api/ollama/start", methods=["POST"])
-@_require_api_key
+@_require_permission("tools.use")
 @_rate_limit
 def ollama_start():
     """Start ``ollama serve`` in the background if not already running.
@@ -3465,7 +3718,7 @@ def _ollama_start_pull(model_name):
 
 
 @app.route("/api/ollama/install", methods=["POST"])
-@_require_api_key
+@_require_permission("tools.use")
 @_rate_limit
 def ollama_install_info():
     """Return install instructions for Ollama (cannot auto-install on server)."""
@@ -3503,7 +3756,7 @@ def ollama_install_info():
 
 
 @app.route("/api/ollama/pull", methods=["POST"])
-@_require_api_key
+@_require_permission("tools.use")
 @_rate_limit
 def ollama_pull_model():
     """Kick off a background pull of an Ollama model.
@@ -3564,7 +3817,7 @@ def ollama_pull_status(job_id):
 
 
 @app.route("/api/ollama/auto-setup", methods=["POST"])
-@_require_api_key
+@_require_permission("tools.use")
 @_rate_limit
 def ollama_auto_setup():
     """Single-shot endpoint to ensure Ollama is ready for a scan.
@@ -3642,7 +3895,7 @@ def ollama_auto_setup():
 
 
 @app.route("/api/ollama/chat", methods=["POST"])
-@_require_api_key
+@_require_permission("tools.use")
 @_rate_limit
 def ollama_chat():
     """Chat with an Ollama model for security analysis."""
@@ -3728,6 +3981,8 @@ def ollama_clear_history():
 # Default: 30 events per 60-second window per SID.
 _WS_RATE_WINDOW = 60
 _WS_RATE_MAX = 30
+_ws_users = {}
+_ws_users_lock = threading.Lock()
 _ws_rate_counters: dict = defaultdict(list)
 _ws_rate_lock = threading.Lock()
 
@@ -3751,8 +4006,13 @@ def _ws_rate_limited() -> bool:
 if SOCKETIO_AVAILABLE and socketio is not None:
 
     @socketio.on("connect")
-    def handle_connect():
-        """Client connected — send current active scans."""
+    def handle_connect(auth=None):
+        """Authenticate the WebSocket before exposing scan data or controls."""
+        user = _get_current_user()
+        if user is None:
+            return False
+        with _ws_users_lock:
+            _ws_users[request.sid] = user
         with _scans_lock:
             active = {
                 sid: {
@@ -3766,8 +4026,18 @@ if SOCKETIO_AVAILABLE and socketio is not None:
             }
         emit("active_scans", active)
 
+    @socketio.on("disconnect")
+    def handle_disconnect():
+        with _ws_users_lock:
+            _ws_users.pop(request.sid, None)
+
     @socketio.on("subscribe_scan")
     def handle_subscribe(data):
+        with _ws_users_lock:
+            user = _ws_users.get(request.sid)
+        if user is None or "scan.read" not in PERMISSIONS.get(user.get("role", ""), set()):
+            emit("error", {"message": "Unauthorized"})
+            return
         """Client wants live events for a specific scan."""
         if _ws_rate_limited():
             emit("error", {"message": "WebSocket rate limit exceeded"})
@@ -3783,7 +4053,12 @@ if SOCKETIO_AVAILABLE and socketio is not None:
 
     @socketio.on("shell_command")
     def handle_shell_command(data):
-        """Execute a shell command via WebSocket."""
+        """Execute a shell command via WebSocket after RBAC enforcement."""
+        with _ws_users_lock:
+            user = _ws_users.get(request.sid)
+        if user is None or "shell.execute" not in PERMISSIONS.get(user.get("role", ""), set()):
+            emit("shell_output", {"error": "Unauthorized"})
+            return
         if _ws_rate_limited():
             emit("error", {"message": "WebSocket rate limit exceeded"})
             return
@@ -3820,13 +4095,18 @@ if SOCKETIO_AVAILABLE and socketio is not None:
 
     @socketio.on("chat_message")
     def handle_chat_message(data):
-        """Receive a chat message via WebSocket and broadcast to all clients."""
-        if not isinstance(data, dict):
+        """Receive an authenticated chat message and broadcast it."""
+        with _ws_users_lock:
+            user = _ws_users.get(request.sid)
+        if user is None or "chat.write" not in PERMISSIONS.get(user.get("role", ""), set()):
+            emit("error", {"message": "Unauthorized"})
             return
-        text = str(data.get("message", "")).strip()
+        if _ws_rate_limited() or not isinstance(data, dict):
+            return
+        text = str(data.get("message", "")).strip()[:2000]
         if not text:
             return
-        msg = _create_chat_message(data.get("sender", "Anonymous"), text)
+        msg = _create_chat_message(user.get("sub", "Unknown"), text)
         emit("chat_message", msg, broadcast=True)
 
 
@@ -4508,7 +4788,7 @@ def get_config_file():
 
 
 @app.route("/api/config", methods=["POST"])
-@_require_api_key
+@_require_permission("config.update")
 @_rate_limit
 def save_config_file():
     """Save and apply atomic.yaml configuration."""
@@ -4686,7 +4966,7 @@ def export_scan_findings(scan_id):
 # ---------------------------------------------------------------------------
 
 
-def create_app(host="0.0.0.0", port=5000, debug=False):
+def create_app(host="127.0.0.1", port=5000, debug=False):
     """Configure and return the Flask application and a convenience runner."""
     app.config["HOST"] = host
     app.config["PORT"] = port
@@ -4711,6 +4991,10 @@ def create_app(host="0.0.0.0", port=5000, debug=False):
             cfg.setdefault("modules", {})
             cfg.setdefault("output_dir", Config.REPORTS_DIR)
             cfg.setdefault("quiet", True)
+            cfg.setdefault("auto_external_tools", True)
+            # SECURITY (SEC-002): scheduled scans inherit the server-level
+            # authorization gate; never default-open exploitation.
+            cfg.setdefault("authorized", _scan_authorization_acknowledged())
             threading.Thread(
                 target=_run_scan,
                 args=(scan_id, entry.target, cfg),
@@ -4725,7 +5009,17 @@ def create_app(host="0.0.0.0", port=5000, debug=False):
         if _API_KEY:
             logger.info("API key authentication enabled")
         else:
-            logger.warning("No ATOMIC_API_KEY set — API endpoints are open")
+            logger.warning(
+                "No ATOMIC_API_KEY set — static service key disabled "
+                "(JWT/user-API-key authentication still enforced)"
+            )
+        # SECURITY (SEC-006): make the fail-open tool-scope default loud.
+        if not os.environ.get("ATOMIC_ALLOWED_DOMAINS", "").strip():
+            logger.warning(
+                "ATOMIC_ALLOWED_DOMAINS not configured — direct tool/recon "
+                "endpoints accept ANY target unless ATOMIC_TOOL_SCOPE_STRICT=1. "
+                "Set both for shared/production deployments."
+            )
         logger.warning("FOR AUTHORIZED TESTING ONLY")
         # Use SocketIO runner if available (enables WebSocket), else plain Flask
         if socketio is not None:

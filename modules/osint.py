@@ -147,7 +147,7 @@ class OSINTModule(BaseModule):
                 query = f'"{domain}" {keyword}'
                 api_url = f"https://api.github.com/search/code?" f"q={quote_plus(query)}&per_page=3"
                 resp = self._github_request(api_url, headers)
-                if not resp:
+                if resp is None:
                     continue
 
                 data = resp.json() if hasattr(resp, "json") and callable(resp.json) else {}
@@ -352,7 +352,7 @@ class OSINTModule(BaseModule):
 
         try:
             resp = self._api_request(api_url, headers)
-            if not resp:
+            if resp is None:
                 return
 
             data = self._safe_json(resp)
@@ -390,7 +390,7 @@ class OSINTModule(BaseModule):
 
         try:
             resp = self._api_request(api_url, headers)
-            if not resp:
+            if resp is None:
                 return
 
             data = self._safe_json(resp)

@@ -131,7 +131,7 @@ class CommandInjectionModule(BaseModule):
             try:
                 data = {param: payload}
                 response = self.requester.request(url, method, data=data)
-                if not response:
+                if response is None:
                     continue
                 text = response.text.lower()
                 # Only flag if indicator is NEW (not in baseline)
@@ -172,7 +172,7 @@ class CommandInjectionModule(BaseModule):
             try:
                 data = {param: payload}
                 response = self.requester.request(url, method, data=data)
-                if not response:
+                if response is None:
                     continue
                 text = response.text.lower()
                 # Only flag if indicator is NEW (not in baseline)
@@ -223,7 +223,7 @@ class CommandInjectionModule(BaseModule):
                 data = {param: f"{value}{payload}"}
                 response = self.requester.request(url, method, data=data)
 
-                if not response:
+                if response is None:
                     continue
 
                 response_text = response.text
@@ -327,7 +327,7 @@ class CommandInjectionModule(BaseModule):
                 data = {param: payload}
                 response = self.requester.request(url, method, data=data)
 
-                if not response:
+                if response is None:
                     continue
 
                 if "cmdi_test_12345" in response.text:
@@ -366,7 +366,7 @@ class CommandInjectionModule(BaseModule):
             try:
                 data = {param: payload}
                 response = self.requester.request(url, method, data=data)
-                if not response:
+                if response is None:
                     continue
                 response_text = response.text
                 for os_type, patterns in self.cmd_indicators.items():

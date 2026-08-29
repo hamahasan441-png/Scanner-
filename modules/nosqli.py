@@ -104,7 +104,7 @@ class NoSQLModule(BaseModule):
             try:
                 data = {param: payload}
                 response = self.requester.request(url, method, data=data)
-                if not response:
+                if response is None:
                     continue
                 text = response.text.lower()
                 for ind in ["password", "leaked", "email", "username"]:
@@ -136,7 +136,7 @@ class NoSQLModule(BaseModule):
             try:
                 data = {param: payload}
                 response = self.requester.request(url, method, data=data)
-                if not response:
+                if response is None:
                     continue
                 text = response.text.lower()
                 for ind in ["redis_version", "+pong", "+ok", "connected_clients"]:
@@ -217,7 +217,7 @@ class NoSQLModule(BaseModule):
                 data = {param: payload}
                 response = self.requester.request(url, method, data=data)
 
-                if not response:
+                if response is None:
                     continue
 
                 response_text = response.text.lower()
@@ -309,7 +309,7 @@ class NoSQLModule(BaseModule):
                 headers = {"Content-Type": "application/json"}
                 response = self.requester.request(url, method, data=payload, headers=headers)
 
-                if not response:
+                if response is None:
                     continue
 
                 if response.status_code != 200:
@@ -387,7 +387,7 @@ class NoSQLModule(BaseModule):
                 data = {param: payload}
                 response = self.requester.request(url, method, data=data)
 
-                if not response:
+                if response is None:
                     continue
 
                 # Check for JavaScript execution by comparing response differences

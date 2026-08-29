@@ -77,6 +77,8 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "fuzzer": False,
         "recon": False,
         "discovery": False,
+        "gatebreaker": False,
+        "firewall_bypass": False,
     },
     # --- Exploitation ---
     "shell": False,
@@ -159,6 +161,8 @@ modules:
   fuzzer: false
   recon: false
   discovery: false
+  gatebreaker: false
+  firewall_bypass: false
 
 # ── Exploitation ───────────────────────────────────────────────────────
 shell: false

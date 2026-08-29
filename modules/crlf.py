@@ -43,7 +43,7 @@ class CRLFModule(BaseModule):
                     data={param: payload},
                     allow_redirects=False,
                 )
-                if not response:
+                if response is None:
                     continue
 
                 # Check for injected headers

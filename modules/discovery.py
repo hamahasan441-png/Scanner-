@@ -1079,11 +1079,19 @@ class DiscoveryModule:
         print(f"{Colors.info('Collecting passive URLs from web archives...')}")
 
         target_domain = urlparse(target).netloc
+        # SECURITY FIX (TOOL-001): Validate domain to prevent argument injection
+        # via gau / waybackurls subprocess. Reject flag-like or unsafe domains.
+        if not target_domain or target_domain.startswith("-") or len(target_domain) > 256:
+            print(f"{Colors.warning('Skipping passive collection: invalid target domain')}")
+            return
+        if any(c in target_domain for c in [";", "&", "|", "`", "$", "\n", "\r", " "]):
+            print(f"{Colors.warning('Skipping passive collection: unsafe characters in domain')}")
+            return
         collected = set()
 
         # ── Strategy 1: gau ──
         try:
-            proc = subprocess.run(["gau", "--subs", target_domain], capture_output=True, text=True, timeout=timeout)
+            proc = subprocess.run(["gau", "--subs", "--", target_domain], capture_output=True, text=True, timeout=timeout)
             if proc.returncode == 0 and proc.stdout.strip():
                 for line in proc.stdout.strip().splitlines():
                     url = line.strip()

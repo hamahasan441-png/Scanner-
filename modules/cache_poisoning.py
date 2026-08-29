@@ -71,7 +71,7 @@ class CachePoisoningModule(BaseModule):
         """Detect whether the target uses caching based on response headers."""
         try:
             response = self.requester.request(url, "GET")
-            if not response:
+            if response is None:
                 return False
 
             for header in self.CACHE_INDICATORS:
@@ -92,7 +92,7 @@ class CachePoisoningModule(BaseModule):
 
     def _is_cache_hit(self, response):
         """Check if a response was served from cache."""
-        if not response:
+        if response is None:
             return False
         for header in self.CACHE_INDICATORS:
             value = response.headers.get(header, "")

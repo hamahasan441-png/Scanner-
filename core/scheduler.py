@@ -119,12 +119,11 @@ def next_cron_time(expression: str, after: Optional[datetime] = None) -> float:
         after = datetime.now(timezone.utc)
     cron = parse_cron(expression)
 
-    # Start from the next full minute
+    # Start from the next full minute.  Use epoch arithmetic so hour/day/month
+    # rollovers are handled correctly (a naive .replace(hour=hour+1) raises
+    # ValueError at 23:59 and never rolls the date over).
     candidate = after.replace(second=0, microsecond=0)
-    candidate = candidate.replace(
-        minute=candidate.minute + 1 if candidate.minute < 59 else 0,
-        hour=candidate.hour + (1 if candidate.minute >= 59 else 0),
-    )
+    candidate = datetime.fromtimestamp(candidate.timestamp() + 60, tz=timezone.utc)
 
     # Brute-force scan (efficient for typical cron patterns)
     max_iterations = 366 * 24 * 60  # one year of minutes
@@ -216,17 +215,24 @@ class ScanScheduler:
             return self._schedules.pop(schedule_id, None) is not None
 
     def get_schedule(self, schedule_id: str) -> Optional[ScheduleEntry]:
-        return self._schedules.get(schedule_id)
+        # RELIABILITY FIX (REL-002): read under the same lock that
+        # add/remove/list use, so concurrent scans of the scheduler thread
+        # cannot observe a half-mutated dict.
+        with self._lock:
+            return self._schedules.get(schedule_id)
 
     def list_schedules(self) -> List[dict]:
         with self._lock:
             return [e.to_dict() for e in self._schedules.values()]
 
     def toggle_schedule(self, schedule_id: str, enabled: bool) -> bool:
-        entry = self._schedules.get(schedule_id)
-        if not entry:
-            return False
-        entry.enabled = enabled
+        # RELIABILITY FIX (REL-002): consistent locking with the rest of
+        # the store (lookup + mutation happen atomically).
+        with self._lock:
+            entry = self._schedules.get(schedule_id)
+            if not entry:
+                return False
+            entry.enabled = enabled
         return True
 
     def get_history(self, limit: int = 50) -> List[dict]:

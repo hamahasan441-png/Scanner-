@@ -5,7 +5,7 @@
 import unittest
 from unittest.mock import MagicMock, patch
 
-from scanner.vuln_scanner import (
+from legacy.scanner.vuln_scanner import (
     CMDiTester,
     LFITester,
     OpenRedirectTester,
@@ -955,17 +955,17 @@ class TestFormatFindings(unittest.TestCase):
 
 class TestVulnScannerInit(unittest.TestCase):
 
-    @patch("scanner.vuln_scanner.requests.Session")
+    @patch("legacy.scanner.vuln_scanner.requests.Session")
     def test_init_creates_session(self, mock_session_cls):
         scanner = VulnScanner(timeout=10)
         self.assertEqual(scanner._timeout, 10)
 
-    @patch("scanner.vuln_scanner.requests.Session")
+    @patch("legacy.scanner.vuln_scanner.requests.Session")
     def test_default_delay_range(self, mock_session_cls):
         scanner = VulnScanner()
         self.assertEqual(scanner._delay_range, (0.5, 2.0))
 
-    @patch("scanner.vuln_scanner.requests.Session")
+    @patch("legacy.scanner.vuln_scanner.requests.Session")
     def test_detected_wafs_initially_empty(self, mock_session_cls):
         scanner = VulnScanner()
         self.assertEqual(scanner.detected_wafs, [])
@@ -973,7 +973,7 @@ class TestVulnScannerInit(unittest.TestCase):
 
 class TestVulnScannerScan(unittest.TestCase):
 
-    @patch("scanner.vuln_scanner.requests.Session")
+    @patch("legacy.scanner.vuln_scanner.requests.Session")
     def test_scan_returns_list(self, mock_session_cls):
         mock_session = MagicMock()
         mock_resp = MagicMock()
@@ -993,7 +993,7 @@ class TestVulnScannerScan(unittest.TestCase):
         findings = scanner.scan("http://t.com", params={"id": "1"})
         self.assertIsInstance(findings, list)
 
-    @patch("scanner.vuln_scanner.requests.Session")
+    @patch("legacy.scanner.vuln_scanner.requests.Session")
     def test_scan_no_params(self, mock_session_cls):
         mock_session = MagicMock()
         mock_resp = MagicMock()

@@ -117,7 +117,7 @@ class APIVersioningModule(BaseModule):
                 continue  # Skip current version
             test_url = f"{base_url}/{version}{suffix}"
             resp = self.requester.request(test_url, "GET")
-            if not resp:
+            if resp is None:
                 continue
 
             # Interesting if old version returns 200 while current requires auth
@@ -181,7 +181,7 @@ class APIVersioningModule(BaseModule):
 
             test_url = urllib.parse.urlunparse(parsed._replace(path=test_path))
             resp = self.requester.request(test_url, "GET")
-            if not resp:
+            if resp is None:
                 continue
 
             if resp.status_code == 200 and baseline_status in (401, 403, 404):

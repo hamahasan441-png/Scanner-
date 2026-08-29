@@ -62,7 +62,7 @@ class OpenRedirectModule(BaseModule):
                     data={param: payload},
                     allow_redirects=False,
                 )
-                if not response:
+                if response is None:
                     continue
 
                 # Check for redirect in Location header

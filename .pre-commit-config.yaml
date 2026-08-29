@@ -30,5 +30,5 @@ repos:
     rev: 1.7.10
     hooks:
       - id: bandit
-        args: ['-ll', '--exit-zero', '-r']
+        args: ['-lll', '-iii', '-q', '-r']
         files: ^(core|modules|utils|web)/

@@ -31,7 +31,7 @@ class GraphQLModule(BaseModule):
                     method,
                     params={param: payload},
                 )
-                if not response:
+                if response is None:
                     continue
                 body = response.text or ""
                 if self._is_graphql_response(body):
@@ -75,7 +75,7 @@ class GraphQLModule(BaseModule):
                     headers={"Content-Type": "application/json"},
                     data=introspection_query,
                 )
-                if not response:
+                if response is None:
                     continue
                 body = response.text or ""
                 if self._is_introspection_result(body):
@@ -130,7 +130,7 @@ class GraphQLModule(BaseModule):
                         headers={"Content-Type": "application/json"},
                         data=payload,
                     )
-                    if not response:
+                    if response is None:
                         continue
                     body = response.text or ""
                     # Batching: response should be a JSON array with multiple results
@@ -193,7 +193,7 @@ class GraphQLModule(BaseModule):
                     headers={"Content-Type": "application/json"},
                     data=suggestion_payload,
                 )
-                if not response:
+                if response is None:
                     continue
                 body = response.text or ""
                 # GraphQL engines often suggest valid field names in error messages

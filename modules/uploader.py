@@ -34,6 +34,19 @@ class ShellUploader(BaseModule):
         # Ensure shells directory exists
         os.makedirs(self.shells_dir, exist_ok=True)
 
+    def _is_exploit_authorized(self) -> bool:
+        """Check if exploitation is authorized via config or env."""
+        cfg = getattr(self, "engine", None)
+        if cfg:
+            config = getattr(cfg, "config", {}) or {}
+            if config.get("_authorized") or config.get("authorized"):
+                return True
+        try:
+            from core.authorization import is_authorized
+            return is_authorized()
+        except Exception:
+            return False
+
     def test(self, url: str, method: str, param: str, value: str):
         """Test for file upload vulnerabilities via parameter testing"""
         pass  # Upload tests are handled by run() with forms
@@ -42,8 +55,11 @@ class ShellUploader(BaseModule):
         """Test URL for file upload vulnerabilities"""
         self._test_svg_xss(url)
         self._test_imagetragick(url)
-        self._test_content_type_mismatch(url)
-        self._test_zip_symlink(url)
+        # Content-type mismatch and ZIP symlink tests send exploitation-grade
+        # payloads (real PHP shells, symlink attacks). Gate behind authorization.
+        if self._is_exploit_authorized():
+            self._test_content_type_mismatch(url)
+            self._test_zip_symlink(url)
 
     def _test_svg_xss(self, url: str):
         """Test SVG XSS upload"""
@@ -163,6 +179,9 @@ class ShellUploader(BaseModule):
             exploit phase when ``--shell`` or ``--auto-exploit`` is active.
         """
         if self.scan_only:
+            return
+        if not self._is_exploit_authorized():
+            print(f"{Colors.warning('Shell upload skipped: --authorized required.')}")
             return
         print(f"{Colors.info('Attempting shell uploads...')}")
 

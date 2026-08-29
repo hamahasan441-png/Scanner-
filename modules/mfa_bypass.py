@@ -138,7 +138,7 @@ class MFABypassModule(BaseModule):
         for payload in self.MFA_SKIP_PAYLOADS[:5]:
             test_url = self._replace_param(url, param, payload)
             resp = self.requester.request(test_url, method)
-            if not resp:
+            if resp is None:
                 continue
 
             body = getattr(resp, "text", "")
@@ -228,7 +228,7 @@ class MFABypassModule(BaseModule):
     def _test_mfa_endpoint(self, url: str):
         """Test if MFA endpoint can be accessed without prior authentication."""
         resp = self.requester.request(url, "GET")
-        if not resp:
+        if resp is None:
             return
         body = getattr(resp, "text", "")
 

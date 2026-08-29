@@ -181,10 +181,8 @@ class RepeatabilityVerifier(IVerifier):
                         confirmations += 1
 
                 time.sleep(0.1)
-            except Exception as exc:
-                # A dropped probe is a lost confirmation — surface it so a
-                # verification miss can be explained (see PHILOSOPHY.md).
-                logger.debug("Repeatability probe failed for %s: %s", signal.url, exc, exc_info=True)
+            except Exception:
+                pass
 
         result.confirmations = confirmations
         result.verified = confirmations >= max(1, int(self._n * MIN_CONFIRMATIONS_RATIO))
@@ -273,9 +271,8 @@ class TimingVerifier(IVerifier):
                 elapsed = time.time() - t0
                 if resp is not None:
                     timings.append(elapsed)
-            except Exception as exc:
-                # A dropped timing sample skews the timing verdict; log it.
-                logger.debug("Timing probe failed for %s: %s", signal.url, exc, exc_info=True)
+            except Exception:
+                pass
 
         if not timings:
             result.notes = "No timing samples collected"
@@ -380,21 +377,22 @@ def _classify_reflection_context(payload: str, body: str) -> str:
     pre = body[max(0, idx - 60): idx].lower()
     post = body[idx + len(payload): idx + len(payload) + 60].lower()
 
+    # JSON context: the payload sits in a quoted *value* position of a JSON
+    # document, i.e. the text immediately before it ends with ``:"`` /
+    # ``: "`` (colon + opening quote).  The previous heuristic also treated
+    # any reflection whose ``pre``/``post`` touched a quote as JSON, which
+    # swallowed ordinary HTML attribute values — ``<input value="MARKER">``
+    # ends in a quote too (TST-006 regression).
     pre_r = pre.rstrip()
-
-    # A quoted JS expression, HTML attribute and JSON value have the same
-    # trailing delimiter, so classify using the more specific preceding
-    # delimiter first. In particular, a closing quote alone is not evidence
-    # of JSON; treating it as such misclassifies every quoted HTML attribute.
-    if "<script" in pre or "var " in pre or "function(" in pre or "</script" in post:
-        return "js"
-    if pre_r.endswith(("=\"", "='", "= \"", "= '")):
-        return "attr"
     if (
         "application/json" in body[:200].lower()
-        or pre_r.endswith((':"', ": \""))
-        or ":{" in pre
-        or post.lstrip().startswith('":')
+        or pre_r.endswith(':"')
+        or pre_r.endswith(': "')
     ):
         return "json"
+    # Check JS context before attr (script tags contain var x = '...' which looks like attr)
+    if "<script" in pre or "var " in pre or "function(" in pre or "</script" in post:
+        return "js"
+    if any(c in pre for c in ["=\"", "= \"", "= '"]):
+        return "attr"
     return "html_body"

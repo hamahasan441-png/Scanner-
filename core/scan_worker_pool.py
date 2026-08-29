@@ -61,7 +61,7 @@ WORKER_MODULE_MAP = {
     "injection": ["sqli", "xss", "ssti", "ssrf", "cmdi", "lfi", "xxe", "nosql"],
     "auth": ["idor", "jwt", "brute_force"],
     "bizlogic": ["race_condition", "upload", "deserialization"],
-    "misconfig": ["cors", "crlf", "hpp", "open_redirect", "graphql", "proto_pollution", "websocket"],
+    "misconfig": ["cors", "crlf", "hpp", "open_redirect", "graphql", "proto_pollution", "websocket", "gatebreaker", "firewall_bypass"],
     "cloud": ["cloud_scan", "osint"],
     "crypto": [],  # Handled inline (TLS, cookie, rate limiting checks)
 }
