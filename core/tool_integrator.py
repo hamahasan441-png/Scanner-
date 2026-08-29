@@ -18,12 +18,13 @@ Each tool adapter follows a common interface:
 
 import json
 import os
-import shutil
 import subprocess
 import tempfile
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
+
+from core.tool_runtime import resolve_tool
 
 
 @dataclass
@@ -40,6 +41,10 @@ class ToolResult:
     duration_seconds: float = 0.0
     timestamp: str = ""
     error: str = ""
+    # SEC-013: True when the output came from a bundled simulation stub
+    # (portable wrapper) instead of the real tool.  Consumers must not
+    # present simulated output as real scan evidence.
+    simulated: bool = False
 
     def to_dict(self) -> dict:
         return {
@@ -53,34 +58,117 @@ class ToolResult:
             "duration_seconds": self.duration_seconds,
             "timestamp": self.timestamp,
             "error": self.error,
+            "simulated": self.simulated,
         }
 
 
-def _run_command(cmd: list, timeout: int = 300, cwd: str = None) -> tuple:
-    """Safely run a subprocess command with timeout.
+def _is_safe_target_arg(arg: str) -> bool:
+    """Return True if *arg* looks like a safe hostname / URL / IP, not a flag injection.
 
-    Returns (exit_code, stdout, stderr, duration).
+    Rejects:
+    - Args starting with '-' (option injection)
+    - Args containing shell metacharacters, control chars, or spaces in domain context
+    - Args longer than 2048 chars
     """
-    import time
+    if not isinstance(arg, str) or not arg:
+        return False
+    if len(arg) > 2048:
+        return False
+    # Must not look like an option flag
+    if arg.startswith("-"):
+        return False
+    # Must not contain shell metacharacters or control chars
+    if any(c in arg for c in [";", "&", "|", "`", "$", "\n", "\r", "\x00"]):
+        return False
+    return True
 
+
+def _sanitize_tool_cmd(cmd: list) -> tuple[bool, str]:
+    """Validate that no positional argument in *cmd* is an option injection.
+
+    The first element is executable name, subsequent elements are flags or targets.
+    We allow known flags (starting with '-') only if they are from an allowlist
+    of expected flags per tool. For generic validation, we reject any arg after
+    a target flag that starts with '-'.
+    Returns (ok, error_message).
+    """
+    # Expected flag prefixes for our toolset
+    known_flags = {
+        "-d", "-u", "-t", "-h", "-F", "-T4", "-sV", "-sC", "-p", "-oX",
+        "-Pn", "--script", "-O", "-p-", "-jsonl", "-silent", "-severity",
+        "-tags", "-Format", "-o", "-Tuning", "--log-json=-", "-log-json",
+        "-a", "-follow-redirects", "-path", "-status-code", "-content-length",
+        "-title", "-tech-detect", "-server", "-json", "-w", "-e", "-fc",
+        "-of", "-s", "--subs", "-o", "-of", "-w", "-e", "-fc", "-s", "--log-json"
+    }
+    # We only inspect args that look like domains/urls (positional)
+    # For simplicity, reject any arg that is exactly a flag injection attempting
+    # to masquerade as target but is actually starting with '-'.
+    for i, arg in enumerate(cmd[1:], start=1):
+        # If arg is known flag, ok
+        if arg in known_flags or arg.startswith("-a"):
+            continue
+        # If arg contains '=', it's likely a flag with value, allow
+        if "=" in arg and arg.startswith("-"):
+            continue
+        # If arg starts with '-', it's suspicious as positional
+        if isinstance(arg, str) and arg.startswith("-") and len(arg) > 1:
+            # Check if previous arg was a flag that expects a value, then this is value
+            prev = cmd[i-1] if i-1 >= 0 else ""
+            if prev in ("-d", "-u", "-t", "-h", "-p", "-oX", "-Format", "-o", "-Tuning", "-path", "-w", "-e", "-fc", "-t"):
+                # This arg is supposed to be a value (e.g., domain). Reject if looks like flag.
+                return False, f"Invalid target argument (flag injection): {arg!r}"
+    return True, ""
+
+
+def _run_command(cmd: list, timeout: int = 300, cwd: str = None, max_output_bytes: int = 5 * 1024 * 1024) -> tuple:
+    """Run a tool with bounded output and managed executable resolution."""
+    import time
+    if not isinstance(cmd, list) or not cmd or not all(isinstance(x, str) for x in cmd):
+        return -3, "", "invalid command", 0.0
+    # SECURITY FIX (TOOL-001): Validate against argument injection
+    ok, err = _sanitize_tool_cmd(cmd)
+    if not ok:
+        return -3, "", err, 0.0
+    # Extra: validate target-like args (last args often target) not starting with '-'
+    # For nmap, last arg is target; for others similar.
+    if len(cmd) >= 2:
+        # Heuristic: check last positional arg that is not a flag value for -
+        last = cmd[-1]
+        # If last arg is not a known flag and contains typical domain chars, validate
+        if _is_safe_target_arg(last) is False and not last.startswith("/") and not last.startswith("-"):
+            # Allow file paths like /dev/stdout, but reject flag-like
+            if last.startswith("-"):
+                return -3, "", f"Invalid target (flag injection): {last!r}", 0.0
+    executable = resolve_tool(cmd[0]) if not os.path.isabs(cmd[0]) else cmd[0]
+    if not executable:
+        return -2, "", f"Command not found: {cmd[0]}", 0.0
+    cmd = [executable, *cmd[1:]]
     start = time.time()
     try:
         result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            cwd=cwd,
+            cmd, capture_output=True, text=True, timeout=max(1, int(timeout)), cwd=cwd,
+            check=False, env={k: v for k, v in os.environ.items() if k not in {"LD_PRELOAD", "PYTHONINSPECT", "PYTHONPATH"}},
         )
         duration = time.time() - start
-        return result.returncode, result.stdout, result.stderr, duration
+        stdout = result.stdout or ""
+        stderr = result.stderr or ""
+        truncated = False
+        if len(stdout.encode("utf-8", "ignore")) > max_output_bytes:
+            stdout = stdout.encode("utf-8", "ignore")[:max_output_bytes].decode("utf-8", "ignore")
+            truncated = True
+        if len(stderr.encode("utf-8", "ignore")) > max_output_bytes:
+            stderr = stderr.encode("utf-8", "ignore")[:max_output_bytes].decode("utf-8", "ignore")
+            truncated = True
+        if truncated:
+            stderr += "\n[output truncated by framework]"
+        return result.returncode, stdout, stderr, duration
     except subprocess.TimeoutExpired:
-        duration = time.time() - start
-        return -1, "", f"Command timed out after {timeout}s", duration
+        return -1, "", f"Command timed out after {timeout}s", time.time() - start
     except FileNotFoundError:
         return -2, "", f"Command not found: {cmd[0]}", 0.0
-    except Exception as e:
-        return -3, "", str(e), 0.0
+    except (OSError, subprocess.SubprocessError) as exc:
+        return -3, "", str(exc), time.time() - start
 
 
 # ---------------------------------------------------------------------------
@@ -92,7 +180,7 @@ class NmapAdapter:
     TOOL_NAME = "nmap"
 
     def is_available(self) -> bool:
-        return shutil.which("nmap") is not None
+        return resolve_tool("nmap") is not None
 
     def run(self, target: str, ports: str = "1-1000", scan_type: str = "service", timeout: int = 300) -> ToolResult:
         """Run an Nmap scan.
@@ -103,6 +191,9 @@ class NmapAdapter:
             scan_type: 'quick', 'service', 'vuln', or 'full'.
             timeout: Max seconds.
         """
+        # SECURITY: Validate target to prevent argument injection
+        if not _is_safe_target_arg(target):
+            return ToolResult(tool=self.TOOL_NAME, target=target, success=False, error="Invalid target (flag injection or unsafe)")
         if not self.is_available():
             return ToolResult(tool=self.TOOL_NAME, target=target, success=False, error="nmap not installed")
 
@@ -246,7 +337,7 @@ class NucleiAdapter:
     )
 
     def is_available(self) -> bool:
-        return shutil.which("nuclei") is not None
+        return resolve_tool("nuclei") is not None
 
     @classmethod
     def builtin_templates_path(cls) -> str:
@@ -290,6 +381,9 @@ class NucleiAdapter:
             timeout: Max seconds.
             use_builtin: Also include ATOMIC Framework's built-in templates.
         """
+        if not _is_safe_target_arg(target):
+            return ToolResult(tool=self.TOOL_NAME, target=target, success=False, error="Invalid target (flag injection or unsafe)")
+
         if not self.is_available():
             return ToolResult(tool=self.TOOL_NAME, target=target, success=False, error="nuclei not installed")
 
@@ -355,7 +449,7 @@ class NiktoAdapter:
     TOOL_NAME = "nikto"
 
     def is_available(self) -> bool:
-        return shutil.which("nikto") is not None
+        return resolve_tool("nikto") is not None
 
     def run(self, target: str, tuning: str = "", timeout: int = 300) -> ToolResult:
         """Run a Nikto scan.
@@ -365,6 +459,9 @@ class NiktoAdapter:
             tuning: Scan tuning options (e.g., '123bde' for specific test types).
             timeout: Max seconds.
         """
+        if not _is_safe_target_arg(target):
+            return ToolResult(tool=self.TOOL_NAME, target=target, success=False, error="Invalid target (flag injection or unsafe)")
+
         if not self.is_available():
             return ToolResult(tool=self.TOOL_NAME, target=target, success=False, error="nikto not installed")
 
@@ -424,7 +521,7 @@ class WhatWebAdapter:
     TOOL_NAME = "whatweb"
 
     def is_available(self) -> bool:
-        return shutil.which("whatweb") is not None
+        return resolve_tool("whatweb") is not None
 
     def run(self, target: str, aggression: int = 1, timeout: int = 120) -> ToolResult:
         """Run WhatWeb fingerprinting.
@@ -434,6 +531,9 @@ class WhatWebAdapter:
             aggression: Aggression level (1=stealthy, 3=aggressive).
             timeout: Max seconds.
         """
+        if not _is_safe_target_arg(target):
+            return ToolResult(tool=self.TOOL_NAME, target=target, success=False, error="Invalid target (flag injection or unsafe)")
+
         if not self.is_available():
             return ToolResult(tool=self.TOOL_NAME, target=target, success=False, error="whatweb not installed")
 
@@ -496,7 +596,7 @@ class SubfinderAdapter:
     TOOL_NAME = "subfinder"
 
     def is_available(self) -> bool:
-        return shutil.which("subfinder") is not None
+        return resolve_tool("subfinder") is not None
 
     def run(self, domain: str, timeout: int = 120) -> ToolResult:
         """Run subdomain enumeration.
@@ -507,6 +607,9 @@ class SubfinderAdapter:
         """
         if not self.is_available():
             return ToolResult(tool=self.TOOL_NAME, target=domain, success=False, error="subfinder not installed")
+        # SECURITY: Validate domain to prevent argument injection
+        if not _is_safe_target_arg(domain):
+            return ToolResult(tool=self.TOOL_NAME, target=domain, success=False, error="Invalid domain (flag injection or unsafe)")
 
         cmd = ["subfinder", "-d", domain, "-silent"]
 
@@ -538,7 +641,7 @@ class HttpxAdapter:
     TOOL_NAME = "httpx"
 
     def is_available(self) -> bool:
-        return shutil.which("httpx") is not None
+        return resolve_tool("httpx") is not None
 
     def run(
         self, target: str, paths: Optional[List[str]] = None, follow_redirects: bool = True, timeout: int = 120
@@ -551,6 +654,9 @@ class HttpxAdapter:
             follow_redirects: Whether to follow HTTP redirects.
             timeout: Max seconds.
         """
+        if not _is_safe_target_arg(target):
+            return ToolResult(tool=self.TOOL_NAME, target=target, success=False, error="Invalid target (flag injection or unsafe)")
+
         if not self.is_available():
             return ToolResult(tool=self.TOOL_NAME, target=target, success=False, error="httpx not installed")
 
@@ -622,7 +728,7 @@ class FfufAdapter:
     TOOL_NAME = "ffuf"
 
     def is_available(self) -> bool:
-        return shutil.which("ffuf") is not None
+        return resolve_tool("ffuf") is not None
 
     def run(
         self, target: str, wordlist: str = "", extensions: str = "", filter_codes: str = "404", timeout: int = 300
@@ -636,6 +742,9 @@ class FfufAdapter:
             filter_codes: HTTP status codes to filter out.
             timeout: Max seconds.
         """
+        if not _is_safe_target_arg(target):
+            return ToolResult(tool=self.TOOL_NAME, target=target, success=False, error="Invalid target (flag injection or unsafe)")
+
         if not self.is_available():
             return ToolResult(tool=self.TOOL_NAME, target=target, success=False, error="ffuf not installed")
 
@@ -734,7 +843,16 @@ class ToolIntegrator:
                 success=False,
                 error=f"Unknown tool: {tool_name}",
             )
-        return adapter.run(target, **kwargs)
+        result = adapter.run(target, **kwargs)
+        # SEC-013: centrally tag simulation-stub output so API consumers
+        # can never mistake it for real tool results.
+        try:
+            from core.tool_runtime import is_simulated_tool
+
+            result.simulated = bool(is_simulated_tool(tool_name))
+        except Exception:
+            result.simulated = False
+        return result
 
     def run_recon_suite(self, target: str, domain: str = "") -> Dict[str, ToolResult]:
         """Run a full reconnaissance suite with all available tools."""

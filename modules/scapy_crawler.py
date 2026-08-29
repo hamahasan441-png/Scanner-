@@ -45,7 +45,12 @@ try:
     _SCAPY_AVAILABLE = True
     # Suppress Scapy's verbose output by default
     scapy_conf.verb = 0
-except ImportError:
+except (ImportError, OSError):
+    # Importing scapy performs platform interface discovery on some systems.
+    # Containers and restricted CI runners may have scapy installed but deny
+    # the NETLINK/raw-socket access used during that discovery.  Treat that
+    # environment exactly like an unavailable optional dependency and keep the
+    # socket-based fallback operational.
     pass
 
 
@@ -688,7 +693,7 @@ class ARPNetworkDiscovery:
 
         try:
             from scapy.all import ARP, Ether, srp  # type: ignore[import-untyped]
-        except ImportError:
+        except (ImportError, OSError):
             print(f"{Colors.error('scapy ARP layer unavailable')}")
             return []
 

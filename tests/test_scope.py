@@ -40,9 +40,10 @@ class TestScopePolicy(unittest.TestCase):
         self.policy.set_target_scope("https://example.com/path")
         self.assertIn("example.com", self.policy.allowed_domains)
 
-    def test_set_target_scope_adds_base_subdomain(self):
+    def test_set_target_scope_does_not_infer_parent_domain(self):
         self.policy.set_target_scope("https://www.example.com/")
-        self.assertIn("example.com", self.policy.allowed_subdomains)
+        self.assertIn("www.example.com", self.policy.allowed_subdomains)
+        self.assertNotIn("example.com", self.policy.allowed_subdomains)
 
     def test_set_target_scope_strips_port(self):
         self.policy.set_target_scope("https://example.com:8443/app")

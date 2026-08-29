@@ -30,10 +30,16 @@ class TestRegulatedMissionCLI(unittest.TestCase):
     @patch("main.print_banner")
     @patch("main.AtomicEngine")
     def test_regulated_mission_requires_authorized(self, mock_engine_cls, _mock_banner):
+        import os
+
         argv = ["main.py", "-t", "https://example.com", "--regulated-mission"]
-        with patch.object(sys, "argv", argv), patch("sys.exit", side_effect=_SysExitIntercepted):
-            with self.assertRaises(_SysExitIntercepted):
-                main.main()
+        # Gate test: opt out of the suite-wide operator authorization
+        # (tests/conftest.py) so the fail-closed path is observable.
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("ATOMIC_AUTHORIZED", None)
+            with patch.object(sys, "argv", argv), patch("sys.exit", side_effect=_SysExitIntercepted):
+                with self.assertRaises(_SysExitIntercepted):
+                    main.main()
         mock_engine_cls.assert_not_called()
 
     @patch("main.print_banner")
@@ -79,7 +85,6 @@ class TestRegulatedMissionCLI(unittest.TestCase):
             "-t",
             "https://example.com",
             "--quiet",
-            "--authorized",
             "--allow-domain",
             "example.com,api.example.com",
             "--allow-path",
@@ -103,7 +108,7 @@ class _EngineCapture:
 
     def _run_main(self, extra_argv):
         """Run main.main() with given CLI args and return the captured config dict."""
-        argv = ["main.py", "-t", "https://example.com", "--quiet", "--authorized"] + extra_argv
+        argv = ["main.py", "-t", "https://example.com", "--quiet"] + extra_argv
         with patch.object(sys, "argv", argv), patch("main.AtomicEngine") as mock_cls, patch("main.print_banner"):
             engine = mock_cls.return_value
             engine.scan.return_value = None

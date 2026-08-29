@@ -2,8 +2,15 @@
 # -*- coding: utf-8 -*-
 """Unit tests for the HTTP/2 Smuggling module (modules/h2_smuggling.py)."""
 
+import sys
 import unittest
 from unittest.mock import MagicMock, patch
+
+# NOTE: do NOT install MagicMock stand-ins for core.emit / core.models in
+# sys.modules here.  Doing so at import/collection time shadows the real
+# modules for the entire pytest process and cascades hundreds of failures
+# into unrelated test files (TST-001, ATOMIC_TITAN_AUDIT_2026-08-12).
+# The real modules import cleanly; use mock.patch inside tests if needed.
 
 from tests.fixtures import MockEngine
 
@@ -92,16 +99,16 @@ class TestH2SmugglingURLParsing(unittest.TestCase):
 
 class TestH2CLDesync(unittest.TestCase):
 
-    @patch("modules.h2_smuggling.H2SmugglingModule._raw_send")
+    @patch("modules.h2_smuggling.H2SmugglingModule._raw_send_pipeline")
     def test_h2_cl_desync_detected(self, mock_send):
         from modules.h2_smuggling import H2SmugglingModule
 
-        # First call: poison request (returns OK)
-        # Second call: follow-up that shows poisoning
-        mock_send.side_effect = [
-            b"HTTP/1.1 200 OK\r\n\r\n",
-            b"HTTP/1.1 405 Method Not Allowed\r\n\r\n",
-        ]
+        # Poison + follow-up share one connection; the combined response
+        # stream carries TWO responses, i.e. an extra (smuggled) one.
+        mock_send.return_value = (
+            b"HTTP/1.1 200 OK\r\n\r\n"
+            b"HTTP/1.1 200 OK\r\n\r\n"
+        )
 
         engine = MockEngine(config={"verbose": False, "timeout": 10})
         mod = H2SmugglingModule(engine)
@@ -114,14 +121,13 @@ class TestH2CLDesync(unittest.TestCase):
         self.assertEqual(call_kwargs["severity"], "CRITICAL")
         self.assertEqual(call_kwargs["cvss"], 9.1)
 
-    @patch("modules.h2_smuggling.H2SmugglingModule._raw_send")
+    @patch("modules.h2_smuggling.H2SmugglingModule._raw_send_pipeline")
     def test_h2_cl_desync_no_finding_normal_response(self, mock_send):
         from modules.h2_smuggling import H2SmugglingModule
 
-        mock_send.side_effect = [
-            b"HTTP/1.1 200 OK\r\n\r\nNormal page",
-            b"HTTP/1.1 200 OK\r\n\r\nNormal page",
-        ]
+        # A single well-formed response (even from the follow-up) is NOT
+        # desync evidence.
+        mock_send.return_value = b"HTTP/1.1 200 OK\r\n\r\nNormal page"
 
         engine = MockEngine(config={"verbose": False, "timeout": 10})
         mod = H2SmugglingModule(engine)
@@ -130,11 +136,11 @@ class TestH2CLDesync(unittest.TestCase):
 
         mod._emit_signal.assert_not_called()
 
-    @patch("modules.h2_smuggling.H2SmugglingModule._raw_send")
+    @patch("modules.h2_smuggling.H2SmugglingModule._raw_send_pipeline")
     def test_h2_cl_desync_handles_none_response(self, mock_send):
         from modules.h2_smuggling import H2SmugglingModule
 
-        mock_send.side_effect = [b"HTTP/1.1 200 OK\r\n\r\n", None]
+        mock_send.return_value = None
 
         engine = MockEngine(config={"verbose": False, "timeout": 10})
         mod = H2SmugglingModule(engine)
@@ -151,7 +157,7 @@ class TestH2CLDesync(unittest.TestCase):
 
 class TestH2TEDesync(unittest.TestCase):
 
-    @patch("modules.h2_smuggling.H2SmugglingModule._raw_send")
+    @patch("modules.h2_smuggling.H2SmugglingModule._raw_send_pipeline")
     def test_h2_te_desync_detected(self, mock_send):
         from modules.h2_smuggling import H2SmugglingModule
 
@@ -166,7 +172,7 @@ class TestH2TEDesync(unittest.TestCase):
         call_kwargs = mod._emit_signal.call_args[1]
         self.assertEqual(call_kwargs["technique"], "HTTP/2 Request Smuggling (H2.TE Desync)")
 
-    @patch("modules.h2_smuggling.H2SmugglingModule._raw_send")
+    @patch("modules.h2_smuggling.H2SmugglingModule._raw_send_pipeline")
     def test_h2_te_desync_no_finding(self, mock_send):
         from modules.h2_smuggling import H2SmugglingModule
 
@@ -261,20 +267,60 @@ class TestWebSocketUpgradeSmuggling(unittest.TestCase):
 
 class TestPoisoningHeuristic(unittest.TestCase):
 
-    def test_is_poisoned_405(self):
+    def test_is_poisoned_405_not_evidence(self):
         from modules.h2_smuggling import H2SmugglingModule
 
-        self.assertTrue(H2SmugglingModule._is_poisoned(b"HTTP/1.1 405 Method Not Allowed"))
+        # A single 405 for malformed input is a normal server response,
+        # not desync evidence.
+        self.assertFalse(H2SmugglingModule._is_poisoned(b"HTTP/1.1 405 Method Not Allowed"))
 
-    def test_is_poisoned_400(self):
+    def test_is_poisoned_400_not_evidence(self):
         from modules.h2_smuggling import H2SmugglingModule
 
-        self.assertTrue(H2SmugglingModule._is_poisoned(b"HTTP/1.1 400 Bad Request"))
+        self.assertFalse(H2SmugglingModule._is_poisoned(b"HTTP/1.1 400 Bad Request"))
+
+    def test_is_poisoned_403_not_evidence(self):
+        from modules.h2_smuggling import H2SmugglingModule
+
+        self.assertFalse(H2SmugglingModule._is_poisoned(b"HTTP/1.1 403 Forbidden"))
 
     def test_is_poisoned_normal_200(self):
         from modules.h2_smuggling import H2SmugglingModule
 
         self.assertFalse(H2SmugglingModule._is_poisoned(b"HTTP/1.1 200 OK\r\n\r\nHello"))
+
+    def test_is_poisoned_two_responses(self):
+        from modules.h2_smuggling import H2SmugglingModule
+
+        # Two complete responses on one connection => an extra (smuggled)
+        # response was served into the follow-up stream.
+        resp = (
+            b"HTTP/1.1 200 OK\r\n\r\n"
+            b"HTTP/1.1 200 OK\r\n\r\n"
+        )
+        self.assertTrue(H2SmugglingModule._is_poisoned(resp))
+
+    def test_is_poisoned_three_responses(self):
+        from modules.h2_smuggling import H2SmugglingModule
+
+        resp = (
+            b"HTTP/1.1 200 OK\r\n\r\n"
+            b"HTTP/1.1 200 OK\r\n\r\n"
+            b"HTTP/1.1 405 Method Not Allowed\r\n\r\n"
+        )
+        self.assertTrue(H2SmugglingModule._is_poisoned(resp))
+
+    def test_has_upgrade_101(self):
+        from modules.h2_smuggling import H2SmugglingModule
+
+        self.assertTrue(
+            H2SmugglingModule._has_upgrade_101(b"HTTP/1.1 101 Switching Protocols\r\n\r\n")
+        )
+        # '101' inside the body must NOT count as an upgrade.
+        self.assertFalse(
+            H2SmugglingModule._has_upgrade_101(b"HTTP/1.1 200 OK\r\n\r\nError code 101")
+        )
+        self.assertFalse(H2SmugglingModule._has_upgrade_101(b"HTTP/1.1 200 OK\r\n\r\nNormal"))
 
     def test_has_crlf_evidence(self):
         from modules.h2_smuggling import H2SmugglingModule

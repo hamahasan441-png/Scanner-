@@ -77,7 +77,7 @@ class DeserializationModule(BaseModule):
             try:
                 data = {param: payload}
                 response = self.requester.request(url, method, data=data)
-                if not response:
+                if response is None:
                     continue
                 response_text = response.text.lower()
                 for indicator in self.deser_indicators["java"]:
@@ -110,7 +110,7 @@ class DeserializationModule(BaseModule):
             try:
                 data = {param: payload}
                 response = self.requester.request(url, method, data=data)
-                if not response:
+                if response is None:
                     continue
                 response_text = response.text.lower()
                 for indicator in self.deser_indicators["php"]:
@@ -142,7 +142,7 @@ class DeserializationModule(BaseModule):
             try:
                 data = {param: payload}
                 response = self.requester.request(url, method, data=data)
-                if not response:
+                if response is None:
                     continue
                 response_text = response.text.lower()
                 for indicator in self.deser_indicators["python"]:
@@ -173,7 +173,7 @@ class DeserializationModule(BaseModule):
             try:
                 data = {param: payload}
                 response = self.requester.request(url, method, data=data)
-                if not response:
+                if response is None:
                     continue
                 response_text = response.text.lower()
                 for indicator in self.deser_indicators["dotnet"]:
@@ -205,7 +205,7 @@ class DeserializationModule(BaseModule):
             try:
                 data = {param: payload}
                 response = self.requester.request(url, method, data=data)
-                if not response:
+                if response is None:
                     continue
                 response_text = response.text.lower()
                 for indicator in ruby_indicators:
@@ -246,7 +246,7 @@ class DeserializationModule(BaseModule):
             try:
                 data = {param: payload}
                 response = self.requester.request(url, method, data=data)
-                if not response:
+                if response is None:
                     continue
                 response_text = response.text.lower()
                 for indicator in node_indicators:
@@ -271,7 +271,7 @@ class DeserializationModule(BaseModule):
         """Check response for deserialization indicators"""
         try:
             response = self.requester.request(url, "GET")
-            if not response:
+            if response is None:
                 return
             response_text = response.text.lower()
             for lang, indicators in self.deser_indicators.items():

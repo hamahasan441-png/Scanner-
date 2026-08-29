@@ -30,6 +30,14 @@ class OSShellHandler:
     # ─── public API ──────────────────────────────────────────────────
 
     def run(self, findings: List, forms: Optional[List] = None) -> None:
+        # PATCHED: post-exploit authorization gate
+        try:
+            from core.authorization import require_authorized
+            require_authorized("os-shell", target=getattr(self.engine, "target", None))
+        except (ImportError, PermissionError) as _auth_exc:
+            print(f"{Colors.warning(f'OS shell blocked: {_auth_exc}')}")
+            return
+
         """Attempt to obtain an OS shell.
 
         1. Try to reuse an existing shell from the shell manager DB.

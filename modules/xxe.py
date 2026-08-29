@@ -76,7 +76,7 @@ class XXEModule(BaseModule):
                     # Send raw XML body for POST
                     response = self.requester.request(url, method, data=payload.encode("utf-8"), headers=headers)
 
-                if not response:
+                if response is None:
                     continue
 
                 response_text = response.text.lower()
@@ -145,7 +145,7 @@ class XXEModule(BaseModule):
                 headers = {"Content-Type": "application/xml"}
                 response = self.requester.request(url, "POST", data=payload.encode("utf-8"), headers=headers)
 
-                if not response:
+                if response is None:
                     continue
 
                 # Check for indicators
@@ -186,7 +186,7 @@ class XXEModule(BaseModule):
             try:
                 headers = {"Content-Type": "application/xml"}
                 response = self.requester.request(url, "POST", data=payload.encode("utf-8"), headers=headers)
-                if not response:
+                if response is None:
                     continue
                 text = response.text.lower()
                 strong_count = sum(1 for ind in self.xxe_strong_indicators if ind.lower() in text)

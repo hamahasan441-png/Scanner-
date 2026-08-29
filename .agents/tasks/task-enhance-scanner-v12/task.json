@@ -9,6 +9,6 @@
     "tests": "pass",
     "test_quality": "pass",
     "docker_build": "skipped",
-    "summary": "All 141 tests pass after review fixes. Code review issues addressed: shared fixtures adopted in all 3 module test files, exception hierarchy integrated into ConnectionPool, rate limiter fail-open replaced with logging.warning, BOLA false-positive reduction via error pattern filtering and confidence lowered to 0.55, mass assignment checks injected values instead of field names, SSL verification documented in h2_smuggling _raw_send docstring."
+    "summary": "All 141 tests pass after review fixes. Code review issues addressed: shared fixtures adopted in all 3 module test files, exception hierarchy integrated into ConnectionPool, rate limiter fail-open replaced with logging.warning, BOLA false-positive reduction via error pattern filtering and confidence lowered to 0.55, mass assignment checks injected values instead of field names, SSL verification documented in h2_smuggling _raw_send docstring. Follow-up fixes (2026-08-11): _is_poisoned rewritten to require real desync evidence (2+ status lines on one connection) instead of matching generic 400/403/405 errors; desync tests (H2.CL/H2.TE/request-splitting) now reuse a single connection via the new _raw_send_pipeline so response-queue poisoning is actually observable; websocket smuggling no longer treats a bare '101' substring in a body as an upgrade (new _has_upgrade_101); ConnectionPoolManager.get_session no longer does a lazy late import and fails fast via REQUESTS_AVAILABLE."
   }
 }

@@ -76,15 +76,27 @@ class TestReconRun(unittest.TestCase):
         from modules.reconnaissance import ReconModule
 
         mod = ReconModule(_MockEngine())
+        # run() dispatches to every sub-method below.  All of them must be
+        # patched so this stays a pure unit test — the un-mocked ones perform
+        # real network I/O (DNS, cert-transparency HTTP, zone transfers, vhost
+        # probing) which hangs in a no-egress environment.
         with (
             patch.object(mod, "_dns_lookup") as m1,
             patch.object(mod, "_detect_tech") as m2,
             patch.object(mod, "_whois_lookup") as m3,
             patch.object(mod, "_analyze_ssl_tls") as m4,
             patch.object(mod, "_audit_security_headers") as m5,
+            patch.object(mod, "_detect_wildcard_dns"),
             patch.object(mod, "_detect_subdomain_takeover") as m6,
             patch.object(mod, "_detect_cloud_assets") as m7,
             patch.object(mod, "_enumerate_api_endpoints") as m8,
+            patch.object(mod, "_certificate_transparency"),
+            patch.object(mod, "_dns_zone_transfer"),
+            patch.object(mod, "_check_email_security"),
+            patch.object(mod, "_detect_http2_alpn"),
+            patch.object(mod, "_detect_cms_version"),
+            patch.object(mod, "_cors_preflight_check"),
+            patch.object(mod, "_discover_vhosts"),
         ):
             mod.run("http://example.com")
         m1.assert_called_once_with("example.com")

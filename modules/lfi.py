@@ -98,7 +98,7 @@ class LFIModule(BaseModule):
             try:
                 data = {param: payload}
                 response = self.requester.request(url, method, data=data)
-                if not response:
+                if response is None:
                     continue
                 resp_text = response.text
                 for file_type, indicators in self.file_indicators.items():
@@ -134,7 +134,7 @@ class LFIModule(BaseModule):
             try:
                 data = {param: payload}
                 response = self.requester.request(url, method, data=data)
-                if not response:
+                if response is None:
                     continue
                 text = response.text
                 is_b64 = False
@@ -185,7 +185,7 @@ class LFIModule(BaseModule):
             try:
                 data = {param: payload}
                 response = self.requester.request(url, method, data=data)
-                if not response:
+                if response is None:
                     continue
                 text = response.text.lower()
                 for file_name, inds in indicators.items():
@@ -221,7 +221,7 @@ class LFIModule(BaseModule):
                 try:
                     data = {param: trav}
                     response = self.requester.request(url, method, data=data)
-                    if not response:
+                    if response is None:
                         continue
                     if "ATOMIC_LOG_POISON_TEST" in response.text:
                         from core.engine import Finding
@@ -253,7 +253,7 @@ class LFIModule(BaseModule):
             try:
                 data = {param: payload}
                 response = self.requester.request(url, method, data=data)
-                if not response:
+                if response is None:
                     continue
                 text = response.text
                 match_count = sum(1 for ind in indicators if ind in text)
@@ -293,7 +293,7 @@ class LFIModule(BaseModule):
                 data = {param: payload}
                 response = self.requester.request(url, method, data=data)
 
-                if not response:
+                if response is None:
                     continue
 
                 response_text = response.text
@@ -335,7 +335,7 @@ class LFIModule(BaseModule):
                 data = {param: payload}
                 response = self.requester.request(url, method, data=data)
 
-                if not response:
+                if response is None:
                     continue
 
                 # Check if remote content was included
@@ -380,7 +380,7 @@ class LFIModule(BaseModule):
                 data = {param: log_path}
                 response = self.requester.request(url, method, data=data)
 
-                if not response:
+                if response is None:
                     continue
 
                 # Check for log content
@@ -436,7 +436,7 @@ class LFIModule(BaseModule):
                 data = {param: payload}
                 response = self.requester.request(url, method, data=data)
 
-                if not response:
+                if response is None:
                     continue
 
                 # Check for successful wrapper usage

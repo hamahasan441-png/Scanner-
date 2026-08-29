@@ -1,13 +1,13 @@
-# ATOMIC Framework v10.0 - Docker Image
+# ATOMIC Framework v11.0 - Docker Image
 # Usage:
 #   docker build -t atomic-framework .
 #   docker run -p 5000:5000 atomic-framework --web
-#   docker run atomic-framework -t https://target.com --full
+#   docker run atomic-framework -t https://target.com --full --authorized
 
 FROM python:3.12-slim
 
 LABEL maintainer="Atomic Security"
-LABEL description="ATOMIC Web Vulnerability Scanner v10.0"
+LABEL description="ATOMIC Web Vulnerability Scanner v11.0"
 
 # Install system dependencies
 RUN apt-get update && \

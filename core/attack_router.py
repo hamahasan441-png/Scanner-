@@ -362,7 +362,13 @@ class AttackRouter:
 
         if not routes:
             return []
-
+        # PATCHED: post-exploit authorization gate
+        try:
+            from core.authorization import require_authorized
+            require_authorized("attack-router", target=getattr(self.engine, "target", None))
+        except (ImportError, PermissionError) as _auth_exc:
+            self._emit("execution_blocked", {"reason": str(_auth_exc)})
+            return []
         self._emit("execution_start", {"routes": len(routes)})
 
         # Import PostExploitEngine here to avoid circular imports

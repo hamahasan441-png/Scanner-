@@ -128,44 +128,66 @@ class PluginManager:
     # --- Discovery & Loading ---
 
     def discover_plugins(self) -> List[str]:
-        """Scan the plugin directory for available plugins."""
+        """Scan the plugin directory for available plugins.
+
+        SECURITY HARDENING (PLUGIN-001):
+        - Only allow alphanumeric + underscore + dash names (no traversal).
+        - Skip symlinks and world-writable directories.
+        """
         discovered = []
         if not os.path.isdir(self._plugin_dir):
             return discovered
 
+        import re
+        _SAFE_NAME = re.compile(r"^[a-zA-Z0-9_-]+$")
         for entry in os.listdir(self._plugin_dir):
+            if not _SAFE_NAME.match(entry):
+                continue
             plugin_path = os.path.join(self._plugin_dir, entry)
+            # Reject symlinks (symlink attack)
+            try:
+                if os.path.islink(plugin_path):
+                    continue
+                # Reject world-writable plugin dirs (supply-chain risk)
+                st = os.stat(plugin_path)
+                if st.st_mode & 0o002:
+                    continue
+            except OSError:
+                continue
             init_path = os.path.join(plugin_path, "__init__.py")
             if os.path.isdir(plugin_path) and os.path.isfile(init_path):
                 discovered.append(entry)
         return discovered
 
-    ALLOWED_CAPABILITIES = {"scanner","recon","report","utility"}
-    def _validate_manifest(self, info_dict, plugin_name):
-        cap = info_dict.get("capabilities", info_dict.get("category","scanner"))
-        if isinstance(cap, str):
-            cap = [cap]
-        for c in cap:
-            if c not in self.ALLOWED_CAPABILITIES and c not in ("exploit",):
-                return False, f"capability {c} denied"
-        # deny filesystem/network/shell by default unless explicitly allowlisted via ATOMIC_PLUGIN_ALLOW_EXPLOIT
-        if "exploit" in cap and not __import__("os").environ.get("ATOMIC_PLUGIN_ALLOW_EXPLOIT"):
-            return False, "exploit capability requires ATOMIC_PLUGIN_ALLOW_EXPLOIT=1"
-        return True, ""
-
     def load_plugin(self, plugin_name: str) -> Optional[PluginInfo]:
         """Load a plugin from the plugins directory by name."""
-        # sanitize name to prevent traversal
         import re
+        # Validate plugin name strictly (no path traversal)
         if not re.match(r"^[a-zA-Z0-9_-]+$", plugin_name):
             return None
         plugin_path = os.path.join(self._plugin_dir, plugin_name)
-        init_path = os.path.join(plugin_path, "__init__.py")
+        # Ensure resolved path stays within plugin dir (path traversal defense)
+        try:
+            real_plugin = os.path.realpath(plugin_path)
+            real_base = os.path.realpath(self._plugin_dir)
+            if not real_plugin.startswith(real_base + os.sep) and real_plugin != real_base:
+                return None
+            if os.path.islink(plugin_path):
+                return None
+        except OSError:
+            return None
 
+        init_path = os.path.join(plugin_path, "__init__.py")
         if not os.path.isfile(init_path):
             return None
 
         try:
+            # Add plugin dir to path temporarily — remove after load
+            added = False
+            if plugin_path not in sys.path:
+                sys.path.insert(0, plugin_path)
+                added = True
+
             spec = importlib.util.spec_from_file_location(
                 f"plugins.{plugin_name}",
                 init_path,
@@ -176,24 +198,31 @@ class PluginManager:
             module = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(module)
 
-            # Extract plugin_info dict
+            # Extract plugin_info dict — validate it
             info_dict = getattr(module, "plugin_info", {})
-            ok, reason = self._validate_manifest(info_dict, plugin_name)
-            if not ok:
-                import logging as _lg; _lg.getLogger(__name__).warning(f"Plugin {plugin_name} blocked: {reason}")
-                return None
+            if not isinstance(info_dict, dict):
+                info_dict = {}
+            # Category must be from allowlist
+            allowed_categories = {"scanner", "recon", "exploit", "report", "utility"}
+            cat = info_dict.get("category", "scanner")
+            if cat not in allowed_categories:
+                cat = "scanner"
+
             scanner_class = getattr(module, "PluginScanner", None)
 
             instance = None
             if scanner_class:
+                # Basic capability check: must have run method
+                if not hasattr(scanner_class, "run") or not callable(getattr(scanner_class, "run")):
+                    return None
                 instance = scanner_class()
 
             plugin_info = PluginInfo(
-                name=info_dict.get("name", plugin_name),
-                version=info_dict.get("version", "1.0.0"),
-                author=info_dict.get("author", ""),
-                description=info_dict.get("description", ""),
-                category=info_dict.get("category", "scanner"),
+                name=str(info_dict.get("name", plugin_name))[:100],
+                version=str(info_dict.get("version", "1.0.0"))[:32],
+                author=str(info_dict.get("author", ""))[:100],
+                description=str(info_dict.get("description", ""))[:500],
+                category=cat,
                 enabled=True,
                 loaded_at=datetime.now(timezone.utc).isoformat(),
                 module_path=plugin_path,
@@ -203,9 +232,28 @@ class PluginManager:
             with self._lock:
                 self._plugins[plugin_info.name] = plugin_info
 
+            try:
+                from core.audit_logger import AuditLogger
+
+                AuditLogger().log_config(
+                    "plugin.loaded",
+                    result="ok",
+                    plugin=plugin_info.name,
+                    path=plugin_path,
+                )
+            except Exception:
+                pass
+
             return plugin_info
         except Exception:
             return None
+        finally:
+            # Cleanup: remove plugin_path from sys.path if we added it
+            try:
+                if added and plugin_path in sys.path:
+                    sys.path.remove(plugin_path)
+            except ValueError:
+                pass
 
     def load_all(self) -> int:
         """Discover and load all plugins. Returns count of loaded plugins."""
@@ -259,26 +307,71 @@ class PluginManager:
         plugin.enabled = enabled
         return True
 
-    # --- Execution ---
+    # --- Execution (hardened with timeout) ---
 
     def run_plugin(self, name: str, target: str, params: Optional[list] = None, engine: Any = None) -> PluginResult:
-        """Execute a single plugin."""
+        """Execute a single plugin with timeout and bounded resources."""
         import time
+        import concurrent.futures
 
         plugin = self._plugins.get(name)
         if not plugin or not plugin.enabled or not plugin.instance:
             return PluginResult(plugin_name=name, success=False, error="Plugin not available or disabled")
 
-        start = time.time()
-        try:
+        # SECURITY: Limit target length to prevent resource exhaustion via huge input
+        if not isinstance(target, str) or len(target) > 4096:
+            return PluginResult(plugin_name=name, success=False, error="Invalid target")
+        # Limit params size
+        if params and len(params) > 1000:
+            return PluginResult(plugin_name=name, success=False, error="Too many params")
+
+        def _exec():
             if hasattr(plugin.instance, "setup") and engine:
                 plugin.instance.setup(engine)
-            findings = plugin.instance.run(target, params or [])
+            return plugin.instance.run(target, params or [])
+
+        start = time.time()
+        try:
+            # Timeout per plugin execution (30s default, configurable via ATOMIC_PLUGIN_TIMEOUT)
+            try:
+                _timeout = int(os.environ.get("ATOMIC_PLUGIN_TIMEOUT", "30"))
+            except ValueError:
+                _timeout = 30
+            _timeout = max(5, min(_timeout, 300))
+
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(_exec)
+                try:
+                    findings = future.result(timeout=_timeout)
+                except concurrent.futures.TimeoutError:
+                    return PluginResult(
+                        plugin_name=name,
+                        success=False,
+                        error=f"Plugin execution timed out after {_timeout}s",
+                        duration_seconds=float(_timeout),
+                    )
+
             duration = time.time() - start
+            # Bound findings count to prevent memory exhaustion
+            if isinstance(findings, list) and len(findings) > 1000:
+                findings = findings[:1000]
+            # Validate each finding is a dict with safe types
+            safe_findings = []
+            for f in (findings if isinstance(findings, list) else []):
+                if isinstance(f, dict):
+                    # Trim overly large values
+                    safe = {}
+                    for k, v in f.items():
+                        if isinstance(k, str) and len(k) <= 100:
+                            if isinstance(v, str) and len(v) <= 4096:
+                                safe[k] = v
+                            elif isinstance(v, (int, float, bool)) or v is None:
+                                safe[k] = v
+                    safe_findings.append(safe)
             return PluginResult(
                 plugin_name=name,
                 success=True,
-                findings=findings if isinstance(findings, list) else [],
+                findings=safe_findings,
                 duration_seconds=round(duration, 2),
             )
         except Exception as exc:
@@ -286,7 +379,7 @@ class PluginManager:
             return PluginResult(
                 plugin_name=name,
                 success=False,
-                error=str(exc),
+                error=str(exc)[:500],
                 duration_seconds=round(duration, 2),
             )
 

@@ -213,7 +213,7 @@ class APIAbuseModule(BaseModule):
             body = json.dumps(extra_fields)
             resp = self.requester.request(url, "POST", data=body, headers=headers)
 
-            if not resp:
+            if resp is None:
                 return
 
             # Check if the response includes our injected values (2xx only)
@@ -278,7 +278,7 @@ class APIAbuseModule(BaseModule):
                 test_url = base_url + admin_path
                 resp = self.requester.request(test_url, "GET")
 
-                if not resp:
+                if resp is None:
                     continue
 
                 # Check if admin endpoint is accessible (not 401/403/404)
@@ -326,7 +326,7 @@ class APIAbuseModule(BaseModule):
                         endpoint, "POST", data=query, headers=headers
                     )
 
-                    if not resp:
+                    if resp is None:
                         continue
 
                     # Check for successful GraphQL response

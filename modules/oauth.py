@@ -93,7 +93,7 @@ class OAuthModule(BaseModule):
         for malicious_uri in self.REDIRECT_URI_TESTS:
             test_url = self._replace_param(url, param, malicious_uri)
             resp = self.requester.request(test_url, method)
-            if not resp:
+            if resp is None:
                 continue
 
             # Check if the malicious redirect was accepted (location or code in response)
@@ -199,7 +199,7 @@ class OAuthModule(BaseModule):
     def _test_oauth_endpoint(self, url: str):
         """Generic checks on OAuth endpoints."""
         resp = self.requester.request(url, "GET")
-        if not resp:
+        if resp is None:
             return
         body = getattr(resp, "text", "")
 

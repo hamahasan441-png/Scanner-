@@ -499,6 +499,32 @@ class InterceptProxy:
     def _forward_upstream(self, req: ProxyRequest) -> dict:
         """Send the request upstream and return a response dict."""
         url = req.url
+
+        # SECURITY FIX P0 (PROXY-SSRF-001): Block non-HTTP(S) schemes.
+        # urllib.request.urlopen handles file://, ftp://, data:, gopher:// etc
+        # which would allow local file read or protocol smuggling via the proxy.
+        try:
+            from urllib.parse import urlparse as _urlparse
+            _parsed = _urlparse(url)
+            if _parsed.scheme.lower() not in ("http", "https"):
+                return {
+                    "status": 400,
+                    "headers": {},
+                    "body": f"Request blocked: unsupported scheme '{_parsed.scheme}' — only http/https allowed",
+                }
+            if not _parsed.netloc:
+                return {
+                    "status": 400,
+                    "headers": {},
+                    "body": "Request blocked: missing host",
+                }
+        except Exception:
+            return {
+                "status": 400,
+                "headers": {},
+                "body": "Request blocked: malformed URL",
+            }
+
         headers = {k: v for k, v in req.headers.items() if k.lower() not in ("host", "proxy-connection")}
         body_bytes = req.body.encode("utf-8") if req.body else None
 
@@ -536,4 +562,13 @@ class InterceptProxy:
                 "status": exc.code,
                 "headers": resp_headers,
                 "body": resp_body,
+            }
+        except urllib.error.URLError as exc:
+            # Network errors (DNS failure, connection refused, etc.)
+            # Return 502 Bad Gateway rather than bubbling up exception
+            # so that the proxy handler can log and return proper HTTP error
+            return {
+                "status": 502,
+                "headers": {},
+                "body": f"Bad Gateway: {exc.reason if hasattr(exc, 'reason') else str(exc)}",
             }

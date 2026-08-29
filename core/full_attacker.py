@@ -82,7 +82,15 @@ class AttackerPolicy:
         modules = config.get("modules") or {}
         full_attack = bool(config.get("full_attack")) or bool(modules.get("full_attack"))
         smart = bool(modules.get("smart_attack")) or bool(modules.get("auto_exploit"))
-        enabled = (full_attack or smart) and bool(config.get("authorized", True))
+        # SECURITY FIX (SEC-002): fail-closed default.  The previous
+        # ``config.get("authorized", True)`` meant that callers which do not
+        # carry an explicit authorization flag (notably dashboard-initiated
+        # scans, whose config has no ``authorized`` key) silently enabled
+        # streaming exploitation.  The CLI always sets the key explicitly
+        # (scan.py), so this only closes the ungated programmatic paths.
+        # Check both "authorized" (CLI flag) and "_authorized" (env + CLI).
+        is_auth = bool(config.get("authorized", False)) or bool(config.get("_authorized", False))
+        enabled = (full_attack or smart) and is_auth
         unsafe = bool(config.get("unsafe_mode"))
 
         # --unsafe-mode (per-run, gated on --authorized at the CLI):
@@ -184,6 +192,25 @@ class FullAttacker:
         """
         if not self.policy.admits(finding):
             return None
+
+        # SECURITY FIX (SEC-002): enforce the authorization gate that
+        # ``AttackerPolicy.require_authorized`` has always declared but never
+        # checked.  The streaming path calls ``PostExploitEngine._execute_action``
+        # directly, bypassing every other gate, so it must gate itself.
+        if self.policy.require_authorized:
+            try:
+                from core.authorization import is_authorized
+
+                if not is_authorized():
+                    if not getattr(self, "_auth_warned", False):
+                        logger.warning(
+                            "FullAttacker disabled: post-exploit requires --authorized / ATOMIC_AUTHORIZED=1"
+                        )
+                        self._auth_warned = True
+                    return None
+            except ImportError:
+                logger.warning("FullAttacker disabled: core.authorization unavailable")
+                return None
 
         family = self._classify(finding)
         if not family:

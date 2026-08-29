@@ -10,11 +10,11 @@
 
 # Core dependencies
 requests==2.34.2
-beautifulsoup4==4.14.3
+beautifulsoup4==4.15.0
 urllib3==2.7.0
 
 # Database
-sqlalchemy==2.0.50
+sqlalchemy==2.0.51
 
 # Report generation
 fpdf2==2.8.7
@@ -39,7 +39,7 @@ flask-cors==6.0.5
 
 # Utilities
 colorama==0.4.6
-tqdm==4.68.3
+tqdm==4.70.0
 
 # DNS resolution
 dnspython==2.8.0

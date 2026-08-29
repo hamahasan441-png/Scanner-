@@ -44,7 +44,7 @@ class WebSocketModule(BaseModule):
                 },
             )
 
-            if not response:
+            if response is None:
                 return
 
             if response.status_code == 101 or "upgrade" in response.headers.get("Connection", "").lower():
@@ -98,7 +98,7 @@ class WebSocketModule(BaseModule):
                         "Sec-WebSocket-Protocol": payload,
                     },
                 )
-                if not response:
+                if response is None:
                     continue
                 response_text = response.text.lower()
                 if "error" in response_text or "sql" in response_text or payload.lower() in response_text:
@@ -143,7 +143,7 @@ class WebSocketModule(BaseModule):
                     headers["Origin"] = origin
 
                 response = self.requester.request(url, "GET", headers=headers)
-                if not response:
+                if response is None:
                     continue
 
                 if response.status_code == 101:
@@ -185,7 +185,7 @@ class WebSocketModule(BaseModule):
                         "Sec-WebSocket-Protocol": protocol,
                     },
                 )
-                if not response:
+                if response is None:
                     continue
                 if (
                     response.status_code == 101

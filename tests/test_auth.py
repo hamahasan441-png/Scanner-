@@ -155,10 +155,37 @@ class TestUserStore(unittest.TestCase):
     def setUp(self):
         self.store = UserStore()
 
+    def test_no_known_default_admin_password(self):
+        """Without ATOMIC_ADMIN_PASSWORD, no Admin@1234 bootstrap account."""
+        store = UserStore()
+        admin = store.get_user("admin")
+        if admin is not None:
+            self.assertIsNone(store.authenticate("admin", "Admin@1234"))
+
+    def test_admin_from_env_password(self):
+        prev = os.environ.get("ATOMIC_ADMIN_PASSWORD")
+        os.environ["ATOMIC_ADMIN_PASSWORD"] = "EnvAdmin9"
+        try:
+            store = UserStore()
+            user = store.get_user("admin")
+            self.assertIsNotNone(user)
+            self.assertEqual(user.role, "admin")
+            self.assertIsNotNone(store.authenticate("admin", "EnvAdmin9"))
+            self.assertIsNone(store.authenticate("admin", "Admin@1234"))
+        finally:
+            if prev is None:
+                os.environ.pop("ATOMIC_ADMIN_PASSWORD", None)
+            else:
+                os.environ["ATOMIC_ADMIN_PASSWORD"] = prev
+
     def test_default_admin_exists(self):
-        user = self.store.get_user("admin")
-        self.assertIsNotNone(user)
-        self.assertEqual(user.role, "admin")
+        # Backward-compatible name: an admin may be created via env; otherwise
+        # operators bootstrap with ATOMIC_API_KEY / create_user.
+        store = UserStore()
+        if store.get_user("admin") is None:
+            created = store.create_user("admin", "TestAdmin1", "admin")
+            self.assertIsNotNone(created)
+        self.assertEqual(store.get_user("admin").role, "admin")
 
     def test_create_user(self):
         user = self.store.create_user("testuser", "TestPass1", "analyst")
@@ -208,9 +235,10 @@ class TestUserStore(unittest.TestCase):
         self.assertIsNone(user)
 
     def test_list_users(self):
+        self.store.create_user("lister", "ListerP1", "viewer")
         users = self.store.list_users()
         self.assertIsInstance(users, list)
-        self.assertTrue(len(users) >= 1)  # at least default admin
+        self.assertTrue(len(users) >= 1)
         self.assertNotIn("password_hash", users[0])
 
     def test_update_role(self):

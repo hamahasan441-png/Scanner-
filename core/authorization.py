@@ -1,119 +1,75 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
-ATOMIC FRAMEWORK - Offensive-action governance
-================================================
+ATOMIC Framework — Centralized authorization gate for post-exploit.
 
-A small, dependency-free governance layer for the framework's *offensive*
-capabilities (auto-exploitation, shell upload, OS-command execution,
-post-exploitation). It provides two things:
+This module exists because, in a default install, the engine's
+``--full`` profile implicitly enables ``auto_exploit`` /
+``smart_attack`` without an explicit operator ack. A single
+``python main.py -t https://target --full`` will deploy a web shell
+on the target. The fix is a single fail-closed check that every
+post-exploit entry point must call before any destructive / exploitative
+network action.
 
-1. **An opt-in authorization gate** — when enforcement is enabled, offensive
-   actions are refused unless the operator has explicitly asserted
-   authorization for the engagement (``--authorized`` / ``config["authorized"]``).
-2. **A tamper-evident-ish audit trail** — every offensive action (allowed or
-   refused) is appended as a JSON line to an audit log, so an engagement can
-   always answer "what did the tool attempt, against what, and when".
+The check is:
 
-Design goals
-------------
-* **Default-permissive / non-breaking.** With no environment configuration the
-  gate returns *allowed* for everything, so existing behaviour and the test
-  suite are unchanged. Enforcement is strictly opt-in via
-  ``ATOMIC_REQUIRE_AUTHORIZATION``.
-* **Fail-open on audit, fail-closed on authorization.** Audit-log I/O never
-  raises into the scan path (a missing disk must not abort a scan), but when
-  enforcement *is* enabled an unauthorized action is refused.
-* **stdlib only** — safe to import from anywhere in the engine.
+    1. ``ATOMIC_AUTHORIZED=1`` env var, OR
+    2. ``--authorized`` on the command line, OR
+    3. An operator-confirmed "lab mode" via the ``atomic`` wrapper
+       (which already prompts and refuses without ack).
 
-Environment
------------
-``ATOMIC_REQUIRE_AUTHORIZATION``
-    Truthy ("1", "true", "yes", "on") to require explicit authorization before
-    any offensive action runs. Default: disabled (permissive).
-``ATOMIC_AUDIT_LOG``
-    Path to the audit log. Default: ``~/.atomic/audit.log``.
-``ATOMIC_AUDIT_DISABLED``
-    Truthy to disable audit logging entirely.
+All three are required to be PRESENT in the running process; we do
+not require both env and CLI — either is sufficient but both are
+deliberately not auto-set by the framework.
 """
-
 from __future__ import annotations
-
-import json
-import logging
 import os
-from datetime import datetime, timezone
-from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
-
-logger = logging.getLogger(__name__)
-
-_TRUTHY = {"1", "true", "yes", "on", "y"}
+import sys
+from typing import Optional
 
 
-def _env_truthy(name: str) -> bool:
-    return os.environ.get(name, "").strip().lower() in _TRUTHY
+def is_authorized() -> bool:
+    """Return True iff the operator has acknowledged post-exploit risk."""
+    env = os.environ.get("ATOMIC_AUTHORIZED", "").strip().lower()
+    if env in ("1", "true", "yes", "on"):
+        return True
+    if "--authorized" in sys.argv[1:]:
+        return True
+    return False
 
 
-def is_enforced() -> bool:
-    """Return True when explicit authorization is required for offensive actions."""
-    return _env_truthy("ATOMIC_REQUIRE_AUTHORIZATION")
+def require_authorized(action: str, target: Optional[str] = None) -> None:
+    """Raise ``PermissionError`` unless the operator has authorized the action.
 
-
-def _audit_path() -> Path:
-    raw = os.environ.get("ATOMIC_AUDIT_LOG", "").strip()
-    if raw:
-        return Path(raw).expanduser()
-    return Path(os.environ.get("ATOMIC_HOME", str(Path.home() / ".atomic"))).expanduser() / "audit.log"
-
-
-def check_authorization(config: Optional[Dict[str, Any]] = None) -> Tuple[bool, str]:
-    """Decide whether an offensive action may proceed.
-
-    Returns ``(allowed, reason)``. When enforcement is disabled this always
-    allows (preserving default behaviour). When enforcement is enabled, the
-    action is allowed only if ``config["authorized"]`` is truthy.
+    *action* is a short human label (e.g. "auto-attack", "shell-upload").
+    *target* is the URL the action would run against (for the audit log).
     """
-    if not is_enforced():
-        return True, "authorization enforcement disabled (default)"
-
-    authorized = bool((config or {}).get("authorized"))
-    if authorized:
-        return True, "operator asserted authorization (--authorized)"
-    return False, (
-        "offensive action refused: ATOMIC_REQUIRE_AUTHORIZATION is set but the "
-        "operator did not assert authorization (pass --authorized only for "
-        "systems you are explicitly permitted to test)"
-    )
-
-
-def audit_offensive_action(
-    action: str,
-    target: Optional[str],
-    details: Optional[Dict[str, Any]] = None,
-    allowed: bool = True,
-) -> None:
-    """Append a structured JSON record of an offensive action to the audit log.
-
-    Best-effort: never raises into the caller. A failure to write the audit log
-    is logged at DEBUG rather than aborting the scan.
-    """
-    if _env_truthy("ATOMIC_AUDIT_DISABLED"):
+    if is_authorized():
+        # Audit log import is deferred (and best-effort) so this helper
+        # works in lean test environments where PyYAML / SQLAlchemy
+        # may be missing. We use a direct file-path import to avoid
+        # triggering the eager ``core/__init__.py`` package import
+        # (which pulls in AtomicEngine and its heavy deps).
+        try:
+            import importlib.util
+            from pathlib import Path
+            here = Path(__file__).resolve().parent
+            audit_path = here / "audit_logger.py"
+            spec = importlib.util.spec_from_file_location("_audit_logger_lazy", str(audit_path))
+            if spec and spec.loader:
+                mod = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(mod)
+                audit = mod.AuditLogger()
+                audit.log_config(
+                    "post_exploit.authorized",
+                    result="executed",
+                    action=action,
+                    target=target or "",
+                )
+        except Exception:
+            pass
         return
-
-    record = {
-        "ts": datetime.now(timezone.utc).isoformat(),
-        "action": action,
-        "target": target,
-        "allowed": allowed,
-        "enforced": is_enforced(),
-        "pid": os.getpid(),
-        "details": details or {},
-    }
-    try:
-        path = _audit_path()
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with open(path, "a", encoding="utf-8") as fh:
-            fh.write(json.dumps(record, default=str) + "\n")
-    except Exception as exc:  # pragma: no cover - audit must never break a scan
-        logger.debug("Failed to write offensive-action audit record: %s", exc, exc_info=True)
+    raise PermissionError(
+        f"post-exploit action {action!r} requires explicit operator "
+        f"authorization. Re-run with --authorized or set "
+        f"ATOMIC_AUTHORIZED=1. See atomic wrapper for an interactive "
+        f"confirmation flow."
+    )

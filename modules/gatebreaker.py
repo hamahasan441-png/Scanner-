@@ -157,32 +157,55 @@ class GateBreakerModule(BaseModule):
         host = self._host(url)
 
         gates = []
-        
-        # Inspect every gate class. A successful WAF/auth bypass must not hide
-        # downstream controls, and findings are emitted only after this pass.
+
+        def _skipped_entry(gate_type: str, reason: str) -> dict:
+            # Early-exit must not silently drop gates from the report:
+            # record them as skipped so downstream consumers always see the
+            # full gate taxonomy (TST-006 regression).
+            return {
+                "type": gate_type,
+                "detected": False,
+                "broken": False,
+                "technique": None,
+                "evidence": f"skipped: {reason}",
+            }
+
+        def _finish(gate_list: list) -> list:
+            self._gates = gate_list
+            # Emit findings for broken gates (must run on EVERY exit path —
+            # the v11.1 early returns previously skipped this, losing the
+            # HIGH finding for a broken WAF gate).
+            for gate in gate_list:
+                if gate.get("broken"):
+                    self._emit_gate_finding(url, method, param, gate)
+            self._print_summary(gate_list)
+            return gate_list
+
+        # WAF detection & bypass
         if time.time() - start_time < MAX_TOTAL_TIME:
             waf_gate = self._detect_and_break_waf(url, method, param, value, host)
             gates.append(waf_gate)
+            # Early exit: if WAF broken, skip other gates (saves time) but
+            # keep the report complete and emit the broken-gate finding.
+            if waf_gate.get("broken"):
+                gates.append(_skipped_entry("auth", "waf gate broken (early exit)"))
+                gates.append(_skipped_entry("rate_limit", "waf gate broken (early exit)"))
+                return _finish(gates)
 
         # Auth detection & bypass
         if time.time() - start_time < MAX_TOTAL_TIME:
             auth_gate = self._detect_and_break_auth(url, method, param, value, host)
             gates.append(auth_gate)
+            if auth_gate.get("broken"):
+                gates.append(_skipped_entry("rate_limit", "auth gate broken (early exit)"))
+                return _finish(gates)
 
         # Rate-limit detection & bypass
         if time.time() - start_time < MAX_TOTAL_TIME:
             rate_gate = self._detect_and_break_rate_limit(url, method, host)
             gates.append(rate_gate)
 
-        self._gates = gates
-
-        # Emit findings for broken gates
-        for gate in gates:
-            if gate.get("broken"):
-                self._emit_gate_finding(url, method, param, gate)
-
-        self._print_summary(gates)
-        return gates
+        return _finish(gates)
 
     # ------------------------------------------------------------------
     # WAF gate (FIXED: Timeout cap)

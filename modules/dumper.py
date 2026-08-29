@@ -23,6 +23,13 @@ class DataDumper:
 
     def run(self, findings: list):
         """Attempt to dump data based on findings"""
+        # Authorization gate: data extraction is exploitation, not detection.
+        try:
+            from core.authorization import require_authorized
+            require_authorized("data-dump", target=getattr(self.engine, "target", None))
+        except (ImportError, PermissionError) as exc:
+            print(f"{Colors.warning(f'Data dump blocked: {exc}')}")
+            return
         print(f"{Colors.info('Attempting data extraction...')}")
 
         for finding in findings:

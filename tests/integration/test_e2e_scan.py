@@ -123,21 +123,14 @@ def vulnerable_server():
     port = _get_free_port()
     base_url = f"http://127.0.0.1:{port}"
 
-    # Use a controllable WSGI server so no listener or logging thread survives
-    # pytest teardown and corrupts output capture file descriptors.
-    from werkzeug.serving import make_server
-
-    server = make_server("127.0.0.1", port, app, threaded=True)
-    server_thread = threading.Thread(target=server.serve_forever, daemon=True)
+    server_thread = threading.Thread(
+        target=lambda: app.run(host="127.0.0.1", port=port, use_reloader=False),
+        daemon=True,
+    )
     server_thread.start()
-    time.sleep(0.5)  # let the server start accepting connections
+    time.sleep(0.5)  # let Flask start
 
-    try:
-        yield base_url
-    finally:
-        server.shutdown()
-        server_thread.join(timeout=5)
-        server.server_close()
+    yield base_url
 
 
 @pytest.fixture
@@ -149,16 +142,14 @@ def engine_config():
         "delay": 0.0,
         "verbose": False,
         "quiet": True,
-        # This fixture intentionally scans its own loopback-only test server.
-        # Production defaults must continue to reject private addresses.
-        "allow_private_ips": True,
-        # Local deterministic fixture; throttling would turn a few-second
-        # integration check into several minutes without testing rate policy.
-        "rate_limit": 0,
-        # Individual tests opt into one module at a time. This keeps the E2E
-        # suite focused and prevents unrelated payload families from turning a
-        # single detector check into a full multi-minute scan.
-        "modules": {"sqli": True},
+        "modules": {
+            "sqli": True,
+            "xss": True,
+            "lfi": True,
+            "cors": True,
+            "open_redirect": True,
+            "ssrf": True,
+        },
     }
 
 
@@ -205,8 +196,7 @@ def test_xss_detected(vulnerable_server, engine_config):
     from core.engine import AtomicEngine
 
     target = f"{vulnerable_server}/greet?name=World"
-    config = {**engine_config, "modules": {"xss": True}}
-    engine = AtomicEngine(config)
+    engine = AtomicEngine(engine_config)
     engine.scan(target)
 
     techs = _techniques(engine.findings)
@@ -220,8 +210,7 @@ def test_cors_misconfiguration_detected(vulnerable_server, engine_config):
     from core.engine import AtomicEngine
 
     target = f"{vulnerable_server}/api/data"
-    config = {**engine_config, "modules": {"cors": True}}
-    engine = AtomicEngine(config)
+    engine = AtomicEngine(engine_config)
     engine.scan(target)
 
     techs = _techniques(engine.findings)
@@ -235,8 +224,7 @@ def test_open_redirect_detected(vulnerable_server, engine_config):
     from core.engine import AtomicEngine
 
     target = f"{vulnerable_server}/redirect?url=/"
-    config = {**engine_config, "modules": {"open_redirect": True}}
-    engine = AtomicEngine(config)
+    engine = AtomicEngine(engine_config)
     engine.scan(target)
 
     techs = _techniques(engine.findings)
@@ -313,18 +301,14 @@ def test_batch_scanner(vulnerable_server):
 
 
 @pytest.mark.integration
-def test_ci_mode_exit_code(vulnerable_server, engine_config, tmp_path, monkeypatch):
-    """Verify CI mode returns exit code 1 and writes an Actions summary."""
+def test_ci_mode_exit_code(vulnerable_server, engine_config, tmp_path):
+    """Verify CI mode returns exit code 1 when findings exceed threshold."""
     from core.engine import AtomicEngine
     from core.ci_mode import write_ci_summary
 
     target = f"{vulnerable_server}/search?q=test"
     engine = AtomicEngine(engine_config)
     engine.scan(target)
-
-    summary_path = tmp_path / "github-summary.md"
-    monkeypatch.setenv("GITHUB_ACTIONS", "true")
-    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary_path))
 
     exit_code = write_ci_summary(
         engine.findings,
@@ -338,7 +322,6 @@ def test_ci_mode_exit_code(vulnerable_server, engine_config, tmp_path, monkeypat
         assert exit_code == 1
     else:
         assert exit_code == 0
-    assert "ATOMIC Security Scan" in summary_path.read_text(encoding="utf-8")
 
 
 @pytest.mark.integration

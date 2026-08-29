@@ -103,7 +103,7 @@ class SSTIModule(BaseModule):
             try:
                 data = {param: payload}
                 response = self.requester.request(url, method, data=data)
-                if not response:
+                if response is None:
                     continue
                 resp_text = response.text
                 # Check for math eval with stricter matching:
@@ -170,7 +170,7 @@ class SSTIModule(BaseModule):
             try:
                 data = {param: payload}
                 response = self.requester.request(url, method, data=data)
-                if not response:
+                if response is None:
                     continue
                 resp_lower = response.text.lower()
                 # Verify expected result is NEW and raw payload is NOT echoed back
@@ -203,7 +203,7 @@ class SSTIModule(BaseModule):
             try:
                 data = {param: payload}
                 response = self.requester.request(url, method, data=data)
-                if not response:
+                if response is None:
                     continue
                 if indicator.lower() in response.text.lower():
                     from core.engine import Finding
@@ -276,7 +276,7 @@ class SSTIModule(BaseModule):
                 data = {param: payload}
                 response = self.requester.request(url, method, data=data)
 
-                if not response:
+                if response is None:
                     continue
 
                 response_text = response.text
@@ -339,7 +339,7 @@ class SSTIModule(BaseModule):
                 data = {param: payload}
                 response = self.requester.request(url, method, data=data)
 
-                if not response:
+                if response is None:
                     continue
 
                 response_text = response.text
@@ -398,7 +398,7 @@ class SSTIModule(BaseModule):
                     data = {param: payload}
                     response = self.requester.request(url, method, data=data)
 
-                    if not response:
+                    if response is None:
                         continue
 
                     # Check for engine-specific responses

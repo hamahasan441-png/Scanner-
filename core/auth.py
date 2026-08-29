@@ -20,6 +20,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
+import threading
 
 try:
     import jwt as pyjwt
@@ -31,9 +32,18 @@ except ImportError:
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
-AUTH_SECRET = os.environ.get("ATOMIC_AUTH_SECRET", secrets.token_hex(32))
+AUTH_SECRET = os.environ.get("ATOMIC_AUTH_SECRET", "").strip()
+AUTH_SECRET_CONFIGURED = bool(AUTH_SECRET)
+AUTH_SECRET_MIN_LENGTH = 32
+if not AUTH_SECRET:
+    # Ephemeral secret is acceptable only for explicit development/test mode.
+    AUTH_SECRET = secrets.token_hex(32)
+
+AUTH_REQUIRED = os.environ.get("ATOMIC_AUTH_REQUIRED", "true").strip().lower() not in {"0", "false", "no", "off"}
 TOKEN_EXPIRY_SECONDS = int(os.environ.get("ATOMIC_TOKEN_EXPIRY", "3600"))
 REFRESH_EXPIRY_SECONDS = int(os.environ.get("ATOMIC_REFRESH_EXPIRY", "86400"))
+TOKEN_ISSUER = os.environ.get("ATOMIC_TOKEN_ISSUER", "atomic-security")
+TOKEN_AUDIENCE = os.environ.get("ATOMIC_TOKEN_AUDIENCE", "atomic-api")
 API_KEY_PREFIX = "atk_"
 PASSWORD_MIN_LENGTH = 8
 
@@ -41,7 +51,7 @@ PASSWORD_MIN_LENGTH = 8
 # ---------------------------------------------------------------------------
 # Role definitions and permission matrix
 # ---------------------------------------------------------------------------
-ROLES = ("admin", "analyst", "viewer")
+ROLES = ("admin", "security-admin", "operator", "analyst", "viewer")
 
 PERMISSIONS = {
     "admin": {
@@ -73,6 +83,54 @@ PERMISSIONS = {
         "config.update",
         "plugin.manage",
         "notification.manage",
+        "chat.write",
+        "chat.manage",
+    },
+    "security-admin": {
+        "scan.create",
+        "scan.read",
+        "scan.delete",
+        "scan.stop",
+        "findings.read",
+        "findings.export",
+        "report.generate",
+        "report.download",
+        "schedule.create",
+        "schedule.read",
+        "schedule.delete",
+        "compliance.read",
+        "compliance.export",
+        "audit.read",
+        "tools.use",
+        "tools.decode",
+        "tools.encode",
+        "config.read",
+        "config.update",
+        "plugin.manage",
+        "notification.manage",
+        "chat.write",
+        "chat.manage",
+        "exploit.run",
+        "shell.execute",
+        "shell.list",
+    },
+    "operator": {
+        "scan.create",
+        "scan.read",
+        "scan.stop",
+        "findings.read",
+        "report.generate",
+        "report.download",
+        "exploit.run",
+        "shell.execute",
+        "shell.list",
+        "schedule.create",
+        "schedule.read",
+        "tools.use",
+        "tools.decode",
+        "tools.encode",
+        "config.read",
+        "chat.write",
     },
     "analyst": {
         "scan.create",
@@ -83,8 +141,6 @@ PERMISSIONS = {
         "report.generate",
         "report.download",
         "exploit.run",
-        "shell.execute",
-        "shell.list",
         "schedule.create",
         "schedule.read",
         "compliance.read",
@@ -93,6 +149,7 @@ PERMISSIONS = {
         "tools.decode",
         "tools.encode",
         "config.read",
+        "chat.write",
     },
     "viewer": {
         "scan.read",
@@ -198,13 +255,27 @@ class User:
 class TokenManager:
     """Create and validate JWT access and refresh tokens."""
 
-    def __init__(self, secret: str = AUTH_SECRET):
+    def __init__(self, secret: str = AUTH_SECRET, require_explicit_secret: bool = False):
         self.secret = secret
+        self.require_explicit_secret = require_explicit_secret
+        self.issuer = TOKEN_ISSUER
+        self.audience = TOKEN_AUDIENCE
+
+    def _require_secure_secret(self) -> None:
+        if self.require_explicit_secret and not AUTH_SECRET_CONFIGURED:
+            raise RuntimeError(
+                "ATOMIC_AUTH_SECRET must be explicitly configured when authentication is enabled"
+            )
+        if len(self.secret) < AUTH_SECRET_MIN_LENGTH:
+            raise RuntimeError("ATOMIC_AUTH_SECRET must be at least 32 characters")
 
     def create_access_token(self, username: str, role: str) -> str:
         """Create a short-lived access token."""
+        self._require_secure_secret()
         if not JWT_AVAILABLE:
-            return self._fallback_token(username, role, TOKEN_EXPIRY_SECONDS)
+            if AUTH_REQUIRED:
+                raise RuntimeError("PyJWT is required when authentication is enabled")
+            return self._fallback_token(username, role, TOKEN_EXPIRY_SECONDS, "access")
         now = time.time()
         payload = {
             "sub": username,
@@ -212,13 +283,18 @@ class TokenManager:
             "iat": now,
             "exp": now + TOKEN_EXPIRY_SECONDS,
             "type": "access",
+            "iss": self.issuer,
+            "aud": self.audience,
         }
         return pyjwt.encode(payload, self.secret, algorithm="HS256")
 
     def create_refresh_token(self, username: str, role: str) -> str:
         """Create a long-lived refresh token."""
+        self._require_secure_secret()
         if not JWT_AVAILABLE:
-            return self._fallback_token(username, role, REFRESH_EXPIRY_SECONDS)
+            if AUTH_REQUIRED:
+                raise RuntimeError("PyJWT is required when authentication is enabled")
+            return self._fallback_token(username, role, REFRESH_EXPIRY_SECONDS, "refresh")
         now = time.time()
         payload = {
             "sub": username,
@@ -226,15 +302,19 @@ class TokenManager:
             "iat": now,
             "exp": now + REFRESH_EXPIRY_SECONDS,
             "type": "refresh",
+            "iss": self.issuer,
+            "aud": self.audience,
         }
         return pyjwt.encode(payload, self.secret, algorithm="HS256")
 
     def validate_token(self, token: str) -> Optional[dict]:
         """Validate a JWT and return the payload, or None on failure."""
         if not JWT_AVAILABLE:
+            if AUTH_REQUIRED:
+                return None
             return self._fallback_validate(token)
         try:
-            payload = pyjwt.decode(token, self.secret, algorithms=["HS256"])
+            payload = pyjwt.decode(token, self.secret, algorithms=["HS256"], issuer=self.issuer, audience=self.audience)
             return payload
         except pyjwt.ExpiredSignatureError:
             return None
@@ -242,12 +322,14 @@ class TokenManager:
             return None
 
     # Fallback for environments without PyJWT (shouldn't happen with requirements)
-    def _fallback_token(self, username: str, role: str, expiry: int) -> str:
+    def _fallback_token(self, username: str, role: str, expiry: int, token_type: str = "access") -> str:
         payload = {
             "sub": username,
             "role": role,
             "exp": time.time() + expiry,
-            "type": "access",
+            "type": token_type,
+            "iss": self.issuer,
+            "aud": self.audience,
         }
         data = json.dumps(payload, separators=(",", ":"))
         import base64
@@ -267,6 +349,8 @@ class TokenManager:
             data = json.loads(base64.urlsafe_b64decode(b64))
             if data.get("exp", 0) < time.time():
                 return None
+            if data.get("iss") != self.issuer or data.get("aud") != self.audience:
+                return None
             return data
         except Exception:
             return None
@@ -278,15 +362,35 @@ class TokenManager:
 class UserStore:
     """Manage user accounts with in-memory cache and optional DB persistence."""
 
-    def __init__(self):
+    def __init__(self, secure_bootstrap: bool = False):
+        self._secure_bootstrap = secure_bootstrap
         self._users: Dict[str, User] = {}
-        self.token_manager = TokenManager()
+        self.token_manager = TokenManager(require_explicit_secret=secure_bootstrap)
+        self._auth_lock = threading.Lock()
+        self._failed_logins: Dict[str, list[float]] = {}
+        self._failed_logins_by_ip: Dict[str, list[float]] = {}
+        self._login_max_failures = max(1, int(os.environ.get("ATOMIC_LOGIN_MAX_FAILURES", "5")))
+        self._login_max_failures_ip = max(1, int(os.environ.get("ATOMIC_LOGIN_MAX_FAILURES_IP", "20")))
+        self._login_window_seconds = max(10, int(os.environ.get("ATOMIC_LOGIN_WINDOW", "300")))
         self._ensure_default_admin()
 
     def _ensure_default_admin(self):
         """Create a default admin account if none exists."""
         if not self._users:
-            default_pw = os.environ.get("ATOMIC_ADMIN_PASSWORD", "Admin@1234")
+            default_pw = os.environ.get("ATOMIC_ADMIN_PASSWORD", "").strip()
+            if self._secure_bootstrap and AUTH_REQUIRED and not default_pw:
+                # Secure bootstrap: do not create a known default credential.
+                # An administrator can bootstrap through the static service API
+                # key (ATOMIC_API_KEY) or by supplying ATOMIC_ADMIN_PASSWORD.
+                return
+            if not default_pw:
+                # Never ship a known default password. Dev bootstrap is
+                # opt-in via ATOMIC_ALLOW_DEV_BOOTSTRAP=1 and generates a
+                # random one-time password (never Admin@1234).
+                allow_dev = os.environ.get("ATOMIC_ALLOW_DEV_BOOTSTRAP", "").strip().lower()
+                if allow_dev not in {"1", "true", "yes", "on"}:
+                    return
+                default_pw = secrets.token_urlsafe(18) + "Aa1"
             self.create_user("admin", default_pw, "admin")
 
     def create_user(self, username: str, password: str, role: str = "viewer") -> Optional[User]:
@@ -307,13 +411,37 @@ class UserStore:
         self._users[username] = user
         return user
 
-    def authenticate(self, username: str, password: str) -> Optional[dict]:
-        """Authenticate and return tokens, or None on failure."""
+    def authenticate(self, username: str, password: str, client_ip: str = "") -> Optional[dict]:
+        """Authenticate with bounded brute-force protection and issue tokens."""
+        now = time.time()
+        ip = (client_ip or "").strip()
+        with self._auth_lock:
+            failures = [t for t in self._failed_logins.get(username, []) if now - t <= self._login_window_seconds]
+            self._failed_logins[username] = failures
+            if len(failures) >= self._login_max_failures:
+                return None
+            if ip:
+                ip_fails = [t for t in self._failed_logins_by_ip.get(ip, []) if now - t <= self._login_window_seconds]
+                self._failed_logins_by_ip[ip] = ip_fails
+                if len(ip_fails) >= self._login_max_failures_ip:
+                    return None
+
         user = self._users.get(username)
-        if not user or not user.is_active:
+        if not user or not user.is_active or not verify_password(password, user.password_hash):
+            with self._auth_lock:
+                failures = self._failed_logins.setdefault(username, [])
+                failures.append(now)
+                self._failed_logins[username] = failures[-self._login_max_failures :]
+                if ip:
+                    ip_fails = self._failed_logins_by_ip.setdefault(ip, [])
+                    ip_fails.append(now)
+                    self._failed_logins_by_ip[ip] = ip_fails[-self._login_max_failures_ip :]
             return None
-        if not verify_password(password, user.password_hash):
-            return None
+
+        with self._auth_lock:
+            self._failed_logins.pop(username, None)
+            if ip:
+                self._failed_logins_by_ip.pop(ip, None)
         user.last_login = datetime.now(timezone.utc).isoformat()
         return {
             "access_token": self.token_manager.create_access_token(username, user.role),
@@ -377,8 +505,20 @@ class UserStore:
         return False
 
     def validate_request_token(self, token: str) -> Optional[dict]:
-        """Validate a Bearer token and return its payload."""
-        return self.token_manager.validate_token(token)
+        """Validate an access token and resolve the current user/role.
+
+        Refresh tokens are never accepted as bearer access credentials, and the
+        role is read from the current user record so role changes take effect
+        immediately instead of waiting for JWT expiry.
+        """
+        payload = self.token_manager.validate_token(token)
+        if not payload or payload.get("type") != "access":
+            return None
+        username = payload.get("sub")
+        user = self._users.get(username)
+        if not user or not user.is_active:
+            return None
+        return {"sub": user.username, "role": user.role}
 
     def refresh_access_token(self, refresh_token: str) -> Optional[dict]:
         """Exchange a refresh token for new access + refresh tokens."""

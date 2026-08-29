@@ -127,17 +127,3 @@ class InvalidTargetError(ConfigError):
     def __init__(self, message: str = "", target: str = "", **kwargs: Any) -> None:
         super().__init__(message, **kwargs)
         self.target = target
-
-class AuthenticationError(AtomicError): pass
-class AuthorizationError(AtomicError): pass
-class ScopeViolation(AtomicError):
-    def __init__(self, message: str="", url: str="", **kwargs: Any) -> None:
-        super().__init__(message, **kwargs); self.url=url
-class SSRFViolation(AtomicError):
-    def __init__(self, message: str="", url: str="", **kwargs: Any) -> None:
-        super().__init__(message, **kwargs); self.url=url
-class ScannerError(ScanError): pass
-class VerificationError(ScanError): pass
-class TimeoutError(ScanError): pass
-class PluginError(ScanError): pass
-class SandboxError(ScanError): pass

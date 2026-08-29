@@ -17,7 +17,11 @@ import random
 
 from config import Config, Colors
 
-PROGRESS_FILE = os.path.join(Config.BASE_DIR, ".atomic_progress.json")
+# SECURITY FIX (PERSIST-001): Progress file must live in ATOMIC_HOME (user data dir),
+# not BASE_DIR (source tree which may be read-only / served by webserver).
+# Fallback to ATOMIC_HOME or BASE_DIR in that order.
+_progress_root = getattr(Config, "ATOMIC_HOME", None) or getattr(Config, "BASE_DIR", ".")
+PROGRESS_FILE = os.path.join(_progress_root, ".atomic_progress.json")
 
 # Evasion levels in escalation order
 EVASION_ESCALATION = ["none", "low", "medium", "high", "insane", "stealth"]

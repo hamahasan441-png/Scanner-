@@ -101,7 +101,7 @@ class IDORModule(BaseModule):
                 test_data = {param: str(test_id)}
                 response = self.requester.request(url, method, data=test_data)
 
-                if not response:
+                if response is None:
                     continue
 
                 # Check if we got different data

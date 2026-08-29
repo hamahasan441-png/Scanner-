@@ -29,6 +29,9 @@ python main.py -t https://target.com --full --auto-exploit
 
 # Maximum evasion mode with WAF bypass
 python main.py -t https://target.com --full --evasion insane --waf-bypass
+
+# Network / NGFW / ACL firewall bypass (path, IP, port, origin hop)
+python main.py -t https://target.com --firewall-bypass
 ```
 
 ## Features
@@ -65,6 +68,7 @@ python main.py -t https://target.com --full --evasion insane --waf-bypass
 - **Network Exploit Mapping** — CVE mapping for open ports/services
 - **Technology Exploit Mapping** — CVE mapping for detected technologies
 - **WAF Detection & Bypass** — 13+ WAF signatures (Cloudflare, AWS WAF, ModSecurity, Sucuri, Akamai, Imperva, etc.)
+- **Firewall Bypass** — Network / NGFW / ACL bypass distinct from WAF: path-ACL mutations, trusted-proxy IP spoofing, rewrite-header smuggling, alternate ports, HTTP↔HTTPS switch, method ACL, origin-IP hop, IPv6 dual-stack (`--firewall-bypass`)
 - **Brute Force** — Credential brute forcing
 - **Data Dumper** — Database extraction and file dumping
 - **Shell Uploader** — Automatic web shell deployment
@@ -96,6 +100,7 @@ python main.py -t https://target.com --full --evasion insane --waf-bypass
 - **HTTP fingerprint spoofing** — 9 browser profiles with matching Sec-CH-UA headers, randomized Accept/Language/Encoding
 - **Anti-detection timing** — Gaussian-distributed delays, burst/pause patterns, exponential backoff on rate limiting
 - **WAF bypass** — chunked transfer encoding, HTTP method override, header spoofing
+- **Firewall / NGFW / ACL bypass** — path mutations, trusted-proxy IP spoofing, rewrite headers, port/protocol hop, origin-IP, IPv6
 
 ### 🔧 Burp Suite-Style Tools
 - **Intercepting Proxy** — Man-in-the-middle proxy with request/response modification (`--proxy-server`)
@@ -222,6 +227,7 @@ python main.py -t https://target.com --auto-exploit           # AI post-exploita
 python main.py -t https://target.com --exploit-chain          # Multi-step chains
 python main.py -t https://target.com --evasion insane         # Max evasion
 python main.py -t https://target.com --full --waf-bypass      # WAF bypass
+python main.py -t https://target.com --firewall-bypass        # NGFW / ACL / origin hop
 python main.py -t https://target.com --full --tor             # Through Tor
 python main.py -t https://target.com --evasion stealth -T 10  # Stealth mode
 python main.py -f targets.txt --full                          # Batch scan
@@ -335,6 +341,7 @@ python main.py -t https://target --auto-update                # Update first, th
 | | `--auto-exploit` | AI-driven post-exploitation |
 | **Evasion** | `-e, --evasion` | Level: none/low/medium/high/insane/stealth |
 | | `--waf-bypass` | Enable WAF bypass |
+| | `--firewall-bypass` | Network/NGFW/ACL firewall bypass (path, IP, port, origin) |
 | | `--tor` | Route through Tor |
 | | `--proxy` | Use HTTP proxy |
 | | `--rotate-proxy` | Rotate proxy addresses |
@@ -451,7 +458,7 @@ Scanner-/
 ├── pyproject.toml               # Package configuration
 ├── setup.sh                     # Setup script
 │
-├── core/                        # Core engine components (90 modules — representative subset shown)
+├── core/                        # Core engine components (21 modules)
 │   ├── engine.py                # Scan orchestration engine & Finding dataclass
 │   ├── ai_engine.py             # ML-based vulnerability prediction & adaptive strategies
 │   ├── reporter.py              # Multi-format report generation (HTML/JSON/CSV/TXT/PDF/XML/SARIF)
@@ -473,7 +480,7 @@ Scanner-/
 │   ├── intruder.py              # Intruder attack orchestration (Burp-style)
 │   └── banner.py                # ASCII banner display
 │
-├── modules/                     # Attack & scan modules (47 — representative subset shown)
+├── modules/                     # Attack & scan modules (30+)
 │   ├── base.py                  # Abstract BaseModule interface
 │   ├── sqli.py                  # SQL Injection (8 techniques: error, blind, union, 2nd-order, OOB, WAF bypass)
 │   ├── xss.py                   # Cross-Site Scripting (reflected, stored, DOM, mXSS, blind, CSP bypass, polyglot)
@@ -497,6 +504,7 @@ Scanner-/
 │   ├── uploader.py              # File Upload (20+ variants, SVG XSS, ImageTragick, ZIP symlink)
 │   ├── dumper.py                # Data extraction / database dumping
 │   ├── waf.py                   # WAF detection & bypass (13+ WAFs)
+│   ├── firewall_bypass.py       # Network/NGFW/ACL firewall bypass
 │   ├── brute_force.py           # Brute force attacks
 │   ├── reconnaissance.py        # Subdomain, tech detect, SSL/TLS, security headers, cloud assets
 │   ├── discovery.py             # robots.txt, sitemap, API discovery

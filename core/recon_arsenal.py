@@ -36,12 +36,53 @@ Each adapter follows the standard ToolResult interface:
 
 import json
 import os
-import shutil
 import tempfile
 from datetime import datetime, timezone
 from typing import Dict, List
 
-from core.tool_integrator import ToolResult, _run_command
+from core.tool_integrator import ToolResult, _run_command, _is_safe_target_arg
+from core.tool_runtime import resolve_tool
+
+
+# ---------------------------------------------------------------------------
+# SECURITY (SEC-003): adapter input hardening
+# ---------------------------------------------------------------------------
+# Web callers forward user-supplied JSON kwargs to adapter.run(); every
+# adapter-controllable value therefore needs validation:
+#   * wordlist / input_list are filesystem paths — they must resolve inside
+#     an allowed root (source tree, ATOMIC_HOME, or the system temp dir).
+#   * enum-like kwargs (mode, scope, method) are checked against allowlists.
+#   * positional targets are checked for flag injection.
+
+
+def _allowed_wordlist_roots() -> List[str]:
+    roots = []
+    try:
+        from config import Config
+
+        roots.append(Config.BASE_DIR)
+        atomic_home = getattr(Config, "ATOMIC_HOME", "")
+        if atomic_home:
+            roots.append(atomic_home)
+    except Exception:
+        pass
+    roots.append(tempfile.gettempdir())
+    return [os.path.realpath(r) for r in roots if r and os.path.isdir(r)]
+
+
+def _is_allowed_wordlist_path(path: str) -> bool:
+    """True when *path* is an existing file inside an allowed root."""
+    if not isinstance(path, str) or not path or len(path) > 2048:
+        return False
+    if ".." in path.replace("\\", "/").split("/"):
+        return False
+    try:
+        real = os.path.realpath(path)
+    except (OSError, ValueError):
+        return False
+    if not os.path.isfile(real):
+        return False
+    return any(real == root or real.startswith(root + os.sep) for root in _allowed_wordlist_roots())
 
 
 # ---------------------------------------------------------------------------
@@ -58,7 +99,7 @@ class AmassAdapter:
     TOOL_NAME = "amass"
 
     def is_available(self) -> bool:
-        return shutil.which("amass") is not None
+        return resolve_tool("amass") is not None
 
     def run(self, domain: str, mode: str = "passive", timeout: int = 600) -> ToolResult:
         """Run Amass subdomain enumeration.
@@ -160,7 +201,7 @@ class HttpxAdapter:
     TOOL_NAME = "httpx"
 
     def is_available(self) -> bool:
-        return shutil.which("httpx") is not None
+        return resolve_tool("httpx") is not None
 
     def run(self, target: str, input_list: str = "", tech_detect: bool = True, timeout: int = 300) -> ToolResult:
         """Run httpx HTTP probing.
@@ -188,7 +229,7 @@ class HttpxAdapter:
         if tech_detect:
             cmd.append("-tech-detect")
 
-        if input_list and os.path.isfile(input_list):
+        if input_list and _is_allowed_wordlist_path(input_list):
             cmd += ["-l", input_list]
         else:
             cmd += ["-u", target]
@@ -253,7 +294,7 @@ class KatanaAdapter:
     TOOL_NAME = "katana"
 
     def is_available(self) -> bool:
-        return shutil.which("katana") is not None
+        return resolve_tool("katana") is not None
 
     def run(self, target: str, depth: int = 3, js_crawl: bool = False, timeout: int = 300) -> ToolResult:
         """Run Katana web crawler.
@@ -331,7 +372,7 @@ class DnsxAdapter:
     TOOL_NAME = "dnsx"
 
     def is_available(self) -> bool:
-        return shutil.which("dnsx") is not None
+        return resolve_tool("dnsx") is not None
 
     def run(
         self, domain: str, wordlist: str = "", record_types: str = "a,aaaa,cname,mx,ns,txt", timeout: int = 120
@@ -354,7 +395,7 @@ class DnsxAdapter:
             if rtype in ("a", "aaaa", "cname", "mx", "ns", "txt", "soa", "ptr"):
                 cmd.append(f"-{rtype}")
 
-        if wordlist and os.path.isfile(wordlist):
+        if wordlist and _is_allowed_wordlist_path(wordlist):
             cmd += ["-w", wordlist, "-d", domain]
         else:
             cmd += ["-d", domain]
@@ -417,7 +458,7 @@ class FfufAdapter:
     TOOL_NAME = "ffuf"
 
     def is_available(self) -> bool:
-        return shutil.which("ffuf") is not None
+        return resolve_tool("ffuf") is not None
 
     def run(
         self,
@@ -450,7 +491,7 @@ class FfufAdapter:
 
         cmd = ["ffuf", "-u", url, "-o", "/dev/stdout", "-of", "json", "-silent"]
 
-        if wordlist and os.path.isfile(wordlist):
+        if wordlist and _is_allowed_wordlist_path(wordlist):
             cmd += ["-w", wordlist]
         else:
             cmd += ["-w", "-"]  # stdin
@@ -521,7 +562,7 @@ class GauAdapter:
     TOOL_NAME = "gau"
 
     def is_available(self) -> bool:
-        return shutil.which("gau") is not None
+        return resolve_tool("gau") is not None
 
     def run(
         self, domain: str, providers: str = "", blacklist: str = "png,jpg,gif,css,woff,svg,ico", timeout: int = 120
@@ -592,7 +633,7 @@ class WaybackurlsAdapter:
     TOOL_NAME = "waybackurls"
 
     def is_available(self) -> bool:
-        return shutil.which("waybackurls") is not None
+        return resolve_tool("waybackurls") is not None
 
     def run(self, domain: str, no_subs: bool = False, timeout: int = 120) -> ToolResult:
         """Run waybackurls.
@@ -645,7 +686,7 @@ class GobusterAdapter:
     TOOL_NAME = "gobuster"
 
     def is_available(self) -> bool:
-        return shutil.which("gobuster") is not None
+        return resolve_tool("gobuster") is not None
 
     def run(
         self, target: str, mode: str = "dir", wordlist: str = "", extensions: str = "", timeout: int = 300
@@ -662,6 +703,10 @@ class GobusterAdapter:
         if not self.is_available():
             return ToolResult(tool=self.TOOL_NAME, target=target, success=False, error="gobuster not installed")
 
+        # SEC-003: mode is a subcommand positional — restrict to the known set.
+        if mode not in ("dir", "dns", "vhost"):
+            return ToolResult(tool=self.TOOL_NAME, target=target, success=False, error="Invalid mode")
+
         cmd = ["gobuster", mode, "-q", "--no-color"]
 
         if mode == "dir":
@@ -671,7 +716,7 @@ class GobusterAdapter:
         elif mode == "vhost":
             cmd += ["-u", target]
 
-        if wordlist and os.path.isfile(wordlist):
+        if wordlist and _is_allowed_wordlist_path(wordlist):
             cmd += ["-w", wordlist]
 
         if extensions and mode == "dir":
@@ -749,7 +794,7 @@ class FeroxbusterAdapter:
     TOOL_NAME = "feroxbuster"
 
     def is_available(self) -> bool:
-        return shutil.which("feroxbuster") is not None
+        return resolve_tool("feroxbuster") is not None
 
     def run(
         self,
@@ -775,7 +820,7 @@ class FeroxbusterAdapter:
 
         cmd = ["feroxbuster", "-u", target, "--silent", "--json", "-d", str(depth), "--no-state"]
 
-        if wordlist and os.path.isfile(wordlist):
+        if wordlist and _is_allowed_wordlist_path(wordlist):
             cmd += ["-w", wordlist]
 
         if extensions:
@@ -840,7 +885,7 @@ class MasscanAdapter:
     TOOL_NAME = "masscan"
 
     def is_available(self) -> bool:
-        return shutil.which("masscan") is not None
+        return resolve_tool("masscan") is not None
 
     def run(self, target: str, ports: str = "1-65535", rate: int = 1000, timeout: int = 300) -> ToolResult:
         """Run Masscan port scanning.
@@ -854,10 +899,15 @@ class MasscanAdapter:
         if not self.is_available():
             return ToolResult(tool=self.TOOL_NAME, target=target, success=False, error="masscan not installed")
 
+        # SEC-003: target is the FIRST positional — validate against flag
+        # injection (e.g. "--conf" loading an attacker file).
+        if not _is_safe_target_arg(target):
+            return ToolResult(tool=self.TOOL_NAME, target=target, success=False, error="Invalid target (flag injection or unsafe)")
+
         with tempfile.NamedTemporaryFile(suffix=".json", delete=False, mode="w") as tmp:
             json_path = tmp.name
 
-        cmd = ["masscan", target, "-p", ports, "--rate", str(rate), "-oJ", json_path]
+        cmd = ["masscan", target, "-p", ports, "--rate", str(int(rate)), "-oJ", json_path]
 
         exit_code, stdout, stderr, duration = _run_command(cmd, timeout=timeout)
 
@@ -930,7 +980,7 @@ class RustscanAdapter:
     TOOL_NAME = "rustscan"
 
     def is_available(self) -> bool:
-        return shutil.which("rustscan") is not None
+        return resolve_tool("rustscan") is not None
 
     def run(self, target: str, ports: str = "", batch_size: int = 4500, timeout: int = 300) -> ToolResult:
         """Run RustScan port scanning.
@@ -1019,7 +1069,7 @@ class HakrawlerAdapter:
     TOOL_NAME = "hakrawler"
 
     def is_available(self) -> bool:
-        return shutil.which("hakrawler") is not None
+        return resolve_tool("hakrawler") is not None
 
     def run(self, target: str, depth: int = 2, scope: str = "subs", timeout: int = 120) -> ToolResult:
         """Run Hakrawler.
@@ -1032,6 +1082,10 @@ class HakrawlerAdapter:
         """
         if not self.is_available():
             return ToolResult(tool=self.TOOL_NAME, target=target, success=False, error="hakrawler not installed")
+
+        # SEC-003: scope is a fixed enum, not free input.
+        if scope not in ("strict", "subs", "fuzzy"):
+            return ToolResult(tool=self.TOOL_NAME, target=target, success=False, error="Invalid scope")
 
         cmd = ["hakrawler", "-url", target, "-depth", str(depth), "-scope", scope, "-plain"]
 
@@ -1073,7 +1127,7 @@ class ArjunAdapter:
     TOOL_NAME = "arjun"
 
     def is_available(self) -> bool:
-        return shutil.which("arjun") is not None
+        return resolve_tool("arjun") is not None
 
     def run(self, target: str, method: str = "GET", timeout: int = 300) -> ToolResult:
         """Run Arjun parameter discovery.
@@ -1086,10 +1140,15 @@ class ArjunAdapter:
         if not self.is_available():
             return ToolResult(tool=self.TOOL_NAME, target=target, success=False, error="arjun not installed")
 
+        # SEC-003: method is a fixed enum, not free input.
+        method_norm = str(method or "GET").upper()
+        if method_norm not in ("GET", "POST", "JSON", "XML"):
+            return ToolResult(tool=self.TOOL_NAME, target=target, success=False, error="Invalid method")
+
         with tempfile.NamedTemporaryFile(suffix=".json", delete=False, mode="w") as tmp:
             json_path = tmp.name
 
-        cmd = ["arjun", "-u", target, "-m", method.upper(), "-oJ", json_path]
+        cmd = ["arjun", "-u", target, "-m", method_norm, "-oJ", json_path]
 
         exit_code, stdout, stderr, duration = _run_command(cmd, timeout=timeout)
 
@@ -1163,7 +1222,7 @@ class ParamSpiderAdapter:
     TOOL_NAME = "paramspider"
 
     def is_available(self) -> bool:
-        return shutil.which("paramspider") is not None
+        return resolve_tool("paramspider") is not None
 
     def run(self, domain: str, exclude: str = "png,jpg,gif,css,js,woff,svg", timeout: int = 120) -> ToolResult:
         """Run ParamSpider.
@@ -1226,7 +1285,7 @@ class DirsearchAdapter:
     TOOL_NAME = "dirsearch"
 
     def is_available(self) -> bool:
-        return shutil.which("dirsearch") is not None
+        return resolve_tool("dirsearch") is not None
 
     def run(
         self,
@@ -1404,7 +1463,16 @@ class ReconArsenal:
                 success=False,
                 error=f"Unknown tool: {tool_name}",
             )
-        return adapter.run(target, **kwargs)
+        result = adapter.run(target, **kwargs)
+        # SEC-013: centrally tag simulation-stub output so API consumers
+        # can never mistake it for real tool results.
+        try:
+            from core.tool_runtime import is_simulated_tool
+
+            result.simulated = bool(is_simulated_tool(tool_name))
+        except Exception:
+            result.simulated = False
+        return result
 
     def run_subdomain_enum(self, domain: str) -> Dict[str, ToolResult]:
         """Run all available subdomain enumeration tools."""

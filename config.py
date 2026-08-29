@@ -2601,6 +2601,9 @@ MITRE_CWE_MAP = {
     "Service Exposure": ("T1190", "CWE-284"),
     "Missing Security Header": ("T1189", "CWE-693"),
     "Version Disclosure": ("T1592", "CWE-200"),
+    "Firewall Bypass": ("T1090", "CWE-284"),
+    "Path ACL": ("T1572", "CWE-706"),
+    "IP Allowlist": ("T1090", "CWE-290"),
 }
 
 

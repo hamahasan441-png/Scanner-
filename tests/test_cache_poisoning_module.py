@@ -2,8 +2,16 @@
 # -*- coding: utf-8 -*-
 """Unit tests for the Cache Poisoning module (modules/cache_poisoning.py)."""
 
+import sys
 import unittest
 from unittest.mock import MagicMock
+
+# NOTE: do NOT install MagicMock stand-ins for core.emit / core.models in
+# sys.modules here.  Doing so at import/collection time shadows the real
+# modules for the entire pytest process and cascades hundreds of failures
+# into unrelated test files (TST-001, ATOMIC_TITAN_AUDIT_2026-08-12).
+# The real modules import cleanly; use mock.patch inside tests if needed.
+
 
 from tests.fixtures import MockEngine, MockResponse
 
