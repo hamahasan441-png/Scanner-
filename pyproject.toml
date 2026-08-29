@@ -12,7 +12,7 @@ dependencies = [
     "requests==2.34.2",
     "beautifulsoup4==4.15.0",
     "urllib3==2.7.0",
-    "sqlalchemy==2.0.51",
+    "sqlalchemy==2.0.52",
     "fpdf2==2.8.7",
     "PyJWT==2.13.0",
     "pysocks==1.7.1",
