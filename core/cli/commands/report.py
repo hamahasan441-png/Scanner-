@@ -4,7 +4,23 @@
 ATOMIC FRAMEWORK - CLI Commands: Reporting, DB, Shell, Deps
 """
 import sys
+import re
 from config import Colors
+
+
+def _sanitize_shell_output(output):
+    """Redact common sensitive key/value patterns from shell output."""
+    if output is None:
+        return ""
+    text = str(output)
+    patterns = [
+        (r'(?i)\b(password|passwd|pwd)\b(\s*[:=]\s*)([^\s,;]+)', r'\1\2***REDACTED***'),
+        (r'(?i)\b(api[_-]?key|token|secret|authorization)\b(\s*[:=]\s*)([^\s,;]+)', r'\1\2***REDACTED***'),
+        (r'(?i)\b(bearer)\s+([A-Za-z0-9\-\._~\+\/]+=*)', r'\1 ***REDACTED***'),
+    ]
+    for pattern, repl in patterns:
+        text = re.sub(pattern, repl, text)
+    return text
 
 
 def _get_main_patched(name):
@@ -109,7 +125,7 @@ def handle_report_commands(args):
                 # Execute specific command (supports legacy test mock)
                 if hasattr(manager, "execute_command"):
                     result = manager.execute_command(args.shell_id, args.shell_cmd)
-                    print(result)
+                    print(_sanitize_shell_output(result))
                 return True
             if getattr(args, "shell_id", None) and not getattr(args, "shell_cmd", None):
                 # Interactive mode for specific shell (legacy test expects interactive_shell)
