@@ -416,6 +416,9 @@ class AtomicEngine:
             "hpp": ("modules.hpp", "HPPModule"),
             "graphql": ("modules.graphql", "GraphQLModule"),
             "proto_pollution": ("modules.proto_pollution", "ProtoPollutionModule"),
+            # Consolidated advanced offensive layer — sharpens ssrf/jwt/
+            # graphql/proto_pollution with higher-signal chained techniques.
+            "advanced_weapon": ("modules.advanced_weapon", "AdvancedWeaponModule"),
             "race_condition": ("modules.race_condition", "RaceConditionModule"),
             "websocket": ("modules.websocket", "WebSocketModule"),
             "deserialization": ("modules.deserialization", "DeserializationModule"),
