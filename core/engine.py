@@ -419,6 +419,10 @@ class AtomicEngine:
             # Consolidated advanced offensive layer — sharpens ssrf/jwt/
             # graphql/proto_pollution with higher-signal chained techniques.
             "advanced_weapon": ("modules.advanced_weapon", "AdvancedWeaponModule"),
+            # Exotic bypass techniques — cache deception, JSON parser
+            # confusion, Unicode/IDN host, Range-header WAF bypass,
+            # IIS/Nginx path quirks, HTTP method smuggling.
+            "exotic_bypass": ("modules.exotic_bypass", "ExoticBypassModule"),
             "race_condition": ("modules.race_condition", "RaceConditionModule"),
             "websocket": ("modules.websocket", "WebSocketModule"),
             "deserialization": ("modules.deserialization", "DeserializationModule"),
