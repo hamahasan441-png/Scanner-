@@ -423,6 +423,10 @@ class AtomicEngine:
             # confusion, Unicode/IDN host, Range-header WAF bypass,
             # IIS/Nginx path quirks, HTTP method smuggling.
             "exotic_bypass": ("modules.exotic_bypass", "ExoticBypassModule"),
+            # Deep cloud audit + credential leak confirmation via real
+            # identity APIs (STS GetCallerIdentity, GCP tokeninfo,
+            # K8s SelfSubjectReview). No false positives — only confirmed.
+            "cloud_deep": ("modules.cloud_deep", "CloudDeepModule"),
             "race_condition": ("modules.race_condition", "RaceConditionModule"),
             "websocket": ("modules.websocket", "WebSocketModule"),
             "deserialization": ("modules.deserialization", "DeserializationModule"),
