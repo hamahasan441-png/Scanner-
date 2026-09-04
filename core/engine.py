@@ -1794,6 +1794,19 @@ class AtomicEngine:
         self._origin_result = real_ip_result
         self._agent_result = agent_result
 
+        # Drain the streaming ExploitBridge — wait for outstanding
+        # CVE-confirmation jobs so their findings land in this scan's
+        # record (not the next scan's, and not lost on shutdown).
+        bridge = getattr(self, "exploit_bridge", None)
+        if bridge is not None:
+            try:
+                bridge.drain(timeout=float(self.config.get("bridge_drain_timeout", 60)))
+                queued = getattr(self, "_exploit_bridge_queue", []) or []
+                if queued and self.config.get("verbose"):
+                    print(f"{Colors.info(f'ExploitBridge derived {len(queued)} surface(s); handed off to chain executor')}")
+            except Exception as exc:
+                logger.debug("exploit_bridge drain failed: %s", exc)
+
         # Run the post-scan pipeline (chain executor, MITRE tag, PoC bundle,
         # intel memory, narrative report) BEFORE OutputPhase writes reports
         # — otherwise the first-generation HTML/JSON reports lack these
@@ -2051,6 +2064,24 @@ class AtomicEngine:
                     )
             except Exception as exc:
                 logger.debug("FullAttacker.maybe_attack failed: %s", exc)
+
+        # ── Exploit Bridge (streaming derivation + CVE auto-confirm) ──
+        # Complements FullAttacker: derives new scan surface from every
+        # HIGH/CRITICAL finding and schedules sandboxed nuclei runs for
+        # any CVE tags found on the finding. Fail-closed; runs only when
+        # authorized. Never breaks add_finding.
+        bridge = getattr(self, "exploit_bridge", None)
+        if bridge is None:
+            try:
+                from core.exploit_bridge import install as _install_bridge
+                bridge = _install_bridge(self)
+            except Exception as exc:
+                logger.debug("exploit_bridge install failed: %s", exc)
+        if bridge is not None:
+            try:
+                bridge.on_finding(finding)
+            except Exception as exc:
+                logger.debug("exploit_bridge on_finding failed: %s", exc)
 
         # LLM real-time enrichment: attach AI analysis to high-severity findings.
         # Only runs when --local-llm is active; skipped during high-volume scans
