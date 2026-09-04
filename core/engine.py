@@ -427,6 +427,10 @@ class AtomicEngine:
             # identity APIs (STS GetCallerIdentity, GCP tokeninfo,
             # K8s SelfSubjectReview). No false positives — only confirmed.
             "cloud_deep": ("modules.cloud_deep", "CloudDeepModule"),
+            # CVE-to-live-exploit confirmation. Detects product+version
+            # → NVD lookup → sandboxed Nuclei template execution →
+            # emits cve_confirmed only when the template actually lands.
+            "cve_confirm": ("modules.cve_confirm", "CVEConfirmModule"),
             "race_condition": ("modules.race_condition", "RaceConditionModule"),
             "websocket": ("modules.websocket", "WebSocketModule"),
             "deserialization": ("modules.deserialization", "DeserializationModule"),
