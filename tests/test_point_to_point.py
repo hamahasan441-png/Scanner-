@@ -76,16 +76,20 @@ class TestPointToPoint(_EngineCapture, unittest.TestCase):
 
     def test_point_to_point_enables_exploitation_modules(self):
         cfg = self._run_main(["--point-to-point"])
-        exploit_modules = [
-            "shell",
-            "dump",
-            "os_shell",
-            "brute",
-            "exploit_chain",
-            "auto_exploit",
-        ]
-        for mod in exploit_modules:
-            self.assertTrue(cfg["modules"][mod], f"{mod} should be enabled")
+        # --point-to-point enables auto_exploit + attack_map, which then
+        # triggers the exploit-path deconfliction step (see main.py):
+        # legacy flags (shell/dump/os_shell/brute/exploit_chain) are
+        # intentionally disabled to avoid duplicate exploitation. The
+        # AttackRouter / FullAttacker handles those capabilities via
+        # per-finding routing.
+        self.assertTrue(cfg["modules"]["auto_exploit"])
+        self.assertTrue(cfg["modules"]["attack_map"])
+        self.assertTrue(cfg["modules"]["exploit_search"])
+        for legacy in ("shell", "dump", "os_shell", "brute", "exploit_chain"):
+            self.assertFalse(
+                cfg["modules"][legacy],
+                f"{legacy} should be disabled by deconfliction when auto_exploit is on",
+            )
 
     def test_point_to_point_enables_scapy_modules(self):
         cfg = self._run_main(["--point-to-point"])

@@ -1136,7 +1136,16 @@ def main():
 
     args = parser.parse_args()
     args = _apply_profile(args)
-    
+
+    # Honour ATOMIC_AUTHORIZED env var as an equivalent to --authorized
+    # BEFORE validation runs — otherwise _validate_cli_args rejects
+    # --shell / --dump / --os-shell / --auto-exploit for env-based
+    # consent (which matches core.authorization.is_authorized's model).
+    import os as _os
+    if not getattr(args, "authorized", False) and \
+       _os.environ.get("ATOMIC_AUTHORIZED", "").strip().lower() in {"1", "true", "yes"}:
+        args.authorized = True
+
     # Validate CLI arguments before proceeding
     _validate_cli_args(args, parser)
 
