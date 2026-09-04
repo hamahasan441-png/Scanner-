@@ -1049,6 +1049,41 @@ def get_scan(scan_id):
             session.close()
 
 
+@app.route("/api/scan/<scan_id>/plan", methods=["GET"])
+@_require_api_key
+@_rate_limit
+def get_scan_plan(scan_id):
+    """Return the ScanPlan (target-recognizer output) for a scan.
+
+    Shape:
+        { "kind": "url" | "ip" | "cidr" | "cloud_endpoint" | …,
+          "normalized_target": "...",
+          "recommended_modules": [...],
+          "skip_modules": [...],
+          "notes": ["...", ...],
+          "host": "...", "port": 443, "scheme": "https" }
+    """
+    if not _SAFE_SCAN_ID.match(scan_id):
+        return jsonify({"status": "error", "data": "Invalid scan ID"}), 400
+    scan = _active_scans.get(scan_id)
+    if not scan:
+        return jsonify({"status": "error", "data": "Scan not found"}), 404
+    engine = scan.get("engine")
+    plan = getattr(engine, "scan_plan", None)
+    if plan is None:
+        return jsonify({"status": "success", "data": {"kind": "unknown"}})
+    return jsonify({"status": "success", "data": {
+        "kind": plan.kind,
+        "normalized_target": plan.normalized_target,
+        "recommended_modules": list(plan.recommended_modules),
+        "skip_modules": list(plan.skip_modules),
+        "notes": list(plan.notes),
+        "host": plan.host,
+        "port": plan.port,
+        "scheme": plan.scheme,
+    }})
+
+
 @app.route("/api/scan/<scan_id>/mitre", methods=["GET"])
 @_require_api_key
 @_rate_limit

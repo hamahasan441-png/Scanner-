@@ -804,8 +804,34 @@ class AtomicEngine:
         §5 Prioritize → §6 Baseline → §7 Test → §8 Analyze →
         §9 Verify → Report → Learn → Adapt
         """
+        # ── Target recognition — normalize the input + build ScanPlan.
+        # Runs before scope is set so the engine can log what the target
+        # was interpreted as (URL / IP / CIDR / cloud endpoint / …) and
+        # skip modules that don't apply.
+        try:
+            from core.target_recognizer import recognize as _recognize_target
+            self.scan_plan = _recognize_target(target)
+            if self.scan_plan.normalized_target and self.scan_plan.normalized_target != target:
+                target = self.scan_plan.normalized_target
+            for _note in self.scan_plan.notes:
+                logger.info("target_recognizer: %s", _note)
+        except Exception as _exc:  # pragma: no cover
+            logger.debug("target_recognizer failed: %s", _exc)
+            self.scan_plan = None
+
         self.target = target
         self.start_time = datetime.now(timezone.utc)
+
+        # ── HAR / OpenAPI seed injection (opt-in via --seed-har / --seed-openapi).
+        # Runs before Phase 7 so the seeds land on the surface ledger
+        # ahead of the workers.
+        try:
+            from core.pipeline_wire import seed_surface_from_files as _seed_surface
+            _seeded = _seed_surface(self)
+            if _seeded:
+                logger.info("Seed ingest: %d requests added to surface.", _seeded)
+        except Exception as _exc:  # pragma: no cover
+            logger.debug("seed ingest failed: %s", _exc)
 
         # ── Audit & Notifications: scan started ──────────────────────
         if self.audit:
@@ -2321,6 +2347,15 @@ class AtomicEngine:
         generated.  This method remains for backward-compatible CLI usage
         and passes any enrichment data the engine collected.
         """
+        # Always-on post-scan wiring: chain executor, MITRE tag, PoC
+        # bundle, intel memory, narrative report. Guarded — a failure
+        # here never breaks report generation.
+        try:
+            from core.pipeline_wire import finalize as _pipeline_finalize
+            _pipeline_finalize(self)
+        except Exception as _exc:  # pragma: no cover - defensive
+            logger.debug("pipeline_wire.finalize failed: %s", _exc)
+
         try:
             from core.reporter import ReportGenerator
 

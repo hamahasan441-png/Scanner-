@@ -43,6 +43,66 @@ class BaseModule(ABC):
         self.requester = engine.requester
         self.config: dict[str, Any] = engine.config
         self.verbose: bool = engine.config.get("verbose", False)
+        # Framework-wide contextual bandit — one instance shared across
+        # modules via the engine so learning transfers between them.
+        # Modules opt in by calling self._bandit_pick(candidates,
+        # context) and self._bandit_record(family, reward).
+        self._bandit = self._get_or_init_bandit()
+
+    # ------------------------------------------------------------------
+    # Contextual-bandit helpers (opt-in, no-op if unavailable)
+    # ------------------------------------------------------------------
+
+    def _get_or_init_bandit(self) -> Optional[Any]:
+        """Return the engine-wide ContextualBandit, creating it once."""
+        b = getattr(self.engine, "_bandit", None)
+        if b is not None:
+            return b
+        try:
+            from core.contextual_bandit import ContextualBandit
+            b = ContextualBandit(state_path=self.config.get(
+                "bandit_state", ".atomic-bandit.json"
+            ))
+            try:
+                self.engine._bandit = b  # type: ignore[attr-defined]
+            except Exception:
+                pass
+            return b
+        except Exception:
+            return None
+
+    def _bandit_context(self) -> dict[str, str]:
+        """Best-effort target-context tags for bandit conditioning."""
+        ctx = {}
+        engine_ctx = getattr(self.engine, "context", None)
+        if engine_ctx and hasattr(engine_ctx, "get_fingerprint"):
+            try:
+                fp = engine_ctx.get_fingerprint() or {}
+                for k in ("framework", "waf", "cdn", "server"):
+                    if fp.get(k):
+                        ctx[k] = str(fp[k])
+            except Exception:
+                pass
+        return ctx
+
+    def _bandit_pick(self, candidates: Any) -> Optional[str]:
+        """Pick the next payload family for the current target context.
+        Returns None (falls back to caller's default) when the bandit
+        isn't available."""
+        if not self._bandit:
+            return None
+        try:
+            return self._bandit.next_family(list(candidates), self._bandit_context())
+        except Exception:
+            return None
+
+    def _bandit_record(self, family: str, reward: float) -> None:
+        if not self._bandit or not family:
+            return
+        try:
+            self._bandit.record(family, self._bandit_context(), reward)
+        except Exception:
+            pass
 
     @abstractmethod
     def test(self, url: str, method: str, param: str, value: str) -> None:

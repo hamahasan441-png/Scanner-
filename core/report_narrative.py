@@ -30,7 +30,7 @@ import re
 import time
 from collections import Counter
 from dataclasses import dataclass, field
-from typing import Any, Iterable, Optional
+from typing import Any, Iterable, List, Optional
 
 
 # --------------------------------------------------------------------------- #
@@ -54,6 +54,9 @@ class TriageRow:
     evidence: str
     remediation: str
     poc_hint: str = ""
+    poc_curl: str = ""
+    poc_python: str = ""
+    poc_burp: str = ""
 
 
 @dataclass
@@ -213,6 +216,9 @@ def build_report(
         lift = _chain_lift(f, findings_list)
         score = _rank_score(sev, conf, expl, lift, novelty)
 
+        poc = _get(f, "poc") or {}
+        if not isinstance(poc, dict):
+            poc = {}
         rows.append(TriageRow(
             rank=0, score=score,
             severity=sev, confidence=conf, exploitability=expl,
@@ -222,6 +228,9 @@ def build_report(
             technique_id=str(_get(f, "technique_id", "") or _get(f, "mitre_id", "") or ""),
             evidence=(str(_get(f, "evidence_text", "") or _get(f, "evidence", "") or ""))[:400],
             remediation=_REMEDIATION.get(vt, "Review the finding, apply defense-in-depth."),
+            poc_curl=str(poc.get("curl", "")),
+            poc_python=str(poc.get("python", "")),
+            poc_burp=str(poc.get("burp", "")),
         ))
 
     rows.sort(key=lambda r: r.score, reverse=True)
@@ -325,6 +334,16 @@ def as_html(report: NarrativeReport) -> str:
             f"<p><strong>What an attacker does with this:</strong> {esc(_attack_narrative(r))}</p>",
             f"<pre>{esc(r.evidence)}</pre>",
             f"<p><strong>Fix:</strong> {esc(r.remediation)}</p>",
+        ]
+        if r.poc_curl:
+            parts += [
+                "<details><summary><strong>Proof of concept</strong> (curl / Python / Burp)</summary>",
+                f"<h4>curl</h4><pre>{esc(r.poc_curl)}</pre>",
+                f"<h4>Python (requests)</h4><pre>{esc(r.poc_python)}</pre>",
+                f"<h4>Burp Repeater</h4><pre>{esc(r.poc_burp)}</pre>",
+                "</details>",
+            ]
+        parts += [
             "<hr>",
         ]
     if report.tactic_counts:
