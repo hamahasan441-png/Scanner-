@@ -358,22 +358,33 @@ class TestHPPDetect(unittest.TestCase):
 
         return HPPModule(_MockEngine())
 
-    def test_status_code_change_detected(self):
+    def test_auth_state_transition_detected(self):
+        """Post-FP-fix (commit 42b7f8b): only 401/403→200 counts as HPP
+        privilege escalation. Bare 200→302 no longer fires."""
+        mod = self._mod()
+        baseline = _MockResponse(text="x", status_code=401)
+        response = _MockResponse(text="Welcome", status_code=200)
+        self.assertTrue(mod._detect_hpp(baseline, response, "&admin=true"))
+
+    def test_generic_status_change_not_detected(self):
         mod = self._mod()
         baseline = _MockResponse(text="x", status_code=200)
         response = _MockResponse(text="x", status_code=302)
-        self.assertTrue(mod._detect_hpp(baseline, response, "&admin=true"))
+        self.assertFalse(mod._detect_hpp(baseline, response, "&admin=true"))
 
-    def test_significant_length_change(self):
+    def test_significant_length_change_not_detected(self):
+        """Body-length delta alone is normal noise — no longer fires."""
         mod = self._mod()
         baseline = _MockResponse(text="A" * 100)
         response = _MockResponse(text="A" * 200)
-        self.assertTrue(mod._detect_hpp(baseline, response, "&admin=true"))
+        self.assertFalse(mod._detect_hpp(baseline, response, "&admin=true"))
 
-    def test_privilege_keyword_appears(self):
+    def test_strong_privilege_marker_appears(self):
+        """`admin panel` / `role=admin` / `is_admin=true` still fire — bare
+        `admin dashboard` does not (previous marker was too broad)."""
         mod = self._mod()
         baseline = _MockResponse(text="User page")
-        response = _MockResponse(text="Welcome to the admin dashboard")
+        response = _MockResponse(text="Welcome to the admin panel")
         self.assertTrue(mod._detect_hpp(baseline, response, "&admin=true"))
 
     def test_no_change_no_detection(self):

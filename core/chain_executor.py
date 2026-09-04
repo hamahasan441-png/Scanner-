@@ -48,7 +48,8 @@ class ScanSurface:
 
     def key(self) -> str:
         return hashlib.sha1(
-            f"{self.kind}|{self.url}|{json.dumps(self.hint, sort_keys=True)}".encode()
+            f"{self.kind}|{self.url}|{json.dumps(self.hint, sort_keys=True)}".encode(),
+            usedforsecurity=False,
         ).hexdigest()
 
 

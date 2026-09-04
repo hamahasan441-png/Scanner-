@@ -67,27 +67,25 @@ class NFSEnumModule(BaseModule):
                     payload=f"showmount -e {hostname}",
                     evidence=f"NFS exports: {exports[:500]}",
                 ))
-                # Check for no_root_squash
-                if "no_root_squash" in exports:
-                    self.engine.add_finding(self._finding(
-                        technique="NFS no_root_squash",
-                        url=url,
-                        severity="CRITICAL",
-                        confidence=0.9,
-                        param="NFS",
-                        payload=f"showmount -e {hostname}",
-                        evidence=f"Export with no_root_squash: {exports[:300]}",
-                    ))
-                if "*(" in exports or "*( " in exports:
-                    self.engine.add_finding(self._finding(
-                        technique="NFS World-Readable Export",
-                        url=url,
-                        severity="HIGH",
-                        confidence=0.85,
-                        param="NFS",
-                        payload=f"showmount -e {hostname}",
-                        evidence=f"Export accessible to all hosts: {exports[:300]}",
-                    ))
+                # showmount output NEVER includes /etc/exports options like
+                # no_root_squash — it only prints "<path> <access-list>".
+                # World-open exports are shown as "(everyone)" on many
+                # servers, or as a bare "*" in the access list.
+                for line in exports.splitlines()[1:]:
+                    parts = line.split(None, 1)
+                    if len(parts) != 2:
+                        continue
+                    export_path, access = parts[0], parts[1].strip()
+                    if access in ("(everyone)", "*") or access.startswith("*"):
+                        self.engine.add_finding(self._finding(
+                            technique="NFS World-Accessible Export",
+                            url=url,
+                            severity="HIGH",
+                            confidence=0.9,
+                            param="NFS",
+                            payload=f"showmount -e {hostname}",
+                            evidence=f"Export {export_path} open to all clients ({access})",
+                        ))
         except FileNotFoundError:
             pass
         except Exception:

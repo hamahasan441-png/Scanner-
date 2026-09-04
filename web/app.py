@@ -519,6 +519,58 @@ _SHELL_DANGEROUS_FLAGS = frozenset({
 })
 
 
+# Sensitive filesystem paths that the shell allowlist must never touch,
+# regardless of the base command. `cat`, `head`, `tail`, `grep`, `find`,
+# `stat`, `file`, `wc` are all read-only *tools* — the abuse vector is
+# their argument, not the tool itself. Reject any token that resolves
+# under one of these prefixes.
+_SHELL_FORBIDDEN_PATH_PREFIXES = (
+    "/etc/shadow", "/etc/gshadow", "/etc/sudoers", "/etc/ssh/ssh_host_",
+    "/root/.ssh/", "/root/.aws/", "/root/.docker/", "/root/.kube/",
+    "/root/.gnupg/", "/root/.netrc",
+    # NOTE: `/home/` is deliberately NOT blanket-blocked — `ls /home/user`
+    # is a normal enumeration action. Sensitive user-owned files
+    # (~/.ssh, ~/.aws, ~/.kube, ~/.gnupg) need glob matching in a
+    # follow-up; for now operators who want a strict scope should set
+    # ATOMIC_SHELL_PATH_SCOPE to the paths they explicitly permit and
+    # everything outside that whitelist is rejected here.
+    "/var/lib/postgresql", "/var/lib/mysql", "/var/lib/redis",
+    "/proc/self/environ", "/proc/kmsg", "/dev/mem", "/dev/kmem",
+)
+
+
+def _shell_path_scope() -> tuple[str, ...]:
+    """Optional per-deployment additional allowed roots.
+
+    Set ATOMIC_SHELL_PATH_SCOPE to a comma-separated list of absolute
+    path prefixes. If the operator explicitly opts a subpath in this
+    way, it's honoured even if it lies inside a forbidden prefix.
+    """
+    raw = os.environ.get("ATOMIC_SHELL_PATH_SCOPE", "").strip()
+    if not raw:
+        return ()
+    return tuple(p.strip() for p in raw.split(",") if p.strip().startswith("/"))
+
+
+def _token_touches_forbidden_path(tok: str) -> bool:
+    """Return True if *tok* is an absolute path under a forbidden root
+    and NOT under an explicitly opted-in scope."""
+    if not tok or not tok.startswith("/"):
+        return False
+    try:
+        normalized = os.path.realpath(tok)  # resolve symlink shortcuts
+    except (OSError, ValueError):
+        normalized = tok
+    scope = _shell_path_scope()
+    for allowed in scope:
+        if normalized == allowed or normalized.startswith(allowed.rstrip("/") + "/"):
+            return False  # operator whitelisted this branch
+    for banned in _SHELL_FORBIDDEN_PATH_PREFIXES:
+        if normalized == banned.rstrip("/") or normalized.startswith(banned):
+            return True
+    return False
+
+
 # Bare (non-flag) sub-command tokens that let an allowlisted base command
 # spawn an arbitrary program. The classic case is ``ip netns exec <ns>
 # <program>`` — ``ip`` is allowlisted and ``exec`` is not a ``-flag`` so
@@ -585,6 +637,16 @@ def _is_shell_command_allowed(cmd: str) -> bool:
         # Deny bare spawn sub-commands (e.g. ``ip netns exec ...``).
         if tok in _SHELL_DANGEROUS_SUBCOMMANDS:
             return False
+        # Deny absolute paths that touch sensitive files (allowlisted
+        # tools like `cat`, `find`, `grep`, `head` are read-only in
+        # themselves — the abuse vector is the argument.)
+        if _token_touches_forbidden_path(tok):
+            return False
+        # Same check on `--flag=/path` values.
+        if "=" in tok:
+            value = tok.split("=", 1)[1]
+            if _token_touches_forbidden_path(value):
+                return False
 
     return True
 
@@ -1239,7 +1301,30 @@ def start_scan():
     for key in all_module_keys:
         modules_dict[key] = full_scan or (key in modules)
 
-    auto_exploit = body.get("auto_exploit", False)
+    # Per-request authorization: the process-wide ATOMIC_AUTHORIZED env
+    # flag is not sufficient to enable destructive auto-exploit for an
+    # individual scan — the caller must acknowledge in THIS request body.
+    # (The env flag remains the outer gate: even a per-request "yes" is
+    # ignored when the operator hasn't opted in at the server level.)
+    server_authorized = _scan_authorization_acknowledged()
+    request_authorized = body.get("authorized") is True
+    auth_gate_open = server_authorized and request_authorized
+
+    auto_exploit_wanted = bool(body.get("auto_exploit", False) or full_scan)
+    if auto_exploit_wanted and not auth_gate_open:
+        # Refuse silently-downgraded scans: if the caller asked for
+        # exploitation and the gate is closed, tell them why rather
+        # than running a detection-only pass they didn't request.
+        return jsonify({
+            "status": "error",
+            "data": (
+                "auto_exploit requires both server authorization "
+                "(ATOMIC_AUTHORIZED=1) and 'authorized: true' in this "
+                "request body"
+            ),
+        }), 403
+
+    auto_exploit = auto_exploit_wanted and auth_gate_open
     modules_dict.update(
         {
             "recon": full_scan or body.get("recon", False),
@@ -1252,7 +1337,7 @@ def start_scan():
             "brute": body.get("brute", False),
             "exploit_chain": False,
             "ports": body.get("ports"),
-            "auto_exploit": auto_exploit or full_scan,
+            "auto_exploit": auto_exploit,
             "exploit_search": body.get("exploit_search", False) or full_scan,
             "attack_map": body.get("attack_map", False) or full_scan,
         }
@@ -1295,11 +1380,10 @@ def start_scan():
             "rotate_ua": True,
             "output_dir": Config.REPORTS_DIR,
             "auto_external_tools": True,
-            # SECURITY FIX (SEC-002): carry the framework authorization gate
-            # explicitly (fail-closed).  Dashboard scans only enable
-            # exploitation when the server itself was started with
-            # ATOMIC_AUTHORIZED=1; otherwise auto_exploit stays detection-only.
-            "authorized": _scan_authorization_acknowledged(),
+            # SECURITY FIX (SEC-002): per-request authorization. Both the
+            # server-wide env gate AND the caller's per-request opt-in
+            # must be true before exploitation can run.
+            "authorized": auth_gate_open,
             # Local LLM (Ollama) — auto-start daemon and pull model in
             # the scan thread when the user opted in.
             "use_local_llm": use_local_llm,
@@ -4888,24 +4972,90 @@ def get_config_file():
 @_require_permission("config.update")
 @_rate_limit
 def save_config_file():
-    """Save and apply atomic.yaml configuration."""
+    """Save and apply atomic.yaml configuration.
+
+    Hardened: (1) YAML must parse, (2) top-level shape must match a
+    small allowlist of expected sections (rejects arbitrary attacker
+    keys), (3) the parsed document is round-tripped through the
+    RulesEngine's schema validator before write. Any failure aborts
+    without touching disk.
+    """
     body = request.get_json(silent=True)
     if not body or not isinstance(body.get("content"), str):
         return jsonify({"status": "error", "data": "Missing content field"}), 400
 
-    content = body["content"]
-    import yaml as _yaml
+    # Explicit per-request authorization — process-wide ATOMIC_AUTHORIZED
+    # is not enough for a mutation that can escalate to auto-exploit
+    # rules. Operator must acknowledge in the body of THIS request.
+    if body.get("authorized") is not True:
+        return jsonify({
+            "status": "error",
+            "data": "config.update requires 'authorized: true' in the request body",
+        }), 403
 
+    content = body["content"]
+    if len(content) > 512 * 1024:  # 512 KiB is more than any real rules file
+        return jsonify({"status": "error", "data": "Config payload too large"}), 413
+
+    import yaml as _yaml
     try:
-        _yaml.safe_load(content)
+        parsed = _yaml.safe_load(content)
     except _yaml.YAMLError as exc:
-        logger.debug("YAML validation error: %s", exc)
-        return jsonify({"status": "error", "data": "Invalid YAML syntax — check your configuration"}), 400
+        logger.debug("YAML parse error: %s", exc)
+        return jsonify({"status": "error", "data": "Invalid YAML syntax"}), 400
+    if not isinstance(parsed, dict):
+        return jsonify({"status": "error", "data": "Config root must be a mapping"}), 400
+
+    # Whitelist top-level keys — reject any key the framework doesn't
+    # know about so a poisoned rules file can't smuggle new sections.
+    _ALLOWED_TOP_KEYS = {
+        "profile", "pipeline", "scoring", "vuln_map", "modules",
+        "shields", "waf", "notification", "output", "throttle", "targets",
+    }
+    unexpected = set(parsed.keys()) - _ALLOWED_TOP_KEYS
+    if unexpected:
+        return jsonify({
+            "status": "error",
+            "data": f"Unknown top-level keys: {sorted(unexpected)}",
+        }), 400
+
+    # Schema validation — the /api/config route MUST fail-closed here
+    # even though RulesEngine soft-skips when jsonschema isn't installed.
+    # This is the actual dangerous path (attacker-controlled YAML being
+    # persisted, then loaded by RulesEngine on the next init).
+    try:
+        import jsonschema  # noqa: F401 — presence check
+    except ImportError:
+        return jsonify({
+            "status": "error",
+            "data": (
+                "jsonschema is required to validate config writes. "
+                "Install with: pip install jsonschema"
+            ),
+        }), 500
+    try:
+        from core.rules_engine import RulesEngine as _RE
+        _RE._validate_json_schema(parsed)  # type: ignore[attr-defined]
+    except Exception as exc:
+        return jsonify({"status": "error", "data": f"Schema validation failed: {exc}"}), 400
 
     config_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "atomic.yaml")
+    # Atomic write: temp file + rename, so a crash mid-write can't
+    # leave a corrupted rules file that then fails to load.
+    import tempfile as _tf
+    tmp_dir = os.path.dirname(config_path)
     try:
-        with open(config_path, "w") as fh:
-            fh.write(content)
+        fd, tmp_path = _tf.mkstemp(prefix=".atomic.", suffix=".yaml.tmp", dir=tmp_dir)
+        try:
+            with os.fdopen(fd, "w") as fh:
+                fh.write(content)
+            os.replace(tmp_path, config_path)
+        except Exception:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
         return jsonify({"status": "success", "data": "Config saved and applied"})
     except Exception as exc:
         logger.error("Failed to write config file: %s", exc)

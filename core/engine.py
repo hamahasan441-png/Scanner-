@@ -460,6 +460,13 @@ class AtomicEngine:
             "llm_logic": ("modules.llm_logic", "LLMLogicModule"),
             # HTTP/2 smuggling, cache poisoning, API abuse modules
             "h2_smuggling": ("modules.h2_smuggling", "H2SmugglingModule"),
+            # Classic HTTP/1.1 request smuggling (CL.TE / TE.CL / TE.TE).
+            # Referenced by core.hypothesis + attack_router + post_worker_verifier
+            # but was never registered; chains that require it silently no-op'd.
+            "request_smuggling": ("modules.request_smuggling", "RequestSmugglingModule"),
+            # WAF fingerprint + payload-family bypass. Complements
+            # gatebreaker/firewall_bypass with WAF-family specific evasion.
+            "waf": ("modules.waf", "WAFBypass"),
             "cache_poisoning": ("modules.cache_poisoning", "CachePoisoningModule"),
             "api_abuse": ("modules.api_abuse", "APIAbuseModule"),
             # Deep multi-technique scanner — module file existed but was never
@@ -523,6 +530,23 @@ class AtomicEngine:
             # Zero-Day
             "coverage_fuzz": ("modules.coverage_fuzz", "CoverageFuzzModule"),
             "symbolic_exec": ("modules.symbolic_exec", "SymbolicExecModule"),
+            # ── NEW: coverage additions (gap-analysis Phase 5) ──────────
+            # LLM-app attack surface: prompt injection, RAG poisoning,
+            # system-prompt leak. Only fires on endpoints whose path or
+            # param name hints at an LLM feature.
+            "ai_app_probe": ("modules.ai_app_probe", "AIAppProbeModule"),
+            # OpenAPI ghost endpoints: pull public spec, verb-probe
+            # unlinked paths for 2xx-without-auth.
+            "openapi_ghost": ("modules.openapi_ghost", "OpenAPIGhostModule"),
+            # Session/cookie hygiene: Secure / HttpOnly / SameSite /
+            # __Host- prefix / parent-domain scoping.
+            "session_cookie": ("modules.session_cookie", "SessionCookieModule"),
+            # K8s control-plane exposure: API server, etcd, dashboard.
+            "k8s_control_plane": ("modules.k8s_control_plane", "K8sControlPlaneModule"),
+            # ADCS web-enrollment discovery (ESC1/ESC8 tuning hints).
+            "adcs_esc": ("modules.adcs_esc", "ADCSDiscoveryModule"),
+            # Azure Entra ID tenant fingerprint + federation posture.
+            "azure_entra": ("modules.azure_entra", "AzureEntraModule"),
         }
 
         modules_config = self.config.get("modules", {})
@@ -1360,6 +1384,31 @@ class AtomicEngine:
         else:
             ordered_modules = list(self._modules.items())
 
+        # ── Target-shape gate ─────────────────────────────────────────
+        # target_recognizer produced a scan_plan with recommended/skip
+        # module lists per target shape (API, static site, cloud endpoint,
+        # etc.). Honour it — before this the plan was computed and stored
+        # but never consumed, so every scan ran every enabled module.
+        scan_plan = getattr(self, "scan_plan", None)
+        if scan_plan is not None:
+            recommended = set(getattr(scan_plan, "recommended_modules", None) or [])
+            skipped = set(getattr(scan_plan, "skip_modules", None) or [])
+            if skipped:
+                before = len(ordered_modules)
+                ordered_modules = [
+                    (k, m) for k, m in ordered_modules if k not in skipped
+                ]
+                dropped = before - len(ordered_modules)
+                if dropped:
+                    print(f"{Colors.info(f'Target-shape gate: dropped {dropped} module(s) per scan plan')}")
+            if recommended:
+                # Move recommended modules to the front of the queue while
+                # preserving everything else (don't drop non-recommended —
+                # the plan is a hint, not a whitelist, unless skipped lists it).
+                recs = [(k, m) for k, m in ordered_modules if k in recommended]
+                rest = [(k, m) for k, m in ordered_modules if k not in recommended]
+                ordered_modules = recs + rest
+
         # ── Reflection Gate ──────────────────────────────────────────
         # Modules that only make sense when user input is reflected in
         # the response body. We honour the per-module declaration on
@@ -1762,6 +1811,32 @@ class AtomicEngine:
         self._origin_result = real_ip_result
         self._agent_result = agent_result
 
+        # Drain the streaming ExploitBridge — wait for outstanding
+        # CVE-confirmation jobs so their findings land in this scan's
+        # record (not the next scan's, and not lost on shutdown).
+        bridge = getattr(self, "exploit_bridge", None)
+        if bridge is not None:
+            try:
+                bridge.drain(timeout=float(self.config.get("bridge_drain_timeout", 60)))
+                queued = getattr(self, "_exploit_bridge_queue", []) or []
+                if queued and self.config.get("verbose"):
+                    print(f"{Colors.info(f'ExploitBridge derived {len(queued)} surface(s); handed off to chain executor')}")
+            except Exception as exc:
+                logger.debug("exploit_bridge drain failed: %s", exc)
+
+        # Run the post-scan pipeline (chain executor, MITRE tag, PoC bundle,
+        # intel memory, narrative report) BEFORE OutputPhase writes reports
+        # — otherwise the first-generation HTML/JSON reports lack these
+        # sections and only the CLI's later generate_reports() call includes
+        # them. That was double work and could leave stale artifacts around.
+        try:
+            from core.pipeline_wire import finalize as _pipeline_finalize
+            _pipeline_finalize(self)
+            self._pipeline_finalized = True
+        except Exception as _exc:  # pragma: no cover - defensive
+            logger.debug("pipeline_wire.finalize failed: %s", _exc)
+            self._pipeline_finalized = False
+
         try:
             from core.output_phase import OutputPhase
 
@@ -2006,6 +2081,24 @@ class AtomicEngine:
                     )
             except Exception as exc:
                 logger.debug("FullAttacker.maybe_attack failed: %s", exc)
+
+        # ── Exploit Bridge (streaming derivation + CVE auto-confirm) ──
+        # Complements FullAttacker: derives new scan surface from every
+        # HIGH/CRITICAL finding and schedules sandboxed nuclei runs for
+        # any CVE tags found on the finding. Fail-closed; runs only when
+        # authorized. Never breaks add_finding.
+        bridge = getattr(self, "exploit_bridge", None)
+        if bridge is None:
+            try:
+                from core.exploit_bridge import install as _install_bridge
+                bridge = _install_bridge(self)
+            except Exception as exc:
+                logger.debug("exploit_bridge install failed: %s", exc)
+        if bridge is not None:
+            try:
+                bridge.on_finding(finding)
+            except Exception as exc:
+                logger.debug("exploit_bridge on_finding failed: %s", exc)
 
         # LLM real-time enrichment: attach AI analysis to high-severity findings.
         # Only runs when --local-llm is active; skipped during high-volume scans
@@ -2348,13 +2441,16 @@ class AtomicEngine:
         and passes any enrichment data the engine collected.
         """
         # Always-on post-scan wiring: chain executor, MITRE tag, PoC
-        # bundle, intel memory, narrative report. Guarded — a failure
-        # here never breaks report generation.
-        try:
-            from core.pipeline_wire import finalize as _pipeline_finalize
-            _pipeline_finalize(self)
-        except Exception as _exc:  # pragma: no cover - defensive
-            logger.debug("pipeline_wire.finalize failed: %s", _exc)
+        # bundle, intel memory, narrative report. When scan() already
+        # ran finalize (the normal path), skip — it's idempotent-ish but
+        # re-running duplicates work and log lines.
+        if not getattr(self, "_pipeline_finalized", False):
+            try:
+                from core.pipeline_wire import finalize as _pipeline_finalize
+                _pipeline_finalize(self)
+                self._pipeline_finalized = True
+            except Exception as _exc:  # pragma: no cover - defensive
+                logger.debug("pipeline_wire.finalize failed: %s", _exc)
 
         try:
             from core.reporter import ReportGenerator

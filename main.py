@@ -1136,7 +1136,16 @@ def main():
 
     args = parser.parse_args()
     args = _apply_profile(args)
-    
+
+    # Honour ATOMIC_AUTHORIZED env var as an equivalent to --authorized
+    # BEFORE validation runs — otherwise _validate_cli_args rejects
+    # --shell / --dump / --os-shell / --auto-exploit for env-based
+    # consent (which matches core.authorization.is_authorized's model).
+    import os as _os
+    if not getattr(args, "authorized", False) and \
+       _os.environ.get("ATOMIC_AUTHORIZED", "").strip().lower() in {"1", "true", "yes"}:
+        args.authorized = True
+
     # Validate CLI arguments before proceeding
     _validate_cli_args(args, parser)
 
@@ -2098,13 +2107,23 @@ def main():
     # Governance guard: scanning requires explicit authorization
     # confirmation. The framework is for AUTHORIZED testing only, so the
     # gate applies to every scan, not just regulated-mission runs.
-    if not args.authorized:
+    # Honour ATOMIC_AUTHORIZED=1 as an equivalent to --authorized (the
+    # same env var the framework already trusts elsewhere, e.g.
+    # core.authorization.is_authorized and the web dashboard).
+    import os as _os
+    _env_ok = _os.environ.get("ATOMIC_AUTHORIZED", "").strip().lower() in {"1", "true", "yes"}
+    if not args.authorized and not _env_ok:
         print(
             f"{Colors.error('Authorization confirmation required.')}\n"
             f"{Colors.warning('This framework is for AUTHORIZED security testing only.')}\n"
-            f"{Colors.info('Re-run with --authorized to confirm you have written permission to test the listed targets.')}"
+            f"{Colors.info('Re-run with --authorized (or set ATOMIC_AUTHORIZED=1) to confirm you have written permission to test the listed targets.')}"
         )
         sys.exit(1)
+    if _env_ok and not args.authorized:
+        # Reflect the env-provided consent back into args so downstream
+        # code that already reads args.authorized (unsafe-mode check
+        # etc.) sees a consistent view.
+        args.authorized = True
 
     # --unsafe-mode is gated on --authorized. It is per-run only: it
     # lifts the per-technique findings cap and lowers the auto-attack
@@ -2448,6 +2467,19 @@ def main():
 
             # ── Autonomous Orchestrator (--auto) ───────────────
             if _auto:
+                # Run target_recognizer BEFORE the orchestrator too — the
+                # orchestrator bypasses engine.scan() so it would otherwise
+                # never get scan_plan / normalized_target. Cloud endpoints,
+                # bare hostnames, and CIDR inputs must be normalized first.
+                try:
+                    from core.target_recognizer import recognize as _recognize_target
+                    _plan = _recognize_target(target)
+                    engine.scan_plan = _plan
+                    if _plan.normalized_target and _plan.normalized_target != target:
+                        target = _plan.normalized_target
+                except Exception as _exc:
+                    if args.verbose:
+                        print(f"{Colors.warning(f'target_recognizer (auto) failed: {_exc}')}")
                 try:
                     from core.orchestrator import ScanOrchestrator
                     orchestrator = ScanOrchestrator(engine)

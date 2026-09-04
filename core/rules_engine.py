@@ -198,7 +198,19 @@ class RulesEngine:
         try:
             import jsonschema
         except ImportError:
-            # jsonschema is optional; skip validation when not installed
+            # Import-time soft-skip so CLI / library callers boot without
+            # jsonschema. The dangerous path (web /api/config accepting
+            # attacker-controlled YAML) enforces jsonschema INLINE in
+            # web/app.py::save_config_file — that's where fail-closed
+            # matters and where it now lives.
+            import warnings
+            warnings.warn(
+                "jsonschema not installed — rules loaded without schema "
+                "validation. Install it to gate write-back via the web "
+                "config API: pip install jsonschema",
+                RuntimeWarning,
+                stacklevel=2,
+            )
             return
         try:
             with open(_SCHEMA_PATH, "r", encoding="utf-8") as fh:

@@ -591,36 +591,48 @@ class TestHPPDetect(unittest.TestCase):
 
         return HPPModule(_MockEngine())
 
-    def test_status_code_change_detected(self):
-        """Different status code in response → True."""
+    def test_auth_state_transition_detected(self):
+        """403→200 privilege escalation → True. Post-FP-fix HPP only
+        fires on auth-state transitions or strong privilege markers
+        (see commit 42b7f8b), not on any status/length delta."""
+        mod = self._mod()
+        baseline = _MockResponse(text="Forbidden", status_code=403)
+        response = _MockResponse(text="Welcome!", status_code=200)
+        self.assertTrue(mod._detect_hpp(baseline, response, "&admin=1"))
+
+    def test_generic_status_change_not_detected(self):
+        """Bare 200→302 is normal noise — no longer a finding."""
         mod = self._mod()
         baseline = _MockResponse(text="Normal", status_code=200)
         response = _MockResponse(text="Redirect", status_code=302)
-        self.assertTrue(mod._detect_hpp(baseline, response, "&admin=1"))
+        self.assertFalse(mod._detect_hpp(baseline, response, "&admin=1"))
 
-    def test_large_body_change_detected(self):
-        """Body length change > 20% → True."""
+    def test_generic_length_change_not_detected(self):
+        """Body-length delta alone is normal for search/list endpoints —
+        no longer a finding (was the biggest FP source)."""
         mod = self._mod()
         baseline = _MockResponse(text="A" * 100, status_code=200)
         response = _MockResponse(text="A" * 130, status_code=200)
-        self.assertTrue(mod._detect_hpp(baseline, response, "&admin=1"))
+        self.assertFalse(mod._detect_hpp(baseline, response, "&admin=1"))
 
-    def test_privilege_keyword_detected(self):
-        """New privilege keyword in response → True."""
+    def test_strong_privilege_marker_detected(self):
+        """Only very specific markers count now — `role=admin`, `admin panel`,
+        `is_admin=true`, `sudo` (see _detect_hpp allowlist)."""
         mod = self._mod()
         baseline = _MockResponse(text="normal page", status_code=200)
-        response = _MockResponse(text="welcome admin dashboard", status_code=200)
+        response = _MockResponse(text="welcome to the admin panel", status_code=200)
         self.assertTrue(mod._detect_hpp(baseline, response, "&admin=1"))
 
-    def test_each_privilege_keyword(self):
-        """Each privilege keyword individually should trigger detection."""
+    def test_weak_keyword_not_detected(self):
+        """`welcome` / `success` / bare `admin` in body no longer fire — every
+        login page contains these."""
         mod = self._mod()
         for kw in ("admin", "dashboard", "authorized", "welcome", "success"):
             baseline = _MockResponse(text="page content", status_code=200)
             response = _MockResponse(text=f"page content {kw}", status_code=200)
-            self.assertTrue(
+            self.assertFalse(
                 mod._detect_hpp(baseline, response, "&x=1"),
-                msg=f"Keyword '{kw}' should trigger detection",
+                msg=f"Weak keyword '{kw}' should NOT trigger detection",
             )
 
     def test_no_change_not_detected(self):

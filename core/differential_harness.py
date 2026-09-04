@@ -62,7 +62,7 @@ def _fingerprint(status: int, headers: dict[str, str], body: str, latency: float
     header_keys = sorted((k.lower() for k in (headers or {}).keys()))
     return ResponseFingerprint(
         status=status,
-        body_hash=hashlib.sha1(body.encode("utf-8", "replace")).hexdigest(),
+        body_hash=hashlib.sha1(body.encode("utf-8", "replace"), usedforsecurity=False).hexdigest(),
         body_len=len(body),
         header_shape=",".join(header_keys),
         latency_ms=latency * 1000,

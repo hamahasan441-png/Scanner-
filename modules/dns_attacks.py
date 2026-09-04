@@ -70,47 +70,46 @@ class DNSAttackModule(BaseModule):
             pass
 
     def _test_dns_rebinding(self, domain, url):
-        """Test for DNS rebinding vulnerability."""
-        # Check if the application validates Host header against DNS
+        """Host-header confusion test — requires that the spoofed Host
+        actually elicits a DIFFERENT response from the canonical Host.
+        Default vhosts and catch-all 200s no longer trip this."""
         try:
-            headers = {"Host": f"127.0.0.1"}
-            resp = self.requester.request(url, "GET", headers=headers)
-            if resp and resp.status_code == 200 and len(resp.text) > 100:
+            # Baseline: request with the real Host.
+            base = self.requester.request(url, "GET")
+            if base is None or base.status_code != 200:
+                return
+            base_len = len(base.text or "")
+            base_prefix = (base.text or "")[:512]
+
+            # Spoofed Host — server that trusts Host may route into
+            # an internal virtual host, admin panel, or leak data.
+            spoof = self.requester.request(url, "GET", headers={"Host": "127.0.0.1"})
+            if spoof is None or spoof.status_code != 200:
+                return
+            spoof_len = len(spoof.text or "")
+
+            # Real signal: substantially different response body (>25% len
+            # delta or different first 512 bytes).
+            differs = (
+                abs(spoof_len - base_len) > max(200, base_len * 0.25)
+                or (spoof.text or "")[:512] != base_prefix
+            )
+            if differs:
                 self.engine.add_finding(self._finding(
-                    technique="DNS Rebinding (Host Header)",
+                    technique="Host Header Injection / DNS Rebinding",
                     url=url,
-                    severity="HIGH",
-                    confidence=0.6,
+                    severity="MEDIUM",
+                    confidence=0.7,
                     param="Host",
-                    payload="127.0.0.1",
-                    evidence=f"Application responded to Host: 127.0.0.1 with status {resp.status_code}",
+                    payload="Host: 127.0.0.1",
+                    evidence=(
+                        f"Host-spoofed response diverges from baseline "
+                        f"(base={base_len}B, spoofed={spoof_len}B) — "
+                        f"server routes on Host header without validation"
+                    ),
                 ))
         except Exception:
             pass
-
-        # Test rebinding via wildcard DNS services
-        rebinding_domains = [
-            f"127.0.0.1.{domain}",
-            f"{domain}.nip.io",
-            f"localtest.me",
-        ]
-        for rdomain in rebinding_domains:
-            try:
-                test_url = url.replace(domain, rdomain)
-                resp = self.requester.request(test_url, "GET", timeout=5)
-                if resp and resp.status_code == 200:
-                    self.engine.add_finding(self._finding(
-                        technique="DNS Rebinding",
-                        url=url,
-                        severity="MEDIUM",
-                        confidence=0.5,
-                        param=rdomain,
-                        payload=test_url,
-                        evidence=f"Rebinding domain {rdomain} resolved and responded",
-                    ))
-                    break
-            except Exception:
-                pass
 
     def _test_dns_tunneling(self, domain, url):
         """Test for DNS tunneling indicators."""

@@ -188,16 +188,17 @@ class MassAssignmentModule(BaseModule):
             confirm = None
         confirm_body = getattr(confirm, "text", "") or "" if confirm is not None else ""
 
-        canary_reflected = (
-            canary in write_body
-            or canary in confirm_body
-        )
+        # Persistence signal: canary must appear in a follow-up GET (i.e.
+        # the server stored it), not merely in the write response (which
+        # is usually just an echo of the request body).
+        canary_persisted = canary in confirm_body
+        canary_in_write = canary in write_body
         field_reflected = (
             field_name in write_body
             or field_name in confirm_body
         )
 
-        if canary_reflected:
+        if canary_persisted:
             self._emit_signal(
                 vuln_type="mass_assignment",
                 technique=f"Mass assignment CONFIRMED — {field_name} accepted with canary",
@@ -208,10 +209,24 @@ class MassAssignmentModule(BaseModule):
                 evidence_text=(
                     f"Injected {field_name}={injected!r} (canary {canary}) into "
                     f"{('JSON body' if as_json else 'form body')}; canary was "
-                    f"reflected in the server response, confirming the field "
-                    f"was persisted."
+                    f"read back by a follow-up GET, confirming the field was persisted."
                 ),
                 raw_confidence=0.95,
+            )
+        elif canary_in_write and status in (200, 201):
+            self._emit_signal(
+                vuln_type="mass_assignment",
+                technique=f"Mass assignment reflected (unpersisted) — {field_name}",
+                url=url,
+                method=method,
+                param=field_name,
+                payload=f"{field_name}={injected!r}",
+                evidence_text=(
+                    f"Server echoed the canary in the write response but a "
+                    f"follow-up GET did not include it — likely the API just "
+                    f"echoes request bodies; not confirmed."
+                ),
+                raw_confidence=0.4,
             )
         elif field_reflected and status in (200, 201, 204):
             self._emit_signal(

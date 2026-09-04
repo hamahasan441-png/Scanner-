@@ -95,32 +95,63 @@ class SSHAttackModule(BaseModule):
             pass
 
     def _test_ssh_user_enum(self, hostname, url):
-        """Test for SSH user enumeration (CVE-2018-15473)."""
-        # Timing-based user enumeration
-        import time
-        users = ["root", "admin", "test", "user", "oracle", "postgres"]
-        timings = {}
-        for user in users[:3]:
-            try:
-                start = time.time()
-                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                sock.settimeout(5)
-                sock.connect((hostname, 22))
-                banner = sock.recv(256)
-                sock.close()
-                elapsed = time.time() - start
-                timings[user] = elapsed
-            except Exception:
-                pass
-        if timings:
+        """Test for SSH user enumeration (CVE-2018-15473).
+
+        Requires a REAL variance signal: median RTT for a known-bad user
+        must diverge from the baseline by more than jitter. Multiple samples
+        per user, and a variance check against the noise floor.
+        """
+        import time as _t
+        import statistics as _s
+
+        baseline_user = "___probe_baseline_xyz___"
+        probe_users = ["root", "admin", "invaliduser_xyz_" + str(int(_t.time()))]
+        samples: dict[str, list[float]] = {}
+
+        for user in [baseline_user] + probe_users:
+            samples[user] = []
+            for _ in range(4):
+                try:
+                    start = _t.time()
+                    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    sock.settimeout(5)
+                    sock.connect((hostname, 22))
+                    sock.recv(256)
+                    sock.close()
+                    samples[user].append(_t.time() - start)
+                except Exception:
+                    pass
+
+        base = samples.get(baseline_user, [])
+        if len(base) < 3:
+            return
+        base_med = _s.median(base)
+        base_stdev = _s.pstdev(base) or 0.001
+        # Noise floor: 5x baseline stdev, capped at 100ms (SSH banner grab
+        # doesn't do user checks, so real CVE-2018-15473 needs a full auth
+        # probe — this is only a signal, not a confirmation).
+        noise_floor = max(5 * base_stdev, 0.1)
+
+        anomalies = {}
+        for user in probe_users:
+            if len(samples.get(user, [])) < 3:
+                continue
+            med = _s.median(samples[user])
+            if abs(med - base_med) > noise_floor:
+                anomalies[user] = med
+
+        if anomalies:
             self.engine.add_finding(self._finding(
-                technique="SSH User Enumeration",
+                technique="SSH User Enumeration (timing signal)",
                 url=url,
-                severity="MEDIUM",
-                confidence=0.4,
+                severity="LOW",
+                confidence=0.5,
                 param="SSH",
-                payload=f"users: {list(timings.keys())}",
-                evidence=f"Connection timing variance detected: { {k: f'{v:.3f}s' for k, v in timings.items()} }",
+                payload=f"users: {list(anomalies.keys())}",
+                evidence=(
+                    f"baseline median {base_med:.3f}s ±{base_stdev:.3f}; "
+                    f"anomalous: {', '.join(f'{u}:{t:.3f}s' for u, t in anomalies.items())}"
+                ),
             ))
 
     def _test_ssh_auth_methods(self, hostname, url):

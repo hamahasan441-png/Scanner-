@@ -173,7 +173,8 @@ class AdvancedWeaponModule(BaseModule):
         # Blind SSRF via out-of-band collaborator.
         if self.collaborator:
             oob_id = hashlib.sha1(
-                f"{url}|{param}|{time.time()}".encode()
+                f"{url}|{param}|{time.time()}".encode(),
+                usedforsecurity=False,
             ).hexdigest()[:12]
             payloads.append(
                 ("blind-oob", f"http://{oob_id}.{self.collaborator}/ssrf-probe")

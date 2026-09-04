@@ -83,50 +83,60 @@ class JWTModule(BaseModule):
             payload_json = base64.urlsafe_b64decode(payload_b64).decode("utf-8")
             payload = json.loads(payload_json)
 
-            weaknesses = []
+            # (weakness, severity, confidence) tuples — each fires its own finding
+            # so we don't paint every JWT as HIGH.
+            weaknesses: list[tuple[str, str, float]] = []
 
-            # Check algorithm
-            alg = header.get("alg", "")
+            alg = (header.get("alg") or "").strip()
+            alg_upper = alg.upper()
 
-            if alg == "none":
-                weaknesses.append("Algorithm 'none' - signature bypass possible")
-            elif alg == "HS256":
-                weaknesses.append("Weak HMAC algorithm (HS256)")
-            elif alg in ["RS256", "ES256"]:
-                # Check for algorithm confusion
-                weaknesses.append("Asymmetric algorithm - check for algorithm confusion")
+            if alg_upper == "NONE" or alg == "":
+                weaknesses.append(
+                    ("Algorithm 'none' — signature bypass possible", "CRITICAL", 0.95)
+                )
+            # HS256 / RS256 / ES256 alone are NOT weaknesses. Only flag when
+            # the token is actually vulnerable (weak secret discovered, alg
+            # confusion confirmed, etc.) — those checks live in dedicated
+            # methods (_test_weak_secret, _test_kid_injection_advanced, ...).
 
-            # Check for sensitive data
-            sensitive_keys = ["password", "secret", "key", "admin", "role", "privileges", "permissions"]
-            for key in sensitive_keys:
-                if key in json.dumps(payload).lower():
-                    weaknesses.append(f"Sensitive data in payload: {key}")
+            # Sensitive-key check: only flag when the KEY itself appears in
+            # the top-level claims, not any substring anywhere in the payload
+            # (previous logic matched any "role" inside a URL etc.).
+            # Two tiers:
+            #   * Credential leak — a JWT should NEVER carry these.
+            #   * RBAC claim     — normal, but reviewer should know a JWT
+            #     substitution attack would grant this permission.
+            _CRED_KEYS = {"password", "secret", "api_key", "apikey", "private_key"}
+            _RBAC_KEYS = {"admin", "role", "roles", "permissions", "privileges"}
+            leaked_creds = [k for k in payload.keys() if isinstance(k, str) and k.lower() in _CRED_KEYS]
+            rbac_claims  = [k for k in payload.keys() if isinstance(k, str) and k.lower() in _RBAC_KEYS]
+            if leaked_creds:
+                weaknesses.append(
+                    (f"Credential(s) in JWT payload: {', '.join(leaked_creds)}", "HIGH", 0.9)
+                )
+            if rbac_claims:
+                weaknesses.append(
+                    (f"RBAC claim(s) in payload: {', '.join(rbac_claims)}", "LOW", 0.85)
+                )
 
-            # Check for expired token
-            import time
-
+            # Expired token — informational only.
+            import time as _time
             exp = payload.get("exp")
-            if exp and exp < time.time():
-                weaknesses.append("Token expired")
+            if isinstance(exp, (int, float)) and exp < _time.time():
+                weaknesses.append(("Token expired", "INFO", 0.9))
 
-            # Check for weak secrets (if we can brute force)
-            if alg.startswith("HS"):
-                weaknesses.append("HMAC algorithm - brute force possible")
-
-            if weaknesses:
+            for detail, severity, confidence in weaknesses:
                 from core.engine import Finding
-
-                finding = Finding(
+                self.engine.add_finding(Finding(
                     technique="JWT Weakness",
                     url=url,
-                    severity="HIGH",
-                    confidence=0.8,
+                    severity=severity,
+                    confidence=confidence,
                     param=location,
                     payload=token[:50] + "...",
-                    evidence="; ".join(weaknesses),
+                    evidence=detail,
                     extracted_data=json.dumps({"header": header, "payload": payload}, indent=2),
-                )
-                self.engine.add_finding(finding)
+                ))
 
             # Run additional JWT tests
             self._test_jku_x5u_injection(url, token)

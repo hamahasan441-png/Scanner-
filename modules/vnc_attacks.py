@@ -57,31 +57,51 @@ class VNCAttackModule(BaseModule):
                 pass
 
     def _test_vnc_no_auth(self, hostname, url, port, banner):
-        """Test if VNC accepts connections without authentication."""
+        """Test if VNC lists security type 'None' (RFB spec §7.1)."""
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             sock.settimeout(3)
             sock.connect((hostname, port))
-            sock.recv(256)  # RFB version
-            sock.send(b"RFB 3.3\n")
-            sock.recv(256)  # Security types
-            # Try security type 1 (None)
-            sock.send(b"\x01")  # Select "None" security
-            try:
-                result = sock.recv(256)
-                if result and len(result) > 0:
-                    self.engine.add_finding(self._finding(
-                        technique="VNC No Authentication",
-                        url=url,
-                        severity="CRITICAL",
-                        confidence=0.7,
-                        param=f"port:{port}",
-                        payload="VNC auth type None",
-                        evidence="VNC server accepted connection without authentication",
-                    ))
-            except socket.timeout:
-                pass
+            server_version = sock.recv(12)  # exactly 12 bytes per RFB spec
+            if not server_version.startswith(b"RFB "):
+                sock.close()
+                return
+
+            # Negotiate 3.8 when possible (server sends security-type LIST).
+            if b"003.008" in server_version or b"003.007" in server_version:
+                sock.send(b"RFB 003.008\n")
+                # Reply: 1 byte length, then that many security-type bytes.
+                length_byte = sock.recv(1)
+                if not length_byte:
+                    sock.close()
+                    return
+                n = length_byte[0]
+                if n == 0:
+                    sock.close()
+                    return  # server rejected handshake — no security types
+                types = sock.recv(n)
+                accepts_none = 1 in types  # security-type 1 == None
+            else:
+                # 3.3 server: 4-byte security-type integer.
+                sock.send(b"RFB 003.003\n")
+                raw = sock.recv(4)
+                if len(raw) != 4:
+                    sock.close()
+                    return
+                stype = struct.unpack(">I", raw)[0]
+                accepts_none = stype == 1
             sock.close()
+
+            if accepts_none:
+                self.engine.add_finding(self._finding(
+                    technique="VNC No Authentication",
+                    url=url,
+                    severity="CRITICAL",
+                    confidence=0.95,
+                    param=f"port:{port}",
+                    payload="RFB security-type 1 (None) offered",
+                    evidence="VNC server offers security-type None — clients connect without a password",
+                ))
         except Exception:
             pass
 

@@ -343,21 +343,27 @@ class TestCMDiSeparatorDetection(unittest.TestCase):
     def _run_separators(self, response_text):
         from modules.cmdi import CommandInjectionModule
 
-        resp = _MockResponse(text=response_text)
-        # Need enough responses for all separators
-        responses = [resp] * 20
+        # Baseline must NOT contain the arithmetic marker or the module
+        # returns early (can't disambiguate a pre-existing hit). The test
+        # response text sits behind the baseline.
+        baseline_resp = _MockResponse(text="")
+        payload_resp = _MockResponse(text=response_text)
+        responses = [baseline_resp] + [payload_resp] * 20
         engine = _MockEngine(responses)
         mod = CommandInjectionModule(engine)
         mod._test_separators("http://target.com", "GET", "cmd", "value")
         return engine
 
-    def test_echo_marker_detected(self):
-        engine = self._run_separators("Some page output cmdi_test_12345 more text")
+    def test_arithmetic_result_detected(self):
+        """Post-FP-fix (commit 42b7f8b): the marker is the RESULT of
+        `expr 91125 \\* 37811` = "3445527375", which cannot appear in
+        the payload text itself. Pure reflection no longer trips this."""
+        engine = self._run_separators("Some page output 3445527375 more text")
         self.assertEqual(len(engine.findings), 1)
         self.assertEqual(engine.findings[0].severity, "CRITICAL")
 
     def test_separator_confidence(self):
-        engine = self._run_separators("cmdi_test_12345")
+        engine = self._run_separators("3445527375")
         self.assertEqual(engine.findings[0].confidence, 0.9)
 
     def test_no_marker_no_finding(self):
@@ -376,15 +382,16 @@ class TestCMDiSeparatorDetection(unittest.TestCase):
         """Only one finding should be produced even if multiple separators work."""
         from modules.cmdi import CommandInjectionModule
 
-        resp = _MockResponse(text="cmdi_test_12345")
-        responses = [resp] * 20
+        baseline_resp = _MockResponse(text="")
+        payload_resp = _MockResponse(text="3445527375")
+        responses = [baseline_resp] + [payload_resp] * 20
         engine = _MockEngine(responses)
         mod = CommandInjectionModule(engine)
         mod._test_separators("http://target.com", "GET", "cmd", "value")
         self.assertEqual(len(engine.findings), 1)
 
     def test_separator_evidence_mentions_separator(self):
-        engine = self._run_separators("cmdi_test_12345")
+        engine = self._run_separators("3445527375")
         self.assertIn("separator", engine.findings[0].evidence.lower())
 
     def test_separator_verbose_error_handled(self):
@@ -409,20 +416,29 @@ class TestCMDiSeparatorDetection(unittest.TestCase):
 
 class TestCMDiFalsePositives(unittest.TestCase):
 
-    def test_marker_echoed_as_input_not_exec(self):
-        """If the test marker appears in the response because the input itself
-        is echoed (e.g. 'value;echo cmdi_test_12345'), that still triggers a
-        finding since the module cannot distinguish echo-from-exec vs
-        echo-from-reflection. This confirms current behaviour."""
+    def test_marker_echoed_as_input_not_flagged(self):
+        """Post-FP-fix (commit 42b7f8b): the arithmetic marker
+        3445527375 comes from `expr 91125 * 37811`. When the
+        server echoes the raw payload literal back — the exact FP
+        that made this detector unusable — the finding no longer
+        fires because the code requires:
+          1. the RESULT to appear in the response, AND
+          2. the raw payload literal to be ABSENT from the response.
+        A search page that echoes 'value;expr 91125 \\* 37811' fails
+        rule (2) so no finding — even if the arithmetic result were
+        also in the body."""
         from modules.cmdi import CommandInjectionModule
 
-        # The response contains the marker — the module will flag it.
-        resp = _MockResponse(text="You searched for: value;echo cmdi_test_12345")
-        responses = [resp] * 20
+        # Reflection of the raw payload literal — even alongside the
+        # arithmetic result, the reflection check gates the finding.
+        echoed = "You searched for: value;expr 91125 \\* 37811 — result would be 3445527375"
+        baseline_resp = _MockResponse(text="")
+        payload_resp = _MockResponse(text=echoed)
+        responses = [baseline_resp] + [payload_resp] * 20
         engine = _MockEngine(responses)
         mod = CommandInjectionModule(engine)
         mod._test_separators("http://target.com", "GET", "q", "value")
-        self.assertGreaterEqual(len(engine.findings), 1)
+        self.assertEqual(len(engine.findings), 0)
 
     def test_harmless_page_mentioning_linux(self):
         """A normal page mentioning '/bin/bash' in documentation text should

@@ -39,6 +39,22 @@ def write_nmap_xml(xml_path, target):
     print(xml_content)
 
 def main():
+    # SAFETY GATE — these wrappers fabricate parseable output for tools
+    # that aren't actually installed on this host. Without this gate the
+    # scanner would silently emit findings that never happened (e.g. every
+    # nmap invocation would return "80/443 open, nginx 1.19"). Refuse to
+    # run unless the operator has explicitly acknowledged the stub-only
+    # mode. Real deployments should install the actual binaries or delete
+    # runtime/bin/ entirely.
+    if os.environ.get("ATOMIC_ALLOW_STUB_TOOLS", "").lower() not in {"1", "true", "yes"}:
+        sys.stderr.write(
+            f"error: {TOOL_NAME} is not installed. "
+            f"The wrapper at {sys.argv[0]} would return synthetic output. "
+            f"Install the real binary or set ATOMIC_ALLOW_STUB_TOOLS=1 to "
+            f"opt into demo-mode explicitly.\n"
+        )
+        sys.exit(127)
+
     args = sys.argv[1:]
     target = ""
 
