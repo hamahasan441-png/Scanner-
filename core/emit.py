@@ -343,7 +343,19 @@ def score_signal(signal: ModuleSignal) -> tuple:
 
 def _lookup_mitre_cwe(vuln_type: str) -> tuple:
     entry = _VULN_TO_MITRE_CWE.get(vuln_type.lower(), ("", ""))
-    return entry
+    if entry != ("", ""):
+        return entry
+    # Fall back to the extended mitre_map for vuln_types added after
+    # this table was written (cloud_confirmed_leak, cache_deception,
+    # json_confusion, acl_bypass, waf_bypass, …).
+    try:
+        from core.mitre_map import lookup as _mitre_lookup
+        ext = _mitre_lookup(vuln_type.lower())
+        if ext:
+            return (ext[0], "")  # (technique_id, cwe_unknown)
+    except Exception:
+        pass
+    return ("", "")
 
 
 def _confidence_to_cvss(confidence: float, vuln_type: str = "") -> float:

@@ -1049,6 +1049,68 @@ def get_scan(scan_id):
             session.close()
 
 
+@app.route("/api/scan/<scan_id>/mitre", methods=["GET"])
+@_require_api_key
+@_rate_limit
+def get_scan_mitre_matrix(scan_id):
+    """Return the scan's findings grouped by MITRE ATT&CK tactic.
+
+    Shape:
+        { "tactic-slug": [ {technique_id, technique_name, count,
+                            top_finding: {…}}, … ], … }
+    Consumers render this as a live ATT&CK matrix in the dashboard.
+    """
+    if not _SAFE_SCAN_ID.match(scan_id):
+        return jsonify({"status": "error", "data": "Invalid scan ID"}), 400
+    db = _get_db()
+    if db is None:
+        return jsonify({"status": "error", "data": "Database unavailable"}), 503
+    try:
+        from core.mitre_map import lookup as _mitre_lookup
+    except Exception:
+        return jsonify({"status": "error", "data": "mitre_map unavailable"}), 500
+    session = None
+    try:
+        session = db.Session()
+        findings = session.query(FindingModel).filter_by(scan_id=scan_id).all()
+        matrix: dict[str, dict[str, dict]] = {}
+        for f in findings:
+            vt = getattr(f, "vuln_type", "") or ""
+            tag = _mitre_lookup(vt.lower()) if vt else None
+            if not tag:
+                # Some legacy rows already carry mitre_id but no tactic; use
+                # a best-effort "unknown" bucket so nothing is dropped.
+                tid, tname, tactic = (getattr(f, "mitre_id", "") or "", "Unknown", "unknown")
+            else:
+                tid, tname, tactic = tag
+            bucket = matrix.setdefault(tactic, {})
+            row = bucket.setdefault(
+                tid,
+                {"technique_id": tid, "technique_name": tname, "count": 0, "top_finding": None},
+            )
+            row["count"] += 1
+            # Keep the highest-confidence finding as representative.
+            cur_conf = (row["top_finding"] or {}).get("confidence", -1.0)
+            if float(getattr(f, "confidence", 0) or 0) > cur_conf:
+                row["top_finding"] = {
+                    "id": f.id,
+                    "technique": f.technique,
+                    "severity": f.severity,
+                    "confidence": f.confidence,
+                    "url": f.url,
+                    "cvss": f.cvss,
+                }
+        # Flatten inner dict → list, keep tactic keys.
+        out = {tactic: list(items.values()) for tactic, items in matrix.items()}
+        return jsonify({"status": "success", "data": out})
+    except Exception:
+        logger.exception("get_scan_mitre_matrix failed for %s", scan_id)
+        return jsonify({"status": "error", "data": "Database error"}), 500
+    finally:
+        if session:
+            session.close()
+
+
 @app.route("/api/scan", methods=["POST"])
 @_require_permission("scan.create")
 @_rate_limit
