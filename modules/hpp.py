@@ -93,26 +93,26 @@ class HPPModule(BaseModule):
         """URL-level HPP test (not applicable)."""
 
     def _detect_hpp(self, baseline, response, payload):
-        """Check for HPP indicators comparing baseline to test response."""
-        # Status code change (e.g. 200 → 302, 403 → 200)
-        if baseline.status_code != response.status_code:
-            if response.status_code in (200, 301, 302):
-                return True
+        """Check for HPP indicators — only PRIVILEGE-elevating transitions.
 
-        # Significant body length change (> 20%)
-        bl = len(baseline.text or "")
-        rl = len(response.text or "")
-        if bl > 0 and abs(rl - bl) / bl > 0.2:
+        Prior rules fired on ANY status change or ±20% length delta, which
+        is normal noise for search / list endpoints. Real HPP signal is a
+        transition from denied→allowed (403/401→200) or a login-state
+        change; body-length and generic keywords are too noisy to keep.
+        """
+        b_status = getattr(baseline, "status_code", 0)
+        r_status = getattr(response, "status_code", 0)
+        # Auth-state transition
+        if b_status in (401, 403) and r_status in (200, 302):
             return True
-
-        # Check for privilege-related keywords appearing in the response
+        # New privilege markers, but ONLY the strong ones and only when
+        # baseline had NEITHER the marker NOR anything resembling a login
+        # page (welcome/success are too weak — dropped).
         resp_body = (response.text or "").lower()
         base_body = (baseline.text or "").lower()
-        priv_keywords = ["admin", "dashboard", "authorized", "welcome", "success"]
-        for kw in priv_keywords:
+        for kw in ("admin panel", "administrator dashboard", "role=admin", "is_admin=true", "sudo"):
             if kw in resp_body and kw not in base_body:
                 return True
-
         return False
 
     def _get_evidence(self, baseline, response):

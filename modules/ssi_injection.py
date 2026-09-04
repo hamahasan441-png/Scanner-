@@ -64,23 +64,40 @@ class SSIInjectionModule(BaseModule):
                 pass
 
     def _test_esi(self, url, method, param, value):
-        """Test for ESI injection."""
+        """Test for ESI injection — only fires when the payload's ESI tag
+        is REMOVED from the response body (indicating the CDN/varnish
+        processed it) while our raw literal is not reflected."""
         for payload in self.ESI_PAYLOADS[:2]:
             try:
                 if method.upper() == "GET":
                     resp = self.requester.request(url, "GET", data={param: payload})
                 else:
                     resp = self.requester.request(url, "POST", data={param: payload})
-                if resp and resp.status_code == 200:
-                    if "esi:" in resp.text.lower() or "esi_error" in resp.text.lower():
+                if resp is None or resp.status_code != 200:
+                    continue
+                body = resp.text or ""
+                # Signal: payload was sent but is NOT reflected literally
+                # AND no <esi:...> tag remains (ESI processor stripped it).
+                payload_reflected = payload in body
+                esi_tag_present = "<esi:" in body.lower()
+                if not payload_reflected and not esi_tag_present:
+                    # Confirm by sending a benign payload and checking it's
+                    # also not literally reflected (rules out sanitization).
+                    canary = "atomic_esi_canary_" + str(hash(url) & 0xffff)
+                    check = self.requester.request(
+                        url, method.upper(), data={param: canary}
+                    )
+                    if check is not None and canary in (check.text or ""):
+                        # Endpoint reflects normal strings but ate the ESI —
+                        # strong signal a processor is in front.
                         self.engine.add_finding(self._finding(
                             technique="ESI Injection",
                             url=url,
                             severity="HIGH",
-                            confidence=0.5,
+                            confidence=0.7,
                             param=param,
                             payload=payload,
-                            evidence=f"ESI processed: {resp.text[:200]}",
+                            evidence="ESI payload consumed by upstream processor (reflects canary, drops <esi:...>)",
                         ))
             except Exception:
                 pass

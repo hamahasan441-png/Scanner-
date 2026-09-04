@@ -29,33 +29,45 @@ class RaceConditionModule(BaseModule):
         self._test_concurrent_get(url)
 
     def _test_toctou(self, url, method, param, value):
-        """Test for Time-of-check to Time-of-use vulnerabilities"""
-        toctou_payloads = [
-            {"action": "check", "value": value},
-            {"action": "use", "value": value},
-        ]
+        """TOCTOU probe: fire 'check' and 'use' CONCURRENTLY (not sequentially)
+        and repeat several times. Prior sequential probe fired on any endpoint
+        that returns different status codes for different `action` params —
+        which is normal behavior."""
+        rounds = 4
+        divergences = 0
+
+        def _send(action_value: str):
+            data = {param: value, "action": action_value}
+            try:
+                return self.requester.request(url, method, data=data)
+            except Exception:
+                return None
+
         try:
-            results = []
-            for payload in toctou_payloads:
-                data = {param: payload["value"], "action": payload["action"]}
-                response = self.requester.request(url, method, data=data)
-                if response:
-                    results.append(response)
+            with concurrent.futures.ThreadPoolExecutor(max_workers=2) as ex:
+                for _ in range(rounds):
+                    fut_check = ex.submit(_send, "check")
+                    fut_use = ex.submit(_send, "use")
+                    r1, r2 = fut_check.result(), fut_use.result()
+                    if r1 is None or r2 is None:
+                        continue
+                    # Signal: BOTH requests indicate success in a way
+                    # that mutually excludes them (e.g. both got 200 on a
+                    # single-use resource).
+                    if r1.status_code == 200 and r2.status_code == 200 and (r1.text or "") == (r2.text or ""):
+                        divergences += 1
 
-            if len(results) == 2:
-                if results[0].status_code != results[1].status_code:
-                    from core.engine import Finding
-
-                    finding = Finding(
-                        technique="Race Condition (TOCTOU)",
-                        url=url,
-                        severity="MEDIUM",
-                        confidence=0.5,
-                        param=param,
-                        payload="check-then-use sequence",
-                        evidence=f"Different status codes in check ({results[0].status_code}) vs use ({results[1].status_code})",
-                    )
-                    self.engine.add_finding(finding)
+            if divergences >= rounds // 2:
+                from core.engine import Finding
+                self.engine.add_finding(Finding(
+                    technique="Race Condition (TOCTOU)",
+                    url=url,
+                    severity="HIGH",
+                    confidence=0.7,
+                    param=param,
+                    payload="concurrent check+use pairs",
+                    evidence=f"{divergences}/{rounds} concurrent pairs both returned success on a single-use action",
+                ))
         except Exception:
             pass
 
@@ -138,20 +150,11 @@ class RaceConditionModule(BaseModule):
                     if result:
                         responses.append(result)
 
-            if len(responses) >= 2:
-                lengths = [len(r.text) for r in responses]
-                if max(lengths) - min(lengths) > 100:
-                    from core.engine import Finding
-
-                    finding = Finding(
-                        technique="Race Condition (Response Variance)",
-                        url=url,
-                        severity="LOW",
-                        confidence=0.4,
-                        param="N/A",
-                        payload=f"{num_concurrent} concurrent GETs",
-                        evidence=f"Response length variance: {min(lengths)}-{max(lengths)} bytes",
-                    )
-                    self.engine.add_finding(finding)
+            # Skipped: response-length variance on GETs is dominated by
+            # timestamps/CSRF/session badges and produces daily FPs.
+            # A real race-condition GET signal requires knowing WHICH bytes
+            # are supposed to be constant — that's per-target and belongs in
+            # a differential harness, not a blanket detector.
+            _ = responses
         except Exception:
             pass

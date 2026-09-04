@@ -113,6 +113,8 @@ def evaluate_hsts(hsts_header: Optional[str]) -> List[Issue]:
 
 
 def _parse_cert_not_after(cert: dict) -> Optional[float]:
+    """Legacy helper — kept for tests. Only works when the socket was
+    validated (CERT_REQUIRED); with CERT_NONE the dict is empty."""
     raw = (cert or {}).get("notAfter")
     if not raw:
         return None
@@ -123,6 +125,7 @@ def _parse_cert_not_after(cert: dict) -> Optional[float]:
 
 
 def _cert_names(cert: dict) -> List[str]:
+    """Legacy helper — see _parse_cert_not_after."""
     names = []
     for typ, val in (cert or {}).get("subjectAltName", ()):
         if typ.lower() == "dns":
@@ -132,6 +135,49 @@ def _cert_names(cert: dict) -> List[str]:
             if k == "commonName":
                 names.append(v)
     return names
+
+
+def _parse_der_cert(der: bytes) -> Tuple[Optional[float], List[str]]:
+    """Parse raw DER cert bytes → (notAfter_epoch, [SAN dNSNames + CN]).
+
+    Uses the `cryptography` package (already a hard dep). Returns (None, [])
+    on any parse failure, so callers can no-op cleanly.
+    """
+    if not der:
+        return None, []
+    try:
+        from cryptography import x509
+        from cryptography.hazmat.backends import default_backend
+        from cryptography.x509.oid import NameOID, ExtensionOID
+    except Exception:
+        return None, []
+    try:
+        cert = x509.load_der_x509_certificate(der, default_backend())
+    except Exception:
+        return None, []
+
+    not_after_epoch: Optional[float] = None
+    try:
+        # not_valid_after is naive UTC — treat it as UTC.
+        na = cert.not_valid_after
+        not_after_epoch = timegm(na.utctimetuple())
+    except Exception:
+        pass
+
+    names: List[str] = []
+    try:
+        san = cert.extensions.get_extension_for_oid(
+            ExtensionOID.SUBJECT_ALTERNATIVE_NAME
+        ).value
+        names.extend(san.get_values_for_type(x509.DNSName))
+    except Exception:
+        pass
+    try:
+        for attr in cert.subject.get_attributes_for_oid(NameOID.COMMON_NAME):
+            names.append(attr.value)
+    except Exception:
+        pass
+    return not_after_epoch, names
 
 
 class TLSScanModule(BaseModule):
@@ -157,17 +203,18 @@ class TLSScanModule(BaseModule):
         try:
             ctx = ssl.create_default_context()
             ctx.check_hostname = False        # we assess mismatches ourselves
-            ctx.verify_mode = ssl.CERT_NONE   # read cert even if untrusted
+            ctx.verify_mode = ssl.CERT_NONE   # accept the connection; parse cert from DER
             with socket.create_connection((host, port), timeout=timeout) as sock:
                 with ctx.wrap_socket(sock, server_hostname=host) as ssock:
-                    cert = ssock.getpeercert() or {}
+                    der = ssock.getpeercert(binary_form=True) or b""
                     version = ssock.version() or ""
                     cipher = ssock.cipher()
                     cipher_name = cipher[0] if cipher else ""
+            not_after_epoch, cert_names = _parse_der_cert(der)
             issues += evaluate_protocol(version)
             issues += evaluate_cipher(cipher_name)
-            issues += evaluate_expiry(_parse_cert_not_after(cert))
-            issues += evaluate_hostname(host, _cert_names(cert))
+            issues += evaluate_expiry(not_after_epoch)
+            issues += evaluate_hostname(host, cert_names)
         except (ssl.SSLError, OSError, ValueError):
             return  # network/handshake failure — nothing to report, don't crash
 

@@ -93,21 +93,43 @@ class ContainerEscapeModule(BaseModule):
                 pass
 
     def _test_k8s_metadata(self, url):
-        """Test for Kubernetes service account token in responses."""
+        """Test for Kubernetes service account token in responses.
+
+        The prior heuristic matched any RS256 JWT header — every Auth0,
+        Okta, and Firebase token trips that. Real K8s SA tokens have an
+        `iss: kubernetes/serviceaccount` or `iss: https://kubernetes.default...`
+        claim; decode the token before flagging.
+        """
+        import base64 as _b64
+        import json as _json
+        import re as _re
+
         try:
             resp = self.requester.request(url, "GET")
-            if resp:
-                text = resp.text
-                if "eyJhbGciOiJSUzI1NiIs" in text:
+            if resp is None:
+                return
+            for jwt in _re.findall(r"eyJ[A-Za-z0-9_\-]+\.eyJ[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]*", resp.text or ""):
+                parts = jwt.split(".")
+                if len(parts) != 3:
+                    continue
+                try:
+                    pad = "=" * (-len(parts[1]) % 4)
+                    payload = _json.loads(_b64.urlsafe_b64decode(parts[1] + pad))
+                except Exception:
+                    continue
+                iss = str(payload.get("iss") or "")
+                sub = str(payload.get("sub") or "")
+                if "kubernetes" in iss.lower() or sub.startswith("system:serviceaccount:"):
                     self.engine.add_finding(self._finding(
                         technique="Kubernetes Service Account Token Exposure",
                         url=url,
                         severity="CRITICAL",
-                        confidence=0.9,
+                        confidence=0.95,
                         param="response",
-                        payload="Response analysis",
-                        evidence="Kubernetes service account JWT token found in response",
+                        payload="JWT iss/sub inspection",
+                        evidence=f"K8s SA token in response — iss={iss}, sub={sub}",
                     ))
+                    return
         except Exception:
             pass
 
