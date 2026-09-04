@@ -2098,13 +2098,23 @@ def main():
     # Governance guard: scanning requires explicit authorization
     # confirmation. The framework is for AUTHORIZED testing only, so the
     # gate applies to every scan, not just regulated-mission runs.
-    if not args.authorized:
+    # Honour ATOMIC_AUTHORIZED=1 as an equivalent to --authorized (the
+    # same env var the framework already trusts elsewhere, e.g.
+    # core.authorization.is_authorized and the web dashboard).
+    import os as _os
+    _env_ok = _os.environ.get("ATOMIC_AUTHORIZED", "").strip().lower() in {"1", "true", "yes"}
+    if not args.authorized and not _env_ok:
         print(
             f"{Colors.error('Authorization confirmation required.')}\n"
             f"{Colors.warning('This framework is for AUTHORIZED security testing only.')}\n"
-            f"{Colors.info('Re-run with --authorized to confirm you have written permission to test the listed targets.')}"
+            f"{Colors.info('Re-run with --authorized (or set ATOMIC_AUTHORIZED=1) to confirm you have written permission to test the listed targets.')}"
         )
         sys.exit(1)
+    if _env_ok and not args.authorized:
+        # Reflect the env-provided consent back into args so downstream
+        # code that already reads args.authorized (unsafe-mode check
+        # etc.) sees a consistent view.
+        args.authorized = True
 
     # --unsafe-mode is gated on --authorized. It is per-run only: it
     # lifts the per-technique findings cap and lowers the auto-attack

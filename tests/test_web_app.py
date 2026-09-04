@@ -405,6 +405,23 @@ class TestScanStartValidation(unittest.TestCase):
         self.assertEqual(resp.status_code, 200)
 
     def test_full_scan_flag_accepted(self):
+        # Post-hardening (commit 2cf941b): full_scan implies auto_exploit,
+        # which now requires per-request `authorized: true` acknowledgement
+        # (the server-wide ATOMIC_AUTHORIZED env is set by the test
+        # conftest). Without opting in per-request the route returns 403.
+        resp = self.client.post(
+            "/api/scan",
+            json={
+                "target": "http://example.com",
+                "full_scan": True,
+                "authorized": True,
+            },
+        )
+        self.assertEqual(resp.status_code, 200)
+
+    def test_full_scan_without_per_request_authorized_rejected(self):
+        """Regression guard for commit 2cf941b: full_scan without
+        per-request opt-in must be rejected, not silently downgraded."""
         resp = self.client.post(
             "/api/scan",
             json={
@@ -412,7 +429,7 @@ class TestScanStartValidation(unittest.TestCase):
                 "full_scan": True,
             },
         )
-        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.status_code, 403)
 
     def test_non_list_targets_falls_back_to_target(self):
         resp = self.client.post(

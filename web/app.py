@@ -528,8 +528,12 @@ _SHELL_FORBIDDEN_PATH_PREFIXES = (
     "/etc/shadow", "/etc/gshadow", "/etc/sudoers", "/etc/ssh/ssh_host_",
     "/root/.ssh/", "/root/.aws/", "/root/.docker/", "/root/.kube/",
     "/root/.gnupg/", "/root/.netrc",
-    "/home/",   # everything under a user home is potentially secret;
-                # allow-list a subpath via ATOMIC_SHELL_PATH_SCOPE if needed
+    # NOTE: `/home/` is deliberately NOT blanket-blocked — `ls /home/user`
+    # is a normal enumeration action. Sensitive user-owned files
+    # (~/.ssh, ~/.aws, ~/.kube, ~/.gnupg) need glob matching in a
+    # follow-up; for now operators who want a strict scope should set
+    # ATOMIC_SHELL_PATH_SCOPE to the paths they explicitly permit and
+    # everything outside that whitelist is rejected here.
     "/var/lib/postgresql", "/var/lib/mysql", "/var/lib/redis",
     "/proc/self/environ", "/proc/kmsg", "/dev/mem", "/dev/kmem",
 )
@@ -5015,7 +5019,20 @@ def save_config_file():
             "data": f"Unknown top-level keys: {sorted(unexpected)}",
         }), 400
 
-    # Schema validation (RulesEngine._validate_json_schema raises).
+    # Schema validation — the /api/config route MUST fail-closed here
+    # even though RulesEngine soft-skips when jsonschema isn't installed.
+    # This is the actual dangerous path (attacker-controlled YAML being
+    # persisted, then loaded by RulesEngine on the next init).
+    try:
+        import jsonschema  # noqa: F401 — presence check
+    except ImportError:
+        return jsonify({
+            "status": "error",
+            "data": (
+                "jsonschema is required to validate config writes. "
+                "Install with: pip install jsonschema"
+            ),
+        }), 500
     try:
         from core.rules_engine import RulesEngine as _RE
         _RE._validate_json_schema(parsed)  # type: ignore[attr-defined]

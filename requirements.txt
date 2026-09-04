@@ -50,6 +50,14 @@ scapy==2.7.0
 # YAML configuration
 PyYAML==6.0.3
 
+# JSON Schema — gates the web /api/config write path (fail-closed).
+# RulesEngine loads without it (soft warning) so the CLI still works
+# on stripped installs, but the web write route refuses without it.
+jsonschema==4.23.0
+
+# X.509 parsing for tls_scan (read certs even under CERT_NONE).
+cryptography==43.0.3
+
 # ── v11.0 new optional dependencies ──────────────────────────────────
 # Async HTTP engine (--async-mode)
 #   pip install httpx>=0.27.0

@@ -54,22 +54,29 @@ class TestRaceConditionInit(unittest.TestCase):
 
 
 class TestRaceConditionTOCTOU(unittest.TestCase):
-    def test_different_status_codes_detected(self):
+    def test_mutual_success_concurrent_detected(self):
+        """Post-FP-fix (commit 42b7f8b): TOCTOU only fires when
+        concurrent (check,use) pairs BOTH return 200 with matching
+        bodies across multiple rounds. Different status codes on a
+        single sequential pair no longer count — that was noise.
+        Need 8 responses = 4 rounds × 2 concurrent requests."""
         from modules.race_condition import RaceConditionModule
 
-        responses = [
-            _MockResponse(status_code=200),
-            _MockResponse(status_code=403),
-        ]
+        responses = [_MockResponse(status_code=200, text="OK")] * 8
         engine = _MockEngine(responses)
         mod = RaceConditionModule(engine)
         mod._test_toctou("http://target.com/action", "POST", "id", "1")
         self.assertTrue(any("TOCTOU" in f.technique for f in engine.findings))
 
-    def test_same_status_no_finding(self):
+    def test_different_status_no_finding(self):
+        """Sequential-only differences don't count; the new detector
+        needs concurrent mutual-success, not merely different codes."""
         from modules.race_condition import RaceConditionModule
 
-        responses = [_MockResponse(status_code=200)] * 4
+        responses = [
+            _MockResponse(status_code=200, text="OK"),
+            _MockResponse(status_code=403, text="Nope"),
+        ] * 4
         engine = _MockEngine(responses)
         mod = RaceConditionModule(engine)
         mod._test_toctou("http://target.com/action", "POST", "id", "1")

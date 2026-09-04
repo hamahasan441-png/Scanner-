@@ -149,7 +149,15 @@ class TestJWTModuleTestUrl(unittest.TestCase):
         mod = self._mod(engine)
         mod.test_url("http://example.com")
         self.assertGreater(len(engine.findings), 0)
-        self.assertEqual(engine.findings[0].param, "Cookie")
+        # Post-FP-fix: bare HS256 no longer emits an alg finding — the
+        # remaining signal comes from _test_token_replay (missing exp/jti).
+        # What matters is that the module DID process the cookie-borne
+        # token, so at least one finding exists.
+        params = {f.param for f in engine.findings}
+        self.assertTrue(
+            "Cookie" in params or "JWT Payload" in params,
+            f"expected finding sourced from cookie or replay path, got {params}",
+        )
 
     def test_finds_jwt_in_response_body(self):
         token = _make_jwt(_HS256_HEADER, _SAFE_PAYLOAD)
@@ -158,7 +166,11 @@ class TestJWTModuleTestUrl(unittest.TestCase):
         mod = self._mod(engine)
         mod.test_url("http://example.com")
         self.assertGreater(len(engine.findings), 0)
-        self.assertEqual(engine.findings[0].param, "Response Body")
+        params = {f.param for f in engine.findings}
+        self.assertTrue(
+            "Response Body" in params or "JWT Payload" in params,
+            f"expected finding sourced from response body or replay path, got {params}",
+        )
 
     def test_no_jwt_in_response(self):
         resp = _MockResponse(text="Hello World", headers={})
@@ -194,21 +206,32 @@ class TestAnalyzeJWT(unittest.TestCase):
         self.assertGreaterEqual(len(engine.findings), 1)
         self.assertIn("Algorithm 'none'", engine.findings[0].evidence)
 
-    def test_hs256_weakness(self):
+    def test_hs256_no_algorithm_weakness(self):
+        """HS256 alone does NOT trigger an algorithm-weakness finding
+        (the FP fix, commit 42b7f8b). Note: _test_token_replay may still
+        emit a MEDIUM 'no exp/jti' finding for the empty test payload;
+        we only assert no 'weak algorithm' text."""
         engine = _MockEngine()
         mod = self._mod(engine)
         token = _make_jwt(_HS256_HEADER, _SAFE_PAYLOAD)
         mod._analyze_jwt("http://example.com", "header", token)
-        self.assertGreaterEqual(len(engine.findings), 1)
-        self.assertIn("Weak HMAC algorithm", engine.findings[0].evidence)
+        for f in engine.findings:
+            self.assertNotIn("weak", f.evidence.lower())
+            self.assertNotIn("algorithm confusion", f.evidence.lower())
+            self.assertNotIn("hmac algorithm", f.evidence.lower())
 
-    def test_rs256_algorithm_confusion(self):
+    def test_rs256_no_algorithm_weakness(self):
+        """RS256 alone does NOT trigger an algorithm-weakness finding."""
         engine = _MockEngine()
         mod = self._mod(engine)
         token = _make_jwt(_RS256_HEADER, _SAFE_PAYLOAD)
         mod._analyze_jwt("http://example.com", "header", token)
-        self.assertGreaterEqual(len(engine.findings), 1)
-        self.assertIn("algorithm confusion", engine.findings[0].evidence)
+        for f in engine.findings:
+            self.assertNotIn("algorithm confusion", f.evidence.lower())
+            self.assertNotIn("asymmetric algorithm", f.evidence.lower())
+
+    def _all_evidence(self, engine):
+        return " || ".join(f.evidence for f in engine.findings)
 
     def test_sensitive_data_password(self):
         engine = _MockEngine()
@@ -216,8 +239,9 @@ class TestAnalyzeJWT(unittest.TestCase):
         payload = {"sub": "1", "password": "s3cret"}
         token = _make_jwt(_NONE_HEADER, payload)
         mod._analyze_jwt("http://example.com", "body", token)
-        evidence = engine.findings[0].evidence
-        self.assertIn("password", evidence)
+        # New behavior emits one finding per weakness — the credential
+        # leak is a separate finding from the alg:none finding.
+        self.assertIn("password", self._all_evidence(engine))
 
     def test_sensitive_data_admin(self):
         engine = _MockEngine()
@@ -225,8 +249,8 @@ class TestAnalyzeJWT(unittest.TestCase):
         payload = {"sub": "1", "admin": True}
         token = _make_jwt(_NONE_HEADER, payload)
         mod._analyze_jwt("http://example.com", "body", token)
-        evidence = engine.findings[0].evidence
-        self.assertIn("admin", evidence)
+        # `admin` is an RBAC claim (LOW), reported as a separate finding.
+        self.assertIn("admin", self._all_evidence(engine))
 
     def test_sensitive_data_role(self):
         engine = _MockEngine()
@@ -234,16 +258,17 @@ class TestAnalyzeJWT(unittest.TestCase):
         payload = {"sub": "1", "role": "superuser"}
         token = _make_jwt(_NONE_HEADER, payload)
         mod._analyze_jwt("http://example.com", "body", token)
-        evidence = engine.findings[0].evidence
-        self.assertIn("role", evidence)
+        self.assertIn("role", self._all_evidence(engine))
 
-    def test_hs256_brute_force_note(self):
+    def test_hs256_no_brute_force_note(self):
+        """The blanket 'brute force possible' note was noise (fires on every
+        HS256). Real HS256-weakness reporting lives in _test_weak_secret."""
         engine = _MockEngine()
         mod = self._mod(engine)
         token = _make_jwt(_HS256_HEADER, _SAFE_PAYLOAD)
         mod._analyze_jwt("http://example.com", "header", token)
-        evidence = engine.findings[0].evidence
-        self.assertIn("brute force", evidence)
+        for f in engine.findings:
+            self.assertNotIn("brute force", f.evidence)
 
     def test_expired_token_detected(self):
         engine = _MockEngine()
@@ -251,15 +276,25 @@ class TestAnalyzeJWT(unittest.TestCase):
         payload = {"sub": "1", "exp": int(time.time()) - 3600}
         token = _make_jwt(_NONE_HEADER, payload)
         mod._analyze_jwt("http://example.com", "body", token)
-        evidence = engine.findings[0].evidence
-        self.assertIn("expired", evidence.lower())
+        # Multiple findings can fire (alg:none is CRITICAL, expired is
+        # INFO, and _test_token_replay adds its own) — check across all.
+        self.assertTrue(
+            any("expired" in f.evidence.lower() for f in engine.findings),
+            f"no expired-token finding in {[f.evidence for f in engine.findings]}",
+        )
 
-    def test_finding_severity_is_high(self):
+    def test_none_alg_finding_is_critical(self):
+        """alg:none is the one algorithm-only weakness we still emit —
+        it's a genuine signature-bypass, so severity is CRITICAL."""
         engine = _MockEngine()
         mod = self._mod(engine)
-        token = _make_jwt(_HS256_HEADER, _SAFE_PAYLOAD)
+        token = _make_jwt(_NONE_HEADER, _SAFE_PAYLOAD)
         mod._analyze_jwt("http://example.com", "param", token)
-        self.assertEqual(engine.findings[0].severity, "HIGH")
+        alg_none_findings = [
+            f for f in engine.findings if "algorithm 'none'" in f.evidence.lower()
+        ]
+        self.assertEqual(len(alg_none_findings), 1)
+        self.assertEqual(alg_none_findings[0].severity, "CRITICAL")
 
     def test_invalid_token_fewer_than_three_parts(self):
         engine = _MockEngine()

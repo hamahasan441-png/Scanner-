@@ -102,11 +102,21 @@ class JWTModule(BaseModule):
             # Sensitive-key check: only flag when the KEY itself appears in
             # the top-level claims, not any substring anywhere in the payload
             # (previous logic matched any "role" inside a URL etc.).
-            _SENSITIVE_KEYS = {"password", "secret", "api_key", "apikey", "private_key"}
-            leaked = [k for k in payload.keys() if isinstance(k, str) and k.lower() in _SENSITIVE_KEYS]
-            if leaked:
+            # Two tiers:
+            #   * Credential leak — a JWT should NEVER carry these.
+            #   * RBAC claim     — normal, but reviewer should know a JWT
+            #     substitution attack would grant this permission.
+            _CRED_KEYS = {"password", "secret", "api_key", "apikey", "private_key"}
+            _RBAC_KEYS = {"admin", "role", "roles", "permissions", "privileges"}
+            leaked_creds = [k for k in payload.keys() if isinstance(k, str) and k.lower() in _CRED_KEYS]
+            rbac_claims  = [k for k in payload.keys() if isinstance(k, str) and k.lower() in _RBAC_KEYS]
+            if leaked_creds:
                 weaknesses.append(
-                    (f"Sensitive claim(s) in payload: {', '.join(leaked)}", "HIGH", 0.85)
+                    (f"Credential(s) in JWT payload: {', '.join(leaked_creds)}", "HIGH", 0.9)
+                )
+            if rbac_claims:
+                weaknesses.append(
+                    (f"RBAC claim(s) in payload: {', '.join(rbac_claims)}", "LOW", 0.85)
                 )
 
             # Expired token — informational only.
