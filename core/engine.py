@@ -530,6 +530,23 @@ class AtomicEngine:
             # Zero-Day
             "coverage_fuzz": ("modules.coverage_fuzz", "CoverageFuzzModule"),
             "symbolic_exec": ("modules.symbolic_exec", "SymbolicExecModule"),
+            # ── NEW: coverage additions (gap-analysis Phase 5) ──────────
+            # LLM-app attack surface: prompt injection, RAG poisoning,
+            # system-prompt leak. Only fires on endpoints whose path or
+            # param name hints at an LLM feature.
+            "ai_app_probe": ("modules.ai_app_probe", "AIAppProbeModule"),
+            # OpenAPI ghost endpoints: pull public spec, verb-probe
+            # unlinked paths for 2xx-without-auth.
+            "openapi_ghost": ("modules.openapi_ghost", "OpenAPIGhostModule"),
+            # Session/cookie hygiene: Secure / HttpOnly / SameSite /
+            # __Host- prefix / parent-domain scoping.
+            "session_cookie": ("modules.session_cookie", "SessionCookieModule"),
+            # K8s control-plane exposure: API server, etcd, dashboard.
+            "k8s_control_plane": ("modules.k8s_control_plane", "K8sControlPlaneModule"),
+            # ADCS web-enrollment discovery (ESC1/ESC8 tuning hints).
+            "adcs_esc": ("modules.adcs_esc", "ADCSDiscoveryModule"),
+            # Azure Entra ID tenant fingerprint + federation posture.
+            "azure_entra": ("modules.azure_entra", "AzureEntraModule"),
         }
 
         modules_config = self.config.get("modules", {})
