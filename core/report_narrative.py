@@ -100,7 +100,7 @@ _REMEDIATION: dict[str, str] = {
     "cloud_confirmed_leak": "Rotate the leaked credential NOW. Audit its usage in CloudTrail / audit logs. Remove the storage vector.",
     "nhi":                  "Rotate stale keys, remove wildcard IAM, unbind cluster-admin from ServiceAccounts.",
     "cloud_bucket_misconfig":"Set BlockPublicAccess/ACLs to private; remove AllUsers/AllAuthenticatedUsers grants.",
-    "waf_bypass":           "Tune WAF to normalize body before inspection; enable strict body-parse mode.",
+    "waf_bypass":           "Do NOT rely on the WAF as primary defense — a bypass means the app is exposed. Fix the underlying input validation / output encoding at the application layer. Then tune the WAF (normalize body before inspection, strict body-parse mode) as defense-in-depth, not the first line.",
     "acl_bypass":           "Normalize paths before ACL check. Reject encoded traversal / semicolons in paths.",
     "method_smuggling":     "Ignore X-HTTP-Method-Override family unless explicitly opted in on that route.",
     "cache_deception":      "Never cache authenticated responses. Vary cache key on Authorization/session cookie.",
