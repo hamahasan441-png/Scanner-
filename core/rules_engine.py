@@ -197,9 +197,15 @@ class RulesEngine:
             return  # schema file not shipped — skip
         try:
             import jsonschema
-        except ImportError:
-            # jsonschema is optional; skip validation when not installed
-            return
+        except ImportError as exc:
+            # Fail-closed: silently skipping schema validation while the
+            # web /api/config route writes attacker-controlled YAML lets
+            # malformed rules load with defaults, defeating the whole
+            # protection. Refuse to boot without jsonschema.
+            raise RuntimeError(
+                "jsonschema is required to load scanner rules "
+                "(install with: pip install jsonschema)"
+            ) from exc
         try:
             with open(_SCHEMA_PATH, "r", encoding="utf-8") as fh:
                 schema = json.load(fh)

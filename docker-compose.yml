@@ -1,23 +1,44 @@
 # ATOMIC FRAMEWORK - Docker Compose
 # Usage:
-#   docker compose up        # Start web dashboard
+#   docker compose up        # Start web dashboard (bound to 127.0.0.1)
 #   docker compose run atomic -t https://target.com --full
+#
+# The dashboard is bound to LOCALHOST by default. To expose it,
+# put it behind a reverse proxy that adds real authentication or
+# set ATOMIC_BIND_ADDR to your intended interface.
+#
+# ATOMIC_API_KEY and ATOMIC_SECRET_KEY MUST be set — the container
+# refuses to start with either unset (fail-closed against the
+# "publicly reachable, no auth" default the previous compose file
+# shipped).
 
 services:
   atomic:
     build: .
     ports:
-      - "5000:5000"
+      # Bind to localhost only. Override with ATOMIC_BIND_ADDR=0.0.0.0
+      # only after wiring a real auth proxy (nginx / Caddy / Traefik).
+      - "${ATOMIC_BIND_ADDR:-127.0.0.1}:5000:5000"
     volumes:
       - ./reports:/app/reports
       - ./shells:/app/shells
     environment:
-      # Set API key for production use (leave empty for dev)
-      - ATOMIC_API_KEY=${ATOMIC_API_KEY:-}
-      # Secret key for Flask sessions
-      - ATOMIC_SECRET_KEY=${ATOMIC_SECRET_KEY:-}
+      # REQUIRED — no defaults, container fails to boot without them.
+      - ATOMIC_API_KEY=${ATOMIC_API_KEY:?ATOMIC_API_KEY must be set (generate: openssl rand -hex 32)}
+      - ATOMIC_SECRET_KEY=${ATOMIC_SECRET_KEY:?ATOMIC_SECRET_KEY must be set (generate: openssl rand -hex 32)}
       # CORS allowed origins (comma-separated)
       - ATOMIC_CORS_ORIGINS=${ATOMIC_CORS_ORIGINS:-}
       # Scanner profile: accuracy_only, stealth, aggressive
       - ATOMIC_PROFILE=${ATOMIC_PROFILE:-accuracy_only}
+      # Post-exploit authorization is off unless the operator opts in;
+      # dashboard scans additionally require per-request 'authorized:true'.
+      - ATOMIC_AUTHORIZED=${ATOMIC_AUTHORIZED:-0}
     restart: unless-stopped
+    read_only: false            # scanner writes reports/shells to volumes
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_RAW               # raw sockets for scapy / ARP / ICMP modules
+      - NET_ADMIN             # tc / iptables inspection paths
+    security_opt:
+      - no-new-privileges:true
