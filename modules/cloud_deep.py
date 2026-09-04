@@ -295,11 +295,23 @@ class CloudDeepModule(BaseModule):
 
     def _confirm_and_emit(self, creds: list[Credential], url: str = "") -> None:
         results = confirm(creds, k8s_api=self.k8s_api)
+        # Publish the confirmed credential ledger on the engine so
+        # follow-on modules (e.g. modules/nhi_audit.py) can SigV4-sign
+        # further calls without re-extracting the secret.
+        ledger = getattr(self.engine, "_cloud_credentials", None)
+        if ledger is None:
+            ledger = []
+            try:
+                self.engine._cloud_credentials = ledger  # type: ignore[attr-defined]
+            except Exception:
+                ledger = None
         for cred, conf in zip(creds, results):
             if not conf.confirmed:
                 # Skip: unconfirmed credentials are noise. We only emit
                 # when the cloud actually accepted the credential.
                 continue
+            if ledger is not None:
+                ledger.append(cred)
             self._emit_signal(
                 vuln_type="cloud_confirmed_leak",
                 technique=f"Confirmed {cred.kind.upper()} credential leak",

@@ -431,6 +431,13 @@ class AtomicEngine:
             # → NVD lookup → sandboxed Nuclei template execution →
             # emits cve_confirmed only when the template actually lands.
             "cve_confirm": ("modules.cve_confirm", "CVEConfirmModule"),
+            # WAFFLED-style parser discrepancy + inspection-window
+            # padding — makes the WAF and backend see different bodies.
+            "parse_split_bypass": ("modules.parse_split_bypass", "ParseSplitBypassModule"),
+            # Non-Human Identity audit — runs after cloud_deep confirms
+            # a credential; audits it for wildcard perms, stale keys,
+            # cluster-admin bindings, unrestricted GCP API keys.
+            "nhi_audit": ("modules.nhi_audit", "NHIAuditModule"),
             "race_condition": ("modules.race_condition", "RaceConditionModule"),
             "websocket": ("modules.websocket", "WebSocketModule"),
             "deserialization": ("modules.deserialization", "DeserializationModule"),
