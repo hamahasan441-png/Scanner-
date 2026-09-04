@@ -396,6 +396,28 @@ class AtomicEngine:
             logger.debug("FullAttacker install failed: %s", exc)
             self.full_attacker = None
 
+        # ── OOB manager (attach when config asks for it) ─────────────
+        # sqli._test_oob_sqli, cmdi._test_oob_cmdi, and the zero-click
+        # pack (log4j_family, link_preview_ssrf) all read
+        # ``self.engine.oob_manager``. Prior to this hook the attribute
+        # was never set — so those detectors silently no-op'd. Init here
+        # when the operator opts in via oob_enabled (set automatically by
+        # --zero-click in main.py, or manually in the scan config).
+        self.oob_manager = None
+        if self.config.get("oob_enabled"):
+            try:
+                from core.oob_callback import OOBManager
+                self.oob_manager = OOBManager(self)
+                logger.info(
+                    "OOB manager enabled: port=%s domain=%s interact_sh=%s",
+                    self.config.get("oob_port"),
+                    self.config.get("oob_domain") or "(default)",
+                    bool(self.config.get("oob_interact_sh")),
+                )
+            except Exception as exc:
+                logger.debug("OOB manager install failed: %s", exc)
+                self.oob_manager = None
+
     def _load_modules(self):
         """Load enabled scanning modules"""
         module_map = {
@@ -530,6 +552,18 @@ class AtomicEngine:
             # Zero-Day
             "coverage_fuzz": ("modules.coverage_fuzz", "CoverageFuzzModule"),
             "symbolic_exec": ("modules.symbolic_exec", "SymbolicExecModule"),
+            # ── Zero-Click pack ─────────────────────────────────────────
+            # Server-side expression injection (Log4Shell / Commons-Text /
+            # Spring4Shell / OGNL) fired into every likely header + body
+            # landing point. OOB-only detection — no OOB manager, no probes.
+            "log4j_family": ("modules.log4j_family", "Log4jFamilyModule"),
+            # Server-side URL fetchers (OGP unfurl, webhook receivers,
+            # avatar loaders, SSO metadata) — the zero-click SSRF path.
+            "link_preview_ssrf": ("modules.link_preview_ssrf", "LinkPreviewSSRFModule"),
+            # Curated Nuclei zero-click template pack — runs known CVE
+            # families via the sandboxed exploit_runner. Confirms only on
+            # a real template land.
+            "zero_click_nuclei": ("modules.zero_click_nuclei", "ZeroClickNucleiModule"),
             # ── NEW: coverage additions (gap-analysis Phase 5) ──────────
             # LLM-app attack surface: prompt injection, RAG poisoning,
             # system-prompt leak. Only fires on endpoints whose path or
