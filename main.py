@@ -2448,6 +2448,19 @@ def main():
 
             # ── Autonomous Orchestrator (--auto) ───────────────
             if _auto:
+                # Run target_recognizer BEFORE the orchestrator too — the
+                # orchestrator bypasses engine.scan() so it would otherwise
+                # never get scan_plan / normalized_target. Cloud endpoints,
+                # bare hostnames, and CIDR inputs must be normalized first.
+                try:
+                    from core.target_recognizer import recognize as _recognize_target
+                    _plan = _recognize_target(target)
+                    engine.scan_plan = _plan
+                    if _plan.normalized_target and _plan.normalized_target != target:
+                        target = _plan.normalized_target
+                except Exception as _exc:
+                    if args.verbose:
+                        print(f"{Colors.warning(f'target_recognizer (auto) failed: {_exc}')}")
                 try:
                     from core.orchestrator import ScanOrchestrator
                     orchestrator = ScanOrchestrator(engine)

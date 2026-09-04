@@ -292,6 +292,28 @@ class ContextIntelligence:
         """Return the set of detected technologies."""
         return self.detected_tech
 
+    def get_fingerprint(self):
+        """Return a compact dict of the current fingerprint state.
+
+        Consumers (BaseModule._bandit_context, adaptive fuzz) rely on
+        this to condition payload-family selection on the observed
+        stack. Values are best-effort — an empty dict is a safe fallback.
+        """
+        tech = {t.lower() for t in self.detected_tech}
+
+        def _first(matches):
+            return next((t for t in tech if any(m in t for m in matches)), None)
+
+        return {
+            "framework": _first(["django", "flask", "rails", "laravel", "spring", "express", "asp.net", "wordpress", "drupal"]),
+            "server":    _first(["nginx", "apache", "iis", "caddy", "cloudflare"]),
+            "waf":       _first(["cloudflare", "akamai", "imperva", "aws waf", "modsecurity", "sucuri", "f5", "fastly"]),
+            "cdn":       _first(["cloudflare", "akamai", "fastly", "cloudfront", "azure cdn"]),
+            "runtime":   _first(["php", "python", "node", "java", "ruby", "go", "dotnet"]),
+            "db":        _first(["mysql", "postgres", "mssql", "oracle", "mongodb", "redis"]),
+            "tech":      sorted(tech),
+        }
+
     # ------------------------------------------------------------------
     # Response-based context analysis (§4)
     # ------------------------------------------------------------------
