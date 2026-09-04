@@ -360,8 +360,14 @@ class TestMainNmap(_MainTestBase):
 class TestMainRegulatedMission(_MainTestBase):
 
     def test_regulated_without_authorized(self):
-        with self.assertRaises(SystemExit):
-            self._run_main(["-t", "http://x.com", "--regulated-mission"])
+        """The gate now honours ATOMIC_AUTHORIZED env var as an equivalent
+        to --authorized (matches core.authorization). Opt out of the
+        suite-wide env fixture so the fail-closed path is observable."""
+        import os
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("ATOMIC_AUTHORIZED", None)
+            with self.assertRaises(SystemExit):
+                self._run_main(["-t", "http://x.com", "--regulated-mission"])
 
     @patch("main.AtomicEngine")
     @patch("os.makedirs")

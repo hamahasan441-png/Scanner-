@@ -338,10 +338,10 @@ class CommandInjectionModule(BaseModule):
         ]
 
         # Arithmetic marker: payload contains "expr 91125 * 37811"
-        # (or equivalent), and detection looks for the RESULT (3446517375)
+        # (or equivalent), and detection looks for the RESULT (3445527375)
         # which never appears in the payload itself — defeats pure-reflection FPs.
         _A, _B = 91125, 37811
-        _RESULT = str(_A * _B)  # "3446517375"
+        _RESULT = str(_A * _B)  # "3445527375"
         _PAYLOAD_CMD = f"expr {_A} \\* {_B}"
 
         # Establish a baseline: does the unmodified value already echo the result?

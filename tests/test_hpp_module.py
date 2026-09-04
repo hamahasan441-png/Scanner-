@@ -87,18 +87,21 @@ class TestHPPModuleInit(unittest.TestCase):
 
 class TestHPPStatusCodeGET(unittest.TestCase):
 
-    def test_status_code_change_200_to_302(self):
+    def test_status_code_change_200_to_302_not_detected(self):
+        """Post-FP-fix (commit 42b7f8b): bare 200→302 is normal redirect
+        behavior on search endpoints, not HPP. Only auth-state transitions
+        (401/403 → 200) or strong privilege markers count now."""
         from modules.hpp import HPPModule
 
         baseline = _MockResponse(text="OK", status_code=200)
         polluted = _MockResponse(text="OK", status_code=302)
-        engine = _MockEngine(responses=[baseline, polluted])
+        engine = _MockEngine(responses=[baseline] + [polluted] * 20)
         mod = HPPModule(engine)
         mod.test("http://target.com?q=search", "GET", "q", "search")
-        self.assertEqual(len(engine.findings), 1)
-        self.assertEqual(engine.findings[0].technique, "HTTP Parameter Pollution")
+        self.assertEqual(len(engine.findings), 0)
 
     def test_status_code_403_to_200(self):
+        """403→200 IS privilege escalation — still a finding."""
         from modules.hpp import HPPModule
 
         baseline = _MockResponse(text="Forbidden", status_code=403)
@@ -116,15 +119,16 @@ class TestHPPStatusCodeGET(unittest.TestCase):
 
 class TestHPPStatusCodePOST(unittest.TestCase):
 
-    def test_post_status_code_change(self):
+    def test_post_status_code_change_not_detected(self):
+        """Same reasoning as GET: bare 200→301 is not a HPP signal."""
         from modules.hpp import HPPModule
 
         baseline = _MockResponse(text="OK", status_code=200)
         polluted = _MockResponse(text="Redirected", status_code=301)
-        engine = _MockEngine(responses=[baseline, polluted])
+        engine = _MockEngine(responses=[baseline] + [polluted] * 20)
         mod = HPPModule(engine)
         mod.test("http://target.com/submit", "POST", "role", "user")
-        self.assertEqual(len(engine.findings), 1)
+        self.assertEqual(len(engine.findings), 0)
 
 
 # ===========================================================================
@@ -134,16 +138,18 @@ class TestHPPStatusCodePOST(unittest.TestCase):
 
 class TestHPPBodyLength(unittest.TestCase):
 
-    def test_significant_body_length_increase(self):
-        """Body length changes > 20% triggers finding."""
+    def test_significant_body_length_increase_not_detected(self):
+        """Post-FP-fix (commit 42b7f8b): body-length delta alone was the
+        biggest FP source (fires on every search/list endpoint). No longer
+        a finding without a real privilege signal."""
         from modules.hpp import HPPModule
 
         baseline = _MockResponse(text="x" * 100, status_code=200)
         polluted = _MockResponse(text="x" * 200, status_code=200)
-        engine = _MockEngine(responses=[baseline, polluted])
+        engine = _MockEngine(responses=[baseline] + [polluted] * 20)
         mod = HPPModule(engine)
         mod.test("http://target.com?q=test", "GET", "q", "test")
-        self.assertEqual(len(engine.findings), 1)
+        self.assertEqual(len(engine.findings), 0)
 
     def test_small_body_length_change_no_finding(self):
         """Body length change <= 20% should not trigger."""
@@ -175,11 +181,26 @@ class TestHPPBodyLength(unittest.TestCase):
 
 class TestHPPPrivilegeKeywords(unittest.TestCase):
 
-    def test_admin_keyword_appears_in_polluted(self):
+    def test_weak_admin_keyword_not_detected(self):
+        """Bare `admin dashboard` no longer fires — every logged-in page
+        contains that word. Only very specific markers (see hpp.py's
+        allowlist: `admin panel`, `role=admin`, `is_admin=true`, `sudo`)
+        count now."""
         from modules.hpp import HPPModule
 
         baseline = _MockResponse(text="normal user page", status_code=200)
         polluted = _MockResponse(text="welcome admin dashboard", status_code=200)
+        engine = _MockEngine(responses=[baseline] + [polluted] * 20)
+        mod = HPPModule(engine)
+        mod.test("http://target.com?q=1", "GET", "q", "1")
+        self.assertEqual(len(engine.findings), 0)
+
+    def test_strong_admin_panel_marker_detected(self):
+        """`admin panel` is on the strong-marker allowlist and still fires."""
+        from modules.hpp import HPPModule
+
+        baseline = _MockResponse(text="normal user page", status_code=200)
+        polluted = _MockResponse(text="welcome to the admin panel", status_code=200)
         engine = _MockEngine(responses=[baseline, polluted])
         mod = HPPModule(engine)
         mod.test("http://target.com?q=1", "GET", "q", "1")
@@ -241,10 +262,12 @@ class TestHPPEdgeCases(unittest.TestCase):
         # No unhandled exception
 
     def test_finding_contains_param_info(self):
+        """Use an auth-state transition (403→200) so the finding fires under
+        the new detection rules; verify param is carried through."""
         from modules.hpp import HPPModule
 
-        baseline = _MockResponse(text="OK", status_code=200)
-        polluted = _MockResponse(text="OK", status_code=302)
+        baseline = _MockResponse(text="Forbidden", status_code=403)
+        polluted = _MockResponse(text="OK", status_code=200)
         engine = _MockEngine(responses=[baseline, polluted])
         mod = HPPModule(engine)
         mod.test("http://target.com?role=user", "GET", "role", "user")
@@ -253,14 +276,14 @@ class TestHPPEdgeCases(unittest.TestCase):
     def test_evidence_contains_status_codes(self):
         from modules.hpp import HPPModule
 
-        baseline = _MockResponse(text="OK", status_code=200)
-        polluted = _MockResponse(text="OK", status_code=302)
+        baseline = _MockResponse(text="Forbidden", status_code=403)
+        polluted = _MockResponse(text="OK", status_code=200)
         engine = _MockEngine(responses=[baseline, polluted])
         mod = HPPModule(engine)
         mod.test("http://target.com?q=1", "GET", "q", "1")
         evidence = engine.findings[0].evidence
+        self.assertIn("403", evidence)
         self.assertIn("200", evidence)
-        self.assertIn("302", evidence)
 
 
 if __name__ == "__main__":
