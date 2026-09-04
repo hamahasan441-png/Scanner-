@@ -438,6 +438,10 @@ class AtomicEngine:
             # a credential; audits it for wildcard perms, stale keys,
             # cluster-admin bindings, unrestricted GCP API keys.
             "nhi_audit": ("modules.nhi_audit", "NHIAuditModule"),
+            # Internal segment mapper — given a confirmed SSRF finding,
+            # probes a small allowlist of common internal-service ports
+            # on the IPs already seen in prior evidence.
+            "internal_segment": ("modules.internal_segment_map", "InternalSegmentMapModule"),
             "race_condition": ("modules.race_condition", "RaceConditionModule"),
             "websocket": ("modules.websocket", "WebSocketModule"),
             "deserialization": ("modules.deserialization", "DeserializationModule"),
