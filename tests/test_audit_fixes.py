@@ -321,11 +321,32 @@ class TestDetectUpdateTarget(unittest.TestCase):
 
     def test_real_repo(self):
         """Sanity: the test environment itself is a git checkout, so
-        we should detect 'hamahasan441-png/sc' from the real origin."""
+        we should detect an owner/repo from the real origin. The
+        expected repo name is derived from the real git origin so the
+        test is robust across forks / renames (the original test
+        hardcoded 'hamahasan441-png/sc' from a much earlier repo name;
+        the actual repo is 'Scanner-')."""
         result = self._det()
         if result is None:
             self.skipTest("not a git checkout in this environment")
-        self.assertEqual(result[0], "hamahasan441-png/sc")
+
+        # Derive expected owner/repo from the actual git origin so this
+        # doesn't drift again when the repo is renamed or forked.
+        import re as _re
+        try:
+            origin = subprocess.run(
+                ["git", "remote", "get-url", "origin"],
+                capture_output=True, text=True, cwd=str(REPO), check=True,
+            ).stdout.strip()
+        except Exception:
+            self.skipTest("git remote origin unavailable")
+
+        # Strip scheme + optional .git suffix, keep owner/repo tail.
+        m = _re.search(r"github\.com[:/]([^/]+/[^/]+?)(?:\.git)?$", origin)
+        if not m:
+            self.skipTest(f"origin URL not GitHub-shaped: {origin!r}")
+        expected = m.group(1)
+        self.assertEqual(result[0], expected)
         # Branch name varies per session/tooling (e.g. arena/<id>-sc,
         # claude/<slug>, or a PR branch), so only assert a real branch was
         # detected rather than pinning a specific naming convention.
