@@ -547,6 +547,17 @@ class AtomicEngine:
             "adcs_esc": ("modules.adcs_esc", "ADCSDiscoveryModule"),
             # Azure Entra ID tenant fingerprint + federation posture.
             "azure_entra": ("modules.azure_entra", "AzureEntraModule"),
+            # ── Runner-up coverage additions ─────────────────────────────
+            # SAML SP + WebAuthn RP surface fingerprint + XSW / strip /
+            # comment-injection / RP-ID / fallback-MFA hints. Non-invasive.
+            "saml_webauthn": ("modules.saml_webauthn", "SAMLWebAuthnModule"),
+            # GitHub Actions OIDC + supply-chain misconfig on PUBLIC repos.
+            # Reads workflow YAML via unauthenticated GitHub API.
+            "gh_actions_oidc": ("modules.gh_actions_oidc", "GHActionsOIDCModule"),
+            # Mobile static analysis (APK/IPA) — pure ZIP + plist parse,
+            # zero device / runtime. Accepts file paths or https URLs to
+            # .apk / .ipa artefacts.
+            "mobile_static": ("modules.mobile_static", "MobileStaticModule"),
         }
 
         modules_config = self.config.get("modules", {})
