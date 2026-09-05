@@ -260,11 +260,20 @@ def _write_github_step_summary(
         )
         sev_counts[sev] = sev_counts.get(sev, 0) + 1
 
+    def _field(f, name, default):
+        """Uniform accessor for Finding objects and dict-shaped findings.
+        Prior inline expression ``getattr(f, X, f.get(X, ...))`` always
+        evaluated the ``f.get(...)`` default arg — which raises on
+        Finding objects. This helper avoids that."""
+        if isinstance(f, dict):
+            return f.get(name, default)
+        return getattr(f, name, default)
+
     rows = "\n".join(
-        f"| {getattr(f, 'technique', f.get('technique', '?')) if not isinstance(f, dict) else f.get('technique', '?')} "
-        f"| {getattr(f, 'severity', 'INFO') if not isinstance(f, dict) else f.get('severity', 'INFO')} "
-        f"| {getattr(f, 'url', '') if not isinstance(f, dict) else f.get('url', '')} "
-        f"| {getattr(f, 'cvss', 0.0) if not isinstance(f, dict) else f.get('cvss', 0.0)} |"
+        f"| {_field(f, 'technique', '?')} "
+        f"| {_field(f, 'severity', 'INFO')} "
+        f"| {_field(f, 'url', '')} "
+        f"| {_field(f, 'cvss', 0.0)} |"
         for f in findings[:50]
     )
 
