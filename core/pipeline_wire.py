@@ -80,6 +80,19 @@ def finalize(engine: Any) -> dict[str, Any]:
     except Exception as exc:
         logger.warning("report_narrative build failed: %s", exc)
 
+    # 6. Report enrichment: MITRE ATT&CK (best-guess), CVSS v4-shaped
+    # adjusted score, per-finding evidence hash, and Merkle-style chain
+    # root over all findings. Runs after step 2 so the ATT&CK id from
+    # the primary mapper (mitre_map._tag_mitre) is not overwritten —
+    # this pass only fills in blanks. Fail-open by design.
+    try:
+        from core.reporting_mitre import enrich as _enrich_report
+        rep_stats = _enrich_report(engine)
+        stats["evidence_chain_root"] = rep_stats.get("chain_root", "")
+        stats["cvss4_scored"] = rep_stats.get("cvss4_scored", 0)
+    except Exception as exc:
+        logger.warning("reporting_mitre enrich failed: %s", exc)
+
     # Publish stats on the engine so the reporter + web dashboard can
     # surface them without a separate lookup.
     try:
