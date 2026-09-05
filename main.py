@@ -381,6 +381,41 @@ def main():
         "point-to-point coverage",
     )
     parser.add_argument(
+        "--zero-click",
+        action="store_true",
+        help="Enable the zero-click detection pack: Log4Shell-family "
+        "header cannon, link-preview SSRF, and the curated Nuclei "
+        "zero-click template pack. Auto-enables the OOB listener; "
+        "supply --oob-domain / --oob-port / --oob-interact-sh as needed.",
+    )
+    parser.add_argument(
+        "--oob-domain",
+        default=None,
+        help="External hostname where the target can reach the OOB "
+        "listener (e.g. atomic.example.com). Falls back to "
+        "ATOMIC_OOB_DOMAIN env or localhost. Required when scanning "
+        "an off-host target with --zero-click.",
+    )
+    parser.add_argument(
+        "--oob-port",
+        type=int,
+        default=None,
+        help="Port the OOB listener binds to (default 8888). Bound to "
+        "127.0.0.1 unless ATOMIC_OOB_PUBLIC=1 is set.",
+    )
+    parser.add_argument(
+        "--oob-interact-sh",
+        action="store_true",
+        help="Also poll interact.sh (ProjectDiscovery public OOB service) "
+        "so operators without a public listener can still receive hits.",
+    )
+    parser.add_argument(
+        "--oob-timeout",
+        type=int,
+        default=12,
+        help="Seconds to wait for an OOB callback per probe (default 12).",
+    )
+    parser.add_argument(
         "--turbo",
         action="store_true",
         help="Maximum parallelism mode: parallel baseline capture, "
@@ -1939,6 +1974,26 @@ def main():
     p2p = getattr(args, "point_to_point", False)
     full = args.full or p2p
     _auto = getattr(args, "auto", False)
+    # --zero-click enables the Log4j/link-preview/nuclei zero-click pack.
+    # These modules refuse to send probes without a live OOB listener, so
+    # we also auto-enable oob_enabled when the flag is set. Operators
+    # who need a public listener rather than 127.0.0.1 must set
+    # ATOMIC_OOB_PUBLIC=1 and provide an external domain via
+    # --oob-domain (or ATOMIC_OOB_DOMAIN).
+    _zero_click = getattr(args, "zero_click", False) or p2p
+    if _zero_click:
+        import os as _os
+        config["oob_enabled"] = True
+        config["oob_port"] = getattr(args, "oob_port", None) or int(
+            _os.environ.get("ATOMIC_OOB_PORT", "8888")
+        )
+        config["oob_domain"] = (
+            getattr(args, "oob_domain", None)
+            or _os.environ.get("ATOMIC_OOB_DOMAIN")
+        )
+        config["oob_interact_sh"] = getattr(args, "oob_interact_sh", False)
+        # Bounded wait for OOB confirmation; overridable per-scan.
+        config.setdefault("oob_timeout", int(getattr(args, "oob_timeout", 12)))
 
     # Build module configuration
     modules = {
@@ -2009,6 +2064,12 @@ def main():
         "chain_detect": getattr(args, "chain_detect", False) or args.full or p2p,
         "exploit_search": getattr(args, "exploit_search", False) or args.full or p2p,
         "attack_map": getattr(args, "attack_map", False) or args.full or p2p,
+        # Zero-click detection pack: enabled by --zero-click or --point-to-point.
+        # Each module refuses to send probes unless the OOB manager is live,
+        # so we also flip oob_enabled below.
+        "log4j_family":       _zero_click,
+        "link_preview_ssrf":  _zero_click,
+        "zero_click_nuclei":  _zero_click,
         # Scapy packet-level network scanning
         "scapy": getattr(args, "scapy", False) or p2p,
         "stealth_scan": getattr(args, "stealth_scan", False) or p2p,
