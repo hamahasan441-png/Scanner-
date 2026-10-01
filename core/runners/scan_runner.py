@@ -124,6 +124,7 @@ class ScanRunner:
     def _build_scan_queue(self, enriched_params, urls, intel_bundle, real_ip_result, shield_profile, fanout_result):
         if not (self.modules_config.get("enrich", False) and intel_bundle):
             return None
+        self.engine._set_phase(Phase.PRIORITIZATION)
         try:
             from core.scan_priority_queue import ScanPriorityQueue
 
