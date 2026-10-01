@@ -497,22 +497,30 @@ class TestBuildScanQueue(unittest.TestCase):
 
         self.assertEqual(result, queue_data)
         eng.emit_pipeline_event.assert_called_once_with("phase7_result", {"queue_size": 3})
+        from core.pipeline_contract import Phase
+
+        eng._set_phase.assert_called_once_with(Phase.PRIORITIZATION)
 
     def test_none_intel_bundle(self):
         eng = _make_engine(config={"verbose": False, "modules": {"enrich": True}})
         result = ScanRunner(eng)._build_scan_queue([], set(), None, None, None, None)
         self.assertIsNone(result)
+        eng._set_phase.assert_not_called()
 
     def test_enrich_disabled(self):
         eng = _make_engine(config={"verbose": False, "modules": {}})
         result = ScanRunner(eng)._build_scan_queue([], set(), MagicMock(), None, None, None)
         self.assertIsNone(result)
+        eng._set_phase.assert_not_called()
 
     @patch("core.scan_priority_queue.ScanPriorityQueue", side_effect=RuntimeError("err"))
     def test_exception(self, _):
         eng = _make_engine(config={"verbose": True, "modules": {"enrich": True}})
         result = ScanRunner(eng)._build_scan_queue([], set(), MagicMock(), None, None, None)
         self.assertIsNone(result)
+        from core.pipeline_contract import Phase
+
+        eng._set_phase.assert_called_once_with(Phase.PRIORITIZATION)
 
 
 class TestBuildBaselines(unittest.TestCase):

@@ -1122,44 +1122,19 @@ class AtomicEngine:
         enriched_params = self.context.analyze_parameters(parameters)
 
         # ── PHASE 10 of 21: INTELLIGENCE ENRICHMENT ──────────────────
+        # ── PHASE 11 of 21: ATTACK SURFACE PRIORITIZATION ────────────
         from core.runners.scan_runner import ScanRunner
 
-        intel_bundle = ScanRunner(self)._intelligence_enrichment(init_resp, parameters, urls)
-
-        # ── PHASE 11 of 21: ATTACK SURFACE PRIORITIZATION ────────────
-        scan_queue = None
-        if modules_config.get("enrich", False) and intel_bundle:
-            self._set_phase(Phase.PRIORITIZATION)
-            try:
-                from core.scan_priority_queue import ScanPriorityQueue
-
-                pq = ScanPriorityQueue(self)
-                origin_ip = real_ip_result.get("origin_ip") if real_ip_result else None
-                bypass_profile = shield_profile.get("waf", {}) if shield_profile else None
-                asset_graph = (
-                    fanout_result
-                    and hasattr(fanout_result, "_asset_graph")
-                    and getattr(fanout_result, "_asset_graph", None)
-                )
-                scan_queue = pq.build(
-                    enriched_params=enriched_params,
-                    urls=urls,
-                    intel_bundle=intel_bundle,
-                    agent_result=None,
-                    asset_graph=asset_graph,
-                    bypass_profile=bypass_profile,
-                    origin_ip=origin_ip,
-                )
-                self.emit_pipeline_event(
-                    "phase7_result",
-                    {
-                        "queue_size": len(scan_queue),
-                    },
-                )
-            except Exception as e:
-                if self.config.get("verbose"):
-                    print(f"{Colors.error(f'Phase 7 prioritization error: {e}')}")
-                scan_queue = None
+        _scan = ScanRunner(self)
+        intel_bundle = _scan._intelligence_enrichment(init_resp, parameters, urls)
+        scan_queue = _scan._build_scan_queue(
+            enriched_params,
+            urls,
+            intel_bundle,
+            real_ip_result,
+            shield_profile,
+            fanout_result,
+        )
 
         # ── PIPELINE: Recon complete, transition to Scan phase ────────
         self.pipeline["recon"]["status"] = "completed"
