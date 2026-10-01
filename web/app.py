@@ -1281,29 +1281,9 @@ def start_scan():
     threads = body.get("threads", Config.MAX_THREADS)
     full_scan = body.get("full_scan", False)
 
-    all_module_keys = [
-        "sqli",
-        "xss",
-        "lfi",
-        "cmdi",
-        "ssrf",
-        "ssti",
-        "xxe",
-        "idor",
-        "nosql",
-        "cors",
-        "jwt",
-        "upload",
-        "gatebreaker",
-        "firewall_bypass",
-        "tls",
-        "secrets",
-        "session_cookie",
-        "openapi_ghost",
-        "ai_app_probe",
-        "saml_webauthn",
-        "waf",
-    ]
+    from module_catalog import web_full_keys
+
+    all_module_keys = web_full_keys()
     modules_dict = {}
     for key in all_module_keys:
         modules_dict[key] = full_scan or (key in modules)

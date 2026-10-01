@@ -372,7 +372,7 @@ def main():
         "deep-scan + recon, depth 5), 'paranoid' (= --point-to-point, full "
         "coverage incl. exploitation). Explicit flags still layer on top.",
     )
-    parser.add_argument("--full", action="store_true", help="Enable all modules")
+    parser.add_argument("--full", action="store_true", help="Enable every detect and probe module. Exploit-tier modules (credential dump, internal network, live cloud confirmation) stay off unless you pass their flag or --point-to-point.")
     parser.add_argument(
         "--point-to-point",
         action="store_true",
@@ -1161,6 +1161,9 @@ def main():
         help="Skip the automatic 'update available' notice on startup",
     )
 
+    from module_catalog import add_missing_flags
+
+    add_missing_flags(parser)
     args = parser.parse_args()
     args = _apply_profile(args)
 
@@ -1967,41 +1970,20 @@ def main():
     full = args.full or p2p
     _auto = getattr(args, "auto", False)
 
-    # Build module configuration
+    # Attack modules come from module_catalog. Pipeline, scapy, and
+    # post-exploit switches stay here because they are not engine modules.
+    # --full is cli_full: detect + probe only. Exploit-tier modules need
+    # --point-to-point or an explicit flag (atomic profile "full" emits
+    # those flags after the operator confirms authorization).
+    if p2p:
+        _catalog_mode = "point_to_point"
+    elif args.full:
+        _catalog_mode = "cli_full"
+    else:
+        _catalog_mode = "individual"
+    from module_catalog import select as catalog_select
+
     modules = {
-        "sqli": args.sqli or args.full or p2p,
-        "xss": args.xss or args.full or p2p,
-        "lfi": args.lfi or args.full or p2p,
-        "cmdi": args.cmdi or args.full or p2p,
-        "ssrf": args.ssrf or args.full or p2p,
-        "ssti": args.ssti or args.full or p2p,
-        "xxe": args.xxe or args.full or p2p,
-        "idor": args.idor or args.full or p2p,
-        "nosql": args.nosql or args.full or p2p,
-        "cors": args.cors or args.full or p2p,
-        "jwt": args.jwt or args.full or p2p,
-        "upload": args.upload or args.full or p2p,
-        "open_redirect": args.open_redirect or args.full or p2p,
-        "crlf": args.crlf or args.full or p2p,
-        "hpp": args.hpp or args.full or p2p,
-        "graphql": args.graphql or args.full or p2p,
-        "proto_pollution": args.proto_pollution or args.full or p2p,
-        "race_condition": getattr(args, "race", False) or args.full or p2p,
-        "websocket": getattr(args, "websocket", False) or args.full or p2p,
-        "deserialization": getattr(args, "deser", False) or args.full or p2p,
-        "cloud_scan": getattr(args, "cloud_scan", False) or args.full or p2p,
-        "osint": getattr(args, "osint", False) or args.full or p2p,
-        "fuzzer": getattr(args, "fuzz", False) or args.full or p2p,
-        # LLM-driven business-logic flaw scanner (Decepticon-inspired).
-        # Auto-enabled by --llm-logic, --llm-agent / --kill-chain, or --full.
-        # No-op when no LLM backend is loaded.
-        "llm_logic": (
-            getattr(args, "llm_logic", False)
-            or getattr(args, "llm_agent", False)
-            or getattr(args, "kill_chain", False)
-            or args.full
-            or p2p
-        ),
         "sqlmap": getattr(args, "sqlmap", False) or p2p,
         "shell": args.shell or p2p,
         "dump": args.dump or p2p,
@@ -2009,11 +1991,6 @@ def main():
         "brute": args.brute or p2p,
         "exploit_chain": args.exploit_chain or p2p,
         "auto_exploit": args.auto_exploit or p2p,
-        # Auto-route HIGH/CRITICAL findings to AttackRouter — must be
-        # explicitly requested. Previously defaulted to True inside the
-        # engine, which silently triggered post-exploitation.
-        # --full-attack also opts in for the end-of-scan sweep so any
-        # finding promoted late (after correlation) still gets handled.
         "smart_attack": (
             getattr(args, "smart_attack", False)
             or args.auto_exploit
@@ -2036,50 +2013,21 @@ def main():
         "chain_detect": getattr(args, "chain_detect", False) or args.full or p2p,
         "exploit_search": getattr(args, "exploit_search", False) or args.full or p2p,
         "attack_map": getattr(args, "attack_map", False) or args.full or p2p,
-        # Scapy packet-level network scanning
         "scapy": getattr(args, "scapy", False) or p2p,
         "stealth_scan": getattr(args, "stealth_scan", False) or p2p,
         "arp_discovery": getattr(args, "arp_discovery", False) or p2p,
         "dns_recon": getattr(args, "dns_recon", False) or p2p,
         "scapy_vuln_scan": getattr(args, "scapy_vuln_scan", False) or p2p,
         "scapy_attack_chain": getattr(args, "scapy_attack_chain", False) or p2p,
-        # ── new modules ────────────────────────────────────────
-        "oauth": getattr(args, "oauth", False) or full,
-        "mfa_bypass": getattr(args, "mfa_bypass", False) or full,
-        "api_versioning": getattr(args, "api_versioning", False) or full,
-        "dep_confusion": getattr(args, "dep_confusion", False) or full,
-        "h2_smuggling": getattr(args, "h2_smuggling", False) or full,
-        "cache_poisoning": getattr(args, "cache_poison", False) or full,
-        "api_abuse": getattr(args, "api_abuse", False) or full,
-        # Deep multi-technique scanner — also auto-enabled by --gatebreaker
-        # (which fingerprints/feeds it) and by point-to-point coverage.
-        "deep_scan": getattr(args, "deep_scan", False) or getattr(args, "gatebreaker", False) or p2p,
-        # GateBreaker unified gate-bypass mode.
-        "gatebreaker": getattr(args, "gatebreaker", False),
-        # These classes are registered in AtomicEngine._load_modules. Without
-        # a key here, --full and the atomic profiles never load them.
-        "firewall_bypass": getattr(args, "firewall_bypass", False) or full,
-        "tls": getattr(args, "tls", False) or full,
-        "secrets": getattr(args, "secrets", False) or full,
-        "advanced_weapon": getattr(args, "advanced_weapon", False) or full,
-        "exotic_bypass": getattr(args, "exotic_bypass", False) or full,
-        "cloud_deep": getattr(args, "cloud_deep", False) or full,
-        "cve_confirm": getattr(args, "cve_confirm", False) or full,
-        "parse_split_bypass": getattr(args, "parse_split_bypass", False) or full,
-        "nhi_audit": getattr(args, "nhi_audit", False) or full,
-        "internal_segment": getattr(args, "internal_segment", False) or full,
-        "request_smuggling": getattr(args, "request_smuggling", False) or full,
-        "waf": getattr(args, "waf", False) or full,
-        "ai_app_probe": getattr(args, "ai_app_probe", False) or full,
-        "openapi_ghost": getattr(args, "openapi_ghost", False) or full,
-        "session_cookie": getattr(args, "session_cookie", False) or full,
-        "k8s_control_plane": getattr(args, "k8s_control_plane", False) or full,
-        "adcs_esc": getattr(args, "adcs_esc", False) or full,
-        "azure_entra": getattr(args, "azure_entra", False) or full,
-        "saml_webauthn": getattr(args, "saml_webauthn", False) or full,
-        "gh_actions_oidc": getattr(args, "gh_actions_oidc", False) or full,
-        "mobile_static": getattr(args, "mobile_static", False) or full,
     }
+    modules.update(catalog_select(_catalog_mode, lambda dest: bool(getattr(args, dest, False))))
+    # --llm-agent / --kill-chain imply the business-logic module.
+    if getattr(args, "llm_agent", False) or getattr(args, "kill_chain", False):
+        modules["llm_logic"] = True
+    # GateBreaker feeds the deep scanner even when --full is off.
+    if getattr(args, "gatebreaker", False):
+        modules["deep_scan"] = True
+        modules["gatebreaker"] = True
 
     if args.regulated_mission:
         # Regulated mission execution order:
