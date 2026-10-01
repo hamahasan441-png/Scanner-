@@ -902,6 +902,46 @@ class TestReportRunnerRun(unittest.TestCase):
         self.assertEqual(result.attack_map_result, {"nodes": 5})
 
 
+class TestCollectReport(unittest.TestCase):
+
+    @patch("core.output_phase.OutputPhase")
+    @patch("core.pipeline_wire.finalize")
+    def test_report_phase_stores_chains_and_finalizes(self, mock_finalize, MockOP):
+        from core.pipeline_contract import Phase
+
+        eng = _make_engine(config={"verbose": False, "format": "html", "modules": {}})
+        eng.exploit_bridge = None
+        eng.pipeline = {"collect": {}}
+        eng.findings = ["f"]
+        verification = MagicMock()
+        verification.exploit_chains = ["c1"]
+
+        chains = ReportRunner(eng).collect_report(verification, {"waf": {}}, {"origin_ip": "1.1.1.1"}, {"ok": True})
+
+        self.assertEqual(chains, ["c1"])
+        eng._set_phase.assert_called_once_with(Phase.REPORT)
+        self.assertEqual(eng.pipeline["collect"]["status"], "running")
+        eng.persistence.clear_progress.assert_called_once()
+        self.assertEqual(eng._exploit_chains, ["c1"])
+        self.assertEqual(eng._origin_result, {"origin_ip": "1.1.1.1"})
+        self.assertTrue(eng._pipeline_finalized)
+        mock_finalize.assert_called_once_with(eng)
+        MockOP.return_value.run.assert_called_once()
+        self.assertIsNotNone(eng.end_time)
+
+    @patch("core.output_phase.OutputPhase")
+    @patch("core.pipeline_wire.finalize", side_effect=RuntimeError("finalize failed"))
+    def test_finalize_failure_still_writes_the_report(self, _mock_finalize, MockOP):
+        eng = _make_engine(config={"verbose": False, "modules": {}})
+        eng.exploit_bridge = None
+
+        chains = ReportRunner(eng).collect_report(None, None, None, None)
+
+        self.assertEqual(chains, [])
+        self.assertFalse(eng._pipeline_finalized)
+        MockOP.return_value.run.assert_called_once()
+
+
 class TestOutputPhase(unittest.TestCase):
 
     @patch("core.output_phase.OutputPhase")
