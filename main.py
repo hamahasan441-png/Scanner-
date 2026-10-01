@@ -404,16 +404,16 @@ def main():
     parser.add_argument("--hpp", action="store_true", help="Enable HTTP parameter pollution detection")
     parser.add_argument("--graphql", action="store_true", help="Enable GraphQL injection detection")
     parser.add_argument("--proto-pollution", action="store_true", help="Enable prototype pollution detection")
-    parser.add_argument("--race", action="store_true", help="Enable race condition detection")
+    parser.add_argument("--race", "--race-condition", action="store_true", help="Enable race condition detection")
     parser.add_argument("--websocket", action="store_true", help="Enable WebSocket injection detection")
-    parser.add_argument("--deser", action="store_true", help="Enable deserialization vulnerability detection")
+    parser.add_argument("--deser", "--deserialization", action="store_true", help="Enable deserialization vulnerability detection")
     parser.add_argument(
         "--cloud-scan",
         action="store_true",
         help="Enable cloud security scanning (S3 buckets, metadata, IAM, Kubernetes)",
     )
     parser.add_argument("--osint", action="store_true", help="Enable OSINT reconnaissance")
-    parser.add_argument("--fuzz", action="store_true", help="Enable fuzzing (parameter, header, method, vhost)")
+    parser.add_argument("--fuzz", "--fuzzer", action="store_true", help="Enable fuzzing (parameter, header, method, vhost)")
     parser.add_argument(
         "--deep-scan",
         action="store_true",
@@ -1038,8 +1038,35 @@ def main():
         help="Enable dependency confusion / supply chain attack surface detection",
     )
     parser.add_argument("--h2-smuggling", action="store_true", help="HTTP/2 request smuggling detection")
-    parser.add_argument("--cache-poison", action="store_true", help="Web cache poisoning detection")
+    parser.add_argument("--cache-poison", "--cache-poisoning", action="store_true", help="Web cache poisoning detection")
     parser.add_argument("--api-abuse", action="store_true", help="API abuse and rate limit bypass detection")
+    parser.add_argument(
+        "--firewall-bypass",
+        "--fw-bypass",
+        action="store_true",
+        dest="firewall_bypass",
+        help="Network/NGFW/ACL firewall bypass (path ACL, IP allowlist, origin hop)",
+    )
+    parser.add_argument("--tls", action="store_true", help="Non-invasive TLS/crypto configuration checks")
+    parser.add_argument("--secrets", action="store_true", help="Non-invasive secrets exposure scan (findings are masked)")
+    parser.add_argument("--advanced-weapon", action="store_true", help="Chained high-signal SSRF/JWT/GraphQL/prototype-pollution techniques")
+    parser.add_argument("--exotic-bypass", action="store_true", help="Cache deception, parser confusion, and path-quirk bypasses")
+    parser.add_argument("--cloud-deep", action="store_true", help="Confirm leaked cloud credentials against live identity APIs")
+    parser.add_argument("--cve-confirm", action="store_true", help="Confirm product/version findings with a sandboxed Nuclei template")
+    parser.add_argument("--parse-split-bypass", action="store_true", help="Parser-discrepancy and inspection-window padding bypasses")
+    parser.add_argument("--nhi-audit", action="store_true", help="Non-human identity permission and stale-key audit")
+    parser.add_argument("--internal-segment", action="store_true", help="Map internal ports on IPs already seen in SSRF evidence")
+    parser.add_argument("--request-smuggling", action="store_true", help="HTTP/1.1 CL.TE / TE.CL / TE.TE request smuggling")
+    parser.add_argument("--waf", action="store_true", help="WAF fingerprint module (distinct from --waf-bypass)")
+    parser.add_argument("--ai-app-probe", action="store_true", help="LLM-app prompt injection and system-prompt leak checks")
+    parser.add_argument("--openapi-ghost", action="store_true", help="Probe unlinked OpenAPI paths for unauthenticated access")
+    parser.add_argument("--session-cookie", action="store_true", help="Session cookie hygiene checks")
+    parser.add_argument("--k8s-control-plane", action="store_true", help="Kubernetes control-plane exposure checks")
+    parser.add_argument("--adcs-esc", action="store_true", help="ADCS web-enrollment discovery")
+    parser.add_argument("--azure-entra", action="store_true", help="Azure Entra tenant fingerprint")
+    parser.add_argument("--saml-webauthn", action="store_true", help="SAML and WebAuthn surface fingerprint")
+    parser.add_argument("--gh-actions-oidc", action="store_true", help="Public GitHub Actions OIDC misconfig checks")
+    parser.add_argument("--mobile-static", action="store_true", help="Static APK/IPA analysis")
 
     # ── WAF AI Bypass ─────────────────────────────────────────
     parser.add_argument(
@@ -2029,6 +2056,29 @@ def main():
         "deep_scan": getattr(args, "deep_scan", False) or getattr(args, "gatebreaker", False) or p2p,
         # GateBreaker unified gate-bypass mode.
         "gatebreaker": getattr(args, "gatebreaker", False),
+        # These classes are registered in AtomicEngine._load_modules. Without
+        # a key here, --full and the atomic profiles never load them.
+        "firewall_bypass": getattr(args, "firewall_bypass", False) or full,
+        "tls": getattr(args, "tls", False) or full,
+        "secrets": getattr(args, "secrets", False) or full,
+        "advanced_weapon": getattr(args, "advanced_weapon", False) or full,
+        "exotic_bypass": getattr(args, "exotic_bypass", False) or full,
+        "cloud_deep": getattr(args, "cloud_deep", False) or full,
+        "cve_confirm": getattr(args, "cve_confirm", False) or full,
+        "parse_split_bypass": getattr(args, "parse_split_bypass", False) or full,
+        "nhi_audit": getattr(args, "nhi_audit", False) or full,
+        "internal_segment": getattr(args, "internal_segment", False) or full,
+        "request_smuggling": getattr(args, "request_smuggling", False) or full,
+        "waf": getattr(args, "waf", False) or full,
+        "ai_app_probe": getattr(args, "ai_app_probe", False) or full,
+        "openapi_ghost": getattr(args, "openapi_ghost", False) or full,
+        "session_cookie": getattr(args, "session_cookie", False) or full,
+        "k8s_control_plane": getattr(args, "k8s_control_plane", False) or full,
+        "adcs_esc": getattr(args, "adcs_esc", False) or full,
+        "azure_entra": getattr(args, "azure_entra", False) or full,
+        "saml_webauthn": getattr(args, "saml_webauthn", False) or full,
+        "gh_actions_oidc": getattr(args, "gh_actions_oidc", False) or full,
+        "mobile_static": getattr(args, "mobile_static", False) or full,
     }
 
     if args.regulated_mission:
