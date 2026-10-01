@@ -85,6 +85,14 @@ def _build_config_from_args(args):
         "ics_protocols", "typosquatting", "covert_channels", "crypto_weakness",
         "credential_dump", "lateral_movement", "ad_attacks",
         "coverage_fuzz", "symbolic_exec",
+        # Engine-registered modules that --full used to leave False, so the
+        # classes existed but never loaded. Keep this list aligned with
+        # core/engine.py:_load_modules (see tests/test_module_wiring.py).
+        "advanced_weapon", "exotic_bypass", "cloud_deep", "cve_confirm",
+        "parse_split_bypass", "nhi_audit", "internal_segment",
+        "request_smuggling", "waf", "ai_app_probe", "openapi_ghost",
+        "session_cookie", "k8s_control_plane", "adcs_esc", "azure_entra",
+        "saml_webauthn", "gh_actions_oidc", "mobile_static",
     ]
 
     # BUG FIX (TST-006/CLI): these flags were parsed but never propagated to

@@ -1296,6 +1296,13 @@ def start_scan():
         "upload",
         "gatebreaker",
         "firewall_bypass",
+        "tls",
+        "secrets",
+        "session_cookie",
+        "openapi_ghost",
+        "ai_app_probe",
+        "saml_webauthn",
+        "waf",
     ]
     modules_dict = {}
     for key in all_module_keys:

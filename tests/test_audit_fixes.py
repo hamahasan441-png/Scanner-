@@ -214,7 +214,7 @@ class TestAtomicProfiles(unittest.TestCase):
 
         with mock.patch.dict(os.environ, {"ATOMIC_HOME": "/tmp/atomic-test-home"}):
             argv = to_main_args(get("quick"), "https://example.com", authorized=False)
-        output_index = argv.index("--output-dir") + 1
+        output_index = argv.index("--output") + 1
         self.assertEqual(argv[output_index], "/tmp/atomic-test-home/reports")
         self.assertNotIn("${ATOMIC_HOME}", argv[output_index])
 

@@ -41,7 +41,14 @@ ALL_MODULE_KEYS = [
     "osint", "fuzzer", "cloud_scan", "oauth", "mfa_bypass",
     "api_versioning", "dep_confusion", "llm_logic", "h2_smuggling",
     "cache_poisoning", "api_abuse", "deep_scan", "gatebreaker",
-    "firewall_bypass",
+    "firewall_bypass", "tls", "secrets",
+    # Previously registered only inside the engine. Profiles that omitted
+    # them compiled a flag list the scanner never honoured.
+    "advanced_weapon", "exotic_bypass", "cloud_deep", "cve_confirm",
+    "parse_split_bypass", "nhi_audit", "internal_segment",
+    "request_smuggling", "waf", "ai_app_probe", "openapi_ghost",
+    "session_cookie", "k8s_control_plane", "adcs_esc", "azure_entra",
+    "saml_webauthn", "gh_actions_oidc", "mobile_static",
 ]
 
 # Always-on discovery / recon (no exploit risk).
@@ -91,7 +98,9 @@ PROFILES: Dict[str, Profile] = {
             websocket=True, deserialization=True, osint=True, fuzzer=True,
             cloud_scan=True, h2_smuggling=True, cache_poisoning=True,
             api_abuse=True, deep_scan=True, gatebreaker=True,
-            firewall_bypass=True,
+            firewall_bypass=True, tls=True, secrets=True,
+            session_cookie=True, openapi_ghost=True, ai_app_probe=True,
+            saml_webauthn=True, waf=True,
         ),
         threads=50, depth=4, timeout=20, delay=0.2, evasion="medium",
         waf_bypass=True, auto_external_tools=True,
@@ -101,7 +110,7 @@ PROFILES: Dict[str, Profile] = {
     "full": Profile(
         name="full",
         description=(
-            "All 32 modules + recon + auto-attack. "
+            "Every registered engine module plus recon and auto-attack. "
             "REQUIRES --authorized. Use only against targets you are "
             "explicitly permitted to test."
         ),
@@ -115,6 +124,13 @@ PROFILES: Dict[str, Profile] = {
             api_versioning=True, dep_confusion=True, llm_logic=True,
             h2_smuggling=True, cache_poisoning=True, api_abuse=True,
             deep_scan=True, gatebreaker=True, firewall_bypass=True,
+            tls=True, secrets=True,
+            advanced_weapon=True, exotic_bypass=True, cloud_deep=True,
+            cve_confirm=True, parse_split_bypass=True, nhi_audit=True,
+            internal_segment=True, request_smuggling=True, waf=True,
+            ai_app_probe=True, openapi_ghost=True, session_cookie=True,
+            k8s_control_plane=True, adcs_esc=True, azure_entra=True,
+            saml_webauthn=True, gh_actions_oidc=True, mobile_static=True,
         ),
         threads=100, depth=5, timeout=30, delay=0.25, evasion="high",
         waf_bypass=True, auto_external_tools=True,
@@ -164,6 +180,25 @@ def to_main_args(profile: Profile, target: str, authorized: bool) -> List[str]:
         "cache_poisoning": "--cache-poisoning", "api_abuse": "--api-abuse",
         "deep_scan": "--deep-scan", "gatebreaker": "--gatebreaker",
         "firewall_bypass": "--firewall-bypass",
+        "tls": "--tls", "secrets": "--secrets",
+        "advanced_weapon": "--advanced-weapon",
+        "exotic_bypass": "--exotic-bypass",
+        "cloud_deep": "--cloud-deep",
+        "cve_confirm": "--cve-confirm",
+        "parse_split_bypass": "--parse-split-bypass",
+        "nhi_audit": "--nhi-audit",
+        "internal_segment": "--internal-segment",
+        "request_smuggling": "--request-smuggling",
+        "waf": "--waf",
+        "ai_app_probe": "--ai-app-probe",
+        "openapi_ghost": "--openapi-ghost",
+        "session_cookie": "--session-cookie",
+        "k8s_control_plane": "--k8s-control-plane",
+        "adcs_esc": "--adcs-esc",
+        "azure_entra": "--azure-entra",
+        "saml_webauthn": "--saml-webauthn",
+        "gh_actions_oidc": "--gh-actions-oidc",
+        "mobile_static": "--mobile-static",
     }
     for key, flag in mod_map.items():
         if profile.modules.get(key):
@@ -181,11 +216,10 @@ def to_main_args(profile: Profile, target: str, authorized: bool) -> List[str]:
         args.append("--exploit-search")
         args.append("--attack-map")
 
-    # WAF bypass & external tools.
+    # WAF bypass. auto_external_tools is always on inside main.py and that
+    # entry point has no flag for it, so emitting one would abort the run.
     if profile.waf_bypass:
         args.append("--waf-bypass")
-    if profile.auto_external_tools:
-        args.append("--auto-external-tools")
 
     # Dangerous post-exploit — gated behind --authorized + profile=full.
     if profile.auto_attack and authorized:
@@ -197,11 +231,12 @@ def to_main_args(profile: Profile, target: str, authorized: bool) -> List[str]:
     if profile.brute_force and authorized:
         args.append("--brute")
 
-    # Output.
-    args += ["--format", "html,json"]
+    # Output. main.py accepts --format as a single choice and --output
+    # (not --output-dir) for the report directory.
+    args += ["--format", "html"]
     atomic_home = os.environ.get("ATOMIC_HOME", "").strip()
     if not atomic_home:
         atomic_home = os.path.join(os.path.expanduser("~"), ".atomic")
-    args += ["--output-dir", os.path.join(atomic_home, "reports")]
+    args += ["--output", os.path.join(atomic_home, "reports")]
 
     return args
