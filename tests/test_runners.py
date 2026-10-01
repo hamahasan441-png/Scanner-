@@ -972,11 +972,15 @@ class TestAttackMap(unittest.TestCase):
         self.assertEqual(result, map_data)
         self.assertEqual(eng._attack_map, map_data)
         eng.emit_pipeline_event.assert_called_once()
+        from core.pipeline_contract import Phase
+
+        eng._set_phase.assert_called_once_with(Phase.ATTACK_MAP)
 
     def test_disabled_no_attack_map(self):
         eng = _make_engine(config={"verbose": False, "modules": {}})
         eng.findings = [MagicMock()]
         self.assertIsNone(ReportRunner(eng)._attack_map([]))
+        eng._set_phase.assert_not_called()
 
     def test_disabled_no_findings(self):
         eng = _make_engine(config={"verbose": False, "modules": {"attack_map": True}})

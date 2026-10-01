@@ -1718,40 +1718,11 @@ class AtomicEngine:
                         print(f"{Colors.warning(f'Could not update scan record: {e}')}")
 
         # ── PHASE 20 of 21: ATTACK_MAP (exploit-aware graph) ─────────
-        attack_map_result = None
-        if modules_config.get("attack_map", False) and self.findings:
-            self._set_phase(Phase.ATTACK_MAP)
-            # Defense-in-depth: main.py enforces this dependency for CLI,
-            # but engine can also be invoked programmatically (web API).
-            if not modules_config.get("exploit_search", False):
-                try:
-                    from core.exploit_searcher import ExploitSearcher
+        # The phase flag and the map itself live in ReportRunner. This
+        # method only dispatches.
+        from core.runners.report_runner import ReportRunner
 
-                    exploit_searcher = ExploitSearcher(self)
-                    self.findings = exploit_searcher.run(self.findings)
-                except Exception as e:
-                    if self.config.get("verbose"):
-                        print(f"{Colors.warning(f'Phase 9B auto-enable for attack map failed: {e}')}")
-            try:
-                from core.attack_map import AttackMapBuilder
-
-                map_builder = AttackMapBuilder(self)
-                attack_map_result = map_builder.run(
-                    self.findings,
-                    exploit_chains=exploit_chains,
-                )
-                self._attack_map = attack_map_result
-                self.emit_pipeline_event(
-                    "attack_map_complete",
-                    {
-                        "total_nodes": attack_map_result.get("summary", {}).get("total_nodes", 0),
-                        "critical_paths": attack_map_result.get("summary", {}).get("critical_paths", 0),
-                        "zero_click_paths": attack_map_result.get("summary", {}).get("zero_click_paths", 0),
-                    },
-                )
-            except Exception as e:
-                if self.config.get("verbose"):
-                    print(f"{Colors.error(f'Phase 11 attack map error: {e}')}")
+        ReportRunner(self)._attack_map(exploit_chains)
 
         # ── PIPELINE: All phases complete ─────────────────────────
         self.pipeline["collect"]["status"] = "completed"
