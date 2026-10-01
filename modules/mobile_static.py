@@ -25,6 +25,7 @@ Input: pass an APK / IPA path (or a URL to one). The module handles
 both file:// and https:// sources.
 """
 from __future__ import annotations
+import logging
 
 import io
 import os
@@ -88,7 +89,7 @@ class MobileStaticModule(BaseModule):
                 try:
                     os.unlink(path)
                 except OSError:
-                    pass
+                    logging.getLogger(__name__).debug("suppressed error", exc_info=True)
                 self._temp_path = None
 
     # ------------------------------------------------------------------
@@ -122,7 +123,7 @@ class MobileStaticModule(BaseModule):
                 try:
                     os.unlink(tmp)
                 except OSError:
-                    pass
+                    logging.getLogger(__name__).debug("suppressed error", exc_info=True)
                 return None
         return None
 

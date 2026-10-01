@@ -20,6 +20,7 @@ Findings:
     is bound to.
 """
 from __future__ import annotations
+import logging
 
 import json
 import re
@@ -56,7 +57,7 @@ class AzureEntraModule(BaseModule):
                 for m in _EMAIL_RE.findall(resp.text)[:20]:
                     candidates.add(m.lower())
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
         for domain in candidates:
             if not domain or domain.count(".") == 0:

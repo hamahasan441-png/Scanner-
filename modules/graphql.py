@@ -4,6 +4,7 @@
 ATOMIC FRAMEWORK - GraphQL Injection Module
 Detects GraphQL introspection exposure, query injection, and mutation abuse.
 """
+import logging
 
 from config import Payloads, Colors
 from modules.base import BaseModule
@@ -263,7 +264,7 @@ class GraphQLModule(BaseModule):
                     )
                 )
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _test_alias_amplification(self, endpoint):
         """K1: Aliased query amplification — duplicate __typename 1000x."""
@@ -291,7 +292,7 @@ class GraphQLModule(BaseModule):
                     )
                 )
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _test_fragment_cycle(self, endpoint):
         """K1: Circular fragment references."""
@@ -321,7 +322,7 @@ class GraphQLModule(BaseModule):
                         )
                     )
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _test_mutation_auth_bypass(self, endpoint):
         """K2: Test mutations without authentication."""

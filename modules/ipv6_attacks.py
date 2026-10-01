@@ -4,6 +4,8 @@
 ATOMIC FRAMEWORK - IPv6 Attack Module
 IPv6 RA spoofing, DHCPv6, extension header abuse, transition tunnels.
 """
+import logging
+
 import socket
 import subprocess
 from config import Colors
@@ -48,7 +50,7 @@ class IPv6AttackModule(BaseModule):
                 # Test IPv6 services
                 self._test_ipv6_services(hostname, url, ipv6)
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _test_ipv6_services(self, hostname, url, ipv6):
         """Test services accessible over IPv6."""
@@ -70,7 +72,7 @@ class IPv6AttackModule(BaseModule):
                         evidence=f"IPv6 service on port {port} at {ipv6}",
                     ))
             except Exception:
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _test_ipv6_transition(self, hostname, url):
         """Test for IPv6/IPv4 dual-stack coverage mismatch — a real gap that
@@ -112,7 +114,7 @@ class IPv6AttackModule(BaseModule):
                         ),
                     ))
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _tcp_reachable(self, addr, port, family):
         try:

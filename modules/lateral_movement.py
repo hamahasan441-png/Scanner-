@@ -4,6 +4,8 @@
 ATOMIC FRAMEWORK - Lateral Movement Module
 Network-based lateral movement: SMB, WinRM, SSH, WMI, RDP pivoting.
 """
+import logging
+
 import socket
 from config import Colors
 from modules.base import BaseModule
@@ -53,7 +55,7 @@ class LateralMovementModule(BaseModule):
                         evidence=f"{service} port {port} open — potential lateral movement path",
                     ))
             except Exception:
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _finding(self, **kw):
         from core.engine import Finding

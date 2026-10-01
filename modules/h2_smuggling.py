@@ -10,6 +10,7 @@ Detects HTTP/2 request smuggling vulnerabilities including:
 - Request splitting via oversized headers
 - WebSocket upgrade smuggling over HTTP/2
 """
+import logging
 
 import re
 import socket
@@ -100,7 +101,7 @@ class H2SmugglingModule(BaseModule):
                     cvss=9.1,
                 )
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _test_h2_te_desync(self, host, port, path, use_ssl, url):
         """Detect H2.TE desync: Transfer-Encoding smuggled through HTTP/2.
@@ -148,7 +149,7 @@ class H2SmugglingModule(BaseModule):
                     cvss=9.1,
                 )
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _test_crlf_pseudo_headers(self, host, port, path, use_ssl, url):
         """Test CRLF injection in HTTP/2 pseudo-headers.
@@ -236,7 +237,7 @@ class H2SmugglingModule(BaseModule):
                     cvss=9.1,
                 )
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _test_websocket_upgrade_smuggling(self, host, port, path, use_ssl, url):
         """Test WebSocket upgrade smuggling over HTTP/2.
@@ -275,7 +276,7 @@ class H2SmugglingModule(BaseModule):
                         cvss=9.1,
                     )
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     # ------------------------------------------------------------------
     # Helpers
@@ -333,7 +334,7 @@ class H2SmugglingModule(BaseModule):
             try:
                 sock.close()
             except Exception:
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _raw_send_pipeline(self, host, port, requests, use_ssl, timeout=None):
         """Send several raw HTTP requests over ONE connection and return the
@@ -382,7 +383,7 @@ class H2SmugglingModule(BaseModule):
             try:
                 sock.close()
             except Exception:
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     @staticmethod
     def _is_poisoned(resp):

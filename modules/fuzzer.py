@@ -9,6 +9,7 @@ security repositories (SecLists, PayloadsAllTheThings, fuzzdb,
 dirsearch) via the ``utils.github_wordlists`` fetcher — no external
 tool installation required.
 """
+import logging
 
 import json
 import os
@@ -414,15 +415,15 @@ class FuzzerModule(BaseModule):
                         if ep_url:
                             endpoints.add(ep_url)
                 except (json.JSONDecodeError, KeyError):
-                    pass
+                    logging.getLogger(__name__).debug("suppressed error", exc_info=True)
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
         finally:
             for path in (wordlist_file, output_file):
                 try:
                     os.remove(path)
                 except OSError:
-                    pass
+                    logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
         return endpoints
 
@@ -786,7 +787,7 @@ class FuzzerModule(BaseModule):
                 if lines:
                     return lines
             except Exception:
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
         # Built-in fallback wordlist
         return [
@@ -900,7 +901,7 @@ class FuzzerModule(BaseModule):
                         length = result.get("length", 0)
                         discovered.append(f"{entry_url} [{status}] [{length}B]")
                 except (json.JSONDecodeError, KeyError):
-                    pass
+                    logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
             if discovered:
                 from core.engine import Finding
@@ -924,7 +925,7 @@ class FuzzerModule(BaseModule):
                 try:
                     os.remove(path)
                 except OSError:
-                    pass
+                    logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _ffufai_fuzz(self, url, timeout=180):
         """Run ffufai for AI-powered web fuzzing of the target URL.
@@ -982,7 +983,7 @@ class FuzzerModule(BaseModule):
                         length = result.get("length", 0)
                         discovered.append(f"{entry_url} [{status}] [{length}B]")
                 except (json.JSONDecodeError, KeyError):
-                    pass
+                    logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
             if discovered:
                 from core.engine import Finding
@@ -1005,7 +1006,7 @@ class FuzzerModule(BaseModule):
             try:
                 os.remove(output_file)
             except OSError:
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     # ------------------------------------------------------------------
     # Technology-Aware Smart Fuzzing
@@ -1302,10 +1303,10 @@ class FuzzerModule(BaseModule):
                             except Exception:
                                 continue
                 except Exception:
-                    pass
+                    logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
         finally:
             try:
@@ -1314,7 +1315,7 @@ class FuzzerModule(BaseModule):
                         os.remove(os.path.join(output_dir, fname))
                     os.rmdir(output_dir)
             except OSError:
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
         return discovered_params
 
@@ -1356,7 +1357,7 @@ class FuzzerModule(BaseModule):
                     continue
 
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
         return discovered_params
 
@@ -1408,7 +1409,7 @@ class FuzzerModule(BaseModule):
                     paths.append(entry)
                     _existing.add(entry)
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
         # ── Baseline for custom-404 detection ───────────────────────
         try:

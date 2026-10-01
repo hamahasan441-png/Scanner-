@@ -4,6 +4,7 @@
 ATOMIC FRAMEWORK - Deserialization Module
 Java, PHP, Python, .NET deserialization vulnerability detection
 """
+import logging
 
 import base64
 
@@ -291,4 +292,4 @@ class DeserializationModule(BaseModule):
                         self.engine.add_finding(finding)
                         return
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)

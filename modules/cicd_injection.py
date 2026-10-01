@@ -4,6 +4,8 @@
 ATOMIC FRAMEWORK - CI/CD Injection Module
 Pipeline injection, Jenkins, GitLab CI, GitHub Actions, Azure DevOps.
 """
+import logging
+
 from config import Colors
 from modules.base import BaseModule
 
@@ -52,7 +54,7 @@ class CICDInjectionModule(BaseModule):
                             evidence=f"CI/CD config found at {path}",
                         ))
             except Exception:
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _test_jenkins_script(self, url):
         """Test for Jenkins Script Console exposure."""
@@ -77,7 +79,7 @@ class CICDInjectionModule(BaseModule):
                     ))
                     break
             except Exception:
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _finding(self, **kw):
         from core.engine import Finding

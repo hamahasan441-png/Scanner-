@@ -10,6 +10,7 @@ Detects API abuse vulnerabilities including:
 - Broken function level authorization (testing admin paths)
 - GraphQL complexity abuse (deeply nested queries)
 """
+import logging
 
 import json
 import random
@@ -119,7 +120,7 @@ class APIAbuseModule(BaseModule):
                     break  # One proof is sufficient
 
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _test_bola(self, url):
         """Test for Broken Object Level Authorization (BOLA/IDOR).
@@ -236,7 +237,7 @@ class APIAbuseModule(BaseModule):
                             )
                             return
                 except (json.JSONDecodeError, ValueError):
-                    pass
+                    logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
             # Also try PUT
             resp_put = self.requester.request(url, "PUT", data=body, headers=headers)
@@ -259,10 +260,10 @@ class APIAbuseModule(BaseModule):
                             )
                             return
                 except (json.JSONDecodeError, ValueError):
-                    pass
+                    logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _test_broken_function_auth(self, url):
         """Test for Broken Function Level Authorization (BFLA).

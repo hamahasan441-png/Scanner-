@@ -6,6 +6,7 @@ ATOMIC FRAMEWORK — Phase I: HTTP Request Smuggling Module
 Detects CL.TE, TE.CL, TE.TE, and H2.CL request smuggling vulnerabilities.
 Integrates with the WAF bypass chain for smuggling past WAFs to hit backends.
 """
+import logging
 
 import socket
 import ssl
@@ -89,7 +90,7 @@ class RequestSmugglingModule:
             if resp2 and self._is_poisoned(resp2):
                 self._add_finding(url, "CL.TE", raw, resp2)
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     # ------------------------------------------------------------------
     # TE.CL: front-end uses Transfer-Encoding, back-end uses Content-Length
@@ -123,7 +124,7 @@ class RequestSmugglingModule:
             ):
                 self._add_finding(url, "TE.CL", raw.decode(errors="replace"), resp)
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     # ------------------------------------------------------------------
     # TE.TE: Transfer-Encoding obfuscation
@@ -210,7 +211,7 @@ class RequestSmugglingModule:
             try:
                 sock.close()
             except Exception:
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     @staticmethod
     def _is_poisoned(resp):
@@ -262,4 +263,4 @@ class RequestSmugglingModule:
             )
             self.engine.add_finding(finding)
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)

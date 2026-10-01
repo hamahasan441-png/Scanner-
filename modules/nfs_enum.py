@@ -4,6 +4,8 @@
 ATOMIC FRAMEWORK - NFS Enumeration Module
 NFS export detection, no_root_squash, file handle guessing.
 """
+import logging
+
 import socket
 import subprocess
 from config import Colors
@@ -47,7 +49,7 @@ class NFSEnumModule(BaseModule):
                     if port == 2049:
                         self._test_showmount(hostname, url)
             except Exception:
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _test_showmount(self, hostname, url):
         """Enumerate NFS exports via showmount."""
@@ -87,9 +89,9 @@ class NFSEnumModule(BaseModule):
                             evidence=f"Export {export_path} open to all clients ({access})",
                         ))
         except FileNotFoundError:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _finding(self, **kw):
         from core.engine import Finding

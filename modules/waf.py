@@ -4,6 +4,7 @@
 ATOMIC FRAMEWORK
 WAF Bypass Module - Advanced techniques
 """
+import logging
 
 import re
 import random
@@ -143,7 +144,7 @@ class WAFBypass:
                                     detected.append(waf)
                                     break
                 except Exception:
-                    pass
+                    logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
             return detected
 
@@ -1171,7 +1172,7 @@ class WAFBypass:
                 variants.append(mutator.mutate(payload, "html_entity"))
                 variants.append(mutator.mutate(payload, "js_obfuscate"))
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
         # XSS WAF evasion payloads
         if "<" in payload or "script" in payload.lower() or "alert" in payload.lower():

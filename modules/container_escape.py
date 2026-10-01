@@ -4,6 +4,8 @@
 ATOMIC FRAMEWORK - Container Escape Module
 Docker socket exposure, privileged container, hostPath mount, K8s pod escape.
 """
+import logging
+
 import socket
 from config import Colors
 from modules.base import BaseModule
@@ -56,9 +58,9 @@ class ContainerEscapeModule(BaseModule):
                                 evidence=f"Docker API accessible: {resp.text[:200]}",
                             ))
                     except Exception:
-                        pass
+                        logging.getLogger(__name__).debug("suppressed error", exc_info=True)
             except Exception:
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _test_kubelet_api(self, hostname, url):
         """Test for kubelet API exposure."""
@@ -88,9 +90,9 @@ class ContainerEscapeModule(BaseModule):
                                 ))
                                 break
                         except Exception:
-                            pass
+                            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
             except Exception:
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _test_k8s_metadata(self, url):
         """Test for Kubernetes service account token in responses.
@@ -131,7 +133,7 @@ class ContainerEscapeModule(BaseModule):
                     ))
                     return
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _finding(self, **kw):
         from core.engine import Finding

@@ -4,6 +4,8 @@
 ATOMIC FRAMEWORK - SSI/ESI Injection Module
 Server-Side Includes and Edge Side Includes injection.
 """
+import logging
+
 from config import Colors
 from modules.base import BaseModule
 
@@ -61,7 +63,7 @@ class SSIInjectionModule(BaseModule):
                         ))
                         return
             except Exception:
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _test_esi(self, url, method, param, value):
         """Test for ESI injection — only fires when the payload's ESI tag
@@ -100,7 +102,7 @@ class SSIInjectionModule(BaseModule):
                             evidence="ESI payload consumed by upstream processor (reflects canary, drops <esi:...>)",
                         ))
             except Exception:
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _finding(self, **kw):
         from core.engine import Finding

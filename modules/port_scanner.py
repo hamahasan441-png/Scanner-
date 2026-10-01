@@ -9,6 +9,7 @@ ports, comma-separated lists, and ranges (e.g. ``80,443,8080`` or
 ``1-1024``).  Results are printed in real-time and returned as a list
 of dicts for downstream use by the engine.
 """
+import logging
 
 import re
 import socket
@@ -104,14 +105,14 @@ def parse_port_spec(spec: str) -> List[int]:
                 if 1 <= lo <= hi <= 65535:
                     ports.update(range(lo, hi + 1))
             except ValueError:
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
         else:
             try:
                 p = int(part)
                 if 1 <= p <= 65535:
                     ports.add(p)
             except ValueError:
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
     return sorted(ports)
 
 
@@ -210,7 +211,7 @@ class PortScanner:
                 finally:
                     sock.close()
             except Exception:
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
         return udp_results
 
@@ -265,9 +266,9 @@ class PortScanner:
                     if banner:
                         result["banner"] = banner.decode("utf-8", errors="replace").strip()[:120]
                 except (socket.timeout, OSError):
-                    pass
+                    logging.getLogger(__name__).debug("suppressed error", exc_info=True)
         except (socket.timeout, ConnectionRefusedError, OSError):
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
         finally:
             sock.close()
         return result

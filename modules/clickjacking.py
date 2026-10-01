@@ -4,6 +4,8 @@
 ATOMIC FRAMEWORK - Clickjacking Module
 X-Frame-Options, CSP frame-ancestors, frame injection detection.
 """
+import logging
+
 from config import Colors
 from modules.base import BaseModule
 
@@ -50,7 +52,7 @@ class ClickjackingModule(BaseModule):
                     evidence=f"X-Frame-Options set to non-standard value: {xfo}",
                 ))
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _test_csp_frame_ancestors(self, url):
         """Check for CSP frame-ancestors directive."""
@@ -70,7 +72,7 @@ class ClickjackingModule(BaseModule):
                     evidence="CSP header does not include frame-ancestors directive",
                 ))
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _finding(self, **kw):
         from core.engine import Finding

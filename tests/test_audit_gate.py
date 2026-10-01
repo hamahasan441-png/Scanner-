@@ -10,19 +10,26 @@ from security.audit_pins import exact_pins, ignored_ids
 REPO = Path(__file__).resolve().parents[1]
 
 
+def _pass_only_handlers(folder: str) -> list[str]:
+    leftover = []
+    for path in (REPO / folder).rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.ExceptHandler)
+                and len(node.body) == 1
+                and isinstance(node.body[0], ast.Pass)
+            ):
+                leftover.append(f"{path.relative_to(REPO)}:{node.lineno}")
+    return leftover
+
+
 class TestSilentExcept(unittest.TestCase):
     def test_core_has_no_pass_only_handlers(self):
-        leftover = []
-        for path in (REPO / "core").rglob("*.py"):
-            tree = ast.parse(path.read_text(encoding="utf-8"))
-            for node in ast.walk(tree):
-                if (
-                    isinstance(node, ast.ExceptHandler)
-                    and len(node.body) == 1
-                    and isinstance(node.body[0], ast.Pass)
-                ):
-                    leftover.append(f"{path.relative_to(REPO)}:{node.lineno}")
-        self.assertEqual(leftover, [])
+        self.assertEqual(_pass_only_handlers("core"), [])
+
+    def test_modules_have_no_pass_only_handlers(self):
+        self.assertEqual(_pass_only_handlers("modules"), [])
 
 
 class TestAuditIgnoreList(unittest.TestCase):

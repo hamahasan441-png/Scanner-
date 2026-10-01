@@ -4,6 +4,8 @@
 ATOMIC FRAMEWORK - Symbolic Execution Module
 Path analysis, constraint solving for vulnerability discovery.
 """
+import logging
+
 from config import Colors
 from modules.base import BaseModule
 
@@ -57,9 +59,9 @@ class SymbolicExecModule(BaseModule):
                                     evidence=f"Server error when {param_name}={boundary} ({desc})",
                                 ))
                         except Exception:
-                            pass
+                            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _finding(self, **kw):
         from core.engine import Finding

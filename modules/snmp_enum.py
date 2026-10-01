@@ -4,6 +4,8 @@
 ATOMIC FRAMEWORK - SNMP Enumeration Module
 SNMP community string brute-force, MIB walking, information disclosure.
 """
+import logging
+
 import socket
 import struct
 from config import Colors
@@ -104,9 +106,9 @@ class SNMPEnumModule(BaseModule):
                                     evidence=f"Community '{community}' accepted on port {port}: {value[:200]}",
                                 ))
                 except socket.timeout:
-                    pass
+                    logging.getLogger(__name__).debug("suppressed error", exc_info=True)
                 except Exception:
-                    pass
+                    logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _test_snmp_v3_noauth(self, hostname, url):
         """Test for SNMPv3 noAuthNoPriv mode."""
@@ -132,7 +134,7 @@ class SNMPEnumModule(BaseModule):
                             evidence="SNMPv3 agent accepts noAuthNoPriv connections",
                         ))
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _finding(self, **kw):
         from core.engine import Finding

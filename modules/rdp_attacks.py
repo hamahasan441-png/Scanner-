@@ -4,6 +4,8 @@
 ATOMIC FRAMEWORK - RDP Attack Module
 RDP security testing: version detection, weak encryption, NLA check, BlueKeep.
 """
+import logging
+
 import socket
 import struct
 from config import Colors
@@ -66,7 +68,7 @@ class RDPAttackModule(BaseModule):
                             self._test_rdp_encryption(hostname, url, port)
                             self._test_bluekeep(hostname, url, port)
             except Exception:
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _test_rdp_nla(self, hostname, url, port):
         """Test if NLA (Network Level Authentication) is required."""
@@ -95,7 +97,7 @@ class RDPAttackModule(BaseModule):
                         evidence="RDP server does not require Network Level Authentication — vulnerable to MitM",
                     ))
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _test_rdp_encryption(self, hostname, url, port):
         """Test RDP encryption level."""
@@ -122,7 +124,7 @@ class RDPAttackModule(BaseModule):
                     evidence=f"RDP negotiation response: {data[11:20].hex()}",
                 ))
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _test_bluekeep(self, hostname, url, port):
         """Test for CVE-2019-0708 (BlueKeep) indicators."""
@@ -146,10 +148,10 @@ class RDPAttackModule(BaseModule):
                         evidence="RDP server closed connection without response — possible BlueKeep vulnerability",
                     ))
             except socket.timeout:
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
             sock.close()
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _finding(self, **kw):
         from core.engine import Finding

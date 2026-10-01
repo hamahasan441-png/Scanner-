@@ -4,6 +4,8 @@
 ATOMIC FRAMEWORK - DHCP Attack Module
 DHCP starvation, rogue server, option injection.
 """
+import logging
+
 import socket
 import struct
 from config import Colors
@@ -46,7 +48,7 @@ class DHCPAttackModule(BaseModule):
                         evidence=f"Port {port} open — may indicate DHCP management interface",
                     ))
             except Exception:
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _finding(self, **kw):
         from core.engine import Finding

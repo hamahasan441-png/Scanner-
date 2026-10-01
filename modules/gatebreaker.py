@@ -46,6 +46,7 @@ Design notes:
       unnecessary probes after first gate is identified.
 """
 from __future__ import annotations
+import logging
 
 import time
 from urllib.parse import quote, urlparse
@@ -577,7 +578,7 @@ class GateBreakerModule(BaseModule):
                 if items:
                     return items[0]
             except Exception:
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
             return fallback
 
         if any(k in p for k in ("id", "user", "name", "email", "search",

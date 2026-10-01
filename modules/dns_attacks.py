@@ -4,6 +4,8 @@
 ATOMIC FRAMEWORK - DNS Attack Module
 DNS cache poisoning, rebinding, tunneling, zone transfer, DNSSEC bypass.
 """
+import logging
+
 import socket
 import struct
 import random
@@ -65,9 +67,9 @@ class DNSAttackModule(BaseModule):
                             evidence=f"Zone transfer successful against {ns}: {len(axfr.stdout)} bytes",
                         ))
                 except Exception:
-                    pass
+                    logging.getLogger(__name__).debug("suppressed error", exc_info=True)
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _test_dns_rebinding(self, domain, url):
         """Host-header confusion test — requires that the spoofed Host
@@ -109,7 +111,7 @@ class DNSAttackModule(BaseModule):
                     ),
                 ))
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _test_dns_tunneling(self, domain, url):
         """Test for DNS tunneling indicators."""
@@ -131,7 +133,7 @@ class DNSAttackModule(BaseModule):
                     evidence=f"Large TXT record ({len(result.stdout)} bytes) may indicate tunneling",
                 ))
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _test_dnssec_bypass(self, domain, url):
         """Test for DNSSEC misconfiguration."""
@@ -152,7 +154,7 @@ class DNSAttackModule(BaseModule):
                     evidence=f"Domain {domain} has no DNSSEC records — DNS responses can be spoofed",
                 ))
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _test_wildcard_dns(self, domain, url):
         """Test for wildcard DNS configuration."""
@@ -175,7 +177,7 @@ class DNSAttackModule(BaseModule):
                     evidence=f"Wildcard DNS resolves {random_sub} → {ip}",
                 ))
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _test_dns_cache_poison(self, domain, url):
         """Test for DNS cache poisoning indicators."""
@@ -204,7 +206,7 @@ class DNSAttackModule(BaseModule):
                     evidence=f"DNS server at {domain} responds to recursive queries (open resolver)",
                 ))
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _test_subdomain_takeover(self, domain, url):
         """Test for subdomain takeover via CNAME pointing to deprovisioned services."""
@@ -251,9 +253,9 @@ class DNSAttackModule(BaseModule):
                                     evidence=f"CNAME {cname} points to deprovisioned {service}: {signature}",
                                 ))
                         except Exception:
-                            pass
+                            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _finding(self, **kw):
         from core.engine import Finding

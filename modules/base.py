@@ -9,6 +9,7 @@ the standard constructor, helper utilities and the enforced
 ``test()`` / ``test_url()`` contract.
 """
 from __future__ import annotations
+import logging
 
 from abc import ABC, abstractmethod
 from typing import Any, Optional, Protocol
@@ -66,7 +67,7 @@ class BaseModule(ABC):
             try:
                 self.engine._bandit = b  # type: ignore[attr-defined]
             except Exception:
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
             return b
         except Exception:
             return None
@@ -82,7 +83,7 @@ class BaseModule(ABC):
                     if fp.get(k):
                         ctx[k] = str(fp[k])
             except Exception:
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
         return ctx
 
     def _bandit_pick(self, candidates: Any) -> Optional[str]:
@@ -102,7 +103,7 @@ class BaseModule(ABC):
         try:
             self._bandit.record(family, self._bandit_context(), reward)
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     @abstractmethod
     def test(self, url: str, method: str, param: str, value: str) -> None:

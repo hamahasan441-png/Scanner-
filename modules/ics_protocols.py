@@ -4,6 +4,8 @@
 ATOMIC FRAMEWORK - ICS/SCADA Protocol Module
 Modbus, BACnet, DNP3, OPC UA, Profinet, EtherNet/IP detection.
 """
+import logging
+
 import socket
 from config import Colors
 from modules.base import BaseModule
@@ -60,7 +62,7 @@ class ICSProtocolModule(BaseModule):
                     ))
                     self._test_modbus(hostname, url, port, proto)
             except Exception:
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _test_modbus(self, hostname, url, port, proto):
         """Test Modbus for default access."""
@@ -87,7 +89,7 @@ class ICSProtocolModule(BaseModule):
                     evidence=f"Modbus device responded: {data.hex()[:100]}",
                 ))
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _finding(self, **kw):
         from core.engine import Finding

@@ -4,6 +4,7 @@
 ATOMIC FRAMEWORK - Race Condition Module
 TOCTOU and concurrent request testing
 """
+import logging
 
 import concurrent.futures
 
@@ -69,7 +70,7 @@ class RaceConditionModule(BaseModule):
                     evidence=f"{divergences}/{rounds} concurrent pairs both returned success on a single-use action",
                 ))
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _test_concurrent_requests(self, url, method, param, value):
         """Test concurrent requests for double-spend/reuse vulnerabilities"""
@@ -129,7 +130,7 @@ class RaceConditionModule(BaseModule):
                             )
                             self.engine.add_finding(finding)
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _test_concurrent_get(self, url):
         """Test concurrent GET requests"""
@@ -157,4 +158,4 @@ class RaceConditionModule(BaseModule):
             # a differential harness, not a blanket detector.
             _ = responses
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)

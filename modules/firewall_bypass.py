@@ -46,6 +46,7 @@ Design notes:
       ``modules.waf`` / ``core.bypass``.
 """
 from __future__ import annotations
+import logging
 
 import socket
 import time
@@ -687,7 +688,7 @@ class FirewallBypassModule(BaseModule):
                 try:
                     sock.close()
                 except OSError:
-                    pass
+                    logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _resolve_ipv6(self, host: str):
         try:

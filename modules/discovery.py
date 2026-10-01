@@ -11,6 +11,7 @@ vulnerability testing. Includes:
   - Directory brute-forcing with common paths
   - AI-powered smart endpoint prioritization
 """
+import logging
 
 import re
 import asyncio
@@ -540,7 +541,7 @@ class DiscoveryModule:
                     all_paths.append(entry)
                     _seen.add(entry)
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
         print(f"{Colors.info(f'Directory brute-force ({len(all_paths)} paths)...')}")
         found = 0
@@ -556,7 +557,7 @@ class DiscoveryModule:
                 baseline_len = len(canary_resp.text)
                 baseline_words = set(canary_resp.text.lower().split()[:50])
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
         for path in all_paths:
             full_url = urljoin(base_url, path)
@@ -748,7 +749,7 @@ class DiscoveryModule:
                     if resp.status == 200 and "text" in resp.content_type:
                         return await resp.text(errors="replace")
             except Exception:
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
             return ""
 
         async def _extract_links(html, base_url):
@@ -795,7 +796,7 @@ class DiscoveryModule:
             try:
                 loop = asyncio.get_running_loop()
             except RuntimeError:
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
             if loop and loop.is_running():
                 # We're already inside an event loop – run in a new thread
@@ -977,7 +978,7 @@ class DiscoveryModule:
                 print(f"{Colors.success(f'JS render (Playwright): {len(new_urls)} new URLs')}")
                 return
         except FileNotFoundError:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
         except subprocess.TimeoutExpired:
             if self.engine.config.get("verbose"):
                 print(f"{Colors.warning('Playwright timed out')}")
@@ -1009,7 +1010,7 @@ class DiscoveryModule:
                 print(f"{Colors.success(f'JS render (Puppeteer): {len(new_urls)} new URLs')}")
                 return
         except FileNotFoundError:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
         except subprocess.TimeoutExpired:
             if self.engine.config.get("verbose"):
                 print(f"{Colors.warning('Puppeteer timed out')}")
@@ -1047,7 +1048,7 @@ class DiscoveryModule:
                 print(f"{Colors.success(f'JS render (Selenium): {len(new_urls)} new URLs')}")
                 return
         except FileNotFoundError:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
         except subprocess.TimeoutExpired:
             if self.engine.config.get("verbose"):
                 print(f"{Colors.warning('Selenium timed out')}")
@@ -1231,7 +1232,7 @@ class DiscoveryModule:
             if canary_resp:
                 baseline_len = len(canary_resp.text)
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
         for path in backup_patterns:
             full_url = urljoin(base_url, path)
@@ -1328,7 +1329,7 @@ class DiscoveryModule:
                         script_match.group(1), target, js_urls
                     )
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
         if not js_urls:
             return
@@ -1494,7 +1495,7 @@ class DiscoveryModule:
             if canary_resp:
                 baseline_len = len(canary_resp.text)
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
         found = 0
         wsdl_content_list = []  # (url, text) pairs to parse later
@@ -1650,7 +1651,7 @@ class DiscoveryModule:
             if canary_resp:
                 baseline_len = len(canary_resp.text)
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
         found = 0
 
@@ -1789,7 +1790,7 @@ class DiscoveryModule:
             if canary_resp:
                 baseline_len = len(canary_resp.text)
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
         found = 0
 
@@ -1867,7 +1868,7 @@ class DiscoveryModule:
                 ):
                     feed_urls.add(urljoin(target, match.group(1)))
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
         # Combine auto-discovered + common paths
         for path in feed_paths:

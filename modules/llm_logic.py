@@ -33,6 +33,7 @@ The module is enabled by default in the kill-chain skill registry under
 ``llm_logic`` and tagged ``T1068`` (Privilege Escalation via business
 logic abuse).
 """
+import logging
 
 import json
 import re
@@ -300,7 +301,7 @@ class LLMLogicModule(BaseModule):
             if abs(test_len - base_len) >= 50:
                 score += 0.15
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
         score += 0.40 * max(0.0, min(1.0, llm_conf))
         return round(min(0.74, score), 3)
 
@@ -401,7 +402,7 @@ class LLMLogicModule(BaseModule):
                             c = c / 100.0
                         out["confidence"] = max(0.0, min(1.0, c))
                     except ValueError:
-                        pass
+                        logging.getLogger(__name__).debug("suppressed error", exc_info=True)
             elif key_norm.startswith(("reason", "rationale", "explanation")):
                 out["reasoning"] = val[:240]
         return out

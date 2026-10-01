@@ -4,6 +4,8 @@
 ATOMIC FRAMEWORK - Service Mesh Module
 Istio, Linkerd, mTLS bypass, sidecar proxy detection.
 """
+import logging
+
 import socket
 from config import Colors
 from modules.base import BaseModule
@@ -63,7 +65,7 @@ class ServiceMeshModule(BaseModule):
                         evidence=f"Service mesh component: {service} on port {port}",
                     ))
             except Exception:
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _test_envoy_admin(self, hostname, url):
         """Test for Envoy admin interface."""
@@ -80,7 +82,7 @@ class ServiceMeshModule(BaseModule):
                     evidence=f"Envoy admin interface accessible: {resp.text[:200]}",
                 ))
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _finding(self, **kw):
         from core.engine import Finding

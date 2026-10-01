@@ -4,6 +4,7 @@
 ATOMIC FRAMEWORK - Shell Uploader Module
 Web shell upload and management
 """
+import logging
 
 import os
 import re
@@ -84,7 +85,7 @@ class ShellUploader(BaseModule):
                     )
                 )
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _test_imagetragick(self, url: str):
         """Test ImageMagick exploit (ImageTragick)"""
@@ -107,7 +108,7 @@ class ShellUploader(BaseModule):
                     )
                 )
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _test_content_type_mismatch(self, url: str):
         """Test content-type mismatch bypass"""
@@ -166,7 +167,7 @@ class ShellUploader(BaseModule):
                     )
                 )
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def run(self, findings: list, forms: list):
         """Attempt to upload shells based on findings.
@@ -315,7 +316,7 @@ class ShellUploader(BaseModule):
                         if subval:
                             found_urls.append(subval)
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
         # Deduplicate while preserving order and prefer exact filename matches
         seen = set()
@@ -341,7 +342,7 @@ class ShellUploader(BaseModule):
             if response and "shell_works" in response.text:
                 return True
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
         return False
 

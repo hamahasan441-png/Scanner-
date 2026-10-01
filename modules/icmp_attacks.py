@@ -4,6 +4,8 @@
 ATOMIC FRAMEWORK - ICMP Attack Module
 ICMP tunneling, redirect, router advertisement spoofing.
 """
+import logging
+
 import socket
 import subprocess
 from config import Colors
@@ -45,7 +47,7 @@ class ICMPAttackModule(BaseModule):
                     evidence=f"Host responds to ICMP: {result.stdout.split(chr(10))[1] if len(result.stdout.split(chr(10))) > 1 else 'reachable'}",
                 ))
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _test_icmp_timestamp(self, hostname, url):
         """Test for ICMP timestamp response."""
@@ -66,7 +68,7 @@ class ICMPAttackModule(BaseModule):
                     evidence="Host responds to ICMP timestamp requests — may leak system time",
                 ))
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _finding(self, **kw):
         from core.engine import Finding
