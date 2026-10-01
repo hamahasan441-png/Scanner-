@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from config import Colors
+from core.pipeline_contract import Phase
 
 if TYPE_CHECKING:
     from core.engine import AtomicEngine
@@ -106,6 +107,7 @@ class ScanRunner:
     def _intelligence_enrichment(self, init_resp, parameters, urls):
         if not self.modules_config.get("enrich", False):
             return None
+        self.engine._set_phase(Phase.ENRICHMENT)
         try:
             from core.intelligence_enricher import IntelligenceEnricher
 

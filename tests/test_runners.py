@@ -452,10 +452,14 @@ class TestIntelligenceEnrichment(unittest.TestCase):
 
         self.assertIs(result, bundle)
         eng.emit_pipeline_event.assert_called_once_with("phase6_result", {"tech": "php"})
+        from core.pipeline_contract import Phase
+
+        eng._set_phase.assert_called_once_with(Phase.ENRICHMENT)
 
     def test_disabled(self):
         eng = _make_engine(config={"verbose": False, "modules": {}})
         self.assertIsNone(ScanRunner(eng)._intelligence_enrichment(None, [], set()))
+        eng._set_phase.assert_not_called()
 
     @patch("core.intelligence_enricher.IntelligenceEnricher", side_effect=RuntimeError("x"))
     def test_exception(self, _):

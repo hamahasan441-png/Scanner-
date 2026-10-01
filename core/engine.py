@@ -1122,23 +1122,9 @@ class AtomicEngine:
         enriched_params = self.context.analyze_parameters(parameters)
 
         # ── PHASE 10 of 21: INTELLIGENCE ENRICHMENT ──────────────────
-        intel_bundle = None
-        if modules_config.get("enrich", False):
-            self._set_phase(Phase.ENRICHMENT)
-            try:
-                from core.intelligence_enricher import IntelligenceEnricher
+        from core.runners.scan_runner import ScanRunner
 
-                enricher = IntelligenceEnricher(self)
-                responses = [init_resp] if init_resp else []
-                intel_bundle = enricher.run(
-                    responses=responses,
-                    params=parameters,
-                    urls=urls,
-                )
-                self.emit_pipeline_event("phase6_result", intel_bundle.to_dict())
-            except Exception as e:
-                if self.config.get("verbose"):
-                    print(f"{Colors.error(f'Phase 6 enrichment error: {e}')}")
+        intel_bundle = ScanRunner(self)._intelligence_enrichment(init_resp, parameters, urls)
 
         # ── PHASE 11 of 21: ATTACK SURFACE PRIORITIZATION ────────────
         scan_queue = None
