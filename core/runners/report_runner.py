@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Dict, Optional
 
 from config import Colors
+from core import pipeline_wire
 from core.pipeline_contract import Phase
 
 if TYPE_CHECKING:
@@ -103,9 +104,7 @@ class ReportRunner:
                 logger.debug("exploit_bridge drain failed: %s", exc)
 
         try:
-            from core.pipeline_wire import finalize as _pipeline_finalize
-
-            _pipeline_finalize(engine)
+            pipeline_wire.finalize(engine)
             engine._pipeline_finalized = True
         except Exception as exc:  # pragma: no cover - defensive
             logger.debug("pipeline_wire.finalize failed: %s", exc)

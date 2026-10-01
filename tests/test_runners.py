@@ -942,7 +942,7 @@ class TestReportRunnerRun(unittest.TestCase):
 class TestCollectReport(unittest.TestCase):
 
     @patch("core.output_phase.OutputPhase")
-    @patch("core.pipeline_wire.finalize")
+    @patch("core.runners.report_runner.pipeline_wire.finalize")
     def test_report_phase_stores_chains_and_finalizes(self, mock_finalize, MockOP):
         from core.pipeline_contract import Phase
 
@@ -967,7 +967,7 @@ class TestCollectReport(unittest.TestCase):
         self.assertIsNotNone(eng.end_time)
 
     @patch("core.output_phase.OutputPhase")
-    @patch("core.pipeline_wire.finalize", side_effect=RuntimeError("finalize failed"))
+    @patch("core.runners.report_runner.pipeline_wire.finalize", side_effect=RuntimeError("finalize failed"))
     def test_finalize_failure_still_writes_the_report(self, _mock_finalize, MockOP):
         eng = _make_engine(config={"verbose": False, "modules": {}})
         eng.exploit_bridge = None
