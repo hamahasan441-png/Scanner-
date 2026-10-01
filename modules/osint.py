@@ -5,6 +5,7 @@ ATOMIC FRAMEWORK - OSINT Reconnaissance Module
 Google dorking, GitHub secret leak detection, Wayback Machine harvesting,
 GitHub Code Search API integration, secret pattern scanning
 """
+import logging
 
 import re
 from urllib.parse import urlparse, quote_plus
@@ -27,7 +28,7 @@ class OSINTModule(BaseModule):
             try:
                 self._secret_regexes.append((name, re.compile(pattern)))
             except re.error:
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def test(self, url, method, param, value):
         """Not used for OSINT — recon is URL-based"""
@@ -287,7 +288,7 @@ class OSINTModule(BaseModule):
                     )
                     self.engine.add_finding(finding)
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _check_robots_sitemap(self, url):
         """Check robots.txt and sitemap for hidden endpoints"""
@@ -303,7 +304,7 @@ class OSINTModule(BaseModule):
                 if disallowed:
                     findings_data.append(f"robots.txt: {len(disallowed)} disallowed paths")
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
         # Check sitemap
         try:
@@ -314,7 +315,7 @@ class OSINTModule(BaseModule):
                 if locs:
                     findings_data.append(f"sitemap.xml: {len(locs)} URLs")
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
         if findings_data:
             from core.engine import Finding
@@ -370,7 +371,7 @@ class OSINTModule(BaseModule):
                 )
                 self.engine.add_finding(finding)
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     # ─── AlienVault OTX API ─────────────────────────────────────────
 
@@ -429,7 +430,7 @@ class OSINTModule(BaseModule):
                 )
                 self.engine.add_finding(finding)
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _api_request(self, url, headers):
         """Make an API request and return the response object.
@@ -454,5 +455,5 @@ class OSINTModule(BaseModule):
             if hasattr(resp, "json") and callable(resp.json):
                 return resp.json()
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
         return {}

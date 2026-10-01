@@ -4,6 +4,8 @@
 ATOMIC FRAMEWORK - VPN Attack Module
 VPN detection, weak protocols (PPTP), PSK cracking, split tunneling.
 """
+import logging
+
 import socket
 from config import Colors
 from modules.base import BaseModule
@@ -66,7 +68,7 @@ class VPNAttackModule(BaseModule):
                                 evidence="PPTP uses MS-CHAPv2 which is trivially crackable",
                             ))
                 except Exception:
-                    pass
+                    logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _finding(self, **kw):
         from core.engine import Finding

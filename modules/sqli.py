@@ -7,6 +7,7 @@ Advanced SQLi detection and exploitation
 Includes native detection techniques and optional sqlmap CLI integration
 for deeper automated exploitation when sqlmap is installed on the system.
 """
+import logging
 
 import os
 import re
@@ -716,7 +717,7 @@ class SQLiModule(BaseModule):
                         waf_variants = waf_module.waf_specific_bypasses(bp, waf_type)
                         payloads.extend(waf_variants)
                     except Exception:
-                        pass
+                        logging.getLogger(__name__).debug("suppressed error", exc_info=True)
         # Also use general bypass_techniques when WAF bypass is enabled
         if self.engine.config.get("waf_bypass"):
             for bp in base_payloads:
@@ -1010,7 +1011,7 @@ class SQLiModule(BaseModule):
 
                 _shutil.rmtree(tmpdir, ignore_errors=True)
             except Exception:
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
         return findings
 
@@ -1120,7 +1121,7 @@ class SQLiModule(BaseModule):
                         }
                     )
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
         return findings
 
     def sqlmap_dump(
@@ -1201,7 +1202,7 @@ class SQLiModule(BaseModule):
                                             entry[h] = vals[i] if i < len(vals) else ""
                                         results.append(entry)
                             except Exception:
-                                pass
+                                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
         except subprocess.TimeoutExpired:
             if self.engine.config.get("verbose"):
                 print(f"{Colors.warning('sqlmap dump timed out')}")
@@ -1214,7 +1215,7 @@ class SQLiModule(BaseModule):
 
                 _shutil.rmtree(tmpdir, ignore_errors=True)
             except Exception:
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
         return results
 

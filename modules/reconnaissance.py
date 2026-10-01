@@ -7,6 +7,7 @@ DNS enumeration (forward, reverse, MX, NS, TXT), technology
 detection, structured WHOIS lookup, VHost discovery,
 and wildcard DNS detection.
 """
+import logging
 
 import re
 import socket
@@ -126,7 +127,7 @@ class ReconModule:
                     text = str(rdata).strip('"')
                     print(f"{Colors.info(f'DNS {rtype}: {text}')}")
             except (dns.resolver.NoAnswer, dns.resolver.NXDOMAIN):
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
             except Exception as e:
                 if self.verbose:
                     print(f"{Colors.warning(f'DNS {rtype} error: {e}')}")
@@ -399,7 +400,7 @@ class ReconModule:
                                     )
                                     self.engine.add_finding(finding)
                             except Exception:
-                                pass
+                                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
             # All listed dns.resolver.* exceptions inherit from
             # dns.exception.DNSException → Exception; the tuple form was
             # redundant. Kept broad because subdomain enumeration must
@@ -457,7 +458,7 @@ class ReconModule:
                 )
                 self.engine.add_finding(finding)
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     # ─── API Endpoints ──────────────────────────────────────────────
 
@@ -663,7 +664,7 @@ class ReconModule:
                         )
                         self.engine.add_finding(finding)
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
         # DMARC record (TXT on _dmarc.domain)
         try:
@@ -686,7 +687,7 @@ class ReconModule:
                         )
                         self.engine.add_finding(finding)
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
         # BIMI record (TXT on default._bimi.domain)
         try:
@@ -696,7 +697,7 @@ class ReconModule:
                 if "v=bimi1" in txt.lower():
                     records_found["BIMI"] = txt[:200]
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
         if records_found:
             print(f"{Colors.info('Email Security Records:')}")
@@ -921,7 +922,7 @@ class ReconModule:
                 ip = socket.gethostbyname(fqdn)
                 resolved_ips[fqdn] = ip
             except socket.gaierror:
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
         if len(resolved_ips) >= 2:
             unique_ips = set(resolved_ips.values())

@@ -4,6 +4,8 @@
 ATOMIC FRAMEWORK - Covert Channels Module
 DNS tunneling, ICMP tunneling, HTTP header covert channels, timing channels.
 """
+import logging
+
 import socket
 import subprocess
 import time
@@ -49,7 +51,7 @@ class CovertChannelModule(BaseModule):
                             evidence=f"Large TXT record ({len(line)} chars) may indicate DNS tunneling",
                         ))
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _test_http_covert_headers(self, url):
         """Check for non-standard HTTP headers that may be used as covert channels."""
@@ -74,7 +76,7 @@ class CovertChannelModule(BaseModule):
                     # Non-standard header may be a covert channel
                     pass  # Too noisy to report all non-standard headers
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _finding(self, **kw):
         from core.engine import Finding

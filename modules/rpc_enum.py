@@ -4,6 +4,8 @@
 ATOMIC FRAMEWORK - RPC Enumeration Module
 RPC/portmapper enumeration, rpcbind, NIS/yp.
 """
+import logging
+
 import socket
 import subprocess
 from config import Colors
@@ -46,7 +48,7 @@ class RPCEnumModule(BaseModule):
                     ))
                     self._test_rpcinfo(hostname, url)
             except Exception:
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _test_rpcinfo(self, hostname, url):
         """Enumerate RPC services via rpcinfo."""
@@ -80,9 +82,9 @@ class RPCEnumModule(BaseModule):
                             evidence=f"Dangerous RPC service found: {svc}",
                         ))
         except FileNotFoundError:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _finding(self, **kw):
         from core.engine import Finding

@@ -5,6 +5,7 @@ ATOMIC FRAMEWORK - CRLF Injection Module
 Detects CRLF (Carriage Return Line Feed) injection vulnerabilities
 that allow HTTP response splitting and header injection.
 """
+import logging
 
 from config import Payloads, Colors
 from modules.base import BaseModule
@@ -91,7 +92,7 @@ class CRLFModule(BaseModule):
                     self.engine.add_finding(finding)
                     return
             except Exception:
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _detect_crlf(self, response, payload):
         """Check whether the injected header appears in the response."""

@@ -21,6 +21,7 @@ Note:
 """
 
 from __future__ import annotations
+import logging
 
 import socket
 from typing import Dict, List, Optional, Tuple
@@ -51,7 +52,7 @@ except (ImportError, OSError):
     # the NETLINK/raw-socket access used during that discovery.  Treat that
     # environment exactly like an unavailable optional dependency and keep the
     # socket-based fallback operational.
-    pass
+    logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
 
 # ── Top UDP ports & probes ───────────────────────────────────────────────
@@ -419,7 +420,7 @@ class ScapyCrawler:
                 return True
         # `except Exception` already covers PermissionError; original tuple was redundant.
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
         # Fallback: TCP SYN to port 80
         try:
@@ -429,7 +430,7 @@ class ScapyCrawler:
                 return True
         # `except Exception` already covers PermissionError; original tuple was redundant.
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
         # Fallback: plain socket connect
         try:
@@ -439,7 +440,7 @@ class ScapyCrawler:
             sock.close()
             return True
         except (socket.timeout, ConnectionRefusedError, OSError):
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
         return False
 
@@ -470,14 +471,14 @@ class ScapyCrawler:
                     if banner:
                         entry["banner"] = banner.decode("utf-8", errors="replace").strip()[:120]
                 except (socket.timeout, OSError):
-                    pass
+                    logging.getLogger(__name__).debug("suppressed error", exc_info=True)
                 results.append(entry)
                 sock.close()
 
                 svc = entry["service"]
                 print(f"  {Colors.GREEN}OPEN{Colors.RESET}  {port:>5}/tcp  {svc}")
             except (socket.timeout, ConnectionRefusedError, OSError):
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
         return results
 
@@ -912,9 +913,9 @@ class DNSReconScanner:
                 found.append({"subdomain": fqdn, "ip": ip})
                 print(f"    {Colors.GREEN}FOUND{Colors.RESET}  {fqdn:>40s}  →  {ip}")
             except socket.gaierror:
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
             except Exception:
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
         print(f"  {Colors.info(f'Subdomain brute-force: {len(found)} found')}")
         return found
@@ -1361,7 +1362,7 @@ class ScapyVulnScanner:
             )
             self.engine.add_finding(finding)
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
 
 # =====================================================================
@@ -1648,7 +1649,7 @@ class ScapyAttackChain:
                 ctx["os_guess"] = guess
                 return True, {"os_guess": guess}
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
         return False, None
 
     def _step_syn_scan(self, ctx: Dict) -> Tuple[bool, Optional[Dict]]:
@@ -1661,7 +1662,7 @@ class ScapyAttackChain:
                 ctx["port_results"] = results
                 return True, {"port_results": results}
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
         return False, None
 
     def _step_stealth_scan(self, ctx: Dict) -> Tuple[bool, Optional[Dict]]:
@@ -1677,7 +1678,7 @@ class ScapyAttackChain:
                 ctx["stealth_results"] = results
                 return True, {"stealth_results": results}
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
         return False, None
 
     def _step_vuln_scan(self, ctx: Dict) -> Tuple[bool, Optional[Dict]]:
@@ -1789,7 +1790,7 @@ class ScapyAttackChain:
                 )
                 sock.close()
             except (socket.timeout, ConnectionRefusedError, OSError):
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
         return bool(probed), {"service_probes": probed}
 
     def _step_cve_match(self, ctx: Dict) -> Tuple[bool, Optional[Dict]]:
@@ -1835,4 +1836,4 @@ class ScapyAttackChain:
             )
             self.engine.add_finding(finding)
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)

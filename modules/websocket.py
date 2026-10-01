@@ -4,6 +4,7 @@
 ATOMIC FRAMEWORK - WebSocket Injection Module
 Cross-Site WebSocket Hijacking and message injection
 """
+import logging
 
 
 from modules.base import BaseModule
@@ -74,7 +75,7 @@ class WebSocketModule(BaseModule):
                 )
                 self.engine.add_finding(finding)
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _test_ws_injection(self, url):
         """Test for injection via WebSocket upgrade requests"""

@@ -4,6 +4,8 @@
 ATOMIC FRAMEWORK - CSRF Module
 CSRF token detection, SameSite bypass, login CSRF.
 """
+import logging
+
 from urllib.parse import urlparse, parse_qs
 from config import Colors
 from modules.base import BaseModule
@@ -55,7 +57,7 @@ class CSRFModule(BaseModule):
                         evidence="POST form found without CSRF token protection",
                     ))
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _test_samesite_bypass(self, url):
         """Test for SameSite cookie attribute bypass."""
@@ -77,7 +79,7 @@ class CSRFModule(BaseModule):
                         evidence=f"Set-Cookie header lacks SameSite attribute: {cookies[:200]}",
                     ))
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _finding(self, **kw):
         from core.engine import Finding

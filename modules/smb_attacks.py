@@ -4,6 +4,8 @@
 ATOMIC FRAMEWORK - SMB/CIFS Attack Module
 SMB signing, null sessions, relay detection, named pipes, share enumeration.
 """
+import logging
+
 import socket
 import struct
 import subprocess
@@ -51,7 +53,7 @@ class SMBAttackModule(BaseModule):
                         self._test_smb_signing(hostname, url)
                         self._test_null_session(hostname, url)
             except Exception:
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _test_smb_signing(self, hostname, url):
         """Test if SMB signing is disabled."""
@@ -71,9 +73,9 @@ class SMBAttackModule(BaseModule):
                     evidence=f"SMB signing appears disabled: {result.stdout[:200]}",
                 ))
         except FileNotFoundError:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _test_null_session(self, hostname, url):
         """Test for null session access."""
@@ -93,9 +95,9 @@ class SMBAttackModule(BaseModule):
                     evidence=f"Null session accepted: {result.stdout[:200]}",
                 ))
         except FileNotFoundError:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _finding(self, **kw):
         from core.engine import Finding

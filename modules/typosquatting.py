@@ -4,6 +4,8 @@
 ATOMIC FRAMEWORK - Typosquatting & Supply Chain Module
 Typosquatting detection, dependency confusion, malicious package indicators.
 """
+import logging
+
 import re
 from config import Colors
 from modules.base import BaseModule
@@ -49,7 +51,7 @@ class TyposquattingModule(BaseModule):
                         evidence=f"Dependency file exposed: {path} ({len(resp.text)} bytes)",
                     ))
             except Exception:
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _test_source_maps(self, url):
         """Check for exposed source maps."""
@@ -72,7 +74,7 @@ class TyposquattingModule(BaseModule):
                         evidence=f"Source map exposed: {path} — reveals original source code",
                     ))
             except Exception:
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _finding(self, **kw):
         from core.engine import Finding

@@ -5,6 +5,7 @@ ATOMIC FRAMEWORK - Open Redirect Module
 Detects open redirect vulnerabilities by injecting redirect payloads
 into parameters commonly used for URL redirection.
 """
+import logging
 
 from urllib.parse import urlparse
 
@@ -128,7 +129,7 @@ class OpenRedirectModule(BaseModule):
                 if payload_host and loc_host.endswith("." + payload_host):
                     return True
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
         return False
 

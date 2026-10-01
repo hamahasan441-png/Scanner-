@@ -4,6 +4,7 @@
 ATOMIC FRAMEWORK - LFI/RFI Module
 Local/Remote File Inclusion detection and exploitation
 """
+import logging
 
 import base64
 
@@ -143,7 +144,7 @@ class LFIModule(BaseModule):
                     if "<?php" in decoded or "function" in decoded:
                         is_b64 = True
                 except Exception:
-                    pass
+                    logging.getLogger(__name__).debug("suppressed error", exc_info=True)
                 if is_b64 or "<?php" in text or "phpinfo" in text.lower():
                     from core.engine import Finding
 
@@ -214,7 +215,7 @@ class LFIModule(BaseModule):
         try:
             self.requester.request(url, "GET", headers={"User-Agent": poison_ua})
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
         log_paths = ["/var/log/apache2/access.log", "/var/log/nginx/access.log"]
         for log_path in log_paths:
             for trav in [f"....//....//....//..../{log_path}", log_path]:
@@ -460,7 +461,7 @@ class LFIModule(BaseModule):
                             return
                     # ValueError ⊂ Exception; tuple was redundant.
                     except Exception:
-                        pass
+                        logging.getLogger(__name__).debug("suppressed error", exc_info=True)
                 elif wtype == "data":
                     if "lfi_test" in response.text:
                         from core.engine import Finding

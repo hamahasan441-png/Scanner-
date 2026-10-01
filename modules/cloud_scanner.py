@@ -8,6 +8,7 @@ vulnerabilities across AWS, GCP, Azure, DigitalOcean, and Alibaba Cloud.
 
 ⚠️ FOR AUTHORIZED TESTING ONLY ⚠️
 """
+import logging
 
 import re
 from urllib.parse import urlparse
@@ -274,7 +275,7 @@ class CloudScannerModule(BaseModule):
             text = response.text
             self._scan_text_for_secrets(text, url, param)
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _test_cloud_config_exposure(self, url):
         """Probe target for exposed cloud configuration files."""
@@ -391,7 +392,7 @@ class CloudScannerModule(BaseModule):
                 )
                 self.engine.add_finding(finding)
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _scan_text_for_secrets(self, text, url, param=""):
         """Scan text content for cloud credential patterns."""

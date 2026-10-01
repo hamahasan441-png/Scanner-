@@ -4,6 +4,8 @@
 ATOMIC FRAMEWORK - WebDAV Module
 WebDAV detection, PUT method, MOVE, COPY, PROPFIND enumeration.
 """
+import logging
+
 from config import Colors
 from modules.base import BaseModule
 
@@ -43,7 +45,7 @@ class WebDAVModule(BaseModule):
                     evidence=f"WebDAV methods: {', '.join(found) or dav}. Allow: {allow[:200]}",
                 ))
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _test_webdav_put(self, url):
         """Test if PUT method is allowed."""
@@ -64,7 +66,7 @@ class WebDAVModule(BaseModule):
                     evidence=f"PUT method accepted, file created: {test_url}",
                 ))
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _test_webdav_propfind(self, url):
         """Test PROPFIND for directory listing."""
@@ -82,7 +84,7 @@ class WebDAVModule(BaseModule):
                     evidence=f"PROPFIND returned 207 Multi-Status: {resp.text[:300]}",
                 ))
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _finding(self, **kw):
         from core.engine import Finding

@@ -4,6 +4,8 @@
 ATOMIC FRAMEWORK - Cryptographic Weakness Module
 Weak ciphers, insufficient key sizes, predictable IVs, hash weaknesses.
 """
+import logging
+
 import ssl
 import socket
 from config import Colors
@@ -59,7 +61,7 @@ class CryptoWeaknessModule(BaseModule):
                                     ))
                                     break
             except Exception:
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _test_ssl_cert(self, hostname, url):
         """Test SSL certificate for weaknesses."""
@@ -92,7 +94,7 @@ class CryptoWeaknessModule(BaseModule):
                                 evidence="SSL certificate is self-signed or untrusted",
                             ))
             except Exception:
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _finding(self, **kw):
         from core.engine import Finding

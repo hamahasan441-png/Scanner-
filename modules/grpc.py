@@ -4,6 +4,8 @@
 ATOMIC FRAMEWORK - gRPC Module
 gRPC reflection, proto fuzzing, authentication bypass.
 """
+import logging
+
 import socket
 from config import Colors
 from modules.base import BaseModule
@@ -47,7 +49,7 @@ class GRPCModule(BaseModule):
                         evidence=f"Potential gRPC port {port} is open",
                     ))
             except Exception:
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _test_grpc_reflection(self, hostname, url):
         """Test for gRPC server reflection (grpc.reflection.v1alpha.ServerReflection)."""
@@ -76,9 +78,9 @@ class GRPCModule(BaseModule):
                             evidence=f"gRPC/HTTP2 server detected on port {port}",
                         ))
                 except Exception:
-                    pass
+                    logging.getLogger(__name__).debug("suppressed error", exc_info=True)
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _finding(self, **kw):
         from core.engine import Finding

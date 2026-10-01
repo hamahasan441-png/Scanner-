@@ -4,6 +4,8 @@
 ATOMIC FRAMEWORK - Coverage-Guided Fuzzing Module
 API fuzzing, parameter fuzzing, header fuzzing with coverage feedback.
 """
+import logging
+
 import random
 import string
 from config import Colors
@@ -48,7 +50,7 @@ class CoverageFuzzModule(BaseModule):
                         evidence=f"Server returned 500 for mutation: {repr(mutation)[:50]}",
                     ))
             except Exception:
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _finding(self, **kw):
         from core.engine import Finding

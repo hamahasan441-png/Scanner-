@@ -4,6 +4,8 @@
 ATOMIC FRAMEWORK - Active Directory Attack Module
 Kerberoasting, AS-REP roasting, DCSync indicators, BloodHound data collection.
 """
+import logging
+
 import socket
 from config import Colors
 from modules.base import BaseModule
@@ -45,7 +47,7 @@ class ADAttackModule(BaseModule):
                 if result == 0:
                     ad_found.append(f"{service}({port})")
             except Exception:
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
         if ad_found:
             self.engine.add_finding(self._finding(
                 technique="Active Directory Services Detected",
@@ -83,7 +85,7 @@ class ADAttackModule(BaseModule):
                         evidence="LDAP server accepts anonymous bind — can enumerate AD objects",
                     ))
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _test_kerberos(self, hostname, url):
         """Test for Kerberos indicators."""
@@ -103,7 +105,7 @@ class ADAttackModule(BaseModule):
                     evidence="Kerberos KDC detected — potential for Kerberoasting, AS-REP roasting, Golden/Silver Ticket attacks",
                 ))
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _finding(self, **kw):
         from core.engine import Finding

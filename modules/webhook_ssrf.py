@@ -4,6 +4,8 @@
 ATOMIC FRAMEWORK - Webhook SSRF Module
 Webhook endpoint discovery, SSRF via webhook, signature forgery.
 """
+import logging
+
 from config import Colors
 from modules.base import BaseModule
 
@@ -49,7 +51,7 @@ class WebhookSSRFModule(BaseModule):
                     # Test SSRF via webhook
                     self._test_webhook_ssrf(webhook_url)
             except Exception:
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _test_webhook_ssrf(self, webhook_url):
         """Test if webhook accepts internal URLs."""
@@ -73,7 +75,7 @@ class WebhookSSRFModule(BaseModule):
                         evidence=f"Webhook accepted internal URL: {target}",
                     ))
             except Exception:
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _finding(self, **kw):
         from core.engine import Finding

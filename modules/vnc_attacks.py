@@ -4,6 +4,8 @@
 ATOMIC FRAMEWORK - VNC Attack Module
 VNC version detection, weak authentication, no encryption.
 """
+import logging
+
 import socket
 import struct
 from config import Colors
@@ -54,7 +56,7 @@ class VNCAttackModule(BaseModule):
                 else:
                     sock.close()
             except Exception:
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _test_vnc_no_auth(self, hostname, url, port, banner):
         """Test if VNC lists security type 'None' (RFB spec §7.1)."""
@@ -103,7 +105,7 @@ class VNCAttackModule(BaseModule):
                     evidence="VNC server offers security-type None — clients connect without a password",
                 ))
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _finding(self, **kw):
         from core.engine import Finding

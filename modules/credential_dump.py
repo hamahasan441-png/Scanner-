@@ -4,6 +4,8 @@
 ATOMIC FRAMEWORK - Credential Dumping Module
 Network-based credential extraction: exposed .git, .env, config files, backup databases.
 """
+import logging
+
 import re
 from config import Colors
 from modules.base import BaseModule
@@ -87,7 +89,7 @@ class CredentialDumpModule(BaseModule):
                                 evidence=f"Sensitive file accessible: {path} ({len(resp.text)} bytes)",
                             ))
             except Exception:
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _finding(self, **kw):
         from core.engine import Finding

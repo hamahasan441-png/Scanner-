@@ -10,6 +10,7 @@ Detects web cache poisoning vulnerabilities including:
 - Host header cache poisoning
 - Port-based cache key issues
 """
+import logging
 
 from urllib.parse import urlparse
 import time
@@ -236,7 +237,7 @@ class CachePoisoningModule(BaseModule):
                 )
 
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _test_host_header_poisoning(self, url):
         """Test for cache poisoning via Host header manipulation."""
@@ -273,7 +274,7 @@ class CachePoisoningModule(BaseModule):
                 )
 
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _test_port_based_poisoning(self, url):
         """Test for cache poisoning via port injection in Host header."""
@@ -313,7 +314,7 @@ class CachePoisoningModule(BaseModule):
                 )
 
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     # ------------------------------------------------------------------
     # Helpers

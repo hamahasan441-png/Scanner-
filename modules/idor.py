@@ -4,6 +4,7 @@
 ATOMIC FRAMEWORK - IDOR Module
 Insecure Direct Object Reference detection
 """
+import logging
 
 import re
 
@@ -50,7 +51,7 @@ class IDORModule(BaseModule):
                     if id_value and id_value.isdigit():
                         self._test_numeric_id(url, "GET", "id", id_value)
                 except (IndexError, AttributeError):
-                    pass
+                    logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _test_numeric_id(self, url: str, method: str, param: str, value: str):
         """Test numeric ID for IDOR"""

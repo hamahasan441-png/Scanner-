@@ -16,6 +16,7 @@ those primitives in.
 """
 
 from __future__ import annotations
+import logging
 
 import socket
 import ssl
@@ -162,7 +163,7 @@ def _parse_der_cert(der: bytes) -> Tuple[Optional[float], List[str]]:
         na = cert.not_valid_after
         not_after_epoch = timegm(na.utctimetuple())
     except Exception:
-        pass
+        logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     names: List[str] = []
     try:
@@ -171,12 +172,12 @@ def _parse_der_cert(der: bytes) -> Tuple[Optional[float], List[str]]:
         ).value
         names.extend(san.get_values_for_type(x509.DNSName))
     except Exception:
-        pass
+        logging.getLogger(__name__).debug("suppressed error", exc_info=True)
     try:
         for attr in cert.subject.get_attributes_for_oid(NameOID.COMMON_NAME):
             names.append(attr.value)
     except Exception:
-        pass
+        logging.getLogger(__name__).debug("suppressed error", exc_info=True)
     return not_after_epoch, names
 
 
@@ -225,7 +226,7 @@ class TLSScanModule(BaseModule):
                 hsts = resp.headers.get("Strict-Transport-Security", "")
                 issues += evaluate_hsts(hsts)
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
         for technique, severity, confidence, detail in issues:
             self._emit(url, technique, severity, confidence, detail)

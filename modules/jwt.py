@@ -4,6 +4,7 @@
 ATOMIC FRAMEWORK - JWT Module
 JWT Security testing module
 """
+import logging
 
 import re
 import base64
@@ -184,7 +185,7 @@ class JWTModule(BaseModule):
                     )
                 )
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _test_kid_injection(self, url: str, token: str):
         """Test kid parameter injection"""
@@ -209,7 +210,7 @@ class JWTModule(BaseModule):
                     )
                 )
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _test_token_replay(self, url: str, token: str):
         """Test JWT token replay and expiry issues"""
@@ -243,7 +244,7 @@ class JWTModule(BaseModule):
                     )
                 )
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def exploit_none_algorithm(self, token: str) -> str:
         """Generate JWT with 'none' algorithm"""
@@ -380,7 +381,7 @@ class JWTModule(BaseModule):
                         )
                     )
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _test_weak_secret(self, url, method, param, token):
         """J2: Brute-force HS256 weak secret offline."""
@@ -432,7 +433,7 @@ class JWTModule(BaseModule):
                     )
                     return
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _test_expired_replay(self, url, method, param, token):
         """J2: Test if expired tokens are still accepted."""
@@ -467,4 +468,4 @@ class JWTModule(BaseModule):
                         )
                     )
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)

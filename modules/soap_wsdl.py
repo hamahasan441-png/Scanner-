@@ -4,6 +4,8 @@
 ATOMIC FRAMEWORK - SOAP/WSDL Module
 SOAP endpoint detection, WSDL parsing, XML injection, WS-Security bypass.
 """
+import logging
+
 import re
 from config import Colors
 from modules.base import BaseModule
@@ -50,7 +52,7 @@ class SOAPModule(BaseModule):
                         evidence=f"WSDL found with {len(operations)} operations: {', '.join(operations[:10])}",
                     ))
             except Exception:
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _test_soap_xml_injection(self, url):
         """Test for XXE via SOAP: only flag when /etc/passwd content appears
@@ -80,7 +82,7 @@ class SOAPModule(BaseModule):
                     evidence=f"/etc/passwd contents in SOAP response: {body[:200]}",
                 ))
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _finding(self, **kw):
         from core.engine import Finding

@@ -4,6 +4,8 @@
 ATOMIC FRAMEWORK - SSH Attack Module
 SSH version detection, weak ciphers, user enumeration, key-based auth testing.
 """
+import logging
+
 import socket
 import subprocess
 from config import Colors
@@ -60,7 +62,7 @@ class SSHAttackModule(BaseModule):
                         evidence=f"SSH banner: {banner}",
                     ))
             except Exception:
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _test_ssh_weak_ciphers(self, hostname, url):
         """Test for weak SSH ciphers and algorithms."""
@@ -92,7 +94,7 @@ class SSHAttackModule(BaseModule):
                     evidence=f"Weak algorithms: {', '.join(found_weak)}",
                 ))
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _test_ssh_user_enum(self, hostname, url):
         """Test for SSH user enumeration (CVE-2018-15473).
@@ -120,7 +122,7 @@ class SSHAttackModule(BaseModule):
                     sock.close()
                     samples[user].append(_t.time() - start)
                 except Exception:
-                    pass
+                    logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
         base = samples.get(baseline_user, [])
         if len(base) < 3:
@@ -174,7 +176,7 @@ class SSHAttackModule(BaseModule):
                     evidence="SSH server accepts password authentication only (no public key required)",
                 ))
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _finding(self, **kw):
         from core.engine import Finding
