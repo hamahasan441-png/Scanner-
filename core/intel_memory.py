@@ -18,6 +18,7 @@ Public API:
     IntelMemory.recommend_modules(url, fingerprint) → [(module_id, score)]
 """
 from __future__ import annotations
+import logging
 
 import hashlib
 import json
@@ -149,7 +150,7 @@ class IntelMemory:
         try:
             self._conn.close()
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
 
 def _get(obj: Any, name: str) -> Any:

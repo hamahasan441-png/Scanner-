@@ -14,6 +14,7 @@ Verification strategy:
   - Remove false positives: inconsistent signals, random dynamic differences
   - Adjust payload thresholds if needed (learn from noise)
 """
+import logging
 
 import time
 
@@ -146,7 +147,7 @@ class Verifier:
                 if resp_len is not None:
                     response_lengths.append(resp_len)
             except Exception:
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
             time.sleep(self._get_adaptive_delay())
 
         # Check consistency of response lengths across rounds
@@ -247,7 +248,7 @@ class Verifier:
                 # Only confirm if response differs significantly from a clean request
                 return abs(resp_len - clean_len) > 200, resp_len
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
         return False, resp_len
 
     def _retest_url(self, finding):

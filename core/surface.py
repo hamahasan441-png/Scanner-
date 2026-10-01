@@ -44,6 +44,7 @@ Caps
 """
 
 from __future__ import annotations
+import logging
 
 import re
 from typing import Dict, Iterable, List, Optional, Set, Tuple
@@ -399,7 +400,7 @@ def collect_from_seed_file(seed_file: str) -> List[Tuple[str, str, List[SurfaceP
                     method, url = "GET", parts[0]
                 results.append((url, method, _params_from_url(url)))
     except (OSError, IOError):
-        pass
+        logging.getLogger(__name__).debug("suppressed error", exc_info=True)
     return results
 
 

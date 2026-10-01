@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 """ATOMIC FRAMEWORK
 Intercepting Proxy - HTTP/HTTPS Traffic Intercept & Modify"""
+import logging
 
 import json
 import re
@@ -493,7 +494,7 @@ class InterceptProxy:
                         resp.status_code = new_code
                         modified = True
                 except (ValueError, TypeError):
-                    pass
+                    logging.getLogger(__name__).debug("suppressed error", exc_info=True)
         return modified
 
     def _forward_upstream(self, req: ProxyRequest) -> dict:

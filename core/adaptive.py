@@ -13,6 +13,7 @@ Monitors scan behaviour in real time and adjusts parameters:
   - Rate limiting detection and auto-throttle
   - Response pattern anomaly tracking
 """
+import logging
 
 import time
 
@@ -305,7 +306,7 @@ class AdaptiveController:
                     if delta > 0:
                         delay = delta + 0.5
                 except Exception:
-                    pass
+                    logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
         # Cap at reasonable maximum
         delay = min(delay, 60.0)

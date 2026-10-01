@@ -21,6 +21,8 @@ not require both env and CLI — either is sufficient but both are
 deliberately not auto-set by the framework.
 """
 from __future__ import annotations
+import logging
+
 import os
 import sys
 from typing import Optional
@@ -65,7 +67,7 @@ def require_authorized(action: str, target: Optional[str] = None) -> None:
                     target=target or "",
                 )
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
         return
     raise PermissionError(
         f"post-exploit action {action!r} requires explicit operator "

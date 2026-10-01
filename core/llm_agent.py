@@ -28,6 +28,7 @@ the orchestration concept was borrowed, no other code or assets.
 """
 
 from __future__ import annotations
+import logging
 
 import time
 from dataclasses import dataclass, field
@@ -200,7 +201,7 @@ class LLMAgent:
                     }
                 )
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
         return out
 
     def _candidate_skills(self, phase: str) -> List[Skill]:

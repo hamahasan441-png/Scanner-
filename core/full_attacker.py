@@ -255,7 +255,7 @@ class FullAttacker:
             )
         except Exception:
             # engine.post_exploit_results may not exist in tests; ignore
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
         return record
 
     def stats(self) -> dict:
@@ -329,7 +329,7 @@ class FullAttacker:
             if entry:
                 return list(entry.get("actions") or [])
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
         # Minimal fallback: at least try the family name as an action so a
         # stub handler can branch on it.
         return [family]

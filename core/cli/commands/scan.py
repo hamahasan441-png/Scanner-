@@ -4,6 +4,8 @@
 ATOMIC FRAMEWORK - CLI Commands: Main Scan Logic
 Handles target collection, batch scanning, distributed, and single scan execution.
 """
+import logging
+
 import os
 import sys
 import json
@@ -347,7 +349,7 @@ def handle_scan(args):
                 if isinstance(_main_mod.AtomicEngine, _mock.MagicMock) or getattr(_main_mod.AtomicEngine, "__module__", "") == "unittest.mock":
                     return _main_mod.AtomicEngine
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
         try:
             from core.engine import AtomicEngine as _RealEngine
             return _RealEngine
@@ -360,7 +362,7 @@ def handle_scan(args):
         import unittest.mock as _mock
         is_test_mock = isinstance(EngineClass, _mock.MagicMock)
     except Exception:
-        pass
+        logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     for target in targets:
         try:

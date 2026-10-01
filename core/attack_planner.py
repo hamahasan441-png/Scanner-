@@ -246,7 +246,7 @@ class AttackPlanner:
                         modules.add(mod)
                     reasons.append(f"  • {rule['reason']}")
             except Exception:
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
         # Always include base scans
         for base in ("cors", "xss", "sqli", "lfi", "ssrf"):

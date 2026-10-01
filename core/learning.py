@@ -8,6 +8,7 @@ Persists scan intelligence so that subsequent scans can benefit from
 historical knowledge: successful detection patterns, failed payloads,
 and endpoint behaviour profiles.
 """
+import logging
 
 import os
 import json
@@ -118,7 +119,7 @@ class LearningStore:
                     msg += f", {domains} domain profiles"
                 print(f"{Colors.info(msg)}")
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     # Public aliases used by ``main.py --show-learned``.
     def load(self):
@@ -179,16 +180,16 @@ class LearningStore:
                     try:
                         os.unlink(tmp_path)
                     except OSError:
-                        pass
+                        logging.getLogger(__name__).debug("suppressed error", exc_info=True)
             finally:
                 fcntl.flock(lock_fd, fcntl.LOCK_UN)
                 lock_fd.close()
                 try:
                     os.unlink(lock_path)
                 except OSError:
-                    pass
+                    logging.getLogger(__name__).debug("suppressed error", exc_info=True)
         except (IOError, OSError):
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     # ------------------------------------------------------------------
     # Recording

@@ -16,6 +16,7 @@ Persistence is optional — pass ``state_path`` to have arm counts survive
 across scans of the same target.
 """
 from __future__ import annotations
+import logging
 
 import json
 import random
@@ -70,7 +71,7 @@ class ThompsonBandit:
             self.state_path.parent.mkdir(parents=True, exist_ok=True)
             self.state_path.write_text(json.dumps(self._arms))
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     # ------- introspection -------
 

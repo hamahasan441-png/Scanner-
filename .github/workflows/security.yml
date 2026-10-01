@@ -86,13 +86,8 @@ jobs:
           pip install -r requirements.txt
           pip install pip-audit
 
-      - name: Run pip-audit
-        run: pip-audit --strict --desc
-        continue-on-error: true
-
-      - name: Run pip-audit (JSON report)
-        run: pip-audit --format json --output pip-audit-results.json
-        continue-on-error: true
+      - name: Audit pinned requirements
+        run: python security/audit_pins.py
 
       - name: Upload pip-audit results
         if: always()

@@ -33,6 +33,7 @@ Each adapter follows the standard ToolResult interface:
   .is_available() -> bool
   .run(target, **opts) -> ToolResult
 """
+import logging
 
 import json
 import os
@@ -65,7 +66,7 @@ def _allowed_wordlist_roots() -> List[str]:
         if atomic_home:
             roots.append(atomic_home)
     except Exception:
-        pass
+        logging.getLogger(__name__).debug("suppressed error", exc_info=True)
     roots.append(tempfile.gettempdir())
     return [os.path.realpath(r) for r in roots if r and os.path.isdir(r)]
 
@@ -176,7 +177,7 @@ class AmassAdapter:
                     except json.JSONDecodeError:
                         continue
         except (IOError, OSError):
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
         parsed = {
             "total_subdomains": len(subdomains),
@@ -544,7 +545,7 @@ class FfufAdapter:
                     }
                 )
         except (json.JSONDecodeError, TypeError):
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
         return findings
 
 
@@ -759,12 +760,12 @@ class GobusterAdapter:
                             try:
                                 finding["status"] = int(parts[i + 1].rstrip(")"))
                             except ValueError:
-                                pass
+                                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
                         if p == "[Size:" and i + 1 < len(parts):
                             try:
                                 finding["size"] = int(parts[i + 1].rstrip("]"))
                             except ValueError:
-                                pass
+                                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
                     findings.append(finding)
             elif mode == "dns":
                 # Format: Found: subdomain.example.com
@@ -962,7 +963,7 @@ class MasscanAdapter:
                             }
                         )
         except (json.JSONDecodeError, IOError, OSError):
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
         return findings
 
 
@@ -1204,7 +1205,7 @@ class ArjunAdapter:
                                     }
                                 )
         except (json.JSONDecodeError, IOError, OSError):
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
         return findings
 
 
@@ -1380,7 +1381,7 @@ class DirsearchAdapter:
                             }
                         )
         except (json.JSONDecodeError, IOError, OSError):
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
         return findings
 
 

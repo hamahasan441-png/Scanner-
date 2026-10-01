@@ -6,6 +6,7 @@ ATOMIC FRAMEWORK — Phase L: Out-of-Band (OOB) Callback Infrastructure
 Provides a lightweight HTTP callback server and DNS polling integration
 for confirming blind vulnerabilities (SSRF, XXE, SQLi, CMDi, Blind XSS).
 """
+import logging
 
 import uuid
 import time
@@ -177,7 +178,7 @@ class InteractShPoller:
                 data = resp.json()
                 return data.get("data", [])
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
         return []
 
 

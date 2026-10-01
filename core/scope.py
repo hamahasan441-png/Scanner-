@@ -10,6 +10,7 @@ Enforces target scope and scanning policies:
   - Blocks out-of-scope endpoints
   - Enforces rate-limit policies
 """
+import logging
 
 import time
 import threading
@@ -243,7 +244,7 @@ class ScopePolicy:
                 # Also check for ::ffff:x.x.x.x manual form
                 # ipaddress already handles, but fallback
         except ValueError:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
         # Pure decimal IPv4 (single number)
         if h.isdigit():
@@ -253,7 +254,7 @@ class ScopePolicy:
                 if 0 <= num <= 0xFFFFFFFF:
                     return str(ipaddress.IPv4Address(num))
             except (ValueError, ipaddress.AddressValueError):
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
         # Hex single number like 0x7f000001
         if h.startswith("0x"):
@@ -263,7 +264,7 @@ class ScopePolicy:
                 if 0 <= num <= 0xFFFFFFFF:
                     return str(ipaddress.IPv4Address(num))
             except ValueError:
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
         # Try to parse as IPv4 with parts that may be octal/hex, including
         # the BSD inet_aton shortened forms (SEC-008):
@@ -312,7 +313,7 @@ class ScopePolicy:
             # For IPv6, return compressed lowercase
             return ip.compressed.lower()
         except ValueError:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
         return ""
 

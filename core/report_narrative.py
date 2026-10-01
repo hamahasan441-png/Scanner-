@@ -24,6 +24,7 @@ where:
                       higher (kills near-duplicates in the top-N)
 """
 from __future__ import annotations
+import logging
 
 import html
 import re
@@ -141,7 +142,7 @@ def _severity(finding: Any) -> float:
         try:
             return float(cvss)
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
     sev = str(_get(finding, "severity", "") or "").lower()
     return {"critical": 9.5, "high": 7.5, "medium": 5.0, "low": 3.0, "info": 1.0}.get(sev, 5.0)
 

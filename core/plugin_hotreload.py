@@ -38,7 +38,7 @@ try:
     from watchdog.events import FileSystemEventHandler
     _WATCHDOG_AVAILABLE = True
 except ImportError:
-    pass
+    logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
 POLL_INTERVAL = 5  # seconds between directory polls (fallback)
 
@@ -117,7 +117,7 @@ class PluginHotReloader:
                 self._observer.stop()
                 self._observer.join(timeout=5)
             except Exception:
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=5)
 
@@ -196,5 +196,5 @@ class PluginHotReloader:
         try:
             self.plugin_manager.unload_plugin(name)
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
         self._load_plugin(name)

@@ -336,7 +336,7 @@ def run_regulated_mission(config: dict, target: str):
             if hasattr(_main_mod, "AtomicEngine") and isinstance(_main_mod.AtomicEngine, _mock.MagicMock):
                 return _main_mod.AtomicEngine
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
         try:
             from core.engine import AtomicEngine as _Real
             return _Real

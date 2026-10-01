@@ -10,6 +10,7 @@ uploaded web shells (managed by :mod:`modules.shell.manager`).  When
 the handler attempts to deploy a minimal web shell and drop into an
 interactive pseudo-terminal session.
 """
+import logging
 
 from typing import Optional, Dict, List
 
@@ -83,7 +84,7 @@ class OSShellHandler:
             if shells:
                 return shells[0]
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
         return None
 
     def _deploy_shell(self, findings, forms) -> Optional[str]:

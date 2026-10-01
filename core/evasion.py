@@ -8,6 +8,7 @@ Provides:
   M2. Adaptive payload mutation with feedback loop
   M3. Protocol-level evasion (chunked splitting, H2 abuse)
 """
+import logging
 
 import re
 import random
@@ -77,7 +78,7 @@ class WAFEvasionEngine:
                 if resp and self._is_blocked(resp):
                     self._blocked_chars.add(char)
             except Exception:
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
         for kw in test_keywords:
             try:
@@ -85,7 +86,7 @@ class WAFEvasionEngine:
                 if resp and self._is_blocked(resp):
                     self._blocked_keywords.add(kw.lower())
             except Exception:
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
         return {
             "blocked_chars": list(self._blocked_chars),
@@ -111,7 +112,7 @@ class WAFEvasionEngine:
             try:
                 variants.append(encode_fn(payload))
             except Exception:
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
         return variants
 
     # ------------------------------------------------------------------
@@ -153,7 +154,7 @@ class WAFEvasionEngine:
                 # Blocked → mutate
                 current = self.mutate_payload(payload, rnd)
             except Exception:
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
         self._bypass_stats["failures"] += 1
         return None, None
 

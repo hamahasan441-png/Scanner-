@@ -13,6 +13,7 @@ Additionally provides a multi-repeat payload testing helper that sends
 3-5 copies of a payload request and aggregates the results, reducing
 noise and improving confidence.
 """
+import logging
 
 import time
 import hashlib
@@ -179,7 +180,7 @@ class BaselineEngine:
                     last_body = resp.text
                     last_headers = dict(resp.headers)
             except Exception:
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
         if timings:
             result.time_mean = statistics.mean(timings)
@@ -241,7 +242,7 @@ class BaselineEngine:
             if resp is not None and probe in resp.text:
                 return True
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
         return False
 
@@ -278,7 +279,7 @@ class BaselineEngine:
                     status_codes.append(resp.status_code)
                     texts.append(resp.text)
             except Exception:
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
         result = {
             "timings": timings,

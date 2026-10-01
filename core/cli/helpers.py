@@ -4,6 +4,8 @@
 ATOMIC FRAMEWORK - CLI Helpers
 Small utility functions previously embedded in main.py
 """
+import logging
+
 import os
 import sys
 import warnings
@@ -72,7 +74,7 @@ def startup_update_notice():
             print(f"{Colors.warning('⇧ A new ATOMIC version is available')} "
                   f"(latest {status.latest}). Run {Colors.BOLD}--update{Colors.RESET} to upgrade.")
     except Exception:
-        pass
+        logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
 
 def maybe_normalize_url(url: str, field_name: str = "url") -> str:

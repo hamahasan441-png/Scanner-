@@ -18,6 +18,7 @@ For AWS SigV4 the boto3 helper is used *if* available (that avoids a
 compact SigV4 implementation local to this file.
 """
 from __future__ import annotations
+import logging
 
 import base64
 import datetime as _dt
@@ -97,7 +98,7 @@ def extract_credentials(text: str, source: str = "") -> list[Credential]:
             if sa.get("type") == "service_account":
                 out.append(Credential(kind="gcp", value=sa, source=source, context=""))
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
     for m in _GCP_KEY.finditer(text):
         out.append(Credential(
             kind="gcp-apikey", value={"api_key": m.group(1)}, source=source,

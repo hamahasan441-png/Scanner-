@@ -17,6 +17,7 @@ Usage:
     result = verifier.run(raw_findings)
     # result.verified_findings, result.exploit_chains
 """
+import logging
 
 import re
 import time
@@ -496,7 +497,7 @@ class ChainDetector:
                             f"{Colors.critical(f'Exploit chain detected: {chain.name} (CVSS {chain.combined_cvss})')}"
                         )
             except Exception:
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
         return chains
 
@@ -606,7 +607,7 @@ class PostWorkerVerifier:
                 if resp and self._check_evidence(finding, resp, elapsed):
                     confirmations += 1
             except Exception:
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
             time.sleep(0.15)
 
         return confirmations

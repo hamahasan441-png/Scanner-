@@ -13,6 +13,7 @@ Returns a ``VerifyResult`` consumed by downstream runners.
 """
 
 from __future__ import annotations
+import logging
 
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Dict, Optional
@@ -104,7 +105,7 @@ class VerifyRunner:
                                 if hasattr(mod, "test"):
                                     mod.test(ep["url"], ep["method"], ep["param"], ep["value"])
                             except Exception:
-                                pass
+                                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
             except Exception as e:
                 if self.config.get("verbose"):
                     print(f"{Colors.error(f'Adaptive re-scan error: {e}')}")

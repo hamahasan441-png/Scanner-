@@ -182,7 +182,7 @@ def _init_otel(service_name: str = "atomic-framework"):
         _tracer = trace.get_tracer(service_name)
         _OTEL_AVAILABLE = True
     except ImportError:
-        pass
+        logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
 
 def span(name: str, attributes: Optional[Dict[str, Any]] = None):
@@ -202,7 +202,7 @@ def span(name: str, attributes: Optional[Dict[str, Any]] = None):
             try:
                 s.set_attribute(k, v)
             except Exception:
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
     return s
 
 
