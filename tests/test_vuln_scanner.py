@@ -21,6 +21,37 @@ from legacy.scanner.vuln_scanner import (
 )
 
 
+class TestSingleImplementation(unittest.TestCase):
+    """scanner/vuln_scanner.py is an alias, not a second copy."""
+
+    def test_public_names_are_the_legacy_objects(self):
+        import importlib.util
+        from pathlib import Path
+
+        import legacy.scanner.vuln_scanner as canonical
+
+        path = Path(__file__).resolve().parents[1] / "scanner" / "vuln_scanner.py"
+        # Load the file directly. Pytest puts the repo's parent on sys.path,
+        # so ``import scanner`` is the repo package, not this subdirectory.
+        spec = importlib.util.spec_from_file_location("public_vuln_scanner_alias", path)
+        public = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(public)
+
+        self.assertLess(len(path.read_text(encoding="utf-8").splitlines()), 80)
+        for name in (
+            "VulnScanner",
+            "ScanFinding",
+            "format_findings",
+            "SQLiTester",
+            "XSSTester",
+            "WAFDetector",
+            "SSRFTester",
+            "SSTITester",
+            "OpenRedirectTester",
+        ):
+            self.assertIs(getattr(public, name), getattr(canonical, name), name)
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # Mock helpers
 # ═══════════════════════════════════════════════════════════════════════════
