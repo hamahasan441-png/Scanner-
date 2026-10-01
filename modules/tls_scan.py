@@ -148,20 +148,17 @@ def _parse_der_cert(der: bytes) -> Tuple[Optional[float], List[str]]:
         return None, []
     try:
         from cryptography import x509
-        from cryptography.hazmat.backends import default_backend
         from cryptography.x509.oid import NameOID, ExtensionOID
     except Exception:
         return None, []
     try:
-        cert = x509.load_der_x509_certificate(der, default_backend())
+        cert = x509.load_der_x509_certificate(der)
     except Exception:
         return None, []
 
     not_after_epoch: Optional[float] = None
     try:
-        # not_valid_after is naive UTC — treat it as UTC.
-        na = cert.not_valid_after
-        not_after_epoch = timegm(na.utctimetuple())
+        not_after_epoch = cert.not_valid_after_utc.timestamp()
     except Exception:
         logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 

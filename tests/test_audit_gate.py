@@ -38,11 +38,12 @@ class TestAuditIgnoreList(unittest.TestCase):
         text = (REPO / "security" / "pip-audit-ignore.txt").read_text(encoding="utf-8")
         raw = [line.split("#", 1)[0].strip() for line in text.splitlines()]
         raw = [line.split()[0] for line in raw if line]
-        self.assertEqual(len(raw), len(set(raw)))
-        self.assertGreaterEqual(len(ids), 1)
+        self.assertEqual(ids, set(raw))
         pins = exact_pins((REPO / "requirements.txt").read_text(encoding="utf-8"))
         self.assertTrue(all("==" in pin for pin in pins))
-        self.assertIn("cryptography==43.0.3", pins)
+        self.assertIn("urllib3==2.8.0", pins)
+        self.assertIn("PyJWT==2.15.1", pins)
+        self.assertIn("cryptography==50.0.2", pins)
 
 
 if __name__ == "__main__":

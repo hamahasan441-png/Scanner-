@@ -1,29 +1,5 @@
-# Known advisories on the current exact pins in requirements.txt.
+# Known advisories on the exact pins in requirements.txt.
 # security/audit_pins.py fails the build on any advisory that is not listed here.
-# When a pin is bumped, delete the ids that no longer apply.
-#
-# urllib3==2.7.0 — fixed in 2.8.0
-CVE-2026-97687
-CVE-2026-97688
-CVE-2026-97689
-# PyJWT==2.13.0 — fixed in 2.14.0 / 2.15.0
-CVE-2026-101917
-CVE-2026-101918
-CVE-2026-102265
-CVE-2026-102266
-CVE-2026-102267
-CVE-2026-102268
-CVE-2026-102269
-CVE-2026-102270
-CVE-2026-102271
-CVE-2026-102272
-CVE-2026-102273
-CVE-2026-102274
-CVE-2026-103001
-# cryptography==43.0.3 — fixes span 44.0.1 through 49.0.0
-PYSEC-2026-1284
-PYSEC-2026-2141
-PYSEC-2026-35
-PYSEC-2026-3553
-PYSEC-2026-3554
-GHSA-537c-gmf6-5ccf
+# The urllib3, PyJWT, and cryptography pins were bumped in 2026-10 and the
+# previous ids no longer apply. Leave this file empty of ids until a pin
+# has an advisory that cannot be fixed in the same change.
