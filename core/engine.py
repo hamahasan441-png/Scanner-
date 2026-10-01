@@ -1207,19 +1207,9 @@ class AtomicEngine:
         prioritized_urls = self.prioritizer.prioritize_urls(urls)
 
         # ── §6. BASELINE ENGINE (Phase 12 of 21) ─────────────────────
-        self._set_phase(Phase.BASELINE)
-        print(f"{Colors.info('Building baselines...')}")
-        seen_baselines = set()
-        for ep in enriched_params:
-            bkey = f"{ep['method']}:{ep['url']}:{ep['param']}"
-            if bkey not in seen_baselines:
-                seen_baselines.add(bkey)
-                self.baseline_engine.get_baseline(
-                    ep["url"],
-                    ep["method"],
-                    ep["param"],
-                    ep["value"],
-                )
+        from core.runners.scan_runner import ScanRunner
+
+        ScanRunner(self)._build_baselines(enriched_params)
 
         # ── §7. ADAPTIVE TESTING (Phase 13 of 21, AI-driven module sel.) ──
         self._set_phase(Phase.ADAPTIVE_TESTING)

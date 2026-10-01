@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from config import Colors
+from core.pipeline_contract import Phase
 
 if TYPE_CHECKING:
     from core.engine import AtomicEngine
@@ -150,6 +151,7 @@ class ScanRunner:
             return None
 
     def _build_baselines(self, enriched_params):
+        self.engine._set_phase(Phase.BASELINE)
         print(f"{Colors.info('Building baselines...')}")
         seen: set = set()
         for ep in enriched_params:

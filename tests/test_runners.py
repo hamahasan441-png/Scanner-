@@ -523,11 +523,17 @@ class TestBuildBaselines(unittest.TestCase):
         ScanRunner(eng)._build_baselines(params)
         # get:http://a:q appears twice, second is deduped; post:http://a:q is unique
         self.assertEqual(eng.baseline_engine.get_baseline.call_count, 2)
+        from core.pipeline_contract import Phase
+
+        eng._set_phase.assert_called_once_with(Phase.BASELINE)
 
     def test_empty_params(self):
         eng = _make_engine()
         ScanRunner(eng)._build_baselines([])
         eng.baseline_engine.get_baseline.assert_not_called()
+        from core.pipeline_contract import Phase
+
+        eng._set_phase.assert_called_once_with(Phase.BASELINE)
 
 
 class TestRunModules(unittest.TestCase):
