@@ -178,6 +178,6 @@ class WAFAIBypass:
             try:
                 learning.record_success(vuln_type, payload)
             except Exception:
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
         if self.verbose:
             logger.info("[WAF-AI] Bypass success recorded for payload: %s", payload[:50])

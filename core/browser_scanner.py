@@ -43,13 +43,13 @@ try:
     import playwright  # noqa: F401
     _PLAYWRIGHT_AVAILABLE = True
 except ImportError:
-    pass
+    logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
 try:
     from selenium import webdriver  # noqa: F401
     _SELENIUM_AVAILABLE = True
 except ImportError:
-    pass
+    logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
 
 # ---------------------------------------------------------------------------
@@ -250,7 +250,7 @@ class BrowserScanner:
                             self.engine.add_finding_dict(finding)
                             break
                         except Exception:
-                            pass
+                            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
                     # Report DOM sinks as informational findings — mirrors
                     # the Playwright path so users get sink coverage from

@@ -12,6 +12,7 @@ Usage:
     tag_finding(finding)   # sets finding.technique_id and .tactic
 """
 from __future__ import annotations
+import logging
 
 from typing import Any
 
@@ -113,7 +114,7 @@ def tag_finding(finding: Any) -> None:
                 setattr(finding, "technique_name", tname)
                 setattr(finding, "tactic", tactic)
             except Exception:
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
 
 def tag_all(findings: list[Any]) -> list[Any]:

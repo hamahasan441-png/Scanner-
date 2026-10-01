@@ -24,6 +24,7 @@ Only the tags present in `context` are used; missing keys are treated
 as wildcards.
 """
 from __future__ import annotations
+import logging
 
 import json
 import random
@@ -138,7 +139,7 @@ class ContextualBandit:
                 "p": self._posteriors, "m": self._marginals,
             }))
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
 
 # --------------------------------------------------------------------------- #

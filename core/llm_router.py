@@ -31,6 +31,7 @@ Profiles
 The multi-model concept is inspired by PurpleAILAB/Decepticon's routing
 design — only the routing idea was borrowed, no other code or assets.
 """
+import logging
 
 from config import Colors
 
@@ -222,7 +223,7 @@ class LLMRouter:
             try:
                 c.unload()
             except Exception:
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
         self._cache.clear()
         self._failed.clear()
 

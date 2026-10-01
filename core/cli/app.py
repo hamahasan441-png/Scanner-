@@ -11,6 +11,8 @@ Usage:
 
 Or via python -m core.cli
 """
+import logging
+
 import sys
 import os
 import time
@@ -40,7 +42,7 @@ def _get_print_banner():
         if hasattr(_main, "print_banner") and isinstance(_main.print_banner, _mock.MagicMock):
             return _main.print_banner
     except Exception:
-        pass
+        logging.getLogger(__name__).debug("suppressed error", exc_info=True)
     try:
         from core.banner import print_banner as _real
         return _real
@@ -107,7 +109,7 @@ def run_cli(argv=None):
     try:
         handle_auto_update(args, Config)
     except Exception:
-        pass
+        logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     # Config file handling
     if handle_config_commands(args):

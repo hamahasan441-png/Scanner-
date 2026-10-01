@@ -91,7 +91,7 @@ class WatchSession:
                     data = json.loads(raw)
                     return set(data.get("fingerprints", []))
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
         return set()
 
     def _save_known_fingerprints(self):

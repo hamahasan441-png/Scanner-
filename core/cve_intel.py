@@ -23,6 +23,7 @@ already ships ``requests`` but this module deliberately uses stdlib so
 it works in air-gapped labs behind a squid proxy.
 """
 from __future__ import annotations
+import logging
 
 import json
 import os
@@ -79,7 +80,7 @@ def _flush_cache(data: dict) -> None:
     try:
         _cache_path().write_text(json.dumps(data))
     except Exception:
-        pass
+        logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
 
 # --------------------------------------------------------------------------- #

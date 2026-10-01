@@ -98,7 +98,7 @@ def finalize(engine: Any) -> dict[str, Any]:
     try:
         engine.pipeline_stats = stats  # type: ignore[attr-defined]
     except Exception:
-        pass
+        logging.getLogger(__name__).debug("suppressed error", exc_info=True)
     return stats
 
 
@@ -180,7 +180,7 @@ def _derive_fingerprint(engine: Any, fingerprint_response) -> dict[str, str]:
             if isinstance(fp, dict):
                 return {k: str(v) for k, v in fp.items()}
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
     # Fall back to sniffing engine.last_response headers if the engine
     # exposes one.
     resp = getattr(engine, "last_response", None) or getattr(engine, "initial_response", None)
@@ -188,7 +188,7 @@ def _derive_fingerprint(engine: Any, fingerprint_response) -> dict[str, str]:
         try:
             return fingerprint_response(dict(resp.headers or {}), getattr(resp, "text", "") or "")
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
     return {}
 
 

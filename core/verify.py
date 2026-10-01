@@ -182,7 +182,7 @@ class RepeatabilityVerifier(IVerifier):
 
                 time.sleep(0.1)
             except Exception:
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
         result.confirmations = confirmations
         result.verified = confirmations >= max(1, int(self._n * MIN_CONFIRMATIONS_RATIO))
@@ -272,7 +272,7 @@ class TimingVerifier(IVerifier):
                 if resp is not None:
                     timings.append(elapsed)
             except Exception:
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
         if not timings:
             result.notes = "No timing samples collected"

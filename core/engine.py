@@ -247,7 +247,7 @@ class AtomicEngine:
             self.requester.attach_rate_limiter(self.scope)
         except AttributeError:
             # Older Requester implementations without the hook — nothing to do.
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
         # SECURITY (SEC-005): attach the centralized network policy when it
         # is active (allowed domains configured and/or private-target
@@ -782,7 +782,7 @@ class AtomicEngine:
             if init_resp:
                 self.context.fingerprint_response(init_resp)
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
         # Save scan to database
         if self.db:
@@ -1387,7 +1387,7 @@ class AtomicEngine:
                                         ep["value"],
                                     )
                             except Exception:
-                                pass
+                                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
             except Exception as e:
                 if self.config.get("verbose"):
                     print(f"{Colors.error(f'Adaptive re-scan error: {e}')}")
@@ -1799,14 +1799,14 @@ class AtomicEngine:
             try:
                 self._compliance_report = self.compliance.analyze(self.findings, scan_id=self.scan_id, target=target)
             except Exception:
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
         # ── Plugin hooks: post_scan ──────────────────────────────────
         if self.plugins:
             try:
                 self.plugins.fire_hook("post_scan", engine=self, findings=self.findings)
             except Exception:
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _enrich_finding_signals(self):
         """Run multi-signal analysis on existing findings to refine confidence."""
@@ -1977,7 +1977,7 @@ class AtomicEngine:
                     if not self.config.get("quiet"):
                         print(f"    {Colors.CYAN}[AI]{Colors.RESET} {analysis['llm_analysis'][:120]}")
             except Exception:
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def build_surface(
         self,

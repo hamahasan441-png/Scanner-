@@ -8,6 +8,7 @@ Implements the OBSERVE → THINK → ACT → REFLECT → ADAPT loop
 with target decomposition, hypothesis generation, goal planning,
 and pivot-driven scope expansion.
 """
+import logging
 
 from urllib.parse import urlparse, parse_qs
 
@@ -221,7 +222,7 @@ class AgentScanner:
                         module.test(target, "GET", param_name, val)
                         result["success"] = True
                     except Exception:
-                        pass
+                        logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
         # Check if any new findings were added during execution.
         # Findings are added in real-time via engine.add_finding().

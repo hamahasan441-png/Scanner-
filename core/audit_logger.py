@@ -142,7 +142,7 @@ class AuditLogger:
             try:
                 os.chmod(key_path, 0o600)
             except OSError:
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
             return generated, "file_new"
         except OSError as exc:
             _logger.warning(

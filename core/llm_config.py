@@ -21,6 +21,7 @@ Run the interactive wizard with::
 Inspired by Decepticon's ``decepticon config`` flow — only the
 configuration-flow concept was borrowed.
 """
+import logging
 
 import json
 import os
@@ -95,7 +96,7 @@ def save_config(cfg):
     try:
         os.chmod(CONFIG_PATH, stat.S_IRUSR | stat.S_IWUSR)  # 0600 — keys live here
     except OSError:
-        pass
+        logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
 
 # ---------------------------------------------------------------------

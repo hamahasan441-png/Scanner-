@@ -3,6 +3,8 @@
 """
 ATOMIC FRAMEWORK - CLI Commands: Reporting, DB, Shell, Deps
 """
+import logging
+
 import sys
 import re
 from config import Colors
@@ -32,7 +34,7 @@ def _get_main_patched(name):
         if isinstance(obj, _mock.MagicMock):
             return obj
     except Exception:
-        pass
+        logging.getLogger(__name__).debug("suppressed error", exc_info=True)
     return None
 
 
@@ -77,7 +79,7 @@ def handle_report_commands(args):
             from utils.database import list_scans as _legacy_list
             _legacy_list()
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
         try:
             from utils.database import Database
             db = Database()
@@ -102,7 +104,7 @@ def handle_report_commands(args):
             from utils.database import clear_database as _legacy_clear
             _legacy_clear()
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
         try:
             from utils.database import Database
             db = Database()
@@ -142,7 +144,7 @@ def handle_report_commands(args):
                 try:
                     manager.list_shells()
                 except Exception:
-                    pass
+                    logging.getLogger(__name__).debug("suppressed error", exc_info=True)
             # Fallback to DB
             try:
                 from utils.database import Database
@@ -165,7 +167,7 @@ def handle_report_commands(args):
                         except (KeyboardInterrupt, EOFError):
                             print()
             except Exception:
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
         except Exception as exc:
             print(f"{Colors.error(f'Shell manager error: {exc}')}")
         return True

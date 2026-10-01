@@ -26,6 +26,7 @@ Each ScanPlan carries:
     * ``normalized_target``    — the URL / hostport the engine should use
 """
 from __future__ import annotations
+import logging
 
 import ipaddress
 import re
@@ -154,7 +155,7 @@ def recognize(target: str) -> ScanPlan:
                 ],
             )
         except ValueError:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     # host:port ?
     m = _HOSTPORT_RE.match(t)

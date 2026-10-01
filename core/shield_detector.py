@@ -10,6 +10,7 @@ header signatures, and adversarial probe payloads.
 
 Returns a ShieldProfile dict consumed by downstream phases.
 """
+import logging
 
 import ipaddress
 import socket
@@ -120,7 +121,7 @@ def _build_cdn_networks():
             try:
                 nets[provider].append(ipaddress.ip_network(cidr, strict=False))
             except ValueError:
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
     return nets
 
 
@@ -213,7 +214,7 @@ class ShieldDetector:
             try:
                 resp = self.requester.request(target, "GET")
             except Exception:
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
         if resp and not result["detected"]:
             result = self._check_cdn_headers(resp, result)
 
@@ -292,18 +293,18 @@ class ShieldDetector:
                 for rdata in answers:
                     cnames.append(str(rdata.target).rstrip("."))
             except (dns.resolver.NoAnswer, dns.resolver.NXDOMAIN, dns.resolver.NoNameservers):
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
             except Exception:
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
             try:
                 answers = dns.resolver.resolve(hostname, "A")
                 for rdata in answers:
                     ips.append(str(rdata.address))
             except Exception:
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
         except ImportError:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
         # Fallback to socket
         if not ips:
@@ -313,7 +314,7 @@ class ShieldDetector:
                     if ip not in ips:
                         ips.append(ip)
             except (socket.gaierror, OSError):
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
         return ips, cnames
 

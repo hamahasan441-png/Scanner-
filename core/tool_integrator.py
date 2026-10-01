@@ -15,6 +15,7 @@ Each tool adapter follows a common interface:
   .is_available() → bool
   .run(target, **opts) → ToolResult
 """
+import logging
 
 import json
 import os
@@ -800,7 +801,7 @@ class FfufAdapter:
                     }
                 )
         except (json.JSONDecodeError, TypeError, AttributeError):
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
         return findings
 
 

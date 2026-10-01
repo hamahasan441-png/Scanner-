@@ -231,7 +231,7 @@ def enrich(engine: Any) -> dict:
             try:
                 setattr(f, "evidence_hash", hh)
             except Exception:
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
         except Exception as exc:
             logger.debug("hash compute failed: %s", exc)
 
@@ -239,7 +239,7 @@ def enrich(engine: Any) -> dict:
     try:
         setattr(engine, "_evidence_chain_root", root)
     except Exception:
-        pass
+        logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     stats = {
         "findings":       len(findings),

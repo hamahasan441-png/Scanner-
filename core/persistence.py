@@ -8,6 +8,7 @@ Unstoppable scanning with retry logic, automatic evasion escalation,
 scan progress tracking, and resume capability.  The scanner keeps
 going until every endpoint has been tested.
 """
+import logging
 
 import os
 import json
@@ -85,7 +86,7 @@ class PersistenceEngine:
                 if self.verbose and self.tested_endpoints:
                     print(f"{Colors.info(f'Resuming: {len(self.tested_endpoints)} endpoints already tested')}")
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def save_progress(self):
         """Persist scan progress to disk."""
@@ -100,7 +101,7 @@ class PersistenceEngine:
             with open(PROGRESS_FILE, "w") as f:
                 json.dump(data, f, indent=2, default=str)
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def clear_progress(self):
         """Clear saved progress (call after successful full scan)."""
@@ -111,7 +112,7 @@ class PersistenceEngine:
             if os.path.isfile(PROGRESS_FILE):
                 os.remove(PROGRESS_FILE)
         except OSError:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     # ------------------------------------------------------------------
     # Endpoint management
@@ -254,7 +255,7 @@ class PersistenceEngine:
             self.engine.evasion = EvasionEngine(new_level)
             self.engine.requester._evasion_engine = self.engine.evasion
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _reset_backoff(self):
         """Reset backoff after a success."""

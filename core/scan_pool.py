@@ -163,7 +163,7 @@ class ScanWorkerPool:
                     try:
                         self._progress_callback(result)
                     except Exception:
-                        pass
+                        logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
         return results
 

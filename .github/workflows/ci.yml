@@ -106,12 +106,13 @@ jobs:
 
       - name: Run unit tests
         run: |
-          # pytest-cov is installed above; collect coverage so the metric is
-          # actually reported. Non-blocking (no --cov-fail-under yet) to avoid
-          # false CI failures until a baseline floor is agreed.
+          # Measured 55% on 2026-10-01 with this same selection (unit tests,
+          # integration excluded). The floor is 50 so a one-version wobble
+          # does not fail the build. Raise it when coverage actually moves.
           python -m pytest tests/ -v --tb=short --ignore=tests/integration \
             --cov=core --cov=modules --cov=utils --cov=web --cov=scanner \
-            --cov-report=term-missing --cov-report=xml
+            --cov-report=term-missing --cov-report=xml \
+            --cov-fail-under=50
 
       - name: Upload coverage report
         if: always() && matrix.python-version == '3.12'
@@ -153,9 +154,8 @@ jobs:
           bandit -c pyproject.toml -r core/ modules/ utils/ web/ scanner/ \
             --severity-level high --confidence-level high
 
-      - name: Run pip-audit dependency check
-        run: |
-          pip-audit --strict --exit-zero || true
+      - name: Audit pinned requirements
+        run: python security/audit_pins.py
 
       - name: Dependency version sync check
         run: |

@@ -25,6 +25,7 @@ The multi-provider design is inspired by the multi-model routing
 concept in PurpleAILAB/Decepticon — only the LLM-routing idea was
 borrowed, not any other Decepticon code or assets.
 """
+import logging
 
 import json
 
@@ -147,7 +148,7 @@ class LLMSecurityAnalysisMixin:
                     val = float(line.split(":")[-1].strip())
                     result["confidence"] = max(0.0, min(1.0, val))
                 except (ValueError, IndexError):
-                    pass
+                    logging.getLogger(__name__).debug("suppressed error", exc_info=True)
                 break
         return result
 
@@ -205,7 +206,7 @@ class LLMSecurityAnalysisMixin:
             if start >= 0 and end > start:
                 return json.loads(response[start:end])
         except (json.JSONDecodeError, ValueError):
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
         return {"purpose": "unknown", "likely_vulns": [], "priority": "medium"}
 
     # ------------------------------------------------------------------

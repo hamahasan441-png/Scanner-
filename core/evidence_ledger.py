@@ -18,6 +18,7 @@ See PHILOSOPHY.md §4.
 """
 
 from __future__ import annotations
+import logging
 
 import hashlib
 import hmac
@@ -128,7 +129,7 @@ class EvidenceLedger:
         except OSError:
             # The ledger is best-effort persistence; a write failure
             # should not break the scan.
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def verify(self) -> bool:
         """Re-verify the chain. Returns True iff every entry is intact."""

@@ -197,12 +197,12 @@ def _library_available() -> bool:
         import curl_cffi  # noqa: F401
         return True
     except Exception:
-        pass
+        logging.getLogger(__name__).debug("suppressed error", exc_info=True)
     try:
         import tls_client  # noqa: F401
         return True
     except Exception:
-        pass
+        logging.getLogger(__name__).debug("suppressed error", exc_info=True)
     return False
 
 

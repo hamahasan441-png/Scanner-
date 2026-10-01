@@ -26,6 +26,7 @@ Multi-provider routing is inspired by PurpleAILAB/Decepticon's
 multi-model design — only the routing concept was borrowed, no other
 Decepticon code or assets.
 """
+import logging
 
 import os
 import time
@@ -172,7 +173,7 @@ class CloudLLM(LLMSecurityAnalysisMixin):
 
             return "litellm"
         except ImportError:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
         # 2) Native SDK for first-party providers.
         if self.provider == "anthropic":
@@ -181,7 +182,7 @@ class CloudLLM(LLMSecurityAnalysisMixin):
 
                 return "anthropic"
             except ImportError:
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
         if self.provider in (
             "openai",
@@ -197,7 +198,7 @@ class CloudLLM(LLMSecurityAnalysisMixin):
 
                 return "openai"
             except ImportError:
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
         # 3) Plain HTTP fallback for OpenAI-compatible endpoints.
         if self.provider in (

@@ -354,7 +354,7 @@ def _lookup_mitre_cwe(vuln_type: str) -> tuple:
         if ext:
             return (ext[0], "")  # (technique_id, cwe_unknown)
     except Exception:
-        pass
+        logging.getLogger(__name__).debug("suppressed error", exc_info=True)
     return ("", "")
 
 

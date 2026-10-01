@@ -20,6 +20,7 @@ Usage:
         agent_result=agent_data,
     )
 """
+import logging
 
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
@@ -229,7 +230,7 @@ class OutputPhase:
             try:
                 generator.finding_groups = finding_groups
             except Exception:
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
         paths = {}
         if fmt == "all":

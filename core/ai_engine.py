@@ -9,6 +9,7 @@ anomaly detection, adaptive attack strategy, vulnerability correlation,
 exploit difficulty estimation, and confidence calibration using
 statistical learning and heuristic models.
 """
+import logging
 
 import os
 import json
@@ -330,7 +331,7 @@ class AIEngine:
                     msg += f" (calibration accuracy: {accuracy:.0%})"
                 print(f"{Colors.info(msg)}")
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def save(self):
         """Persist AI data to disk."""
@@ -345,7 +346,7 @@ class AIEngine:
             with open(AI_DATA_FILE, "w") as f:
                 json.dump(data, f, indent=2, default=str)
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     # ------------------------------------------------------------------
     # Vulnerability Prediction

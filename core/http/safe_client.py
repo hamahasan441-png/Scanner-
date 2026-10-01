@@ -1,5 +1,7 @@
 """SafeHTTPClient — centralized SSRF / scope defense."""
 from __future__ import annotations
+import logging
+
 import ipaddress
 import re
 import socket
@@ -137,7 +139,7 @@ class SafeHTTPClient:
             ip = ipaddress.ip_address(host.strip("[]"))
             return self.ip_policy.validate(ip)
         except ValueError:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
         ips = self.dns_policy.resolve(host)
         if not ips:
             # don't block on DNS failure for now, but scope will
@@ -150,7 +152,7 @@ class SafeHTTPClient:
                 if not self.scope.is_in_scope(url):
                     return f"scope violation: {url}"
             except Exception:
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
         return None
 
     def validate_request(self, url: str) -> tuple[bool,str]:

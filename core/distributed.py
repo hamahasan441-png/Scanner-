@@ -127,7 +127,7 @@ class DistributedController:
                 else:
                     self.client.rpush(RESULT_QUEUE_KEY, msg)
             except json.JSONDecodeError:
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
         if remaining:
             logger.warning(
@@ -167,13 +167,13 @@ class DistributedWorker:
             self.client.sadd(HEARTBEAT_KEY, self.worker_id)
             self.client.expire(HEARTBEAT_KEY, 60)
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def _unregister(self):
         try:
             self.client.srem(HEARTBEAT_KEY, self.worker_id)
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def run(self, config_override: Optional[dict] = None):
         """Start the worker loop.  Blocks until stopped."""

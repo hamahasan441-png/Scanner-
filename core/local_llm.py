@@ -16,6 +16,7 @@ Usage:
   python main.py --download-model                             # download model only
   python main.py -t https://target.com --local-llm --llm-model /path/to/model.gguf
 """
+import logging
 
 import os
 import sys
@@ -462,7 +463,7 @@ class LocalLLM:
                     val = float(line.split(":")[-1].strip())
                     result["confidence"] = max(0.0, min(1.0, val))
                 except (ValueError, IndexError):
-                    pass
+                    logging.getLogger(__name__).debug("suppressed error", exc_info=True)
                 break
 
         return result
@@ -538,7 +539,7 @@ class LocalLLM:
             if start >= 0 and end > start:
                 return json.loads(response[start:end])
         except (json.JSONDecodeError, ValueError):
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
         return {"purpose": "unknown", "likely_vulns": [], "priority": "medium"}
 
     def analyze_waf_strategy(self, waf_name, vuln_type, blocked_payloads):

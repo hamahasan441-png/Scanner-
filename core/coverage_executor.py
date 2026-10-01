@@ -32,6 +32,7 @@ SKIPPED          refused (invasive validator, or out of scope)
 """
 
 from __future__ import annotations
+import logging
 
 from typing import Optional
 
@@ -71,7 +72,7 @@ class RealValidatorExecutor:
                 if not scope.is_in_scope(url):
                     return CoverageState.SKIPPED
             except Exception:
-                pass  # a scope check error must not decide the outcome
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)  # a scope check error must not decide the outcome
 
         module = getattr(self.engine, "_modules", {}).get(validator)
         if module is None:

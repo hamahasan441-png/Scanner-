@@ -11,6 +11,7 @@ Multi-track approach:
 
 Candidate IPs are scored and the top candidate is verified.
 """
+import logging
 
 import hashlib
 import ipaddress
@@ -44,7 +45,7 @@ def _build_cdn_networks():
             try:
                 nets.append(ipaddress.ip_network(cidr, strict=False))
             except ValueError:
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
     return nets
 
 
@@ -229,7 +230,7 @@ class RealIPScanner:
                                         }
                                     )
                         except (socket.gaierror, OSError):
-                            pass
+                            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
         except Exception as e:
             if self.verbose:
                 print(f"  {Colors.warning(f'crt.sh query failed: {e}')}")
@@ -273,7 +274,7 @@ class RealIPScanner:
             if resp and resp.status_code == 200 and resp.content:
                 result["hash"] = _mmh3_hash(resp.content)
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
         return result
 
     def _check_spf_mx(self, domain):
@@ -301,7 +302,7 @@ class RealIPScanner:
                                         }
                                     )
             except Exception:
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
             # MX records → resolve to IPs
             try:
@@ -320,11 +321,11 @@ class RealIPScanner:
                                     }
                                 )
                     except (socket.gaierror, OSError):
-                        pass
+                        logging.getLogger(__name__).debug("suppressed error", exc_info=True)
             except Exception:
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
         except ImportError:
-            pass  # dnspython not available
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)  # dnspython not available
 
         return candidates
 
@@ -343,7 +344,7 @@ class RealIPScanner:
                         }
                     )
         except (socket.gaierror, OSError):
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
         return candidates
 
     # ── Track B — subdomain intel ─────────────────────────────────────
@@ -365,7 +366,7 @@ class RealIPScanner:
                         if line.endswith(domain) and line != domain:
                             subs.add(line)
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
         return list(subs)
 
     def _enumerate_subdomains_active(self, domain):
@@ -376,7 +377,7 @@ class RealIPScanner:
         try:
             wildcard_ip = socket.gethostbyname(f"randomxyz123notexist.{domain}")
         except (socket.gaierror, OSError):
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
         for word in SUBDOMAIN_WORDLIST:
             sub = f"{word}.{domain}"
@@ -385,7 +386,7 @@ class RealIPScanner:
                 if ip != wildcard_ip:
                     found.append(sub)
             except (socket.gaierror, OSError):
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
         return found
 
     def _check_zone_transfer(self, domain):
@@ -409,12 +410,12 @@ class RealIPScanner:
                         print(f"  {Colors.critical(f'Zone transfer succeeded on {ns_host}!')}")
                     break
                 except Exception:
-                    pass
+                    logging.getLogger(__name__).debug("suppressed error", exc_info=True)
         # `except Exception` already covers ImportError; the original
         # tuple form was redundant. Kept broad because dns.zone may be
         # unavailable on minimal installs.
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
         return results
 
     def _triage_subdomain_ips(self, subdomains):
@@ -436,7 +437,7 @@ class RealIPScanner:
                             }
                         )
             except (socket.gaierror, OSError):
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
         return candidates
 
     # ── Track C — active probing ──────────────────────────────────────
@@ -472,7 +473,7 @@ class RealIPScanner:
                     if resp.status_code < 400:
                         return True
             except Exception:
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
         return False
 
     def _port_scan_candidates(self, candidate_ips, ports=None):
@@ -489,7 +490,7 @@ class RealIPScanner:
                         open_ips.append({"ip": ip, "port": port})
                     s.close()
                 except Exception:
-                    pass
+                    logging.getLogger(__name__).debug("suppressed error", exc_info=True)
         return open_ips
 
     # ── scoring ───────────────────────────────────────────────────────

@@ -24,6 +24,7 @@ Design rules:
 """
 
 from __future__ import annotations
+import logging
 
 import json
 import os
@@ -266,7 +267,7 @@ def _write_cache(data: dict) -> None:
         with open(_cache_path(), "w", encoding="utf-8") as fh:
             json.dump(data, fh)
     except OSError:
-        pass
+        logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
 
 def check_throttled(interval: int | None = None) -> UpdateStatus:

@@ -22,6 +22,7 @@ Plugin registration:
   - Drop-in: place plugin folder in ``plugins/`` directory
   - API: call ``plugin_manager.register(plugin_instance)``
 """
+import logging
 
 import importlib
 import importlib.util
@@ -242,7 +243,7 @@ class PluginManager:
                     path=plugin_path,
                 )
             except Exception:
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
             return plugin_info
         except Exception:
@@ -253,7 +254,7 @@ class PluginManager:
                 if added and plugin_path in sys.path:
                     sys.path.remove(plugin_path)
             except ValueError:
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
     def load_all(self) -> int:
         """Discover and load all plugins. Returns count of loaded plugins."""
@@ -288,7 +289,7 @@ class PluginManager:
             try:
                 plugin.instance.teardown()
             except Exception:
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)
         return plugin is not None
 
     # --- Query ---
@@ -411,4 +412,4 @@ class PluginManager:
             try:
                 cb(**kwargs)
             except Exception:
-                pass
+                logging.getLogger(__name__).debug("suppressed error", exc_info=True)

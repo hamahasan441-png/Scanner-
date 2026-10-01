@@ -15,6 +15,7 @@ Usage:
     pool = ScanWorkerPool(engine)
     raw_findings = pool.run(scan_queue)
 """
+import logging
 
 import re
 import time
@@ -111,7 +112,7 @@ class DifferentialEngine:
                 baseline["response_time"] = elapsed
                 baseline["headers"] = dict(resp.headers) if hasattr(resp, "headers") else {}
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
         # Error request (invalid param value)
         try:
@@ -121,7 +122,7 @@ class DifferentialEngine:
                 baseline["error_status"] = resp.status_code
                 baseline["error_length"] = len(resp.text) if hasattr(resp, "text") else 0
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed error", exc_info=True)
 
         self._baselines[key] = baseline
         return baseline
