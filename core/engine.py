@@ -1641,88 +1641,19 @@ class AtomicEngine:
         self.emit_pipeline_event("phase_end", {"phase": "exploit"})
 
         # ── PIPELINE: Partition 3 - Data Collection ──────────────
-        # Granular phase REPORT is set here; PHASE 19 of 21.
-        self._set_phase(Phase.REPORT)
-        self.pipeline["collect"]["status"] = "running"
-        self.emit_pipeline_event("phase_start", {"phase": "collect"})
-
-        self.end_time = datetime.now(timezone.utc)
-
-        # ── Clear persistence progress on complete scan ───────────────
-        self.persistence.clear_progress()
-
-        # ── PHASE 19 of 21: REPORT (commit + render reports) ─────────
-        # Collect chain/shield/agent data produced during previous phases
-        # and pass them to the unified OutputPhase for DB commit + reports.
-        exploit_chains = []
-        if verification_result and hasattr(verification_result, "exploit_chains"):
-            exploit_chains = verification_result.exploit_chains
-
-        # Store enrichment data for generate_reports() backward compatibility
-        self._exploit_chains = exploit_chains
-        self._origin_result = real_ip_result
-        self._agent_result = agent_result
-
-        # Drain the streaming ExploitBridge — wait for outstanding
-        # CVE-confirmation jobs so their findings land in this scan's
-        # record (not the next scan's, and not lost on shutdown).
-        bridge = getattr(self, "exploit_bridge", None)
-        if bridge is not None:
-            try:
-                bridge.drain(timeout=float(self.config.get("bridge_drain_timeout", 60)))
-                queued = getattr(self, "_exploit_bridge_queue", []) or []
-                if queued and self.config.get("verbose"):
-                    print(f"{Colors.info(f'ExploitBridge derived {len(queued)} surface(s); handed off to chain executor')}")
-            except Exception as exc:
-                logger.debug("exploit_bridge drain failed: %s", exc)
-
-        # Run the post-scan pipeline (chain executor, MITRE tag, PoC bundle,
-        # intel memory, narrative report) BEFORE OutputPhase writes reports
-        # — otherwise the first-generation HTML/JSON reports lack these
-        # sections and only the CLI's later generate_reports() call includes
-        # them. That was double work and could leave stale artifacts around.
-        try:
-            from core.pipeline_wire import finalize as _pipeline_finalize
-            _pipeline_finalize(self)
-            self._pipeline_finalized = True
-        except Exception as _exc:  # pragma: no cover - defensive
-            logger.debug("pipeline_wire.finalize failed: %s", _exc)
-            self._pipeline_finalized = False
-
-        try:
-            from core.output_phase import OutputPhase
-
-            output_phase = OutputPhase(self)
-            output_phase.run(
-                verified_findings=self.findings,
-                exploit_chains=exploit_chains,
-                shield_profile=shield_profile,
-                origin_result=real_ip_result,
-                agent_result=agent_result,
-                report_format=self.config.get("format", "html"),
-            )
-        except Exception as exc:
-            if self.config.get("verbose"):
-                print(f"{Colors.error(f'Phase 10 output error: {exc}')}")
-            # Fallback: legacy DB update
-            if self.db:
-                try:
-                    self.db.update_scan(
-                        self.scan_id,
-                        end_time=self.end_time,
-                        findings_count=len(self.findings),
-                        total_requests=self.requester.total_requests,
-                    )
-                except Exception as e:
-                    if self.config.get("verbose"):
-                        print(f"{Colors.warning(f'Could not update scan record: {e}')}")
-
-        # ── PHASE 20 of 21: ATTACK_MAP (exploit-aware graph) ─────────
-        # The phase flag and the map itself live in ReportRunner. This
-        # method only dispatches.
+        # Report phase, including finalize and OutputPhase, lives in ReportRunner.
         from core.runners.report_runner import ReportRunner
 
-        ReportRunner(self)._attack_map(exploit_chains)
+        _report = ReportRunner(self)
+        exploit_chains = _report.collect_report(
+            verification_result,
+            shield_profile,
+            real_ip_result,
+            agent_result,
+        )
+
+        # ── PHASE 20 of 21: ATTACK_MAP (exploit-aware graph) ─────────
+        _report._attack_map(exploit_chains)
 
         # ── PIPELINE: All phases complete ─────────────────────────
         self.pipeline["collect"]["status"] = "completed"
