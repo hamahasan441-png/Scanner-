@@ -22,6 +22,12 @@ from typing import TYPE_CHECKING, Any, Dict, Optional
 from config import Colors
 from core.pipeline_contract import Phase
 
+
+def _module_name_set(value) -> set:
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return set(value)
+    return set()
+
 if TYPE_CHECKING:
     from core.engine import AtomicEngine
     from core.runners.recon_runner import ReconResult
@@ -162,74 +168,88 @@ class ScanRunner:
                 self.engine.baseline_engine.get_baseline(ep["url"], ep["method"], ep["param"], ep["value"])
 
     def _run_modules(self, enriched_params, prioritized_urls, ai_strategy):
-        """Adaptive module testing with reflection gate."""
-        # Determine which modules require input reflection from module metadata
-        # (falls back to known set if module lacks the attribute)
-        _FALLBACK_REFLECTION_MODULES = {"xss", "ssti"}
+        """Adaptive module testing with the target-shape and reflection gates.
 
-        # Determine module order
+        This is the loop ``AtomicEngine.scan()`` used to inline. Rate limiting
+        stays inside the requester. Calling ``scope.enforce_rate_limit()``
+        here as well halved throughput.
+        """
+        self.engine._set_phase(Phase.ADAPTIVE_TESTING)
+        engine = self.engine
+
         ordered_modules = []
-        if ai_strategy and ai_strategy.get("module_order"):
-            for mkey in ai_strategy["module_order"]:
-                if mkey in self.engine._modules:
-                    ordered_modules.append((mkey, self.engine._modules[mkey]))
-            for mkey, minst in self.engine._modules.items():
-                if mkey not in ai_strategy["module_order"]:
+        module_order = (ai_strategy or {}).get("module_order") or []
+        if module_order:
+            for mkey in module_order:
+                if mkey in engine._modules:
+                    ordered_modules.append((mkey, engine._modules[mkey]))
+            for mkey, minst in engine._modules.items():
+                if mkey not in module_order:
                     ordered_modules.append((mkey, minst))
         else:
-            ordered_modules = list(self.engine._modules.items())
+            ordered_modules = list(engine._modules.items())
 
-        # Build reflection-dependent set from module metadata
-        reflection_dependent: set = set()
-        for mkey, minst in ordered_modules:
-            if getattr(minst, "requires_reflection", False):
-                reflection_dependent.add(mkey)
-            elif mkey in _FALLBACK_REFLECTION_MODULES:
-                reflection_dependent.add(mkey)
+        scan_plan = getattr(engine, "scan_plan", None)
+        if scan_plan is not None:
+            recommended = _module_name_set(getattr(scan_plan, "recommended_modules", None))
+            skipped = _module_name_set(getattr(scan_plan, "skip_modules", None))
+            if skipped:
+                before = len(ordered_modules)
+                ordered_modules = [(k, m) for k, m in ordered_modules if k not in skipped]
+                dropped = before - len(ordered_modules)
+                if dropped:
+                    print(f"{Colors.info(f'Target-shape gate: dropped {dropped} module(s) per scan plan')}")
+            if recommended:
+                recs = [(k, m) for k, m in ordered_modules if k in recommended]
+                rest = [(k, m) for k, m in ordered_modules if k not in recommended]
+                ordered_modules = recs + rest
 
-        # Reflection cache
-        reflection_cache: dict = {}
+        reflection_dependent = {
+            mkey
+            for mkey, minst in engine._modules.items()
+            if getattr(minst, "requires_reflection", False)
+        }
+        reflection_dependent.update({"xss", "ssti"})
+        reflection_cache = {}
         for ep in enriched_params:
             r_key = (ep["url"], ep["method"], ep["param"])
             if r_key not in reflection_cache:
-                reflection_cache[r_key] = self.engine.baseline_engine.reflection_check(
+                reflection_cache[r_key] = engine.baseline_engine.reflection_check(
                     ep["url"], ep["method"], ep["param"], ep["value"]
                 )
 
         reflected = sum(1 for v in reflection_cache.values() if v)
-        skipped = len(reflection_cache) - reflected
-        if skipped > 0:
+        skipped_count = len(reflection_cache) - reflected
+        if skipped_count > 0:
             print(
-                f"{Colors.info(f'Reflection gate: {reflected} reflected, {skipped} non-reflected (XSS/SSTI skipped)')}"
+                f"{Colors.info(f'Reflection gate: {reflected} reflected, {skipped_count} non-reflected (XSS/SSTI skipped)')}"
             )
 
         for module_key, module_instance in ordered_modules:
             print(f"\n{Colors.info(f'Running {module_instance.name} module...')}")
-
             for ep in enriched_params:
                 ep_key = f"{module_key}:{ep['method']}:{ep['url']}:{ep['param']}"
-                if self.engine.persistence.is_tested(ep_key):
+                if engine.persistence.is_tested(ep_key):
                     continue
                 if module_key in reflection_dependent:
                     r_key = (ep["url"], ep["method"], ep["param"])
                     if not reflection_cache.get(r_key, False):
-                        self.engine.persistence.mark_tested(ep_key)
+                        engine.persistence.mark_tested(ep_key)
                         continue
 
                 def _do_test(m=module_instance, e=ep):
-                    self.engine.scope.enforce_rate_limit()
-                    delay = self.engine.adaptive.get_delay()
+                    delay = engine.adaptive.get_delay()
                     if delay > 0:
                         time.sleep(delay)
                     if hasattr(m, "test"):
                         m.test(e["url"], e["method"], e["param"], e["value"])
                     return True
 
-                self.engine.persistence.execute_with_retry(_do_test, ep_key)
+                engine.persistence.execute_with_retry(_do_test, ep_key)
 
             for url_item, _score in prioritized_urls:
                 url_key = f"{module_key}:url:{url_item}"
-                if self.engine.persistence.is_tested(url_key):
+                if engine.persistence.is_tested(url_key):
                     continue
 
                 def _do_url_test(m=module_instance, u=url_item):
@@ -237,7 +257,7 @@ class ScanRunner:
                         m.test_url(u)
                     return True
 
-                self.engine.persistence.execute_with_retry(_do_url_test, url_key)
+                engine.persistence.execute_with_retry(_do_url_test, url_key)
 
     def _run_scan_workers(self, scan_queue):
         try:

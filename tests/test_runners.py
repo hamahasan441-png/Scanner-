@@ -640,6 +640,28 @@ class TestRunModules(unittest.TestCase):
         ScanRunner(eng)._run_modules([self._ep()], [], None)
         # The test function is called via execute_with_retry's side_effect
         mod.test.assert_called_once_with("http://a", "get", "q", "1")
+        eng.scope.enforce_rate_limit.assert_not_called()
+        from core.pipeline_contract import Phase
+
+        eng._set_phase.assert_called_once_with(Phase.ADAPTIVE_TESTING)
+
+    def test_shape_gate_drops_skipped_and_promotes_recommended(self):
+        skipped = MagicMock(requires_reflection=False)
+        skipped.name = "skip"
+        kept = MagicMock(requires_reflection=False)
+        kept.name = "kept"
+        eng = _make_engine()
+        eng._modules = {"cloud_scan": skipped, "sqli": kept}
+        eng.baseline_engine.reflection_check.return_value = True
+        eng.adaptive.get_delay.return_value = 0
+        eng.scan_plan = MagicMock(recommended_modules=["sqli"], skip_modules=["cloud_scan"])
+
+        order = []
+        eng.persistence.execute_with_retry.side_effect = lambda fn, key: order.append(key) or fn()
+        ScanRunner(eng)._run_modules([self._ep()], [], None)
+
+        self.assertTrue(any(key.startswith("sqli:") for key in order))
+        self.assertFalse(any(key.startswith("cloud_scan:") for key in order))
 
 
 class TestRunScanWorkers(unittest.TestCase):
