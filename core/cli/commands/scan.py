@@ -64,65 +64,48 @@ def _collect_targets(args):
 
 def _build_config_from_args(args):
     """Build engine config dict from parsed args."""
-    # Module map
-    module_keys = [
-        "sqli", "xss", "lfi", "cmdi", "ssrf", "ssti", "xxe", "idor", "nosql",
-        "cors", "jwt", "upload", "open_redirect", "crlf", "hpp", "graphql",
-        "proto_pollution", "race_condition", "websocket", "deserialization",
-        "cloud_scan", "osint", "fuzzer", "recon", "discovery", "oauth",
-        "mfa_bypass", "api_versioning", "dep_confusion", "llm_logic",
-        "h2_smuggling", "cache_poisoning", "api_abuse", "deep_scan", "gatebreaker",
-        "firewall_bypass", "tls", "secrets",
-        "shield_detect", "real_ip", "passive_recon", "enrich", "chain_detect",
-        "exploit_search", "agent_scan", "attack_map",
-        # Complete coverage modules
-        "dns_attacks", "snmp_enum", "smb_attacks", "ssh_attacks", "rdp_attacks",
-        "nfs_enum", "rpc_enum", "vnc_attacks", "ipv6_attacks", "vlan_hopping",
-        "vpn_attacks", "dhcp_attacks", "arp_attacks", "icmp_attacks",
-        "csrf", "clickjacking", "host_header", "mass_assignment", "webdav",
-        "ssi_injection", "soap_wsdl", "grpc", "webhook_ssrf",
-        "container_escape", "cicd_injection", "aws_iam_privesc", "service_mesh",
-        "ics_protocols", "typosquatting", "covert_channels", "crypto_weakness",
-        "credential_dump", "lateral_movement", "ad_attacks",
-        "coverage_fuzz", "symbolic_exec",
-        # Engine-registered modules that --full used to leave False, so the
-        # classes existed but never loaded. Keep this list aligned with
-        # core/engine.py:_load_modules (see tests/test_module_wiring.py).
-        "advanced_weapon", "exotic_bypass", "cloud_deep", "cve_confirm",
-        "parse_split_bypass", "nhi_audit", "internal_segment",
-        "request_smuggling", "waf", "ai_app_probe", "openapi_ghost",
-        "session_cookie", "k8s_control_plane", "adcs_esc", "azure_entra",
-        "saml_webauthn", "gh_actions_oidc", "mobile_static",
-    ]
+    from module_catalog import select as catalog_select
 
-    # BUG FIX (TST-006/CLI): these flags were parsed but never propagated to
-    # the engine config, silently disabling Scapy/network/recon-suite modes.
-    # The engine reads exactly these keys from ``modules`` (see
-    # AtomicEngine.scan), so they must be carried like every other module.
-    extended_module_keys = [
+    # Not engine modules. Kept beside the catalog so --full / --deep /
+    # --point-to-point still drive recon and the scapy suite.
+    pipeline_keys = (
+        "recon", "discovery", "shield_detect", "real_ip", "passive_recon",
+        "enrich", "chain_detect", "exploit_search", "agent_scan", "attack_map",
+    )
+    extended_module_keys = (
         "subdomains", "tech_detect", "dir_brute",
         "net_exploit", "tech_exploit", "sqlmap",
         "scapy", "scapy_crawl", "stealth_scan", "arp_discovery",
         "dns_recon", "traceroute", "scapy_vuln_scan", "scapy_attack_chain",
-    ]
+    )
 
     point_to_point = bool(getattr(args, "point_to_point", False))
-
-    # Quick profile handling
     if getattr(args, "full", False) or point_to_point:
-        modules = {k: True for k in module_keys}
-        if point_to_point:
-            # --point-to-point is the "everything" profile: it also enables
-            # the extended network/scapy suite (individually opt-in flags).
-            modules.update({k: True for k in extended_module_keys})
-        else:
-            # --full keeps historical semantics: extended modes only when
-            # their individual flags are also supplied.
-            for k in extended_module_keys:
-                modules[k] = bool(getattr(args, k, False))
-        # --full implies full bypass: activate WAF bypass, firewall bypass,
-        # gatebreaker, shield detection, and real IP discovery so the scanner
-        # can reach the origin behind CDN/WAF.
+        mode = "point_to_point" if point_to_point else "cli_full"
+    elif getattr(args, "deep", False):
+        mode = "deep"
+    elif getattr(args, "standard", False):
+        mode = "standard"
+    elif getattr(args, "quick", False):
+        mode = "quick"
+    else:
+        mode = "individual"
+
+    modules = catalog_select(mode, lambda dest: bool(getattr(args, dest, False)))
+
+    def _on(name):
+        return bool(getattr(args, name, False))
+
+    # cli_full and deep turn the recon pipeline on. point_to_point also
+    # turns the extended scapy suite on. Exploit-tier catalog modules stay
+    # off for a plain --full (see module_catalog.EXPLOIT).
+    pipeline_on = mode in ("deep", "cli_full", "point_to_point")
+    extended_on = mode in ("deep", "point_to_point")
+    for key in pipeline_keys:
+        modules[key] = pipeline_on or _on(key)
+    for key in extended_module_keys:
+        modules[key] = extended_on or _on(key)
+    if mode in ("cli_full", "point_to_point", "deep"):
         modules["gatebreaker"] = True
         modules["firewall_bypass"] = True
         modules["shield_detect"] = True
@@ -133,22 +116,6 @@ def _build_config_from_args(args):
         modules["exploit_search"] = True
         modules["agent_scan"] = True
         modules["attack_map"] = True
-    else:
-        modules = {}
-        for k in module_keys + extended_module_keys:
-            attr = k.replace("-", "_")
-            if hasattr(args, attr):
-                modules[k] = bool(getattr(args, attr))
-            else:
-                modules[k] = False
-
-        if not any(modules.values()):
-            if getattr(args, "quick", False):
-                modules.update({"sqli": True, "xss": True, "lfi": True, "cors": True})
-            elif getattr(args, "standard", False):
-                modules.update({"sqli": True, "xss": True, "lfi": True, "cors": True, "ssrf": True, "jwt": True})
-            elif getattr(args, "deep", False):
-                modules = {k: True for k in module_keys + extended_module_keys}
 
     modules["ports"] = getattr(args, "ports", None)
     if point_to_point and not modules["ports"]:

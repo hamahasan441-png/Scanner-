@@ -9,8 +9,10 @@ PLUS ``profile=full`` to enable.
 """
 from __future__ import annotations
 import os
-from dataclasses import dataclass, field
-from typing import List, Dict, Any
+from dataclasses import dataclass
+from typing import Dict, List
+
+from module_catalog import ALL_MODULE_KEYS, profile_modules, specs
 
 
 @dataclass(frozen=True)
@@ -32,43 +34,19 @@ class Profile:
     brute_force: bool      # requires --authorized
 
 
-# Module keys are exactly the keys in core/engine.py:_load_modules().
-# Anything not listed here is OFF for that profile.
-ALL_MODULE_KEYS = [
-    "sqli", "xss", "lfi", "cmdi", "ssrf", "ssti", "xxe", "idor", "nosql",
-    "cors", "jwt", "upload", "open_redirect", "crlf", "hpp", "graphql",
-    "proto_pollution", "race_condition", "websocket", "deserialization",
-    "osint", "fuzzer", "cloud_scan", "oauth", "mfa_bypass",
-    "api_versioning", "dep_confusion", "llm_logic", "h2_smuggling",
-    "cache_poisoning", "api_abuse", "deep_scan", "gatebreaker",
-    "firewall_bypass", "tls", "secrets",
-    # Previously registered only inside the engine. Profiles that omitted
-    # them compiled a flag list the scanner never honoured.
-    "advanced_weapon", "exotic_bypass", "cloud_deep", "cve_confirm",
-    "parse_split_bypass", "nhi_audit", "internal_segment",
-    "request_smuggling", "waf", "ai_app_probe", "openapi_ghost",
-    "session_cookie", "k8s_control_plane", "adcs_esc", "azure_entra",
-    "saml_webauthn", "gh_actions_oidc", "mobile_static",
-]
-
+# Attack-module switches come from module_catalog. Discovery flags below
+# are pipeline stages, not engine modules.
 # Always-on discovery / recon (no exploit risk).
 DISCOVERY_KEYS = ["recon", "discovery", "shield_detect", "real_ip",
                   "passive_recon", "enrich", "exploit_search",
                   "attack_map", "chain_detect", "agent_scan"]
 
 
-def _base(**mods: bool) -> Dict[str, bool]:
-    """Build a module dict with everything off except the requested ones."""
-    out: Dict[str, bool] = {k: False for k in ALL_MODULE_KEYS}
-    out.update(mods)
-    return out
-
-
 PROFILES: Dict[str, Profile] = {
     "quick": Profile(
         name="quick",
         description="Fastest scan — high-signal modules only, no evasion, no recon.",
-        modules=_base(sqli=True, xss=True, lfi=True, cmdi=True, ssrf=True),
+        modules=profile_modules("quick"),
         threads=10, depth=2, timeout=10, delay=0.0, evasion="none",
         waf_bypass=False, auto_external_tools=False,
         auto_attack=False, shell_upload=False, db_dump=False,
@@ -77,11 +55,7 @@ PROFILES: Dict[str, Profile] = {
     "standard": Profile(
         name="standard",
         description="Balanced scan — web app vulns + light recon, low evasion.",
-        modules=_base(
-            sqli=True, xss=True, lfi=True, cmdi=True, ssrf=True,
-            ssti=True, xxe=True, idor=True, nosql=True, cors=True,
-            jwt=True, open_redirect=True, crlf=True, hpp=True,
-        ),
+        modules=profile_modules("standard"),
         threads=25, depth=3, timeout=15, delay=0.1, evasion="low",
         waf_bypass=False, auto_external_tools=False,
         auto_attack=False, shell_upload=False, db_dump=False,
@@ -90,18 +64,7 @@ PROFILES: Dict[str, Profile] = {
     "deep": Profile(
         name="deep",
         description="All web app modules + recon, WAF bypass, origin-IP discovery.",
-        modules=_base(
-            sqli=True, xss=True, lfi=True, cmdi=True, ssrf=True,
-            ssti=True, xxe=True, idor=True, nosql=True, cors=True,
-            jwt=True, upload=True, open_redirect=True, crlf=True, hpp=True,
-            graphql=True, proto_pollution=True, race_condition=True,
-            websocket=True, deserialization=True, osint=True, fuzzer=True,
-            cloud_scan=True, h2_smuggling=True, cache_poisoning=True,
-            api_abuse=True, deep_scan=True, gatebreaker=True,
-            firewall_bypass=True, tls=True, secrets=True,
-            session_cookie=True, openapi_ghost=True, ai_app_probe=True,
-            saml_webauthn=True, waf=True,
-        ),
+        modules=profile_modules("deep"),
         threads=50, depth=4, timeout=20, delay=0.2, evasion="medium",
         waf_bypass=True, auto_external_tools=True,
         auto_attack=False, shell_upload=False, db_dump=False,
@@ -110,28 +73,11 @@ PROFILES: Dict[str, Profile] = {
     "full": Profile(
         name="full",
         description=(
-            "Every registered engine module plus recon and auto-attack. "
-            "REQUIRES --authorized. Use only against targets you are "
-            "explicitly permitted to test."
+            "Every registered engine module, including exploit-tier checks, "
+            "plus recon and auto-attack. REQUIRES --authorized. Use only "
+            "against targets you are explicitly permitted to test."
         ),
-        modules=_base(
-            sqli=True, xss=True, lfi=True, cmdi=True, ssrf=True,
-            ssti=True, xxe=True, idor=True, nosql=True, cors=True,
-            jwt=True, upload=True, open_redirect=True, crlf=True, hpp=True,
-            graphql=True, proto_pollution=True, race_condition=True,
-            websocket=True, deserialization=True, osint=True, fuzzer=True,
-            cloud_scan=True, oauth=True, mfa_bypass=True,
-            api_versioning=True, dep_confusion=True, llm_logic=True,
-            h2_smuggling=True, cache_poisoning=True, api_abuse=True,
-            deep_scan=True, gatebreaker=True, firewall_bypass=True,
-            tls=True, secrets=True,
-            advanced_weapon=True, exotic_bypass=True, cloud_deep=True,
-            cve_confirm=True, parse_split_bypass=True, nhi_audit=True,
-            internal_segment=True, request_smuggling=True, waf=True,
-            ai_app_probe=True, openapi_ghost=True, session_cookie=True,
-            k8s_control_plane=True, adcs_esc=True, azure_entra=True,
-            saml_webauthn=True, gh_actions_oidc=True, mobile_static=True,
-        ),
+        modules=profile_modules("full"),
         threads=100, depth=5, timeout=30, delay=0.25, evasion="high",
         waf_bypass=True, auto_external_tools=True,
         auto_attack=True, shell_upload=True, db_dump=True,
@@ -161,48 +107,11 @@ def to_main_args(profile: Profile, target: str, authorized: bool) -> List[str]:
     args += ["--delay", str(profile.delay)]
     args += ["--evasion", profile.evasion]
 
-    # Module enable flags. main.py uses a different naming convention
-    # than the engine module keys; map them here.
-    mod_map = {
-        "sqli": "--sqli", "xss": "--xss", "lfi": "--lfi", "cmdi": "--cmdi",
-        "ssrf": "--ssrf", "ssti": "--ssti", "xxe": "--xxe", "idor": "--idor",
-        "nosql": "--nosql", "cors": "--cors", "jwt": "--jwt",
-        "upload": "--upload", "open_redirect": "--open-redirect",
-        "crlf": "--crlf", "hpp": "--hpp", "graphql": "--graphql",
-        "proto_pollution": "--proto-pollution",
-        "race_condition": "--race-condition", "websocket": "--websocket",
-        "deserialization": "--deserialization", "osint": "--osint",
-        "fuzzer": "--fuzzer", "cloud_scan": "--cloud-scan",
-        "oauth": "--oauth", "mfa_bypass": "--mfa-bypass",
-        "api_versioning": "--api-versioning",
-        "dep_confusion": "--dep-confusion", "llm_logic": "--llm-logic",
-        "h2_smuggling": "--h2-smuggling",
-        "cache_poisoning": "--cache-poisoning", "api_abuse": "--api-abuse",
-        "deep_scan": "--deep-scan", "gatebreaker": "--gatebreaker",
-        "firewall_bypass": "--firewall-bypass",
-        "tls": "--tls", "secrets": "--secrets",
-        "advanced_weapon": "--advanced-weapon",
-        "exotic_bypass": "--exotic-bypass",
-        "cloud_deep": "--cloud-deep",
-        "cve_confirm": "--cve-confirm",
-        "parse_split_bypass": "--parse-split-bypass",
-        "nhi_audit": "--nhi-audit",
-        "internal_segment": "--internal-segment",
-        "request_smuggling": "--request-smuggling",
-        "waf": "--waf",
-        "ai_app_probe": "--ai-app-probe",
-        "openapi_ghost": "--openapi-ghost",
-        "session_cookie": "--session-cookie",
-        "k8s_control_plane": "--k8s-control-plane",
-        "adcs_esc": "--adcs-esc",
-        "azure_entra": "--azure-entra",
-        "saml_webauthn": "--saml-webauthn",
-        "gh_actions_oidc": "--gh-actions-oidc",
-        "mobile_static": "--mobile-static",
-    }
-    for key, flag in mod_map.items():
-        if profile.modules.get(key):
-            args.append(flag)
+    # Flags are the catalog's canonical spellings, which main.py accepts
+    # (including the short forms such as --race and --fuzz).
+    for spec in specs():
+        if profile.modules.get(spec.key):
+            args.append(spec.flag)
 
     # Discovery / recon (always on for quick+, all on for deep/full).
     args.append("--recon")

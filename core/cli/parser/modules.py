@@ -78,3 +78,6 @@ def add_module_arguments(parser: argparse.ArgumentParser):
     g.add_argument("--saml-webauthn", action="store_true", help="SAML SP and WebAuthn RP fingerprint (XSW, comment injection, RP-ID)")
     g.add_argument("--gh-actions-oidc", action="store_true", help="Public GitHub Actions OIDC and workflow supply-chain misconfig")
     g.add_argument("--mobile-static", action="store_true", help="Static APK/IPA analysis (ZIP + plist; no device)")
+    from module_catalog import add_missing_flags
+
+    add_missing_flags(parser)

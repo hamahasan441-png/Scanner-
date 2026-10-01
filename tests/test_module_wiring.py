@@ -1,114 +1,98 @@
-"""Engine modules must actually be reachable from every entry point.
+"""The engine, both CLIs, profiles, and the web full scan share one catalog.
 
-The attack classes live in ``core/engine.py`` ``_load_modules``. A previous
-gap left many of them registered there and nowhere else, so ``--full``,
-the ``atomic`` profiles, and the web full scan never loaded them. The
-easy-mode wrapper also emitted flags ``main.py`` rejects, which aborted
-``atomic scan`` before a module could run.
+Exploit-tier modules (credential dump, internal network, live cloud
+confirmation) must not switch on for a plain ``--full`` web scan. They
+switch on for ``--point-to-point`` and the atomic ``full`` profile.
 """
 from __future__ import annotations
 
-import ast
 import unittest
 from pathlib import Path
 
+import module_catalog
+from module_catalog import import_map, profile_modules, select, web_full_keys
+
 REPO = Path(__file__).resolve().parents[1]
 
-# Keys added to the engine map without a matching CLI / profile switch.
-ISLAND_KEYS = (
-    "advanced_weapon",
-    "exotic_bypass",
-    "cloud_deep",
-    "cve_confirm",
-    "parse_split_bypass",
-    "nhi_audit",
-    "internal_segment",
-    "request_smuggling",
-    "waf",
-    "ai_app_probe",
-    "openapi_ghost",
-    "session_cookie",
-    "k8s_control_plane",
-    "adcs_esc",
-    "azure_entra",
-    "saml_webauthn",
-    "gh_actions_oidc",
-    "mobile_static",
-    "tls",
-    "secrets",
-    "firewall_bypass",
-)
+EXPLOIT_SAMPLES = ("credential_dump", "cloud_deep", "smb_attacks", "ad_attacks")
+PROBE_SAMPLES = ("session_cookie", "tls", "secrets", "firewall_bypass", "waf")
 
 
-def _assign_dict_keys(path: Path, var_name: str) -> set[str]:
-    """Return string keys of the first ``var_name = {...}`` assignment."""
-    tree = ast.parse(path.read_text(encoding="utf-8"))
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Assign):
-            continue
-        if not any(isinstance(t, ast.Name) and t.id == var_name for t in node.targets):
-            continue
-        if isinstance(node.value, ast.Dict):
-            return {k.value for k in node.value.keys if isinstance(k, ast.Constant)}
-        if isinstance(node.value, ast.List):
-            return {elt.value for elt in node.value.elts if isinstance(elt, ast.Constant)}
-    raise AssertionError(f"{var_name} not found in {path}")
+class TestModuleCatalog(unittest.TestCase):
+    def test_every_class_file_exists(self):
+        for key, (module, class_name) in import_map().items():
+            path = REPO / (module.replace(".", "/") + ".py")
+            self.assertTrue(path.is_file(), key)
+            self.assertIn(f"class {class_name}", path.read_text(encoding="utf-8"), key)
 
-
-class TestIslandModulesWired(unittest.TestCase):
-    def test_engine_still_registers_every_island_key(self):
+    def test_engine_loads_from_catalog(self):
         text = (REPO / "core" / "engine.py").read_text(encoding="utf-8")
-        for key in ISLAND_KEYS:
-            self.assertIn(f'"{key}":', text, key)
+        self.assertIn("import_map", text)
+        self.assertNotIn('"sqli": ("modules.sqli"', text)
 
-    def test_enhanced_cli_full_list_includes_islands(self):
-        keys = _assign_dict_keys(REPO / "core" / "cli" / "commands" / "scan.py", "module_keys")
-        missing = [k for k in ISLAND_KEYS if k not in keys]
-        self.assertEqual(missing, [])
+    def test_entry_points_call_catalog(self):
+        main = (REPO / "main.py").read_text(encoding="utf-8")
+        scan = (REPO / "core" / "cli" / "commands" / "scan.py").read_text(encoding="utf-8")
+        web = (REPO / "web" / "app.py").read_text(encoding="utf-8")
+        self.assertIn("catalog_select", main)
+        self.assertIn("add_missing_flags", main)
+        self.assertIn("catalog_select", scan)
+        self.assertNotIn("module_keys = [", scan)
+        self.assertIn("web_full_keys", web)
 
-    def test_main_module_dict_includes_islands(self):
-        keys = _assign_dict_keys(REPO / "main.py", "modules")
-        missing = [k for k in ISLAND_KEYS if k not in keys]
-        self.assertEqual(missing, [])
+    def test_quick_is_five_web_checks(self):
+        enabled = {k for k, v in profile_modules("quick").items() if v}
+        self.assertEqual(enabled, {"sqli", "xss", "lfi", "cmdi", "ssrf"})
 
-    def test_profiles_full_enables_islands_and_quick_does_not(self):
-        from atomic.profiles import ALL_MODULE_KEYS, get, to_main_args
+    def test_cli_full_skips_exploit_tier(self):
+        chosen = select("cli_full", lambda _dest: False)
+        for key in EXPLOIT_SAMPLES:
+            self.assertFalse(chosen[key], key)
+        for key in PROBE_SAMPLES:
+            self.assertTrue(chosen[key], key)
+        self.assertTrue(chosen["sqli"])
+        self.assertTrue(chosen["oauth"])
 
-        missing = [k for k in ISLAND_KEYS if k not in ALL_MODULE_KEYS]
-        self.assertEqual(missing, [])
-        full = get("full")
-        quick = get("quick")
-        for key in ISLAND_KEYS:
-            self.assertTrue(full.modules[key], key)
-            self.assertFalse(quick.modules[key], key)
-        argv = to_main_args(full, "https://example.com", authorized=True)
-        for flag in (
-            "--session-cookie",
-            "--firewall-bypass",
-            "--request-smuggling",
-            "--tls",
-            "--secrets",
-            "--output",
-            "--format",
-        ):
-            self.assertIn(flag, argv)
-        self.assertNotIn("--output-dir", argv)
-        self.assertNotIn("html,json", argv)
-        self.assertNotIn("--auto-external-tools", argv)
+    def test_atomic_full_and_point_to_point_include_exploit_tier(self):
+        atomic = profile_modules("full")
+        pointed = select("point_to_point", lambda _dest: False)
+        for key in EXPLOIT_SAMPLES:
+            self.assertTrue(atomic[key], key)
+            self.assertTrue(pointed[key], key)
 
-    def test_profile_flags_exist_on_main_parser(self):
+    def test_explicit_flag_enables_exploit_module_without_full(self):
+        chosen = select("individual", lambda dest: dest == "credential_dump")
+        self.assertTrue(chosen["credential_dump"])
+        self.assertFalse(chosen["smb_attacks"])
+        self.assertFalse(chosen["sqli"])
+
+    def test_deep_profile_stays_non_invasive(self):
+        deep = profile_modules("deep")
+        self.assertTrue(deep["session_cookie"])
+        self.assertTrue(deep["gatebreaker"])
+        self.assertFalse(deep["credential_dump"])
+        self.assertFalse(deep["oauth"])
+        self.assertFalse(deep["dns_attacks"])
+
+    def test_web_full_scan_has_no_exploit_tier(self):
+        keys = set(web_full_keys())
+        self.assertIn("session_cookie", keys)
+        self.assertIn("sqli", keys)
+        for spec in module_catalog.specs():
+            if spec.tier == "exploit":
+                self.assertNotIn(spec.key, keys)
+
+    def test_profile_flags_match_catalog(self):
         from atomic.profiles import get, to_main_args
 
-        main_src = (REPO / "main.py").read_text(encoding="utf-8")
         argv = to_main_args(get("deep"), "https://example.com", authorized=False)
-        flags = [a for a in argv if a.startswith("--")]
-        missing = [flag for flag in flags if flag not in main_src]
-        self.assertEqual(missing, [], "atomic deep profile emits flags main.py does not define")
-
-    def test_web_full_scan_includes_noninvasive_checks(self):
-        text = (REPO / "web" / "app.py").read_text(encoding="utf-8")
-        for key in ("session_cookie", "openapi_ghost", "tls", "secrets", "waf"):
-            self.assertIn(f'"{key}"', text)
+        self.assertIn("--session-cookie", argv)
+        self.assertIn("--firewall-bypass", argv)
+        self.assertNotIn("--credential-dump", argv)
+        self.assertNotIn("--dns-attacks", argv)
+        full = to_main_args(get("full"), "https://example.com", authorized=True)
+        self.assertIn("--credential-dump", full)
+        self.assertIn("--dns-attacks", full)
 
 
 if __name__ == "__main__":
