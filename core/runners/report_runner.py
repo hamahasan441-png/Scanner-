@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Dict, Optional
 
 from config import Colors
+from core.pipeline_contract import Phase
 
 if TYPE_CHECKING:
     from core.engine import AtomicEngine
@@ -105,7 +106,7 @@ class ReportRunner:
         if not (mc.get("attack_map", False) and self.engine.findings):
             return None
 
-        # Auto-enable exploit search if not already run
+        self.engine._set_phase(Phase.ATTACK_MAP)
         if not mc.get("exploit_search", False):
             try:
                 from core.exploit_searcher import ExploitSearcher
