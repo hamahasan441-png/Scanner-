@@ -4,7 +4,7 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 from core.runners.recon_runner import ReconRunner
-from modules.origin_network import EXPOSURE_PORTS, PROBES, OriginNetworkModule
+from modules.origin_network import EXPOSURE_PORTS, IMPACT, PROBES, OriginNetworkModule
 
 
 def _engine():
@@ -80,6 +80,72 @@ class TestOriginNetwork(unittest.TestCase):
         self.assertIn(22, EXPOSURE_PORTS)
         self.assertNotIn(80, EXPOSURE_PORTS)
         self.assertNotIn(443, EXPOSURE_PORTS)
+        self.assertIn(6379, IMPACT)
+        self.assertNotIn(22, IMPACT)
+
+    def test_unauthorized_scan_does_not_send_the_impact_probe(self):
+        eng = _engine()
+        sent = []
+
+        def exchange(ip, port, payload):
+            sent.append(payload)
+            if payload == b"PING\r\n":
+                return b"+PONG\r\n"
+            return None
+
+        findings = OriginNetworkModule(eng, exchange=exchange).scan_origin("203.0.113.10")
+        self.assertEqual(len(findings), 1)
+        self.assertNotIn(b"INFO server\r\n", sent)
+
+    def test_authorized_redis_read_is_a_separate_finding(self):
+        eng = _engine()
+        eng.config = {"authorized": True}
+
+        def exchange(ip, port, payload):
+            if payload == b"PING\r\n":
+                return b"+PONG\r\n"
+            if payload == b"INFO server\r\n":
+                return b"redis_version:7.2.0\r\n"
+            return None
+
+        findings = OriginNetworkModule(eng, exchange=exchange).scan_origin("203.0.113.10", "https://app.example")
+        self.assertEqual([f.technique for f in findings], [
+            "Redis unauthenticated on origin",
+            "Redis readable without authentication",
+        ])
+        self.assertEqual(findings[1].severity, "CRITICAL")
+        self.assertEqual(findings[1].confidence, 0.99)
+        self.assertNotIn("redis_version:7.2.0", findings[1].evidence)
+        self.assertIn("impact probe matched", findings[1].evidence)
+
+    def test_authorized_impact_probe_must_match(self):
+        eng = _engine()
+        eng.config = {"authorized": True}
+
+        def exchange(ip, port, payload):
+            if payload == b"PING\r\n":
+                return b"+PONG\r\n"
+            if payload == b"INFO server\r\n":
+                return b"-NOAUTH\r\n"
+            return None
+
+        findings = OriginNetworkModule(eng, exchange=exchange).scan_origin("203.0.113.10")
+        self.assertEqual(len(findings), 1)
+
+    def test_authorized_ssh_is_not_brute_forced(self):
+        eng = _engine()
+        eng.config = {"authorized": True}
+        sent = []
+
+        def exchange(ip, port, payload):
+            sent.append((port, payload))
+            if port == 22:
+                return b"SSH-2.0-OpenSSH_9.0"
+            return None
+
+        findings = OriginNetworkModule(eng, exchange=exchange).scan_origin("203.0.113.10")
+        self.assertEqual(len(findings), 1)
+        self.assertEqual([payload for port, payload in sent if port == 22], [b""])
 
 
 class TestOriginNetworkWiring(unittest.TestCase):
