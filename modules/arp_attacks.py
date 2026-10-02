@@ -15,17 +15,9 @@ class ARPAttackModule(BaseModule):
     vuln_type = "arp"
 
     def test_url(self, url):
-        # ARP attacks require L2 network access
-        # Document as informational finding
-        self.engine.add_finding(self._finding(
-            technique="ARP Attack Surface",
-            url=url,
-            severity="INFO",
-            confidence=0.3,
-            param="network",
-            payload="L2 analysis",
-            evidence="ARP spoofing/poisoning requires L2 network access. Use arpspoof, bettercap, or Scapy for testing.",
-        ))
+        # ARP is layer-2. This process cannot send it, so it must not
+        # record a finding that only names another tool.
+        return None
 
     def test(self, url, method, param, value):
         pass
