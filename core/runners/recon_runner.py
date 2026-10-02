@@ -76,6 +76,14 @@ class ReconRunner:
             from utils.helpers import build_origin_target
 
             effective_target = build_origin_target(target, origin_ip)
+            if self.modules_config.get("origin_network", False):
+                try:
+                    from modules.origin_network import OriginNetworkModule
+
+                    OriginNetworkModule(self.engine).scan_origin(origin_ip, target)
+                except Exception as e:
+                    if self.config.get("verbose"):
+                        print(f"{Colors.error(f'Origin network scan error: {e}')}")
 
         # ── PHASE 3: PASSIVE RECON & DISCOVERY (fan-out) ──────────────
         result.fanout_result = self._passive_recon(effective_target)

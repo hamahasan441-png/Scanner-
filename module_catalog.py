@@ -87,6 +87,7 @@ _ROWS = [
     ("gatebreaker", "modules.gatebreaker", "GateBreakerModule", "probe", FROM_DEEP, "WAF, auth, and rate-limit gate bypass", True),
     ("firewall_bypass", "modules.firewall_bypass", "FirewallBypassModule", "probe", FROM_DEEP, "Network firewall and ACL bypass", True),
     ("tls", "modules.tls_scan", "TLSScanModule", "probe", FROM_DEEP, "TLS and crypto configuration", True),
+    ("origin_network", "modules.origin_network", "OriginNetworkModule", "probe", FROM_DEEP, "Scan a discovered origin IP for exposed services", False),
     ("secrets", "modules.secrets_scan", "SecretsScanModule", "probe", FROM_DEEP, "Exposed secrets in responses", True),
     ("session_cookie", "modules.session_cookie", "SessionCookieModule", "probe", FROM_DEEP, "Session cookie hygiene", True),
     ("openapi_ghost", "modules.openapi_ghost", "OpenAPIGhostModule", "probe", FROM_DEEP, "Unlinked OpenAPI paths", True),

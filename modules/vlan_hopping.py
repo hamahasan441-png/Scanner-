@@ -32,17 +32,8 @@ class VLANHoppingModule(BaseModule):
         pass
 
     def _test_dtp(self, hostname, url):
-        """Test for DTP (Dynamic Trunking Protocol) - auto-trunk negotiation."""
-        # DTP is L2 only - document as finding if we can detect it
-        self.engine.add_finding(self._finding(
-            technique="VLAN Hopping (Network Layer)",
-            url=url,
-            severity="INFO",
-            confidence=0.3,
-            param="network",
-            payload="L2 analysis",
-            evidence="VLAN hopping requires L2 network access. Test with: yersinia -G (DTP), double-tagging attacks",
-        ))
+        # DTP is layer-2. Do not record a finding that only names yersinia.
+        return None
 
     def _finding(self, **kw):
         from core.engine import Finding
