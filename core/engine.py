@@ -87,6 +87,13 @@ class Finding:
     exploit_record: object = None
     _exploit_finding_id: str = ""
     github_advisory_id: Optional[str] = None
+    # Set by the verifier after a repeat agrees with the control. Empty means unproven.
+    control: str = ""
+    repeat: str = ""
+
+    def has_proof(self) -> bool:
+        """True only when a control note and a repeat note were both recorded."""
+        return bool(self.control and self.repeat)
 
     def __post_init__(self):
         # Auto-populate MITRE/CWE from technique name
@@ -110,6 +117,24 @@ class Finding:
             self.adjusted_cvss = self.cvss
         if not self.adjusted_severity:
             self.adjusted_severity = self.severity
+
+
+def routable_findings(findings):
+    """Return findings the attack router is allowed to execute.
+
+    Severity and confidence are not proof. The verifier has to have stored
+    both a control note and a repeat note.
+    """
+    ready = []
+    for finding in findings:
+        if getattr(finding, "severity", "") not in ("CRITICAL", "HIGH"):
+            continue
+        if float(getattr(finding, "confidence", 0) or 0) < 0.6:
+            continue
+        if not getattr(finding, "control", "") or not getattr(finding, "repeat", ""):
+            continue
+        ready.append(finding)
+    return ready
 
 
 class AtomicEngine:
@@ -1350,11 +1375,11 @@ class AtomicEngine:
         # upload, and system enumeration based on confirmed findings.
         # Auto-attack runs ONLY when explicitly opted-in via --auto-exploit
         # or --smart-attack AND --authorized is set.
-        exploitable_findings = [f for f in self.findings if f.severity in ("CRITICAL", "HIGH") and f.confidence >= 0.6]
+        proved = routable_findings(self.findings)
         should_auto_attack = modules_config.get("auto_exploit", False) or (
-            exploitable_findings and modules_config.get("smart_attack", False)
+            proved and modules_config.get("smart_attack", False)
         )
-        if should_auto_attack and self.findings:
+        if should_auto_attack and proved:
             # Authorization gate: require --authorized or ATOMIC_AUTHORIZED=1
             # for ALL post-exploit actions. Fail-closed.
             if not self.config.get("_authorized") and not self.config.get("authorized"):
@@ -1370,32 +1395,33 @@ class AtomicEngine:
                         print(f"{Colors.warning(f'Auto-attack blocked: {_auth_exc}')}")
                     should_auto_attack = False
 
-            try:
-                from core.attack_router import AttackRouter
-
-                self.attack_router = AttackRouter(self)
-                routes = self.attack_router.route(self.findings)
-                self.emit_pipeline_event(
-                    "routes_planned",
-                    {
-                        "total_routes": len(routes),
-                        "families": list({r.family for r in routes}),
-                    },
-                )
-                if routes:
-                    self.post_exploit_results = self.attack_router.execute(routes)
-            except Exception as e:
-                if self.config.get("verbose"):
-                    print(f"{Colors.error(f'Attack router error: {e}')}")
-                # Fallback to direct PostExploitEngine
+            if should_auto_attack:
                 try:
-                    from core.post_exploit import PostExploitEngine
+                    from core.attack_router import AttackRouter
 
-                    post_engine = PostExploitEngine(self)
-                    self.post_exploit_results = post_engine.run(self.findings)
-                except Exception as e2:
+                    self.attack_router = AttackRouter(self)
+                    routes = self.attack_router.route(proved)
+                    self.emit_pipeline_event(
+                        "routes_planned",
+                        {
+                            "total_routes": len(routes),
+                            "families": list({r.family for r in routes}),
+                        },
+                    )
+                    if routes:
+                        self.post_exploit_results = self.attack_router.execute(routes)
+                except Exception as e:
                     if self.config.get("verbose"):
-                        print(f"{Colors.error(f'Post-exploitation fallback error: {e2}')}")
+                        print(f"{Colors.error(f'Attack router error: {e}')}")
+                    # Fallback to direct PostExploitEngine
+                    try:
+                        from core.post_exploit import PostExploitEngine
+
+                        post_engine = PostExploitEngine(self)
+                        self.post_exploit_results = post_engine.run(proved)
+                    except Exception as e2:
+                        if self.config.get("verbose"):
+                            print(f"{Colors.error(f'Post-exploitation fallback error: {e2}')}")
 
         # Legacy manual flags kept for backward compatibility.
         # NOTE: ShellUploader(scan_only=True) is the default (used during

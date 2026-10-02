@@ -67,6 +67,17 @@ class TestVerifier(unittest.TestCase):
         finding = _FakeFinding(severity="CRITICAL", confidence=0.99)
         result = v.verify_findings([finding])
         self.assertEqual(len(result), 1)
+        self.assertFalse(getattr(result[0], "control", ""))
+        self.assertFalse(getattr(result[0], "repeat", ""))
+
+    def test_confirmed_retest_records_control_and_repeat(self):
+        engine = _MockEngine(_MockRequester(_MockResponse(text="SQL syntax error mysql")))
+        v = Verifier(engine)
+        finding = _FakeFinding(severity="HIGH", confidence=0.8)
+        result = v.verify_findings([finding])
+        self.assertEqual(result[0].severity, "HIGH")
+        self.assertIn("retest lengths", result[0].control)
+        self.assertIn("retests matched", result[0].repeat)
 
     def test_check_length_consistency_with_consistent_data(self):
         engine = _MockEngine()
