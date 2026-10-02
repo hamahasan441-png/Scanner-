@@ -23,6 +23,8 @@ class MockFinding:
     signals: dict = field(default_factory=dict)
     priority: float = 0.0
     remediation: str = ""
+    control: str = ""
+    repeat: str = ""
 
 
 class TestSQLiPayloads(unittest.TestCase):
@@ -255,8 +257,9 @@ class TestPOCGeneration(unittest.TestCase):
         )
         poc = self.gen.generate_poc(finding)
         self.assertEqual(poc["family"], "sqli")
-        self.assertIn("exploit_payloads", poc)
-        self.assertIn("error_based", poc["exploit_payloads"])
+        self.assertFalse(poc["confirmed"])
+        self.assertNotIn("exploit_payloads", poc)
+        self.assertIn("no proof", poc["description"])
         self.assertIn("curl_command", poc)
         self.assertIn("steps", poc)
 
@@ -270,7 +273,8 @@ class TestPOCGeneration(unittest.TestCase):
         )
         poc = self.gen.generate_poc(finding)
         self.assertEqual(poc["family"], "xss")
-        self.assertIn("cookie_stealer", poc["exploit_payloads"])
+        self.assertNotIn("exploit_payloads", poc)
+        self.assertFalse(poc["confirmed"])
 
     def test_poc_cmdi(self):
         finding = MockFinding(
@@ -282,7 +286,8 @@ class TestPOCGeneration(unittest.TestCase):
         )
         poc = self.gen.generate_poc(finding)
         self.assertEqual(poc["family"], "cmdi")
-        self.assertIn("reverse_shell_bash", poc["exploit_payloads"])
+        self.assertNotIn("exploit_payloads", poc)
+        self.assertFalse(poc["confirmed"])
 
     def test_poc_ssti(self):
         finding = MockFinding(
@@ -294,7 +299,7 @@ class TestPOCGeneration(unittest.TestCase):
         )
         poc = self.gen.generate_poc(finding)
         self.assertEqual(poc["family"], "ssti")
-        self.assertIn("jinja2_rce", poc["exploit_payloads"])
+        self.assertNotIn("exploit_payloads", poc)
 
     def test_poc_lfi(self):
         finding = MockFinding(
@@ -306,7 +311,7 @@ class TestPOCGeneration(unittest.TestCase):
         )
         poc = self.gen.generate_poc(finding)
         self.assertEqual(poc["family"], "lfi")
-        self.assertIn("etc_passwd", poc["exploit_payloads"])
+        self.assertNotIn("exploit_payloads", poc)
 
     def test_poc_upload(self):
         finding = MockFinding(
@@ -317,7 +322,7 @@ class TestPOCGeneration(unittest.TestCase):
         )
         poc = self.gen.generate_poc(finding)
         self.assertEqual(poc["family"], "upload")
-        self.assertIn("php_shell", poc["exploit_payloads"])
+        self.assertNotIn("exploit_payloads", poc)
 
     def test_poc_cve(self):
         finding = MockFinding(
@@ -328,7 +333,8 @@ class TestPOCGeneration(unittest.TestCase):
         )
         poc = self.gen.generate_poc(finding)
         self.assertEqual(poc["family"], "cve")
-        self.assertIn("exploit_payloads", poc)
+        self.assertNotIn("exploit_payloads", poc)
+        self.assertFalse(poc["confirmed"])
 
     def test_poc_curl_get(self):
         finding = MockFinding(
@@ -339,8 +345,9 @@ class TestPOCGeneration(unittest.TestCase):
             method="GET",
         )
         poc = self.gen.generate_poc(finding)
-        self.assertIn("curl", poc["curl_command"])
-        self.assertIn("-v", poc["curl_command"])
+        self.assertTrue(poc["curl_command"].startswith("curl -v "))
+        self.assertIn("q=", poc["curl_command"])
+        self.assertNotIn("<script>", poc["curl_command"])
 
     def test_poc_curl_post(self):
         finding = MockFinding(
@@ -351,8 +358,8 @@ class TestPOCGeneration(unittest.TestCase):
             method="POST",
         )
         poc = self.gen.generate_poc(finding)
-        self.assertIn("POST", poc["curl_command"])
-        self.assertIn("-d", poc["curl_command"])
+        self.assertIn("-X POST", poc["curl_command"])
+        self.assertIn("--data", poc["curl_command"])
 
     def test_poc_steps_generated(self):
         finding = MockFinding(
@@ -363,8 +370,8 @@ class TestPOCGeneration(unittest.TestCase):
             severity="HIGH",
         )
         poc = self.gen.generate_poc(finding)
-        self.assertTrue(len(poc["steps"]) >= 3)
-        self.assertIn("Navigate", poc["steps"][0])
+        self.assertGreaterEqual(len(poc["steps"]), 3)
+        self.assertIn("no control note", poc["steps"][0])
 
     def test_poc_has_timestamp(self):
         finding = MockFinding(technique="XSS", url="http://x.com", param="q")
@@ -374,7 +381,24 @@ class TestPOCGeneration(unittest.TestCase):
     def test_poc_unknown_family(self):
         finding = MockFinding(technique="Unknown Type", url="http://x.com", param="x")
         poc = self.gen.generate_poc(finding)
-        self.assertIn("Vulnerability confirmed", poc["description"])
+        self.assertIn("no proof", poc["description"])
+
+    def test_proved_finding_repeats_the_original_request(self):
+        finding = MockFinding(
+            technique="SQL Injection",
+            url="http://test.com/page",
+            param="id",
+            payload="' OR 1=1--",
+            method="GET",
+            control="retest lengths 40 and 41",
+            repeat="2 of 3 retests matched",
+        )
+        poc = self.gen.generate_poc(finding)
+        self.assertTrue(poc["confirmed"])
+        self.assertNotIn("exploit_payloads", poc)
+        self.assertIn("retest lengths 40 and 41", poc["description"])
+        self.assertIn("2 of 3 retests matched", poc["steps"][3])
+        self.assertIn("id=", poc["curl_command"])
 
 
 if __name__ == "__main__":
