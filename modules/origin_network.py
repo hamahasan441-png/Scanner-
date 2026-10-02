@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Scan a discovered origin IP for exposed services.
+"""Scan a discovered origin IP, then confirm impact when authorized.
 
 This runs only after real-IP discovery has an address. It opens TCP
-connections and, for a few services, sends a read-only probe. A finding
-is recorded only when the connect or the probe succeeds. It does not
-send write commands, default passwords, or exploit payloads.
+connections and sends a read-only probe. A finding is recorded only when
+the connect or the probe succeeds.
+
+A second, still read-only, probe runs only when ``--authorized`` is set
+and the first probe already matched. That probe proves the service
+returned data (Redis INFO, container list, index list, pod list). It
+does not send write commands, passwords, or code-execution payloads.
 """
 from __future__ import annotations
 
@@ -37,6 +41,16 @@ PROBES = {
     9200: (b"GET / HTTP/1.0\r\n\r\n", b"lucene", "Elasticsearch open on origin", "HIGH", 0.9),
     10250: (b"GET /healthz HTTP/1.0\r\n\r\n", b"ok", "Kubelet open on origin", "HIGH", 0.85),
     11211: (b"stats\r\n", b"STAT", "Memcached unauthenticated on origin", "HIGH", 0.9),
+}
+
+# Second probe. Sent only after the first probe matched and --authorized is set.
+# payload, marker, technique. Docker uses a dedicated check in _impact_ok.
+IMPACT = {
+    2375: (b"GET /containers/json HTTP/1.0\r\n\r\n", b"[", "Docker container list readable without authentication"),
+    6379: (b"INFO server\r\n", b"redis_version", "Redis readable without authentication"),
+    9200: (b"GET /_cat/indices HTTP/1.0\r\n\r\n", b"open", "Elasticsearch index list readable without authentication"),
+    10250: (b"GET /pods HTTP/1.0\r\n\r\n", b"PodList", "Kubelet pod list readable without authentication"),
+    11211: (b"stats items\r\n", b"STAT", "Memcached item stats readable without authentication"),
 }
 
 SCAN_PORTS = tuple(sorted(set(EXPOSURE_PORTS) | set(PROBES)))
@@ -78,6 +92,10 @@ class OriginNetworkModule:
                 continue
             self.engine.add_finding(finding)
             findings.append(finding)
+            impact = self._impact_finding(ip, port, data, page_url)
+            if impact is not None:
+                self.engine.add_finding(impact)
+                findings.append(impact)
 
         if hasattr(self.engine, "emit_pipeline_event"):
             self.engine.emit_pipeline_event(
@@ -118,6 +136,40 @@ class OriginNetworkModule:
             severity=severity if port in EXPOSURE_PORTS else "LOW",
             confidence=0.7 if port in EXPOSURE_PORTS else 0.4,
         )
+
+    def _impact_finding(self, ip, port, data: bytes, page_url: str):
+        """Prove the open service returned data. Authorized runs only."""
+        if not self.config.get("authorized"):
+            return None
+        if port not in IMPACT or port not in PROBES:
+            return None
+        marker = PROBES[port][1]
+        if marker.lower() not in data.lower():
+            return None
+        payload, _impact_marker, technique = IMPACT[port]
+        impact_data = self._exchange(ip, port, payload)
+        if impact_data is None or not self._impact_ok(port, impact_data):
+            return None
+        from core.engine import Finding
+
+        return Finding(
+            technique=technique,
+            url=page_url or ip,
+            method="TCP",
+            param=f"{ip}:{port}",
+            payload="authorized read",
+            evidence=f"{ip}:{port} impact probe matched ({len(impact_data)} bytes)",
+            severity="CRITICAL",
+            confidence=0.99,
+        )
+
+    @staticmethod
+    def _impact_ok(port: int, data: bytes) -> bool:
+        if port == 2375:
+            head = data[:40]
+            return b"200" in head and b"[" in data
+        marker = IMPACT[port][1]
+        return marker.lower() in data.lower()
 
     def _exchange(self, ip: str, port: int, payload: bytes):
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
