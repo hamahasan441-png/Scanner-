@@ -4,7 +4,7 @@
 
 import unittest
 from unittest.mock import patch, MagicMock
-from core.engine import Finding, AtomicEngine, REMEDIATION_MAP, routable_findings
+from core.engine import Finding, AtomicEngine, REMEDIATION_MAP, routable_findings, findings_for_exploit_action
 
 # ---------------------------------------------------------------------------
 # Finding dataclass extended tests
@@ -49,6 +49,18 @@ class TestRoutableFindings(unittest.TestCase):
             repeat="2 of 3 retests matched",
         )
         self.assertEqual(routable_findings([scored, proved, low]), [proved])
+
+    def test_exploit_action_needs_authorization_and_proof(self):
+        scored = Finding(technique="SQL Injection", severity="CRITICAL", confidence=0.99)
+        proved = Finding(
+            technique="SQL Injection",
+            severity="HIGH",
+            confidence=0.8,
+            control="retest lengths 10 and 12",
+            repeat="2 of 3 retests matched",
+        )
+        self.assertEqual(findings_for_exploit_action([proved, scored], True), [proved])
+        self.assertEqual(findings_for_exploit_action([proved], False), [])
 
 
 class TestFindingAutoMitre(unittest.TestCase):
