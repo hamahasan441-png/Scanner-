@@ -154,6 +154,9 @@ class Verifier:
         length_consistent = self._check_length_consistency(response_lengths)
 
         if confirmations >= self._min_confirmations and length_consistent:
+            if len(response_lengths) >= 2:
+                finding.control = f"retest lengths {response_lengths[0]} and {response_lengths[-1]}"
+                finding.repeat = f"{confirmations} of {self._verify_rounds} retests matched"
             return "confirmed"
         elif confirmations >= 1:
             return "downgrade"

@@ -4,7 +4,7 @@
 
 import unittest
 from unittest.mock import patch, MagicMock
-from core.engine import Finding, AtomicEngine, REMEDIATION_MAP
+from core.engine import Finding, AtomicEngine, REMEDIATION_MAP, routable_findings
 
 # ---------------------------------------------------------------------------
 # Finding dataclass extended tests
@@ -22,10 +22,33 @@ class TestFindingDefaults(unittest.TestCase):
         self.assertEqual(f.severity, "INFO")
         self.assertEqual(f.confidence, 0.0)
         self.assertIsInstance(f.signals, dict)
+        self.assertEqual(f.control, "")
+        self.assertEqual(f.repeat, "")
+        self.assertFalse(f.has_proof())
 
     def test_severity_preserved(self):
         f = Finding(severity="CRITICAL")
         self.assertEqual(f.severity, "CRITICAL")
+
+
+class TestRoutableFindings(unittest.TestCase):
+    def test_score_alone_is_not_enough(self):
+        scored = Finding(technique="SQL Injection", severity="CRITICAL", confidence=0.99)
+        proved = Finding(
+            technique="SQL Injection",
+            severity="HIGH",
+            confidence=0.8,
+            control="retest lengths 10 and 12",
+            repeat="2 of 3 retests matched",
+        )
+        low = Finding(
+            technique="XSS",
+            severity="LOW",
+            confidence=0.9,
+            control="retest lengths 1 and 1",
+            repeat="2 of 3 retests matched",
+        )
+        self.assertEqual(routable_findings([scored, proved, low]), [proved])
 
 
 class TestFindingAutoMitre(unittest.TestCase):
