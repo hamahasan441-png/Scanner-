@@ -20,7 +20,9 @@ Capabilities:
 """
 
 import re
+import shlex
 from datetime import datetime, timezone
+from urllib.parse import quote
 
 # ---------------------------------------------------------------------------
 # SQL Injection payloads (sqlmap-style)
@@ -334,132 +336,71 @@ class PayloadGenerator:
     # ------------------------------------------------------------------
 
     def generate_poc(self, finding) -> dict:
-        """Generate a proof-of-concept for a confirmed finding.
+        """Reproduce the request that was retested.
 
-        Returns a dict with 'title', 'description', 'payload', 'steps',
-        and 'curl_command'.
+        A finding without a control note and a repeat note is not confirmed.
+        This does not invent a follow-on payload.
         """
         from core.attack_router import AttackRouter
 
+        proved = bool(getattr(finding, "control", "") and getattr(finding, "repeat", ""))
         family = AttackRouter.classify(finding)
-
-        poc = {
-            "title": f"POC: {finding.technique}",
+        if proved:
+            description = (
+                f"{finding.technique} was retested on {finding.url}. "
+                f"Control: {finding.control}. Repeat: {finding.repeat}."
+            )
+            steps = [
+                f"1. Send the curl command to {finding.url}",
+                f"2. Parameter {finding.param or '(none)'} uses the original payload",
+                f"3. Control: {finding.control}",
+                f"4. Repeat: {finding.repeat}",
+            ]
+        else:
+            description = (
+                f"{finding.technique} has no proof. "
+                "The curl command repeats the original request only."
+            )
+            steps = [
+                "1. This finding has no control note and no repeat note.",
+                "2. Send the curl command only to repeat the original request.",
+                "3. Do not treat it as confirmed.",
+            ]
+        return {
+            "title": f"POC: {finding.technique}" if proved else f"Unconfirmed: {finding.technique}",
+            "confirmed": proved,
             "target": finding.url,
             "parameter": finding.param,
             "method": finding.method,
             "severity": finding.severity,
             "family": family,
             "original_payload": finding.payload,
+            "control": getattr(finding, "control", ""),
+            "repeat": getattr(finding, "repeat", ""),
+            "description": description,
+            "curl_command": self._generate_curl(finding),
+            "steps": steps,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
-        # Generate family-specific POC
-        if family == "sqli":
-            poc["exploit_payloads"] = {
-                "error_based": self.sqli_error_payload("mysql"),
-                "time_based": self.sqli_time_payload("mysql"),
-            }
-            poc["description"] = (
-                f'SQL Injection confirmed in parameter "{finding.param}" '
-                f"at {finding.url}. Use the payloads below for data extraction."
-            )
-        elif family == "xss":
-            poc["exploit_payloads"] = {
-                "cookie_stealer": self.xss_cookie_stealer(),
-                "keylogger": self.xss_keylogger(),
-            }
-            poc["description"] = (
-                f'XSS confirmed in parameter "{finding.param}". '
-                f"Payloads below can steal session cookies or log keystrokes."
-            )
-        elif family == "cmdi":
-            poc["exploit_payloads"] = {
-                "reverse_shell_bash": self.reverse_shell("bash"),
-                "reverse_shell_python": self.reverse_shell("python"),
-                "data_exfil": self.data_exfil_payload(),
-            }
-            poc["description"] = (
-                f'Command Injection confirmed in parameter "{finding.param}". ' f"Full RCE is possible."
-            )
-        elif family == "ssti":
-            poc["exploit_payloads"] = {
-                "jinja2_rce": self.ssti_rce("jinja2", "id"),
-                "twig_rce": self.ssti_rce("twig", "id"),
-            }
-            poc["description"] = f'SSTI confirmed in parameter "{finding.param}". ' f"Template engine RCE is possible."
-        elif family == "lfi":
-            poc["exploit_payloads"] = {
-                "etc_passwd": "../../../etc/passwd",
-                "php_filter": "php://filter/convert.base64-encode/resource=index",
-                "proc_self": "../../../proc/self/environ",
-            }
-            poc["description"] = f'LFI confirmed in parameter "{finding.param}". ' f"Arbitrary file read is possible."
-        elif family == "upload":
-            poc["exploit_payloads"] = {
-                "php_shell": self.web_shell("php_mini"),
-                "jsp_shell": self.web_shell("jsp_mini"),
-            }
-            poc["description"] = "Unrestricted file upload confirmed. Web shell deployment is possible."
-        elif family == "cve":
-            # Try to extract CVE ID from technique
-            cve_match = re.search(r"CVE-\d{4}-\d+", finding.technique, re.IGNORECASE)
-            if cve_match:
-                cve_data = self.cve_exploit(cve_match.group())
-                poc["exploit_payloads"] = {"cve_payload": cve_data.get("payload", "")}
-                poc["description"] = cve_data.get("description", "")
-            else:
-                poc["description"] = f"CVE-based exploit for {finding.technique}"
-        else:
-            poc["description"] = (
-                f"Vulnerability confirmed: {finding.technique} " f'in parameter "{finding.param}" at {finding.url}.'
-            )
-
-        # Generate curl command for reproduction
-        poc["curl_command"] = self._generate_curl(finding)
-        poc["steps"] = self._generate_steps(finding, family)
-
-        return poc
-
     def _generate_curl(self, finding) -> str:
-        """Generate a curl command to reproduce the finding."""
-        payload_safe = self._escape_shell(finding.payload)
-        if finding.method.upper() == "GET":
-            sep = "&" if "?" in finding.url else "?"
-            return f"curl -v '{finding.url}{sep}{finding.param}='{payload_safe}"
-        else:
-            return f"curl -v -X POST '{finding.url}' " f"-d '{finding.param}='{payload_safe}"
+        """One curl command for the original request. Nothing else is added."""
+        method = (getattr(finding, "method", None) or "GET").upper()
+        url = finding.url or ""
+        param = finding.param or ""
+        payload = finding.payload or ""
+        if method == "GET" and param:
+            sep = "&" if "?" in url else "?"
+            target = f"{url}{sep}{quote(param, safe='')}={quote(payload, safe='')}"
+            return "curl -v " + shlex.quote(target)
+        if param:
+            body = f"{param}={payload}"
+            return "curl -v -X POST " + shlex.quote(url) + " --data " + shlex.quote(body)
+        return "curl -v " + shlex.quote(url)
 
     @staticmethod
     def _escape_shell(value: str) -> str:
         """Escape a string for safe use in a shell argument."""
         if not value:
             return ""
-        import shlex
-
         return shlex.quote(value)
-
-    @staticmethod
-    def _generate_steps(finding, family: str) -> list:
-        """Generate reproduction steps for the POC."""
-        steps = [
-            f"1. Navigate to {finding.url}",
-            f"2. Identify the vulnerable parameter: {finding.param}",
-            f"3. Inject the payload: {finding.payload}",
-        ]
-        if family == "sqli":
-            steps.append("4. Observe SQL error message or altered response")
-            steps.append("5. Use UNION/blind techniques for data extraction")
-        elif family == "xss":
-            steps.append("4. Observe script execution in browser context")
-            steps.append("5. Craft payload for cookie theft or session hijacking")
-        elif family == "cmdi":
-            steps.append("4. Observe command output in response")
-            steps.append("5. Escalate to reverse shell for persistent access")
-        elif family == "lfi":
-            steps.append("4. Read /etc/passwd or application source code")
-            steps.append("5. Attempt log poisoning for RCE escalation")
-        elif family == "ssti":
-            steps.append("4. Confirm math expression evaluation (e.g., 7*7=49)")
-            steps.append("5. Escalate to OS command execution via template engine")
-        return steps
