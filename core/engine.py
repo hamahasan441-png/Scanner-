@@ -137,6 +137,16 @@ def routable_findings(findings):
     return ready
 
 
+def findings_for_exploit_action(findings, authorized):
+    """Findings a shell, dump, or OS-shell action may receive.
+
+    The action stays off without authorization, and a score is not enough.
+    """
+    if not authorized:
+        return []
+    return routable_findings(findings)
+
+
 class AtomicEngine:
     """Core scanning engine"""
 
@@ -1440,41 +1450,53 @@ class AtomicEngine:
         # nothing — the bug noted in LOGIC_MAP.md "Known Drift #3".
         _is_authorized = self.config.get("_authorized") or self.config.get("authorized")
 
-        if modules_config.get("shell", False) and self.findings:
+        if modules_config.get("shell", False):
+            shell_targets = findings_for_exploit_action(self.findings, _is_authorized)
             if not _is_authorized:
                 if self.config.get("verbose"):
                     print(f"{Colors.warning('Shell upload skipped: --authorized required.')}")
+            elif not shell_targets:
+                if self.config.get("verbose"):
+                    print(f"{Colors.warning('Shell upload skipped: no finding has a confirming retest.')}")
             else:
                 try:
                     from modules.uploader import ShellUploader
                     uploader = ShellUploader(self, scan_only=False)
-                    uploader.run(self.findings, forms)
+                    uploader.run(shell_targets, forms)
                 except Exception as e:
                     if self.config.get("verbose"):
                         print(f"{Colors.error(f'Shell upload error: {e}')}")
 
-        if modules_config.get("dump", False) and self.findings:
+        if modules_config.get("dump", False):
+            dump_targets = findings_for_exploit_action(self.findings, _is_authorized)
             if not _is_authorized:
                 if self.config.get("verbose"):
                     print(f"{Colors.warning('Data dump skipped: --authorized required.')}")
+            elif not dump_targets:
+                if self.config.get("verbose"):
+                    print(f"{Colors.warning('Data dump skipped: no finding has a confirming retest.')}")
             else:
                 try:
                     from modules.dumper import DataDumper
                     dumper = DataDumper(self)
-                    dumper.run(self.findings)
+                    dumper.run(dump_targets)
                 except Exception as e:
                     if self.config.get("verbose"):
                         print(f"{Colors.error(f'Data dump error: {e}')}")
 
-        if modules_config.get("os_shell", False) and self.findings:
+        if modules_config.get("os_shell", False):
+            shell_targets = findings_for_exploit_action(self.findings, _is_authorized)
             if not _is_authorized:
                 if self.config.get("verbose"):
                     print(f"{Colors.warning('OS shell skipped: --authorized required.')}")
+            elif not shell_targets:
+                if self.config.get("verbose"):
+                    print(f"{Colors.warning('OS shell skipped: no finding has a confirming retest.')}")
             else:
                 try:
                     from core.os_shell import OSShellHandler
                     handler = OSShellHandler(self)
-                    handler.run(self.findings, forms)
+                    handler.run(shell_targets, forms)
                 except Exception as e:
                     if self.config.get("verbose"):
                         print(f"{Colors.error(f'OS shell error: {e}')}")
