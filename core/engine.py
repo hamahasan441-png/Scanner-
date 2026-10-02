@@ -1245,23 +1245,11 @@ class AtomicEngine:
                 break
 
         # ── PHASE 14 of 21: SCAN_WORKERS (vulnerability workers A-E) ─
-        # If Phase 7 produced a scan queue, run it through the worker pool
+        # If Phase 7 produced a scan queue, run it through the worker pool.
         if scan_queue:
-            self._set_phase(Phase.SCAN_WORKERS)
-            try:
-                from core.scan_worker_pool import ScanWorkerPool
+            from core.runners.scan_runner import ScanRunner
 
-                worker_pool = ScanWorkerPool(self)
-                worker_pool.run(scan_queue)
-                self.emit_pipeline_event(
-                    "phase8_result",
-                    {
-                        "additional_findings": len(self.findings),
-                    },
-                )
-            except Exception as e:
-                if self.config.get("verbose"):
-                    print(f"{Colors.error(f'Phase 8 worker pool error: {e}')}")
+            ScanRunner(self)._run_scan_workers(scan_queue)
 
         # ── PHASE 15 of 21: VERIFICATION (post-worker) ──────────────
         verification_result = None

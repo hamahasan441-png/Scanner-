@@ -260,6 +260,7 @@ class ScanRunner:
                 engine.persistence.execute_with_retry(_do_url_test, url_key)
 
     def _run_scan_workers(self, scan_queue):
+        self.engine._set_phase(Phase.SCAN_WORKERS)
         try:
             from core.scan_worker_pool import ScanWorkerPool
 

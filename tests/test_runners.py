@@ -674,6 +674,9 @@ class TestRunScanWorkers(unittest.TestCase):
 
         MockPool.return_value.run.assert_called_once_with(["task"])
         eng.emit_pipeline_event.assert_called_once_with("phase8_result", {"additional_findings": 2})
+        from core.pipeline_contract import Phase
+
+        eng._set_phase.assert_called_once_with(Phase.SCAN_WORKERS)
 
     @patch("core.scan_worker_pool.ScanWorkerPool", side_effect=RuntimeError("x"))
     def test_exception(self, _):
@@ -939,7 +942,7 @@ class TestReportRunnerRun(unittest.TestCase):
 class TestCollectReport(unittest.TestCase):
 
     @patch("core.output_phase.OutputPhase")
-    @patch("core.pipeline_wire.finalize")
+    @patch("core.runners.report_runner.pipeline_wire.finalize")
     def test_report_phase_stores_chains_and_finalizes(self, mock_finalize, MockOP):
         from core.pipeline_contract import Phase
 
@@ -964,7 +967,7 @@ class TestCollectReport(unittest.TestCase):
         self.assertIsNotNone(eng.end_time)
 
     @patch("core.output_phase.OutputPhase")
-    @patch("core.pipeline_wire.finalize", side_effect=RuntimeError("finalize failed"))
+    @patch("core.runners.report_runner.pipeline_wire.finalize", side_effect=RuntimeError("finalize failed"))
     def test_finalize_failure_still_writes_the_report(self, _mock_finalize, MockOP):
         eng = _make_engine(config={"verbose": False, "modules": {}})
         eng.exploit_bridge = None
